@@ -1,0 +1,23 @@
+[
+  {"name": "has_persistent_state", "type": "contains", "pattern": "persist|survives|session"},
+  {"name": "has_resume", "type": "contains", "pattern": "--resume|resume"},
+  {"name": "has_frontmatter_name", "type": "frontmatter_field", "field": "name", "value": "ship-debug"},
+  {"name": "uses_sonnet", "type": "frontmatter_field", "field": "model", "value": "sonnet"},
+  {"name": "has_investigate_step", "type": "contains", "pattern": "[Ii]nvestigat|[Hh]ypothes"},
+  {"name": "has_fix_step", "type": "contains", "pattern": "[Ff]ix.*TDD|TDD.*fix|regression test"},
+  {"name": "has_verify_step", "type": "contains", "pattern": "[Vv]erif"},
+  {"name": "has_plan_mode", "type": "contains", "pattern": "EnterPlanMode"},
+  {"name": "has_evidence_section", "type": "contains", "pattern": "Evidence"},
+  {"name": "has_eliminated_section", "type": "contains", "pattern": "Eliminated"},
+  {"name": "has_execution_lock", "type": "contains", "pattern": "\\.active-execution\\.json"},
+  {"name": "has_fix_attempt_limit", "type": "contains", "pattern": "fix_attempts|3.*failed|attempt.*3"},
+  {"name": "has_defense_in_depth", "type": "contains", "pattern": "[Dd]efense.in.[Dd]epth"},
+  {"name": "has_scientific_method", "type": "contains", "pattern": "[Hh]ypothesis.*test|scientific"},
+  {"name": "has_compaction_recovery", "type": "contains", "pattern": "[Cc]ompaction|resume.*debug"},
+  {"name": "has_red_flags", "type": "contains", "pattern": "[Rr]ed [Ff]lag"},
+  {"name": "has_pattern_analysis", "type": "contains", "pattern": "[Pp]attern [Aa]nalysis|working.*code"},
+  {"name": "uses_ask_user_question", "type": "contains", "pattern": "AskUserQuestion"},
+  {"name": "uses_shipyard_data_path", "type": "contains", "pattern": "shipyard-data|shipyard-context"},
+  {"name": "has_lsp_in_tools", "type": "contains", "pattern": "LSP"},
+  {"name": "has_lsp_first_principle", "type": "contains", "pattern": "LSP-first|LSP.*before.*Grep"}
+]

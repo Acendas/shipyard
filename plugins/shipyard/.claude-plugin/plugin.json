@@ -1,0 +1,30 @@
+{
+  "name": "shipyard",
+  "version": "1.0.0",
+  "description": "Turn your idea into working code — Shipyard runs Claude Code through a spec-driven agile sprint lifecycle: discuss features, plan sprints, build with TDD, review, and ship.",
+  "author": {
+    "name": "Acendas",
+    "email": "info@acendas.ca",
+    "url": "https://github.com/acendas"
+  },
+  "homepage": "https://github.com/acendas/shipyard",
+  "repository": "https://github.com/acendas/shipyard",
+  "license": "MIT",
+  "keywords": [
+    "agile",
+    "sprint",
+    "tdd",
+    "project-management",
+    "scrum",
+    "backlog",
+    "retro",
+    "spec",
+    "feature",
+    "review",
+    "release",
+    "kanban",
+    "workflow",
+    "automation",
+    "test-driven-development"
+  ]
+}

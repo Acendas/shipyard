@@ -1,0 +1,19 @@
+[
+  {"name": "has_rice", "type": "contains", "pattern": "RICE"},
+  {"name": "has_grooming", "type": "contains", "pattern": "[Gg]room"},
+  {"name": "has_bankruptcy", "type": "contains", "pattern": "[Bb]ankruptcy"},
+  {"name": "has_frontmatter_name", "type": "frontmatter_field", "field": "name", "value": "ship-backlog"},
+  {"name": "uses_sonnet", "type": "frontmatter_field", "field": "model", "value": "sonnet"},
+  {"name": "has_rank_mode", "type": "contains", "pattern": "rank"},
+  {"name": "has_approve_mode", "type": "contains", "pattern": "approve"},
+  {"name": "has_archive_mode", "type": "contains", "pattern": "archive"},
+  {"name": "has_plan_mode", "type": "contains", "pattern": "EnterPlanMode"},
+  {"name": "has_compaction_recovery", "type": "contains", "pattern": "[Cc]ompaction [Rr]ecovery"},
+  {"name": "has_stale_detection", "type": "contains", "pattern": "stale|60.*days"},
+  {"name": "has_zombie_detection", "type": "contains", "pattern": "[Zz]ombie"},
+  {"name": "has_oversize_detection", "type": "contains", "pattern": "13.*points|oversize|split"},
+  {"name": "uses_ask_user_question", "type": "contains", "pattern": "AskUserQuestion"},
+  {"name": "uses_shipyard_data_path", "type": "contains", "pattern": "shipyard-data|shipyard-context"},
+  {"name": "has_browse_loop", "type": "contains", "pattern": "done|drill.?down"},
+  {"name": "no_data_duplication", "type": "contains", "pattern": "ID.*order|ID.only|never duplicate"}
+]

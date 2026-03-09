@@ -1,0 +1,17 @@
+[
+  {"name": "has_hotfix_support", "type": "contains", "pattern": "hotfix|--hotfix"},
+  {"name": "has_severity", "type": "contains", "pattern": "[Ss]everity|[Pp]riority"},
+  {"name": "has_frontmatter_name", "type": "frontmatter_field", "field": "name", "value": "ship-bug"},
+  {"name": "uses_sonnet", "type": "frontmatter_field", "field": "model", "value": "sonnet"},
+  {"name": "has_normal_mode", "type": "contains", "pattern": "NORMAL"},
+  {"name": "has_hotfix_mode_section", "type": "contains", "pattern": "HOTFIX [Mm]ode|HOTFIX Mode"},
+  {"name": "has_bug_id_format", "type": "contains", "pattern": "BNNN|B-HOT|B\\d{3}"},
+  {"name": "has_bug_file_path", "type": "contains", "pattern": "spec/bugs/"},
+  {"name": "has_feature_match", "type": "contains", "pattern": "feature.*match|match.*feature|related.*feature"},
+  {"name": "has_severity_inference", "type": "contains", "pattern": "crash|infer|keyword"},
+  {"name": "hotfix_creates_debug_session", "type": "contains", "pattern": "debug.*session|debug/B-HOT"},
+  {"name": "has_steps_to_reproduce", "type": "contains", "pattern": "[Ss]teps.*[Rr]eproduc|[Rr]eproduc"},
+  {"name": "uses_ask_user_question", "type": "contains", "pattern": "AskUserQuestion"},
+  {"name": "uses_shipyard_data_path", "type": "contains", "pattern": "shipyard-data|shipyard-context"},
+  {"name": "has_next_up_routing", "type": "contains", "pattern": "ship-execute|ship-sprint"}
+]

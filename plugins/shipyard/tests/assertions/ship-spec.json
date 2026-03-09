@@ -1,0 +1,17 @@
+[
+  {"name": "has_browse_capability", "type": "contains", "pattern": "[Bb]rowse|[Ss]earch|[Ll]ook.?up"},
+  {"name": "has_status_management", "type": "contains", "pattern": "status|[Aa]rchive"},
+  {"name": "uses_sonnet", "type": "frontmatter_field", "field": "model", "value": "sonnet"},
+  {"name": "has_frontmatter_name", "type": "frontmatter_field", "field": "name", "value": "ship-spec"},
+  {"name": "has_drill_down_levels", "type": "contains", "pattern": "Level 1|Level 2|Level 3|[Oo]verview.*[Ee]pic.*[Ff]eature"},
+  {"name": "has_sync_subcommand", "type": "contains", "pattern": "sync|synced_at"},
+  {"name": "has_absorb_feature", "type": "contains", "pattern": "absorb"},
+  {"name": "has_diff_subcommand", "type": "contains", "pattern": "diff|git log"},
+  {"name": "has_plan_mode", "type": "contains", "pattern": "EnterPlanMode"},
+  {"name": "has_state_machine", "type": "contains", "pattern": "proposed.*approved|state machine|valid transition"},
+  {"name": "has_ideas_subcommand", "type": "contains", "pattern": "ideas|pending.*discussion"},
+  {"name": "has_dry_run", "type": "contains", "pattern": "dry.run"},
+  {"name": "uses_ask_user_question", "type": "contains", "pattern": "AskUserQuestion"},
+  {"name": "uses_shipyard_data_path", "type": "contains", "pattern": "shipyard-data|shipyard-context"},
+  {"name": "read_only_default", "type": "contains", "pattern": "[Rr]ead.only|read-only"}
+]

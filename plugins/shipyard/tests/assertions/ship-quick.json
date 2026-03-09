@@ -1,0 +1,15 @@
+[
+  {"name": "has_tdd", "type": "contains", "pattern": "TDD|test.*first|tests first"},
+  {"name": "has_atomic_commit", "type": "contains", "pattern": "atomic|one.*commit|focused commit"},
+  {"name": "no_sprint_required", "type": "contains", "pattern": "outside.*sprint|without.*sprint|no sprint"},
+  {"name": "has_frontmatter_name", "type": "frontmatter_field", "field": "name", "value": "ship-quick"},
+  {"name": "uses_sonnet", "type": "frontmatter_field", "field": "model", "value": "sonnet"},
+  {"name": "has_execution_lock", "type": "contains", "pattern": "\\.active-execution\\.json"},
+  {"name": "has_session_guard_cleanup", "type": "contains", "pattern": "\\.active-session\\.json"},
+  {"name": "has_scope_escalation_guard", "type": "contains", "pattern": "growing.*scope|promote.*feature|escalat"},
+  {"name": "has_bug_redirect", "type": "contains", "pattern": "ship-bug|sounds like a bug"},
+  {"name": "has_feature_redirect", "type": "contains", "pattern": "ship-discuss|new feature"},
+  {"name": "has_q_nnn_id", "type": "contains", "pattern": "Q-\\d|Q-NNN"},
+  {"name": "uses_ask_user_question", "type": "contains", "pattern": "AskUserQuestion"},
+  {"name": "uses_shipyard_data_path", "type": "contains", "pattern": "shipyard-data|shipyard-context"}
+]

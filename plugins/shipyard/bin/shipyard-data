@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Resolve the per-project Shipyard data directory.
+
+Data lives in ${CLAUDE_PLUGIN_DATA}/projects/<project-hash>/
+Project hash is derived from the git repo root (deterministic per repo).
+
+Usage:
+  shipyard-data              → prints the data directory path
+  shipyard-data init         → creates the directory if it doesn't exist
+  shipyard-data project-id   → prints just the project hash
+"""
+
+import hashlib
+import os
+import subprocess
+import sys
+
+
+def get_project_root():
+    """Get the git repo root, falling back to cwd."""
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--show-toplevel'],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except FileNotFoundError:
+        pass
+    return os.getcwd()
+
+
+def get_project_hash(project_root):
+    """Create a short deterministic hash from the project root path."""
+    # Match bash: echo "$path" | shasum — echo adds a trailing newline
+    return hashlib.sha256((project_root + '\n').encode()).hexdigest()[:12]
+
+
+def main():
+    project_root = get_project_root()
+    project_hash = get_project_hash(project_root)
+
+    plugin_data = os.environ.get(
+        'CLAUDE_PLUGIN_DATA',
+        os.path.join(os.path.expanduser('~'), '.claude', 'plugins', 'data', 'shipyard')
+    )
+    data_dir = os.path.join(plugin_data, 'projects', project_hash)
+
+    command = sys.argv[1] if len(sys.argv) > 1 else ''
+
+    if command == 'init':
+        subdirs = [
+            os.path.join('spec', 'epics'),
+            os.path.join('spec', 'features'),
+            os.path.join('spec', 'tasks'),
+            os.path.join('spec', 'bugs'),
+            os.path.join('spec', 'ideas'),
+            os.path.join('spec', 'references'),
+            'backlog',
+            os.path.join('sprints', 'current'),
+            'verify',
+            os.path.join('debug', 'resolved'),
+            'memory',
+            'releases',
+            'templates',
+        ]
+        for sub in subdirs:
+            os.makedirs(os.path.join(data_dir, sub), exist_ok=True)
+        # Record which project this data belongs to (for debugging/cleanup)
+        with open(os.path.join(data_dir, '.project-root'), 'w') as f:
+            f.write(project_root + '\n')
+        print(data_dir)
+    elif command == 'project-id':
+        print(project_hash)
+    else:
+        print(data_dir)
+
+
+if __name__ == '__main__':
+    main()

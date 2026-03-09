@@ -1,0 +1,13 @@
+[
+  {"name": "has_frontmatter_name", "type": "frontmatter_field", "field": "name", "value": "ship-help"},
+  {"name": "uses_haiku", "type": "frontmatter_field", "field": "model", "value": "haiku"},
+  {"name": "has_question_mode", "type": "contains", "pattern": "question|Mode 1"},
+  {"name": "has_how_to_mode", "type": "contains", "pattern": "how.to|Mode 2|walk.*through"},
+  {"name": "has_action_mode", "type": "contains", "pattern": "action|Mode 3|do it"},
+  {"name": "has_lost_mode", "type": "contains", "pattern": "lost|Mode 4|suggest.*next"},
+  {"name": "has_workflow_overview", "type": "contains", "pattern": "discuss.*sprint.*execute.*review", "dotall": true},
+  {"name": "has_init_guard", "type": "contains", "pattern": "ship-init|not.*initialized|initialize"},
+  {"name": "has_version_display", "type": "contains", "pattern": "version|plugin\\.json"},
+  {"name": "uses_shipyard_data_path", "type": "contains", "pattern": "shipyard-data|shipyard-context"},
+  {"name": "has_next_up_routing", "type": "contains", "pattern": "ship-discuss|ship-sprint|ship-status"}
+]

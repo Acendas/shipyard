@@ -1,0 +1,294 @@
+---
+name: ship-debug
+description: "Systematic debugging with persistent state that survives session breaks and /clear. Use when the user reports a bug, something isn't working, tests are failing, they're stuck on an error, or they want to investigate unexpected behavior. Also use when the user says 'debug', 'investigate', 'why is this broken', or 'help me fix this'."
+allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, AskUserQuestion, EnterPlanMode, ExitPlanMode]
+model: sonnet
+effort: high
+argument-hint: "[description of the problem] [--resume]"
+---
+
+# Shipyard: Persistent Debugger
+
+Systematic debugging that doesn't lose progress when context compacts or sessions break.
+
+## Context
+
+!`shipyard-context path`
+
+!`shipyard-context ls-glob "debug/*.md" 5 "No active debug sessions"`
+!`shipyard-context head config.md 5 NO_CONFIG`
+
+**Data path: use the SHIPYARD_DATA path from context above. For Read/Write/Edit tools, use the full literal path (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/...`). NEVER use `~` or `$HOME` in file_path — always start with `/`. For Bash: `SD=$(shipyard-data)` then `$SD/...`. Shell variables like `$SD` do NOT work in Read/Write/Edit file_path — only literal paths. NEVER hardcode or guess paths.**
+
+## Input
+
+$ARGUMENTS
+
+## Detect Mode
+
+- `--resume` or existing debug file referenced → Resume existing session
+- Description of a problem → Start new session
+- No args → List active debug sessions, then AskUserQuestion: "Which session to resume? (pick an ID, or describe a new problem to start a fresh session)"
+
+---
+
+## Why Persistent State Matters
+
+Claude's auto-compaction and `/clear` wipe conversation history. Without a debug file, you'd re-investigate dead ends, lose evidence, and forget what was eliminated. The debug file IS the debugging brain — it contains everything needed to resume perfectly.
+
+## New Debug Session
+
+### Step 1: Create Debug File
+
+Generate a slug from the problem description. Create `$(shipyard-data)/debug/[slug].md`:
+
+```markdown
+---
+status: gathering
+trigger: "[verbatim user input]"
+created: [ISO timestamp]
+updated: [ISO timestamp]
+---
+
+# Debug: [short title]
+
+## Symptoms
+- **Expected:** [what should happen]
+- **Actual:** [what happens instead]
+- **Error:** [error message if any]
+- **Repro:** [steps to reproduce]
+- **Started:** [when did this start / what changed]
+
+## Evidence
+[Facts discovered during investigation — APPEND ONLY, never delete]
+
+## Eliminated
+[Hypotheses disproved with evidence — APPEND ONLY, prevents re-investigating after /clear]
+
+## Current Focus
+- **Hypothesis:** [what we think is wrong]
+- **Test:** [how we're testing this hypothesis]
+- **Expecting:** [what we expect to see]
+- **Next:** [exact next action to take]
+
+## Resolution
+- **Root cause:** [TBD]
+- **Fix:** [TBD]
+- **Verification:** [TBD]
+- **Files changed:** [TBD]
+```
+
+### Step 2: Gather Symptoms
+
+AskUserQuestion (if not already clear from their input):
+"To debug this, I need a few details:
+1. What did you expect to happen?
+2. What actually happens?
+3. Any error messages?
+4. When did this start / what changed recently?"
+
+Update the Symptoms section. Set status → `investigating`.
+
+### Step 2.5: Pattern Analysis
+
+Before forming hypotheses, ground your investigation in the codebase. Find working code similar to the broken behavior and compare.
+
+**LSP-first code intelligence:** Use LSP before Grep/Read for all code navigation — it's faster and uses fewer tokens. `goToDefinition` to find symbol sources, `findReferences` to map usage, `incomingCalls`/`outgoingCalls` to trace call chains, `hover` for type info. If LSP isn't available or returns nothing, fall back to Grep/Read silently. See `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/lsp-strategy.md` for the full pattern.
+
+1. **Find working examples** — Grep/Glob for similar code paths, patterns, or components that work correctly. If a login flow is broken, find another auth flow that works. If a database query fails, find a similar query that succeeds.
+2. **Compare working vs broken** — read both implementations side by side. List EVERY difference, however small:
+   - Different imports, dependencies, or versions
+   - Different config, env vars, or feature flags
+   - Different call patterns, argument order, or return handling
+   - Different error handling or fallback behavior
+3. **Check assumptions** — what does the working code rely on that the broken code might be missing?
+   - Database state, migrations, seed data
+   - Environment variables or config files
+   - External service availability or API versions
+   - Initialization order or timing
+4. **Record findings** — APPEND differences and observations to `## Evidence` in the debug file. These differences directly seed your first hypothesis in Step 3.
+
+If no similar working code exists in the codebase, skip to Step 3 — but note in Evidence: "No comparable working pattern found in codebase."
+
+### Step 3: Investigate
+
+Follow the scientific method:
+
+1. **Form hypothesis** — based on symptoms and evidence
+2. **Design test** — a specific check that will confirm or eliminate the hypothesis
+3. **Run test** — execute the check (read code, run command, check logs)
+4. **Record result**:
+   - If hypothesis eliminated → APPEND to `## Eliminated` with evidence
+   - If evidence found → APPEND to `## Evidence`
+   - If root cause found → update `## Resolution`
+5. **Update Current Focus** — overwrite with next hypothesis and next action
+6. **Repeat** until root cause found
+
+Update the debug file after EVERY step. This is critical — if context compacts mid-investigation, the file is the only record.
+
+**Fix attempt tracking:** When you reach Step 4 and apply a fix that doesn't work, increment `fix_attempts` in the debug file's `## Current Focus` section. Track what each attempt changed and why it failed. After **3 failed fix attempts** (actual code changes applied and verified to not work — not hypotheses eliminated):
+
+1. **STOP** — do not attempt fix #4
+2. **Check the pattern** — did each fix reveal a new problem in a different place? That's a sign of architectural/structural issues, not a simple bug.
+3. **AskUserQuestion:**
+   "3 fix attempts failed — each revealing issues in different areas. This may be an architectural problem, not a bug.
+
+   1. Redesign — step back and rethink the approach (discuss architecture)
+   2. One more attempt — I have a specific theory for why the previous fixes failed
+   3. Get help — describe the problem so you can assist
+
+   Recommended: 1 — repeated fix failures usually mean the pattern is wrong"
+4. Record the escalation in `## Evidence`: "Escalated after 3 failed fixes: [summary of what each attempt revealed]"
+
+### Step 3.5: Present Fix Plan — Plan Mode
+
+Once root cause is identified, present the diagnosis and proposed fix for approval before changing any code. Debug fixes can touch production-critical code — the user should see the plan first.
+
+**Enter plan mode** (`EnterPlanMode`) and present:
+
+**DIAGNOSIS**
+- Root cause: [what's actually wrong]
+- Evidence: [key findings that confirm this — quote from Evidence section]
+- Eliminated: [N] hypotheses ruled out
+
+**PROPOSED FIX**
+- Approach: [what will change and why]
+- Files to modify: [exact paths]
+- Blast radius: [what else could be affected by this change]
+- Regression test: [what test will prevent this from recurring]
+
+**RISK**
+- Confidence: [HIGH/MEDIUM/LOW that this is the correct root cause]
+- If wrong: [what happens, how we'd know, what to try next]
+
+**Exit plan mode** (`ExitPlanMode`) — triggers built-in approval flow:
+- **Approve** → proceed to Step 4 (apply the fix)
+- **Adjust** → user modifies the approach, iterate
+- **Investigate more** → return to Step 3 with a new hypothesis
+
+### Step 4: Fix
+
+Once root cause is identified and fix plan is approved:
+
+**Execution lock check** — before writing code, check `$(shipyard-data)/.active-execution.json`. If another session is executing (lock exists and <2 hours old), **hard block**:
+```
+⛔ BLOCKED: Another execution session is active.
+  Skill: [skill name]
+  Started: [timestamp]
+
+Finish or pause the active session first, then apply the debug fix.
+If the other session crashed or was closed: /ship-status (will ask to clear the lock)
+```
+Do not proceed. Do not offer an override. If no lock exists or lock is stale → write the lock while fixing, delete when done.
+
+1. Set status → `fixing`
+2. Write the fix (follow project patterns)
+3. Write a regression test that fails without the fix
+4. Run tests to verify
+5. Update `## Resolution` with root cause, fix description, files changed
+
+### Step 5: Verify
+
+1. Set status → `verifying`
+2. Run the reproduction steps — problem should be gone
+3. Run tests for the affected feature — all should pass
+4. Update `## Resolution.verification` with results
+
+### Step 5.5: Defense-in-Depth
+
+After the regression test passes, harden the surrounding code to make this class of bug structurally impossible. Add validation at the layers the bad data passed through:
+
+- **Layer 1: Entry point validation** — at the function/API boundary where the bad input first entered, add a guard that rejects invalid data with a clear error message
+- **Layer 2: Business logic check** — at the layer that processed the bad data, add an assertion or guard that catches the specific condition that caused the bug
+- **Layer 3: Environment guard** — if the bug was context-specific (e.g., only happens in production, only in tests, only with certain config), add a guard for that context
+- **Layer 4: Debug instrumentation** — at the point where the bug manifested, add logging that captures the relevant state so future occurrences are immediately visible in logs
+
+**Proportionality:** Not every bug needs all 4 layers. A typo fix needs zero. A data corruption bug needs all four. Use judgment:
+- Simple bug (wrong operator, missing null check) → Layer 1 only (guard at entry)
+- Data flow bug (bad value propagated through layers) → Layers 1 + 2
+- Production incident (hard to reproduce, context-dependent) → All 4 layers
+- Security bug → All 4 layers, always
+
+Commit defense-in-depth additions separately: `fix(debug): add validation layers for [bug description]`
+
+Update `## Resolution` in the debug file with what layers were added and where.
+
+### Step 6: Close
+
+1. AskUserQuestion: "Fix verified. Does this resolve the issue?"
+2. If yes: set status → `resolved`, move file to `$(shipyard-data)/debug/resolved/`
+3. If related to a sprint task, update PROGRESS.md
+4. If this was a hotfix, suggest: "Create a bug report with /ship-bug --hotfix for proper tracking?"
+
+---
+
+## Resume Debug Session
+
+When `--resume` is passed or an existing debug file is referenced:
+
+1. Read the debug file
+2. Parse frontmatter → know current status
+3. Read `## Current Focus` → know exactly what was happening
+4. Read `## Eliminated` → know what NOT to re-investigate
+5. Read `## Evidence` → know what's been learned
+6. Continue from `Next` action in Current Focus
+
+Tell the user: "Resuming debug session: [title]. Last focus: [hypothesis]. [N] hypotheses eliminated. Continuing with: [next action]."
+
+---
+
+## Section Mutability Rules
+
+These rules prevent losing progress across context resets:
+
+| Section | Rule | Why |
+|---------|------|-----|
+| Symptoms | Write once, never change | Preserves original report |
+| Evidence | Append only, never delete | Builds the case |
+| Eliminated | Append only, never delete | Prevents re-investigating dead ends |
+| Current Focus | Overwrite each step | Always reflects current state |
+| Resolution | Overwrite as understanding evolves | Refined until final |
+
+## Size Management
+
+Debug files can bloat during complex investigations. Keep them useful, not exhaustive:
+
+- **Evidence & Eliminated entries**: 1-2 lines each, not paragraphs
+- **Soft limit: 150 lines per debug file.** If approaching this:
+  1. Summarize older Evidence entries into a single "Summary of findings so far" line
+  2. Collapse Eliminated section — replace individual entries with: "Eliminated [N] hypotheses: [one-line list]. See `$(shipyard-data)/debug/resolved/[slug]-investigation-log.md` for details."
+  3. Move verbose investigation details to `$(shipyard-data)/debug/resolved/[slug]-investigation-log.md`
+  4. Keep Current Focus and Resolution in the main file (these are what matters for resume)
+
+The debug file is a resume-point, not a novel. Future-you needs: what's proven, what's eliminated, what to try next.
+
+## Rules
+
+- Update the debug file after EVERY investigation step — it's the persistent brain
+- Never re-investigate an eliminated hypothesis
+- If stuck after 5 hypotheses eliminated → AskUserQuestion with summary of what was tried
+- Keep the debug file concise — evidence and eliminations should be 1-2 lines each
+- If the problem is simple (obvious error, typo), skip the full process — just fix it
+
+### Red Flags — STOP and Return to Process
+
+If you catch yourself thinking any of these, STOP immediately and return to Step 2.5 (Pattern Analysis) or Step 3 (Investigate):
+
+| Thought | What it means | Do instead |
+|---------|--------------|------------|
+| "Just one quick fix" | Skipping investigation | Return to Step 2.5 |
+| "It's probably X, let me fix that" | Unverified hypothesis | Form hypothesis in Step 3, design a test |
+| "I'll write the test after confirming the fix works" | Skipping TDD | Write the test first (Step 4.3) |
+| "One more attempt" (after 2+ failures) | Fix-thrashing | Check fix attempt counter, escalate at 3 |
+| "I don't fully understand but this might work" | Guessing | Research more in Step 2.5 |
+| "Multiple changes at once to save time" | Can't isolate what works | One variable at a time (Step 3) |
+| Proposing fixes before tracing data flow | Treating symptoms | Return to Pattern Analysis |
+
+## Next Up (after debug resolved)
+
+```
+▶ NEXT UP: Resume where you left off
+  /ship-execute — if mid-sprint
+  /ship-status — to check what's pending
+  (tip: /clear first for a fresh context window)
+```
