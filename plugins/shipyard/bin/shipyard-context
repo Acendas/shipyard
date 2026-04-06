@@ -26,6 +26,32 @@ import subprocess
 import sys
 
 
+def safe_join(base, relpath):
+    """Safely join a relative path to a base directory.
+
+    Rejects absolute paths, traversal segments, and paths that escape the
+    base after resolution. Returns None if the path is unsafe.
+    """
+    if not relpath:
+        return None
+    # Reject absolute paths (os.path.join would discard base)
+    if os.path.isabs(relpath):
+        return None
+    # Reject traversal segments
+    parts = relpath.replace('\\', '/').split('/')
+    if '..' in parts:
+        return None
+    joined = os.path.realpath(os.path.join(base, relpath))
+    base_real = os.path.realpath(base)
+    # Final containment check after symlink resolution
+    try:
+        if os.path.commonpath([joined, base_real]) != base_real:
+            return None
+    except ValueError:
+        return None
+    return joined
+
+
 def get_data_dir():
     """Resolve the Shipyard data directory via shipyard-data script."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -113,7 +139,11 @@ def main():
         if not relpath:
             print('missing relative path', file=sys.stderr)
             sys.exit(1)
-        result = read_head(os.path.join(sd, relpath), lines)
+        target = safe_join(sd, relpath)
+        if target is None:
+            print(fallback)
+            return
+        result = read_head(target, lines)
         print(result if result is not None else fallback)
 
     elif cmd == 'cat':
@@ -122,7 +152,11 @@ def main():
         if not relpath:
             print('missing relative path', file=sys.stderr)
             sys.exit(1)
-        result = read_cat(os.path.join(sd, relpath))
+        target = safe_join(sd, relpath)
+        if target is None:
+            print(fallback)
+            return
+        result = read_cat(target)
         print(result if result is not None else fallback)
 
     elif cmd == 'ls':
@@ -132,7 +166,11 @@ def main():
         if not reldir:
             print('missing relative dir', file=sys.stderr)
             sys.exit(1)
-        entries = list_dir(os.path.join(sd, reldir), limit)
+        target = safe_join(sd, reldir)
+        if target is None:
+            print(fallback)
+            return
+        entries = list_dir(target, limit)
         print('\n'.join(entries) if entries else fallback)
 
     elif cmd == 'ls-glob':
@@ -142,6 +180,10 @@ def main():
         if not pattern:
             print('missing glob pattern', file=sys.stderr)
             sys.exit(1)
+        # Glob patterns: reject traversal but allow wildcards
+        if '..' in pattern.replace('\\', '/').split('/') or os.path.isabs(pattern):
+            print(fallback)
+            return
         entries = list_glob(os.path.join(sd, pattern), limit)
         print('\n'.join(entries) if entries else fallback)
 
@@ -151,6 +193,9 @@ def main():
         if not pattern:
             print('missing glob pattern', file=sys.stderr)
             sys.exit(1)
+        if '..' in pattern.replace('\\', '/').split('/') or os.path.isabs(pattern):
+            print(fallback)
+            return
         entries = list_glob_sorted(os.path.join(sd, pattern))
         print('\n'.join(entries) if entries else fallback)
 
@@ -159,7 +204,11 @@ def main():
         if not reldir:
             print('missing relative dir', file=sys.stderr)
             sys.exit(1)
-        print(count_dir(os.path.join(sd, reldir)))
+        target = safe_join(sd, reldir)
+        if target is None:
+            print(0)
+            return
+        print(count_dir(target))
 
     elif cmd == 'spec-counts':
         e = count_dir(os.path.join(sd, 'spec', 'epics'))

@@ -22,6 +22,23 @@ STATE_FILE = os.path.join(SHIPYARD_DATA, '.loop-state.json')
 LOOP_THRESHOLD = 5
 
 
+def sanitize_for_claude(s, max_len=500):
+    """Sanitize untrusted strings before printing them to hook stdout.
+
+    Hook stdout becomes part of Claude's conversation context, so any
+    untrusted string (file paths, git output, frontmatter values) can carry
+    indirect prompt injection. This helper strips control characters and
+    caps length.
+    """
+    if not isinstance(s, str):
+        s = str(s)
+    # Strip control chars except space; remove ANSI escapes
+    s = ''.join(c for c in s if c == ' ' or (c.isprintable() and c != '\x7f'))
+    if len(s) > max_len:
+        s = s[:max_len] + '…[truncated]'
+    return s
+
+
 def load_state():
     if os.path.exists(STATE_FILE):
         try:
@@ -86,7 +103,8 @@ def main():
     save_state(state)
 
     if count >= LOOP_THRESHOLD:
-        print(f"⚠️  LOOP DETECTED: {file_path} has been edited {count} times without a commit.")
+        safe_path = sanitize_for_claude(file_path)
+        print(f"⚠️  LOOP DETECTED: {safe_path} has been edited {count} times without a commit.")
         print("")
         print("This may indicate a test-fail-fix-fail loop.")
         print("Consider:")

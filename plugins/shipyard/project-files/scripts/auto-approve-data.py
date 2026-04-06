@@ -32,8 +32,9 @@ def main():
 
     tool_name = hook_input.get('tool_name', '')
 
-    # Only intercept file-writing tools
-    if tool_name not in ('Edit', 'Write', 'NotebookEdit', 'Read'):
+    # Only intercept file-writing tools (Read removed — too broad a scope
+    # and Read does not need permission prompts in default Claude Code)
+    if tool_name not in ('Edit', 'Write', 'NotebookEdit'):
         sys.exit(0)
 
     tool_input = hook_input.get('tool_input', {})
@@ -44,18 +45,38 @@ def main():
     if not file_path:
         sys.exit(0)
 
-    # Resolve to absolute (expanduser handles ~ paths from Claude)
-    file_path = os.path.abspath(os.path.expanduser(file_path))
+    # Reject paths with traversal segments before resolution (defense in depth)
+    if '..' in file_path.replace('\\', '/').split('/'):
+        sys.exit(0)
+
+    # Resolve to canonical absolute path — realpath() resolves symlinks,
+    # which is critical: abspath() alone allows symlink-based escapes
+    # (CVE-2026-34452 class of bug). If the file doesn't exist yet, realpath
+    # still resolves any symlinks in parent components.
+    try:
+        file_path = os.path.realpath(os.path.expanduser(file_path))
+    except (OSError, ValueError):
+        sys.exit(0)
 
     # Get Shipyard data directory
     shipyard_data = os.environ.get('SHIPYARD_DATA', '')
     if not shipyard_data:
         sys.exit(0)
 
-    shipyard_data = os.path.abspath(os.path.expanduser(shipyard_data))
+    try:
+        shipyard_data = os.path.realpath(os.path.expanduser(shipyard_data))
+    except (OSError, ValueError):
+        sys.exit(0)
 
-    # Auto-approve if the file is inside the Shipyard data directory
-    if file_path.startswith(shipyard_data + os.sep) or file_path == shipyard_data:
+    # Containment check using commonpath — handles trailing separators,
+    # Windows drive letters, and edge cases more reliably than startswith.
+    try:
+        common = os.path.commonpath([file_path, shipyard_data])
+    except ValueError:
+        # Different drives on Windows or other path mismatch
+        sys.exit(0)
+
+    if common == shipyard_data:
         response = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",

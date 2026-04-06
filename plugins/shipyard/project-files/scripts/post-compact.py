@@ -13,9 +13,29 @@ Context restoration info goes to stdout intentionally so Claude sees it after co
 
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
+
+# Allowlist regex for frontmatter values that get printed back to Claude.
+# Sprint IDs, branches, and wave numbers should be simple identifiers — if
+# they contain anything else, the file may have been tampered with.
+SAFE_VALUE_RE = re.compile(r'^[A-Za-z0-9._/-]{1,80}$')
+
+
+def safe_value(s, fallback='unknown'):
+    """Return s if it matches the strict allowlist, else fallback.
+
+    Frontmatter fields are read from files in SHIPYARD_DATA, which a malicious
+    actor could plant. Echoing arbitrary content to stdout is an indirect
+    prompt injection vector — strict allowlisting blocks it.
+    """
+    if not isinstance(s, str):
+        return fallback
+    if SAFE_VALUE_RE.match(s):
+        return s
+    return fallback
 
 
 def read_frontmatter_field(filepath, field):
@@ -76,11 +96,12 @@ def main():
     if status != 'active':
         sys.exit(0)
 
-    sprint_id = read_frontmatter_field(sprint_file, 'id') or 'unknown'
-    branch = read_frontmatter_field(sprint_file, 'branch') or 'unknown'
+    sprint_id = safe_value(read_frontmatter_field(sprint_file, 'id'))
+    branch = safe_value(read_frontmatter_field(sprint_file, 'branch'))
     current_wave = None
     if progress_file.exists():
-        current_wave = read_frontmatter_field(progress_file, 'current_wave')
+        raw_wave = read_frontmatter_field(progress_file, 'current_wave')
+        current_wave = safe_value(raw_wave, fallback=None) if raw_wave else None
 
     parts = [f"Active sprint: {sprint_id}"]
     parts.append(f"Branch: {branch}")

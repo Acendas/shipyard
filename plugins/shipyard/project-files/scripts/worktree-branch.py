@@ -16,6 +16,7 @@ go to stderr. Claude Code reads stdout as the worktree path — any extra output
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -25,6 +26,13 @@ if sys.platform == 'win32':
     import msvcrt
 else:
     import fcntl
+
+# Strict allowlist for worktree names. Prevents:
+# - Path traversal (../, /, absolute paths)
+# - Git option injection (names starting with -)
+# - Shell metacharacters (defense in depth even with array-form subprocess)
+# - Git ref-format violations (:, ~, ^, ?, *, [, control chars, .lock suffix)
+WORKTREE_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
 
 
 def run_git(*args, cwd=None):
@@ -135,6 +143,15 @@ def main():
         sys.stderr.write("shipyard worktree hook: no worktree name provided\n")
         sys.exit(1)
 
+    # Validate worktree name against strict allowlist. Reject anything that
+    # could enable path traversal, git option injection, or invalid refs.
+    if not WORKTREE_NAME_RE.match(name) or name.endswith('.lock'):
+        sys.stderr.write(
+            f"shipyard worktree hook: invalid worktree name. "
+            f"Must match {WORKTREE_NAME_RE.pattern} and not end in .lock\n"
+        )
+        sys.exit(1)
+
     # Get current commit SHA (what the worktree should start from)
     current_sha = run_git('rev-parse', 'HEAD')
     if not current_sha:
@@ -155,9 +172,19 @@ def main():
     repo_root = find_repo_root()
 
     # Create worktree directory under the repo root
-    worktrees_dir = os.path.join(repo_root, '.claude', 'worktrees')
+    worktrees_dir = os.path.realpath(os.path.join(repo_root, '.claude', 'worktrees'))
     os.makedirs(worktrees_dir, exist_ok=True)
-    worktree_path = os.path.join(worktrees_dir, name)
+    worktree_path = os.path.realpath(os.path.join(worktrees_dir, name))
+
+    # Defense in depth: ensure the resolved worktree path is still inside
+    # worktrees_dir, even though the regex should have caught traversal
+    try:
+        if os.path.commonpath([worktree_path, worktrees_dir]) != worktrees_dir:
+            sys.stderr.write("shipyard worktree hook: worktree path escapes worktrees dir\n")
+            sys.exit(1)
+    except ValueError:
+        sys.stderr.write("shipyard worktree hook: invalid worktree path\n")
+        sys.exit(1)
 
     # Serialize worktree creation to avoid git config lock contention
     lock_fd = acquire_lock(worktrees_dir)

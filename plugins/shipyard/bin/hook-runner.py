@@ -34,13 +34,19 @@ def discover_plugin_root():
     if os.path.isfile(plugin_json):
         return plugin_root
 
-    # Fallback to env var
+    # Fallback to env var — but only if it actually contains plugin.json
+    # (prevents env-based redirect to an arbitrary directory)
     env_root = os.environ.get('CLAUDE_PLUGIN_ROOT', '')
-    if env_root and os.path.isdir(env_root):
+    if env_root and os.path.isfile(os.path.join(env_root, '.claude-plugin', 'plugin.json')):
         return env_root
 
-    # Last resort: use the derived path anyway
-    return plugin_root
+    # Hard fail: refuse to run with an undetermined plugin root
+    print(
+        f'hook-runner: cannot locate plugin root. Tried {plugin_root} and '
+        f'CLAUDE_PLUGIN_ROOT={env_root!r}. plugin.json not found in either.',
+        file=sys.stderr
+    )
+    sys.exit(1)
 
 
 def resolve_shipyard_data(plugin_root):

@@ -122,7 +122,7 @@
   {"name": "workaround_auto_approve_hook_exists", "type": "file_exists", "path": "project-files/scripts/auto-approve-data.py"},
   {"name": "workaround_auto_approve_permission_decision", "type": "contains", "pattern": "permissionDecision.*allow", "target": "script:auto-approve-data.py"},
   {"name": "workaround_auto_approve_checks_shipyard_data", "type": "contains", "pattern": "SHIPYARD_DATA", "target": "script:auto-approve-data.py"},
-  {"name": "workaround_auto_approve_scoped_to_data_dir", "type": "contains", "pattern": "file_path\\.startswith.*shipyard_data", "target": "script:auto-approve-data.py"},
+  {"name": "workaround_auto_approve_scoped_to_data_dir", "type": "contains", "pattern": "commonpath.*shipyard_data|shipyard_data.*commonpath", "target": "script:auto-approve-data.py", "dotall": true},
   {"name": "workaround_auto_approve_in_hooks_json", "type": "contains", "pattern": "auto-approve-data", "target": "hooks:hooks.json"},
   {"name": "workaround_auto_approve_is_pre_tool_use", "type": "contains", "pattern": "PreToolUse.*auto-approve-data", "target": "hooks:hooks.json", "dotall": true},
   {"name": "workaround_auto_approve_stdout_contract", "type": "contains", "pattern": "STDOUT CONTRACT", "target": "script:auto-approve-data.py"},

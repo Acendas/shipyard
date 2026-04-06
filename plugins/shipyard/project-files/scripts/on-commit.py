@@ -22,6 +22,20 @@ LOOP_STATE = os.path.join(SHIPYARD_DATA, '.loop-state.json')
 LEARNINGS_DIR = '.claude/rules/learnings'
 
 
+def sanitize_for_claude(s, max_len=200):
+    """Strip control chars and cap length before printing untrusted strings
+    to hook stdout. Hook stdout enters Claude's context, so file paths and
+    git output (attacker-influenceable) need sanitization to prevent
+    indirect prompt injection.
+    """
+    if not isinstance(s, str):
+        s = str(s)
+    s = ''.join(c for c in s if c == ' ' or (c.isprintable() and c != '\x7f'))
+    if len(s) > max_len:
+        s = s[:max_len] + '…[truncated]'
+    return s
+
+
 def reset_loop_state():
     """Reset edit counters and detect resolved struggles."""
     if not os.path.exists(LOOP_STATE):
@@ -121,9 +135,12 @@ def signal_learning_capture(resolved):
     domains = set(detect_domain(f) for f in files)
     domain_hint = ', '.join(sorted(domains))
 
+    # Sanitize file paths before echoing to Claude (prompt injection defense)
+    safe_files = [sanitize_for_claude(f) for f in files]
+
     print("")
     print("📝 LEARNING OPPORTUNITY — You just resolved a struggle.")
-    print(f"   Files: {', '.join(files)}")
+    print(f"   Files: {', '.join(safe_files)}")
     print(f"   Edits before resolution: {max_edits}")
     print(f"   Suggested domain(s): {domain_hint}")
     print("")
