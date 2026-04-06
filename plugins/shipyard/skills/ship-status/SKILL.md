@@ -14,6 +14,7 @@ Read all project state, validate it, auto-fix issues, and present a clear dashbo
 ## Context
 
 !`shipyard-context path`
+!`shipyard-context diagnose`
 
 !`shipyard-context head config.md 50 NOT_INITIALIZED`
 !`shipyard-context head sprints/current/SPRINT.md 30 NO_SPRINT`
@@ -30,9 +31,11 @@ Read all project state, validate it, auto-fix issues, and present a clear dashbo
 
 $ARGUMENTS
 
-If arguments specify a section (sprint, backlog, health, spec), show only that section in detail.
+If arguments specify a section (sprint, backlog, health, spec, diagnose), show only that section in detail.
 If no arguments, show the full dashboard.
 If project not initialized → "Project not initialized. Run /ship-init to get started."
+
+**diagnose section** — when invoked as `/ship-status diagnose`, print only the resolver diagnostic block from the context above (SHIPYARD_DATA, PROJECT_ROOT, PROJECT_HASH, env vars, .auto-approve.log tail). This is the self-serve format for filing actionable bug reports about permission prompts or state divergence. Include a one-line interpretation note: if `AUTO_APPROVE_LOG=(does not exist)` the auto-approve hook has never fired for this project; if `CLAUDE_PLUGIN_DATA=(unset)` the resolver is using its discovery probe or legacy fallback.
 
 ---
 

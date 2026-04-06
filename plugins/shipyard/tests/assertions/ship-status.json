@@ -1,5 +1,7 @@
 [
   {"name": "uses_haiku", "type": "frontmatter_field", "field": "model", "value": "haiku"},
+  {"name": "has_diagnose_subcommand", "type": "contains", "pattern": "shipyard-context diagnose"},
+  {"name": "has_diagnose_section", "type": "contains", "pattern": "diagnose section|/ship-status diagnose"},
   {"name": "has_dashboard", "type": "contains", "pattern": "[Dd]ashboard|[Pp]rogress|[Oo]verview"},
   {"name": "has_schema_validation", "type": "contains", "pattern": "Frontmatter Schema|frontmatter"},
   {"name": "has_auto_fix", "type": "contains", "pattern": "Auto-fix|auto-fix|silently"},
