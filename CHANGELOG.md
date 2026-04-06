@@ -2,90 +2,53 @@
 
 All notable changes to Shipyard are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [1.0.1] - 2026-04-06
+
+**First public release on GitHub.** Earlier `0.x` versions described in prior internal changelogs were never tagged or published; `1.0.1` is the baseline. The sections below document what's in the release. For a feature overview of what Shipyard does, see the README.
 
 ### Added
-- **Live verification capture via `shipyard-logcap`.** New primitive in `plugins/shipyard/bin/` that wraps an arbitrary verification command, tees raw stdout+stderr to a rotating file in `$TMPDIR/shipyard/<project-hash>/<session>/`, and propagates the child's exit code. Subcommands: `run`, `tail`, `grep`, `list`, `path`, `probe`, `prune`. Cross-platform (Node `.mjs` + symlink-aware `.sh` wrapper + Windows `.cmd` wrapper).
-  - **Why it exists:** when reviewing a sprint or debugging a flaky repro, the moment live output passes through a grep or a filtered tail the unfiltered stream is gone. If the filter was wrong or missed a signal, the only recourse is to re-run the command — burning tokens, wall-clock time, and sometimes device/cloud minutes. `shipyard-logcap` lets the orchestrator re-analyze from the captured file instead, which costs almost nothing. The three skills that do live verification (`ship-execute`, `ship-review`, `ship-bug`) now point Claude at the primitive at the exact moments it matters.
-  - **Primitive is intentionally dumb.** No log parsing, keyword classification, platform-specific sources, or auto-tuning. The smart layer is the orchestrator: `skills/ship-execute/references/live-capture.md` teaches Claude the principle (capture once, analyze many), the re-analysis loop, a decision table for picking `--max-size` / `--max-files` per command profile, stack-neutral examples, redaction warnings, and failure modes. Skills pick bounds by reasoning over project context, not by magic inside the binary.
-  - **Storage is project-local-by-hash in tmp**, not in the plugin data dir and not inside the project tree. Reuses `shipyard-resolver.mjs` for worktree-aware project-hash computation, so all worktrees of one project share one capture dir (matching plugin-data semantics).
-  - **Session grouping:** `ship-execute` sets `SHIPYARD_LOGCAP_SESSION=<sprint-id>-wave-<N>` so each wave's captures land under one session folder, keeping `shipyard-logcap list` readable across a multi-wave sprint.
-  - **Minimum `--max-size` is 64K**, matching Node's child-process pipe high-water mark so a single chunk can't silently overflow the ceiling beyond one chunk's worth. Lower values are rejected with a clear error.
-  - **Security:** strict allowlist on capture names (`[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, no path traversal, no reserved `.lock` suffix), same shape on `SHIPYARD_LOGCAP_SESSION`. No `shell:true` on child spawn. Fail-loud on resolver errors (no phantom capture dirs). Breadcrumb log at `$TMPDIR/shipyard/<hash>/.logcap.log` mirrors the `.auto-approve.log` pattern — capped, rotated, errors swallowed so diagnostics never break capture.
-  - **`shipyard-context diagnose` now surfaces logcap activity** (recent breadcrumb tail and active sessions) so self-serve bug reports include capture history without the user needing to know where tmp is on their platform.
-- New reference doc: `skills/ship-execute/references/live-capture.md` (canonical guide, shared by all three modified skills via `${CLAUDE_PLUGIN_ROOT}`).
-- New test module: `tests/test_shipyard_logcap.py` (29 tests covering run semantics, rotation, name allowlist, bounds validation, read subcommands, probe, prune, and project isolation).
-- Assertions added to `tests/assertions/ship-execute.json`, `ship-review.json`, `ship-bug.json` covering the live-capture integration in each skill.
+- **Live verification capture via `shipyard-logcap`.** New primitive in `plugins/shipyard/bin/` that wraps an arbitrary verification command, tees raw stdout+stderr to a rotating file in `$TMPDIR/shipyard/<project-hash>/<session>/`, and propagates the child's exit code. Subcommands: `run`, `tail`, `grep`, `list`, `path`, `probe`, `prune`. Cross-platform (Node `.mjs` + symlink-aware `.sh` wrapper + Windows `.cmd` wrapper). **Why it exists:** when reviewing a sprint or debugging a flaky repro, the moment live output passes through a grep or filtered tail the unfiltered stream is gone — if the filter missed a signal, the only recourse is to re-run the command, burning tokens, wall-clock time, and sometimes device/cloud minutes. `shipyard-logcap` lets the orchestrator re-analyze from the captured file instead. The primitive is intentionally dumb (no log parsing, no keyword classification, no auto-tuning); the smart layer is `skills/ship-execute/references/live-capture.md`, which teaches Claude the principle, the re-analysis loop, and a decision table for picking bounds per command profile. `ship-execute` sets `SHIPYARD_LOGCAP_SESSION=<sprint>-wave-<N>` so wave captures group together. Minimum `--max-size` is 64K (one Node pipe high-water mark) so single chunks can't silently overflow the ceiling. Strict allowlist on capture names and session env. `shipyard-context diagnose` now surfaces recent capture activity for bug reports.
+- **`/ship-status diagnose` subcommand** — prints the resolver's view (`SHIPYARD_DATA`, project root, project hash, all `CLAUDE_*` env vars, last 20 lines of the auto-approve breadcrumb log). The format customers attach to bug reports about permission prompts or state divergence. Implemented in `shipyard-context.mjs`.
+- **Orphan plugin-data recovery in `/ship-init`.** `shipyard-data find-orphans` scans `<plugin-data>/projects/*/.project-root` breadcrumbs and matches them against the current parent repo and its worktrees. When the worktree-detection fix in the resolver changed the project hash for users running Claude Code from inside a standalone worktree, their previous data dir became orphaned at the old hash — one customer had 1.1 MB of real Shipyard state (config, 10+ feature specs, sprints, codebase context) under the old hash that the new resolver couldn't see. `/ship-init` now invokes `find-orphans` alongside the existing legacy-shipyard probe; on hits with no current `config.md`, it prompts via `AskUserQuestion` and runs `shipyard-data migrate <orphan-dir>`. Post-migration, the source path is announced back so the user can clean up the leftover MBs.
+- **6 specialized code review agents + investigator**: `shipyard-review-security`, `-bugs`, `-silent-failures`, `-patterns`, `-tests`, `-spec`, plus `shipyard-investigator`. Wave 1 spawns the 6 single-responsibility scanners in parallel (sonnet, fresh 200K each, Read-only); Wave 2 spawns the investigator (opus, fresh per finding) for high-stakes findings. Replaces the monolithic `shipyard-reviewer` which ran 3 sequential review passes in one 200K context and was running out of room on real customer sprints.
+- **`shipyard-data with-lock <key> -- <command>` primitive** for serializing writes to shared Shipyard data files: atomic `O_EXCL` lock-file create on POSIX and Windows, `Atomics.wait` for true synchronous sleep (no spin loop), pid liveness via `process.kill(pid, 0)` before stealing stale locks. Documented in `/ship-execute`'s wave-boundary section as the forward-compatible idiom for any future flow that introduces parallel writers.
+- **`shipyard-data find-orphans`** subcommand (consumed by orphan recovery above).
+- **`shipyard-data migrate <src> [--force]`** atomic single-command migration: tree creation, copy, transient-state cleanup, automatic `.pre-migrate-backup-<ts>` snapshot when `--force` is used, `.project-root` rewrite. Replaces the four-line POSIX shell sequence (`cp -r` / `rm -rf`) that wouldn't work on Windows without Git Bash.
+- **Auto-approve permission hook breadcrumb log** at `$SHIPYARD_DATA/.auto-approve.log` — one line per invocation (timestamp, decision, tool, file, data dir). Capped at 1000 lines, rotated at 256KB. Surfaced via `shipyard-context diagnose` so customers debugging permission prompts have the trail.
+- New test modules: `test_shipyard_resolver.py` (14 tests), `test_shipyard_data_cli.py` (10 tests), `test_shipyard_logcap.py` (29 tests). Plus `test_auto_approve_data.py` expanded from 12 to 16 tests.
 
 ### Changed
-- `ship-execute` SKILL.md gained a "Live Verification Capture" top-level section and a per-wave `SHIPYARD_LOGCAP_SESSION` export note in Step 2.
-- `ship-review` SKILL.md Stage 2 now wraps dev-server and E2E observation commands through `shipyard-logcap` and prefers grepping the capture before re-running anything — review re-runs are the most expensive kind.
-- `ship-bug` SKILL.md HOTFIX mode now wraps the repro command, since bug repros are often flaky and re-triggering them is the most expensive part of debugging.
-
-## [0.9.0] - 2026-04-05
-
-### Added
-- Marketing-focused README with "Why Shipyard" comparison, token efficiency, and project learning sections
-- Community files: CODE_OF_CONDUCT.md, SECURITY.md, SUPPORT.md, CHANGELOG.md
-- GitHub issue templates (bug report, feature request) and PR template
-- CI workflow for eval tests
-- `.editorconfig` and `.gitattributes` for contributor consistency
-- `shipyard-context` script for token-efficient context loading with hard line caps
-- Reference files for ship-discuss: communication-design.md, simplification-scan.md
-- Reference file for ship-execute: lsp-strategy.md
-
-### Changed
-- README rewritten with stronger positioning and sales copy
-- Safety Nets section rewritten with adversarial trust model framing
-
-## [0.8.5] - 2026-03-31
-
-### Added
-- Auto-approve hook for Shipyard data file writes (zero permission prompts)
-- `auto-approve-data.py` script with path-scoped approval
+- **`shipyard-data` and `shipyard-context` ported from Python to Node** (`shipyard-data.mjs`, `shipyard-context.mjs`) with cross-platform wrappers (`.sh` for POSIX, `.cmd` for Windows). The legacy extensionless Python scripts couldn't run on Windows (no shebang support, not in `PATHEXT`). Skills continue invoking the CLIs as bare commands; `PATH` lookup picks the right wrapper per OS. The `.sh` wrappers are symlink-aware (walk the `readlink` chain before computing the bin dir) so PATH symlinks like `/usr/local/bin/shipyard-data → plugin path` work correctly.
+- **`shipyard-resolver.mjs` is now the SINGLE SOURCE OF TRUTH** for project root, project hash, and data dir resolution. The previous codebase had three subtly-different implementations across `shipyard-data`, `hook-runner.py`, and `shipyard-context` that drifted and made the auto-approve hook compute a different `SHIPYARD_DATA` than the skill that triggered the write — silently breaking the permission workaround. The resolver detects worktrees via `git-common-dir` and returns the parent repo root, so all worktrees of one project share state. `CLAUDE_PROJECT_DIR` is used as a starting cwd for git, NOT short-circuited as the answer (production sets it to the worktree path for builder subagents — returning it directly would bypass the worktree fix). Hash format pinned to legacy `sha256(path + '\n')[:12]` so existing customers' non-worktree data dirs remain valid.
+- **Data dir discovery is now fail-loud.** When no `CLAUDE_PLUGIN_DATA`, no probe-relative path, and no populated legacy dir can be found, the resolver exits non-zero with an actionable error message naming the env var to set. The previous "helpful" fallback could create a phantom data dir at the wrong location.
+- **`ship-review` now uses `model: opus`** and orchestrates the code review pipeline directly. Code review moved out of `ship-execute` into `ship-review`'s new Stage 0 (single responsibility); `ship-execute` now stops at sprint completion. Shared orchestration logic lives in `ship-review/references/code-review-orchestration.md`.
+- **README documents worktree data sharing semantics and Windows portability** — explicit note that the project hash is derived from the parent repo root so all worktrees share one data dir, and that `.cmd` wrappers inherit cmd.exe's argument-quoting limits (use `CLAUDE_PLUGIN_DATA` env var for paths with spaces).
+- **`ship-execute`** SKILL.md gained a "Live Verification Capture" top-level section and a per-wave `SHIPYARD_LOGCAP_SESSION` export note in Step 2.
+- **`ship-review`** SKILL.md Stage 2 now wraps dev-server and E2E observation commands through `shipyard-logcap` and prefers grepping the capture before re-running anything.
+- **`ship-bug`** SKILL.md HOTFIX mode now wraps the repro command through `shipyard-logcap`.
+- **Hook chain computes `SHIPYARD_DATA` in-process.** `hook-runner.mjs` imports `getDataDir` from the resolver and passes the resolved path via env to the Python child. The Python side reads the env var on the fast path and only subprocess-falls-back in tests. Saves ~80ms per `Edit`/`Write` tool call, ~4 seconds on a 50-edit sprint. Subprocess timeout dropped from 10s to 2s — long hangs are real bugs to fail fast on, not paper over with editor stalls.
+- **`/ship-execute` documents the `with-lock` primitive** as the forward-compatible idiom for any future flow that introduces parallel writers (recovery, parallel review fixers, team-mode changes). The race that motivated the primitive is theoretical in current code paths (`PROGRESS.md` is written only by the orchestrator today), but documenting the pattern keeps the building block discoverable.
 
 ### Fixed
-- Permission prompt interruptions during sprint execution
+- **Auto-approve permission hook hardening** (`auto-approve-data.py`, `hooks.json`):
+  - Add `MultiEdit` to the auto-approve and session-guard `PreToolUse` matchers (was `Edit|Write|NotebookEdit` only — multi-file edits weren't covered, so the suppression failed for them).
+  - Fix `MultilineEdit` → `MultiEdit` typo in the `PostToolUse` loop-detect matcher; the hook had never fired for any multi-edit invocation.
+  - Self-resolve `SHIPYARD_DATA` when the env var isn't set (`PreToolUse` fires for non-Shipyard contexts that don't go through `hook-runner`, where the previous code silently no-op'd — defeating the workaround for those calls).
+  - Auto-create the data dir before writing the breadcrumb log so the first hook invocation for a brand-new project (pre `/ship-init`) doesn't silently skip logging.
+  - Wrap append + rotation in a platform-aware `fcntl`/`msvcrt` lock — POSIX append-mode writes ≤`PIPE_BUF` are atomic for concurrent writers but Windows offers no such guarantee, and the rotation block (read → truncate → rewrite) was racy on every platform.
+- **`hook-runner.py` hard-fails when plugin root cannot be located** instead of silently using a guessed path. Silent guessing was how the permission workaround got bypassed in the first place.
 
-## [0.8.4] - 2026-03-28
-
-### Added
-- Workarounds for Claude Code agent team and worktree bugs
-- `cwd-restore.py` hook to fix agent directory context after spawning
-
-## [0.7.0] - 2026-03-20
-
-### Added
-- Critic agent — adversarial pre-approval review with pre-mortem analysis
-- Plan mode expansion — 7 skills now use EnterPlanMode/ExitPlanMode
-- Handover files for crash recovery
-- Compaction counter and auto-pause at 3 compactions
-
-### Fixed
-- Crash recovery for orphaned worktrees with uncommitted work
-
-## [0.6.0] - 2026-03-10
-
-### Changed
-- Major restructure — converted to Claude Code plugin architecture
-- All data moved to plugin data directory (zero git noise)
-- Skills use `shipyard-data` script for path resolution
+### Security
+- **Hooks hardened against symlink escape, prompt injection, and path traversal** (`auto-approve-data.py`, `worktree-branch.py`, `loop-detect.py`, `on-commit.py`, `post-compact.py`, `shipyard-context`, `hook-runner.py`):
+  - `auto-approve-data.py` uses `realpath` + `commonpath` instead of `abspath` + `startswith`, defending against TOCTOU symlink-based path-escape attacks. Rejects `..` segments before resolution. Dropped `Read` from approved tools (scope reduction).
+  - `worktree-branch.py` validates worktree name against strict allowlist (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`, no `.lock` suffix). Containment check on resolved worktree path.
+  - `loop-detect.py` and `on-commit.py` sanitize file paths before printing to hook stdout (strip control chars, cap length) to prevent indirect prompt injection via malicious filenames.
+  - `post-compact.py` allowlist-validates frontmatter values (sprint id, branch, wave) before echoing to Claude after compaction.
+  - `shipyard-context` adds a `safe_join()` helper and validates all relative path arguments against traversal and absolute paths.
+  - 12 new unit tests including symlink escape, sibling-dir prefix attack, pre-resolution traversal rejection, and Read scope verification.
 
 ### Removed
-- `.shipyard/` project directory (replaced by plugin data)
-- Homebrew distribution (replaced by `claude plugin add`)
+- **Legacy `shipyard-reviewer` agent** (replaced by 6 specialized `shipyard-review-*` agents + `shipyard-investigator`).
+- **Legacy extensionless Python scripts** for `shipyard-data` and `shipyard-context` (replaced by Node `.mjs` + per-OS `.sh`/`.cmd` wrappers).
 
-## [0.5.0] - 2026-02-28
-
-### Added
-- Sprint velocity tracking and retrospective data persistence
-- Carry-over scan for bugs, blocked tasks, and retro items
-- Metrics.md for cross-sprint learning
-- Anti-pattern detection in retros
-
-[0.9.0]: https://github.com/acendas/shipyard/compare/v0.8.5...v0.9.0
-[0.8.5]: https://github.com/acendas/shipyard/compare/v0.8.4...v0.8.5
-[0.8.4]: https://github.com/acendas/shipyard/compare/v0.7.0...v0.8.4
-[0.7.0]: https://github.com/acendas/shipyard/compare/v0.6.0...v0.7.0
-[0.6.0]: https://github.com/acendas/shipyard/compare/v0.5.0...v0.6.0
-[0.5.0]: https://github.com/acendas/shipyard/releases/tag/v0.5.0
+[1.0.1]: https://github.com/acendas/shipyard/releases/tag/v1.0.1
