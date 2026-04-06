@@ -38,5 +38,9 @@
   {"name": "has_release_step", "type": "contains", "pattern": "released_at|status.*released"},
   {"name": "has_feature_status_to_done", "type": "contains", "pattern": "status.*done|done.*status"},
   {"name": "uses_ask_user_question", "type": "contains", "pattern": "AskUserQuestion"},
-  {"name": "uses_shipyard_data_path", "type": "contains", "pattern": "shipyard-data|shipyard-context"}
+  {"name": "uses_shipyard_data_path", "type": "contains", "pattern": "shipyard-data|shipyard-context"},
+
+  {"name": "wraps_verification_in_logcap", "type": "contains", "pattern": "shipyard-logcap"},
+  {"name": "links_live_capture_reference", "type": "contains", "pattern": "live-capture\\.md"},
+  {"name": "prefers_grep_before_rerun", "type": "contains", "pattern": "grep the existing capture|grep.*before.*re-run"}
 ]

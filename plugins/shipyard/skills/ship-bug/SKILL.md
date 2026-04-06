@@ -99,6 +99,8 @@ created: [today]
 
 Then immediately begin the debug investigation (Step 3 of ship-debug: form hypothesis → test → record → repeat). When root cause is found, fix with TDD (regression test first), commit as `fix(B-HOT-NNN): [description]`.
 
+**Capture the repro.** When running the repro command during investigation, wrap it: `shipyard-logcap run bhot-NNN-repro --max-size <S> --max-files <N> -- <command>`. Bug repros are often flaky — the captured file lets you re-inspect a different signal without re-triggering the bug, which is the most expensive part of debugging. If the first repro run shows something unexpected, `shipyard-logcap grep` the capture with a wider pattern before you re-run. Full guide and decision table for bounds: `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/live-capture.md`.
+
 ## Rules
 
 - **Be fast.** Bug reporting should take seconds.

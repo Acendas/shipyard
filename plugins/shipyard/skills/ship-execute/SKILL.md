@@ -120,6 +120,14 @@ Summary:
 - Worktrees branch from the user's current local branch (via WorktreeCreate hook, not `origin/HEAD`)
 - Atomic commits per task, following the project's commit convention
 
+## Live Verification Capture
+
+**Read the full guide:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/live-capture.md`
+
+When a task's verification step runs a command whose output you want to watch (test runner, dev server, docker logs, smoke script — anything you'd otherwise pipe to `tee`), wrap it with `shipyard-logcap run <name> --max-size <S> --max-files <N> -- <command>`. This tees raw output to a rotating temp file *and* your terminal at the same time, so if you later realize you needed a different filter or more context, you can re-grep the captured file instead of re-running the command. Re-runs burn tokens, wall-clock time, and sometimes device/cloud minutes; re-analysis over a capture costs almost nothing.
+
+Skip the wrapper when the command already file-backs its own output (wrapping would just double-capture). Pick `--max-size` and `--max-files` using the decision table in `references/live-capture.md` — skills are the smart layer here; the primitive deliberately does no auto-tuning.
+
 ## FULL SPRINT Execution
 
 **Communication design:** When reporting blockers or asking decisions, use the 3-layer pattern from `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` — one-liner (what's blocked), context (why + impact), options (max 2–3 with named tradeoffs). Keep blocker messages under 100 words. Always recommend a default.
@@ -264,6 +272,8 @@ Check the result:
 - **Abort** → don't start, user fixes issues first
 
 ### Step 2: Execute Waves
+
+**Capture session tag (per wave):** before spawning builders for a wave, export `SHIPYARD_LOGCAP_SESSION=<sprint-id>-wave-<N>` in any shell you use to run verification commands via `shipyard-logcap`. This groups that wave's captures under one folder so `shipyard-logcap list` stays readable across a multi-wave sprint. Re-analysis during wave boundary checks (Step 4) or review (ship-review) can then find the wave's output by session name instead of hunting through timestamps.
 
 For each wave (starting from current):
 

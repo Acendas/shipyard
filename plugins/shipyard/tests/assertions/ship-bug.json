@@ -13,5 +13,8 @@
   {"name": "has_steps_to_reproduce", "type": "contains", "pattern": "[Ss]teps.*[Rr]eproduc|[Rr]eproduc"},
   {"name": "uses_ask_user_question", "type": "contains", "pattern": "AskUserQuestion"},
   {"name": "uses_shipyard_data_path", "type": "contains", "pattern": "shipyard-data|shipyard-context"},
-  {"name": "has_next_up_routing", "type": "contains", "pattern": "ship-execute|ship-sprint"}
+  {"name": "has_next_up_routing", "type": "contains", "pattern": "ship-execute|ship-sprint"},
+
+  {"name": "hotfix_repro_uses_logcap", "type": "contains", "pattern": "shipyard-logcap"},
+  {"name": "links_live_capture_reference", "type": "contains", "pattern": "live-capture\\.md"}
 ]

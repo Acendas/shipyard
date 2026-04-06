@@ -135,5 +135,12 @@
   {"name": "has_lsp_strategy_ref", "type": "file_exists", "path": "skills/ship-execute/references/lsp-strategy.md"},
   {"name": "has_lsp_in_tools", "type": "contains", "pattern": "LSP"},
   {"name": "has_lsp_first_principle", "type": "contains", "pattern": "LSP.*before.*Grep|LSP-[Ff]irst|LSP first"},
-  {"name": "has_item_completeness_check", "type": "contains", "pattern": "[Ii]tem completeness|discrete items.*grep|100%.*incomplete"}
+  {"name": "has_item_completeness_check", "type": "contains", "pattern": "[Ii]tem completeness|discrete items.*grep|100%.*incomplete"},
+
+  {"name": "mentions_live_capture_section", "type": "contains", "pattern": "Live Verification Capture"},
+  {"name": "references_live_capture_md", "type": "contains", "pattern": "live-capture\\.md"},
+  {"name": "mentions_shipyard_logcap_binary", "type": "contains", "pattern": "shipyard-logcap"},
+  {"name": "explains_capture_why_not_rule", "type": "contains", "pattern": "[Rr]e-runs burn tokens|re-analys|re-grep"},
+  {"name": "sets_logcap_session_per_wave", "type": "contains", "pattern": "SHIPYARD_LOGCAP_SESSION"},
+  {"name": "live_capture_ref_exists", "type": "file_exists", "path": "skills/ship-execute/references/live-capture.md"}
 ]

@@ -27,6 +27,7 @@
  */
 
 import { existsSync, openSync, readdirSync, readFileSync, realpathSync, statSync, closeSync, readSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { getDataDir, getProjectHash, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
 
@@ -283,6 +284,39 @@ function main() {
         }
       } else {
         out("AUTO_APPROVE_LOG=(does not exist)");
+      }
+
+      // Logcap breadcrumb tail — recent shipyard-logcap activity for this
+      // project. Lives in tmp, not plugin data, so users debugging capture
+      // issues can see which captures ran and how they exited without
+      // having to know where tmp is on their platform.
+      const logcapRoot = join(tmpdir(), "shipyard", projectHash);
+      const logcapLog = join(logcapRoot, ".logcap.log");
+      if (existsSync(logcapLog)) {
+        out(`LOGCAP_ROOT=${logcapRoot}`);
+        out(`LOGCAP_LOG=${logcapLog}`);
+        try {
+          const all = readFileSync(logcapLog, "utf8").trimEnd().split("\n").filter(Boolean);
+          const tail = all.slice(-20);
+          out(`LOGCAP_LOG_TAIL_${tail.length}_LINES:`);
+          for (const line of tail) out(line);
+        } catch {
+          out("LOGCAP_LOG_TAIL=(read failed)");
+        }
+        // Also list the sessions that currently hold captures, so a user
+        // with "where did my capture go?" can see the answer immediately.
+        try {
+          const sessions = readdirSync(logcapRoot, { withFileTypes: true })
+            .filter((e) => e.isDirectory())
+            .map((e) => e.name)
+            .sort();
+          out(`LOGCAP_SESSIONS=${sessions.length > 0 ? sessions.join(",") : "(none)"}`);
+        } catch {
+          // If the root doesn't exist or isn't readable, leave it out.
+        }
+      } else {
+        out(`LOGCAP_ROOT=${logcapRoot}`);
+        out("LOGCAP_LOG=(no captures recorded for this project)");
       }
       break;
     }
