@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getDataDir } from "./shipyard-resolver.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const hookRunner = join(__dirname, "hook-runner.py");
@@ -62,12 +63,29 @@ try {
   // No stdin is fine for some hooks
 }
 
+// Compute SHIPYARD_DATA in-process and pass it to the python child via env.
+// Previously hook-runner.py would subprocess-call shipyard-resolver.mjs to
+// resolve the data dir, adding a third process spawn (~80ms) to every Edit
+// hook chain. Doing it here keeps the resolver in-process — Node ESM import
+// is free relative to a process spawn — and the python side prefers the env
+// var when set, falling back to its own subprocess only for direct invocation
+// (tests, manual runs).
+const env = { ...process.env };
+if (!env.SHIPYARD_DATA) {
+  try {
+    env.SHIPYARD_DATA = getDataDir({ silent: true });
+  } catch {
+    // Resolver failed (e.g. no git, no Node env). Let the python side handle
+    // the missing env var with its existing subprocess fallback + hard-fail.
+  }
+}
+
 try {
   const result = execFileSync(python, [hookRunner, scriptName], {
     input: stdin,
     encoding: "utf8",
     timeout: 30000,
-    env: process.env,
+    env,
     stdio: ["pipe", "pipe", "pipe"],
   });
   if (result) process.stdout.write(result);

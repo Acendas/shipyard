@@ -50,36 +50,45 @@ def discover_plugin_root():
 
 
 def resolve_shipyard_data(plugin_root):
-    """Compute SHIPYARD_DATA by running shipyard-data logic inline.
+    """Compute SHIPYARD_DATA, preferring the env var set by hook-runner.mjs.
 
-    Avoids subprocess call for speed and to eliminate shell dependency.
+    Production fast path: hook-runner.mjs imports the Node resolver in-process
+    and passes SHIPYARD_DATA via env, so we read it here and return immediately.
+    No subprocess spawn — saves ~80ms per Edit hook (R7).
+
+    Slow path (tests, direct invocation): subprocess to bin/shipyard-resolver.mjs.
+    The Node resolver remains the single source of truth so this stays in sync
+    with shipyard-data.mjs and shipyard-context.mjs.
+
+    Worktree behavior: the resolver returns the PARENT repo's data dir even
+    when called from inside a worktree, so all worktrees of one project share
+    state. See DECISIONS.md D1.
     """
-    import hashlib
+    env_value = os.environ.get('SHIPYARD_DATA', '')
+    if env_value:
+        return env_value
+
     import subprocess
-
-    # Get project root from git
-    project_root = os.environ.get('CLAUDE_PROJECT_DIR', '')
-    if not project_root:
-        try:
-            result = subprocess.run(
-                ['git', 'rev-parse', '--show-toplevel'],
-                capture_output=True, text=True
-            )
-            if result.returncode == 0:
-                project_root = result.stdout.strip()
-        except FileNotFoundError:
-            pass
-    if not project_root:
-        project_root = os.getcwd()
-
-    # Hash the project root (match bash: echo adds trailing newline)
-    project_hash = hashlib.sha256((project_root + '\n').encode()).hexdigest()[:12]
-
-    plugin_data = os.environ.get(
-        'CLAUDE_PLUGIN_DATA',
-        os.path.join(os.path.expanduser('~'), '.claude', 'plugins', 'data', 'shipyard')
+    resolver = os.path.join(plugin_root, 'bin', 'shipyard-resolver.mjs')
+    try:
+        # 2s timeout (R8): git rev-parse is bounded; long hangs are real
+        # problems we should fail fast on, not paper over with a 10s wait.
+        result = subprocess.run(
+            ['node', resolver, 'data-dir'],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    # Hard fail rather than fall back to a divergent path. The auto-approve
+    # hook depends on this matching the value the skill computes; a silent
+    # fallback would split state between two directories.
+    print(
+        'hook-runner: shipyard-resolver.mjs failed. Ensure Node 18+ is on PATH.',
+        file=sys.stderr,
     )
-    return os.path.join(plugin_data, 'projects', project_hash)
+    sys.exit(1)
 
 
 def run_script(script_path):
@@ -122,9 +131,12 @@ def main():
     plugin_root = discover_plugin_root()
     shipyard_data = resolve_shipyard_data(plugin_root)
 
-    # Set environment for the target script
+    # Set environment for the target script. Always overwrite CLAUDE_PLUGIN_ROOT
+    # with the discovered value so it matches the value discover_plugin_root()
+    # already preferred (file-derived path beats inherited env). Using
+    # setdefault here would let a stale env value win — confusing.
     os.environ['SHIPYARD_DATA'] = shipyard_data
-    os.environ.setdefault('CLAUDE_PLUGIN_ROOT', plugin_root)
+    os.environ['CLAUDE_PLUGIN_ROOT'] = plugin_root
 
     # Change to project directory if available
     project_dir = os.environ.get('CLAUDE_PROJECT_DIR', '')
