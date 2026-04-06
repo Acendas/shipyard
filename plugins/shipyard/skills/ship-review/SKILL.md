@@ -1,10 +1,10 @@
 ---
 name: ship-review
-description: "Verify completed work against spec, then run sprint retrospective — tests, screenshots, demo, approval, velocity analysis, anti-pattern detection, and improvement items. Use when the user wants to review completed work, verify a feature, see a demo, check if tests pass, approve sprint results, run a retro, analyze velocity, or wrap up a sprint."
+description: "Run multi-agent code review (security, bugs, silent failures, patterns, tests, spec) plus spec verification, retrospective, and release. Auto-fixes findings until clean. Use when the user wants to review completed work, verify a feature, see a demo, check if tests pass, approve sprint results, run a retro, analyze velocity, or wrap up a sprint."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, EnterPlanMode, ExitPlanMode]
-model: sonnet
-effort: medium
-argument-hint: "[feature ID] [--demo] [--hotfix ID] [--retro-only]"
+model: opus
+effort: high
+argument-hint: "[feature ID] [--demo] [--hotfix ID] [--retro-only] [--skip-code-review]"
 ---
 
 # Shipyard: Review & Verification
@@ -67,13 +67,83 @@ This ensures review and any patch fixes happen on the correct branch.
 
 For each feature/task being reviewed:
 
+### Stage 0: Code Review Loop (sprint completion)
+
+**Skip this stage if `--skip-code-review` is passed, or if reviewing a hotfix.**
+
+Before verifying tests and spec compliance, run the multi-agent code review on the sprint's diff. This catches bugs, security issues, silent failures, and pattern violations BEFORE the user sees demo results, and auto-fixes findings until the code is clean.
+
+The code review uses 6 specialized scanners in parallel + an opus investigator for deep dives. Full orchestration logic is in `references/code-review-orchestration.md` — read that file at the start of this stage and follow its steps.
+
+**Iteration cycle:**
+
+1. **Checkpoint** — Before any fixes, create a rollback point:
+   ```bash
+   git tag pre-code-review-$(date +%s)
+   ```
+
+2. **Run the orchestration** — Follow `references/code-review-orchestration.md` end to end:
+   - Phase 1 (Setup): resolve diff range, get changed file list, categorize files
+   - Phase 2 (Wave 1): spawn all 6 specialized scanners IN A SINGLE MESSAGE (parallel)
+   - Phase 3 (Aggregate & dedupe): merge findings, sort by severity/confidence
+   - Phase 4 (Wave 2): conditional `shipyard:shipyard-investigator` deep dives for high-stakes findings
+   - Phase 5 (Final report): write `$(shipyard-data)/sprints/current/CODE-REVIEW.md` with VERDICT, COUNTS, and ---ACTIONABLE--- sections
+
+   First iteration uses: `git diff $(git merge-base HEAD <main_branch>)...HEAD`
+   Subsequent iterations use the cumulative delta: `git diff <pre-code-review-tag>..HEAD`
+
+3. **Evaluate the verdict:**
+   - Zero must-fix and zero should-fix → **clean pass**, proceed to Stage 1
+   - Only consider items → **acceptable**, proceed to Stage 1
+   - Must-fix or should-fix exist → log counts to PROGRESS.md immediately, then check diminishing returns, then **spawn fixer**
+
+   Append the iteration's counts to the Code Review table in PROGRESS.md before proceeding.
+
+4. **Diminishing returns check** — Skip on iteration 1. On iteration 2+, read the previous count from PROGRESS.md:
+   - Count decreased → improvement, continue fixing
+   - Count unchanged or increased → fixes are introducing new issues. AskUserQuestion: "Code review isn't converging — [N] must-fix issues remain after [iteration] fix attempts. Proceed to demo with current state, or investigate manually? (proceed / investigate)"
+
+5. **Fix** — Spawn `Agent` with `subagent_type: shipyard:shipyard-builder` (no worktree, works on the working branch):
+   ```
+   Address code review findings.
+   Read $(shipyard-data)/sprints/current/CODE-REVIEW.md — skip everything above ---ACTIONABLE---.
+   Fix all M (must-fix) and S (should-fix) items listed below the separator.
+   Each finding is one line: [file:line] — [category] — [description]. Fix: [suggestion].
+   Follow TDD — update or add tests for any bug fixes.
+   Commit fixes: refactor: address code review (iteration N)
+   ```
+
+   After fixer returns, verify a new commit exists. If no commit → reset to checkpoint: `git reset --hard $(git tag --list 'pre-code-review-*' --sort=-creatordate | head -1)`. Flag iteration as failed, don't count toward cap.
+
+6. **Repeat** — Go back to step 2 (orchestration). Max 3 iterations.
+
+**Exit conditions:**
+- **Clean pass** — zero must-fix and zero should-fix → proceed to Stage 1
+- **Only consider items remain** → proceed to Stage 1
+- **Diminishing returns failed** → AskUserQuestion immediately
+- **3 iterations reached** — For remaining must-fix items, create bug files at `$(shipyard-data)/spec/bugs/B-CR-[slug].md` so they surface in the next sprint. Then AskUserQuestion: "Code review ran 3 iterations. [N] items remain — tracked as [bug IDs]. Proceed to demo, or keep fixing?"
+
+**Cleanup:** After exiting (any condition), delete the checkpoint tag:
+```bash
+git tag --list 'pre-code-review-*' | xargs -I {} git tag -d {}
+```
+
+Log each iteration in PROGRESS.md:
+```
+## Code Review
+| Iteration | Must-fix | Should-fix | Consider | Action |
+| 1         | 3        | 5          | 2        | Fixer addressed 8 findings |
+| 2         | 0        | 1          | 2        | Fixer addressed 1 finding |
+| 3         | 0        | 0          | 2        | Clean — proceeding |
+```
+
 ### Stage 1: Run Tests & Spec Verification
 
 **1a. Run all tests** — delegate to a `shipyard:shipyard-test-runner` subagent to avoid polluting the review context with raw test output:
 - Spawn `Agent` with `subagent_type: shipyard:shipyard-test-runner` and prompt: "Run the full test suite: unit (`test_commands.unit`), integration (`test_commands.integration`), and end-to-end (`test_commands.e2e`) from `$(shipyard-data)/config.md`. If specific commands aren't configured, fall back to `testing_framework` field. Return the structured summary."
 - Use the returned summary (PASS/FAIL counts) for Stage 3-5 — do not re-run tests yourself.
 
-**1b. Spec review via reviewer agent** — Before spawning, read the feature file's `references:` frontmatter array and collect any paths listed there. Then spawn `Agent` with `subagent_type: shipyard:shipyard-reviewer`:
+**1b. Spec review via specialized scanner** — Before spawning, read the feature file's `references:` frontmatter array and collect any paths listed there. Then spawn `Agent` with `subagent_type: shipyard:shipyard-review-spec`:
 
 If there are reference files:
 ```
@@ -82,28 +152,14 @@ Mode: spec review
 Feature spec: $(shipyard-data)/spec/features/[FEATURE_ID]-*.md
 Reference files: $(shipyard-data)/spec/references/F001-api.md, $(shipyard-data)/spec/references/F001-schema.md
 Task files: $(shipyard-data)/spec/tasks/ (filter by feature: [FEATURE_ID])
+Implementation files: <git diff --name-only $(git merge-base HEAD <main_branch>)...HEAD>
 ```
 
-If there are no reference files, omit the `Reference files:` line entirely:
-```
-Run a spec review on feature [FEATURE_ID].
-Mode: spec review
-Feature spec: $(shipyard-data)/spec/features/[FEATURE_ID]-*.md
-Task files: $(shipyard-data)/spec/tasks/ (filter by feature: [FEATURE_ID])
-```
+If there are no reference files, omit the `Reference files:` line entirely.
 
-The reviewer must read all reference files — they contain the full API contracts, schemas, and acceptance detail that the implementation must satisfy.
+The spec scanner is single-responsibility (model: sonnet, fresh 200k context). It maps every acceptance scenario to code, flags gaps and over-building, and returns findings in the standard format. Security, bugs, silent failures, patterns, and tests are NOT its job — those were already covered in Stage 0's wave-1 scan.
 
-The reviewer checks (read-only, never modifies code):
-- Acceptance scenario mapping (Given/When/Then → corresponding tests: ✅/❌/⚠️)
-- TDD compliance (tests committed before/with implementation via git log)
-- Mutation testing verification (at least one mutation tested)
-- Coverage thresholds per domain (auth/payments 95%, business logic 90%, API 85%, UI 80%)
-- Over-building detection (functionality not in acceptance criteria)
-- Security check (hardcoded secrets, input validation, injection risks)
-- Gap detection (scenarios without implementation, implementation without tests, missing edge cases)
-
-The reviewer returns a structured report. Use its findings in Stages 3-5.
+Use the scanner's findings in Stages 3-5.
 
 ### Stage 2: Visual Verification (UI tasks)
 

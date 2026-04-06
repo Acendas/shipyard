@@ -33,7 +33,7 @@
   {"name": "has_crash_recovery", "type": "contains", "pattern": "[Cc]rash [Rr]ecovery|salvage"},
   {"name": "has_readiness_check", "type": "contains", "pattern": "[Rr]eadiness [Cc]heck"},
   {"name": "has_compaction_counter", "type": "contains", "pattern": "\\.compaction-count|compaction.*3"},
-  {"name": "has_code_review_loop", "type": "contains", "pattern": "CODE-REVIEW\\.md|shipyard-reviewer"},
+  {"name": "no_code_review_loop_in_execute", "type": "not_contains", "pattern": "shipyard-reviewer|---ACTIONABLE---"},
   {"name": "has_single_task_mode", "type": "contains", "pattern": "--task"},
   {"name": "has_blocked_task_handling", "type": "contains", "pattern": "blocked.*task|status.*blocked"},
   {"name": "has_loop_detection", "type": "contains", "pattern": "5.*edits|loop.*detect"},

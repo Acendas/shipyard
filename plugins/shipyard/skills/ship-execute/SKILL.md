@@ -485,93 +485,7 @@ When all waves done:
 - **Delegate the full test suite to a test subagent** — spawn a single `Agent` with `subagent_type: shipyard:shipyard-test-runner` (no `isolation: worktree`) following the multi-tier pattern in `references/test-delegation.md`. Pass it `test_commands.unit`, `test_commands.integration`, and `test_commands.e2e` from config. It runs all three sequentially and returns a combined summary (one line per tier). This is the only time the entire suite runs. Act on the summary — do NOT run tests directly in this session.
 - If regression failures: do NOT fix code or lint errors directly. Spawn a `shipyard:shipyard-builder` subagent (no worktree) with the failure summary and instructions to fix all failures. At sprint level the branch owns all errors — do not scope to the diff. Verify a new commit exists after it returns. Re-run the test subagent to confirm clean before proceeding.
 
-**5b. Code review loop (sprint completion)**
-
-A review-fix loop that runs entirely via subagents — the orchestrator only routes reports, never reads implementation files or fixes code itself.
-
-**Iteration cycle:**
-
-1. **Checkpoint** — Before any fixes, create a rollback point:
-   ```bash
-   git tag pre-code-review-$(date +%s)
-   ```
-   If the fixer crashes or leaves partial state, reset to this tag.
-
-2. **Review** — Spawn `Agent` with `subagent_type: shipyard:shipyard-reviewer` (no worktree):
-
-   First iteration:
-   ```
-   Run a code review on this sprint's changes.
-   Mode: code review
-   Diff command: git diff $(git merge-base HEAD [main_branch])...HEAD
-   (substitute [main_branch] with git.main_branch from config)
-   Read project conventions from: .claude/rules/ and $(shipyard-data)/codebase-context.md
-   ```
-   Subsequent iterations (cumulative delta — uses checkpoint tag from step 1):
-   ```
-   Run a code review on the fixes applied since sprint completion.
-   Mode: code review
-   Diff command: git diff pre-code-review-<tag>..HEAD
-   Do NOT re-read project conventions — focus only on whether the previous findings were fixed correctly and whether the fixes introduced new issues.
-   ```
-   The reviewer runs three focused passes:
-   - **Pass 1: Bugs, security & silent failures** — logic errors, injection risks, swallowed errors, empty catch blocks, missing error propagation
-   - **Pass 2: Patterns, quality & duplication** — convention violations, copy-paste, dead code, naming
-   - **Pass 3: Test coverage & resilience** — behavioral coverage of critical paths, edge cases, error paths
-
-   Uses **confidence-based filtering** (0-100 scale, only reports ≥80). Returns a structured report as its response.
-
-3. **Persist & evaluate** — The reviewer's response starts with `VERDICT:` and `COUNTS:` on the first two lines, followed by `---ACTIONABLE---` and findings. The orchestrator:
-   - Writes the full response to `$(shipyard-data)/sprints/current/CODE-REVIEW.md` (one Write call)
-   - Parses the VERDICT and COUNTS lines from the agent response. Note: the full reviewer response is in the orchestrator's context via the Agent tool return — the compact output format minimizes this cost but doesn't eliminate it. No additional Read call is needed.
-   - Zero must-fix and zero should-fix → **clean pass**, proceed to 5c
-   - Only consider items → **acceptable**, proceed to 5c
-   - Must-fix or should-fix exist → log counts to PROGRESS.md immediately (compaction checkpoint), then check diminishing returns, then **spawn fixer**
-
-   Append the current iteration's counts to the Code Review table in PROGRESS.md before proceeding. This persists the baseline for the diminishing returns check — if compaction fires between iterations, the prior count survives in PROGRESS.md.
-
-4. **Diminishing returns check** — Skip on iteration 1 (no baseline exists). On iteration 2+, read the previous iteration's must-fix count from the PROGRESS.md Code Review table:
-   - Count decreased → improvement, continue fixing
-   - Count unchanged or increased → fixes are introducing new issues. AskUserQuestion immediately: "Code review isn't converging — [N] must-fix issues remain after [iteration] fix attempts. The fixes may be introducing new problems. Proceed to PR with current state, or investigate manually? (proceed / investigate)"
-
-5. **Fix** — Spawn `Agent` with `subagent_type: shipyard:shipyard-builder` (no worktree — works on the working branch directly):
-   ```
-   Address code review findings.
-   Read $(shipyard-data)/sprints/current/CODE-REVIEW.md — skip everything above ---ACTIONABLE---.
-   Fix all M (must-fix) and S (should-fix) items listed below the separator.
-   Each finding is one line: [file:line] — [category] — [description]. Fix: [suggestion].
-   Follow TDD — update or add tests for any bug fixes.
-   Commit fixes: refactor: address code review (iteration N)
-   ```
-   The fixer reads only the actionable section — no confidence scores, no consider items, no test coverage prose. Minimal input tokens.
-
-   After fixer returns, verify a new commit exists (`git log -1 --format=%s` should contain "address code review"). If no commit → fixer crashed or stalled. **Reset to checkpoint**: `git reset --hard $(git tag --list 'pre-code-review-*' --sort=-creatordate | head -1)` (the tag from step 1). Flag iteration as failed, don't count toward cap.
-
-6. **Repeat** — Go back to step 2 (review). Max 3 iterations.
-
-**Exit conditions:**
-- **Clean pass** — zero must-fix and zero should-fix → proceed to 5c
-- **Only consider items remain** → proceed to 5c
-- **Diminishing returns failed** — must-fix count didn't decrease → AskUserQuestion immediately (don't burn remaining iterations)
-- **3 iterations reached** — For any remaining must-fix items, create bug files at `$(shipyard-data)/spec/bugs/B-CR-[slug].md` with the finding details from CODE-REVIEW.md (file, line, category, description). This ensures unresolved code review issues are tracked and surfaced in the next sprint. Then AskUserQuestion: "Code review ran 3 iterations: [summary per iteration]. [N] items remain — tracked as [bug IDs]. Proceed to PR anyway, or keep fixing? (proceed / fix specific items / fix all)"
-
-**Cleanup:** After exiting the review loop (any exit condition), delete the checkpoint tag:
-```bash
-git tag --list 'pre-code-review-*' | xargs -I {} git tag -d {}
-```
-
-**Context cost to orchestrator:** ~3-4 tool calls per iteration (checkpoint, spawn reviewer, write report, spawn fixer). The reviewer's compact output format (VERDICT + COUNTS + one-line-per-finding) minimizes the tool return size, but the full response does land in the orchestrator's context. No source code file reads, no code edits, no test runs by the orchestrator itself. Keep the reviewer output concise — the fewer findings, the less context pressure per iteration.
-
-Log each iteration in PROGRESS.md:
-```
-## Code Review
-| Iteration | Must-fix | Should-fix | Consider | Action |
-| 1         | 3        | 5          | 2        | Fixer addressed 8 findings |
-| 2         | 0        | 1          | 2        | Fixer addressed 1 finding |
-| 3         | 0        | 0          | 2        | Clean — proceeding |
-```
-
-**5c. Finalize**
+**5b. Finalize**
 - Update SPRINT.md frontmatter: `status: completed` and `completed_at: <current ISO 8601 timestamp>` (write both in the same edit)
 - Features remain `in-progress` — only `/ship-review` transitions features to `done` after user approval
 - Report:
@@ -641,7 +555,7 @@ If the same file is edited 5+ times without a commit:
 
   Recommended: 1 — systematic investigation beats repeated attempts"
 
-This also applies when the orchestrator spawns a builder to fix integration test failures or code review findings and the fix doesn't work after 2 attempts — escalate to debug instead of spawning another builder.
+This also applies when the orchestrator spawns a builder to fix integration test failures and the fix doesn't work after 2 attempts — escalate to debug instead of spawning another builder.
 
 ## Pause / Resume
 
