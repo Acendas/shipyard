@@ -18,6 +18,7 @@ You are setting up (or updating) Shipyard for this project.
 !`shipyard-context cat version.md NO_VERSION`
 !`shipyard-context head config.md 50 NO_CONFIG`
 !`[ -f .shipyard/config.md ] && echo "LEGACY_SHIPYARD_DETECTED" || echo "NO_LEGACY"`
+!`shipyard-data find-orphans 2>/dev/null || true`
 !`head -50 CLAUDE.md 2>/dev/null || echo "No CLAUDE.md"`
 
 ## Detect Mode
@@ -50,11 +51,14 @@ You are setting up (or updating) Shipyard for this project.
 
 **Migration steps (if proceeding):**
 
-1. Create the plugin data directory: `shipyard-data init`
-2. Copy contents: `cp -r .shipyard/* "$(shipyard-data)/"`
-3. Remove legacy scripts (now served from plugin): `rm -rf "$(shipyard-data)/scripts/"`
-4. Remove transient files: `rm -f "$(shipyard-data)/.loop-state.json" "$(shipyard-data)/.active-session.json" "$(shipyard-data)/.test-output.tmp"`
-5. Report:
+1. Run the migration in one atomic step: `shipyard-data migrate .shipyard`
+
+   This handles all of: creating the data directory tree, copying contents
+   from `.shipyard/` (skipping the obsolete `scripts/` subdir which is now
+   served from the plugin), and removing transient state files. The command
+   prints the resolved data directory path on success.
+
+2. Report:
 
    ```
    Migrated Shipyard data from .shipyard/ to plugin data directory.
@@ -64,8 +68,51 @@ You are setting up (or updating) Shipyard for this project.
 
    Do NOT auto-delete `.shipyard/`.
 
-6. **Re-run codebase analysis** (Step 3) to ensure `codebase-context.md` matches the current branch.
-7. Continue to QUICK CHECK below.
+3. **Re-run codebase analysis** (Step 3) to ensure `codebase-context.md` matches the current branch.
+4. Continue to QUICK CHECK below.
+
+---
+
+### Orphaned plugin-data detection
+
+**If the `find-orphans` context output above is non-empty AND the current data dir has no `config.md`:**
+
+This means a previous Shipyard installation wrote data under a different project hash — most commonly because the worktree-detection fix (R1/F5) changed how worktree paths are resolved. The user's previous sprint state, backlog, codebase context, and memory are all at the orphaned path and would otherwise be silently abandoned.
+
+Each line of `find-orphans` output is tab-separated: `<orphan-data-dir>\t<recorded-project-root>`.
+
+DO NOT proceed with fresh-install or update flows until you have asked the user about each candidate. Use AskUserQuestion:
+
+For a single candidate:
+> "Found orphaned Shipyard data from a previous installation:
+>   <orphaned-data-dir>
+>   (recorded project root: <recorded-path>)
+>
+> This was most likely created before the worktree-detection fix changed the project hash. Migrate this data to the current data directory?
+>   1. Yes, migrate it
+>   2. No, treat this project as a fresh install (orphaned data stays at the old path)"
+
+For multiple candidates:
+> "Found N orphaned Shipyard data dirs from previous installations. Which would you like to migrate?
+>   1. <dir-1> (recorded as <path-1>)
+>   2. <dir-2> (recorded as <path-2>)
+>   ...
+>   N+1. None — treat this project as a fresh install"
+
+If the user picks "migrate", run `shipyard-data migrate <orphaned-data-dir>`. The migrate command's R4 safety guards apply automatically (it refuses on populated dest, and `--force` creates a backup) — but in this scenario the current dir is fresh by definition, so plain `migrate` will succeed without `--force`. R19 ensures the dest's `.project-root` is rewritten to the current project root after the copy.
+
+**After successful migration, MUST report the orphan source path back to the user** so they can reclaim the disk space. The orphan dir is no longer scanned by `find-orphans` once the new dir is populated, so without this announcement the user has no way to discover the leftover data exists. Add to the final report (or as a follow-up message):
+
+> Migration complete. The original orphaned data is at:
+>   `<orphaned-data-dir>`
+> It has been copied to the current data directory and is no longer used by Shipyard. Verify your project state with `/ship-status`, then you can safely delete the orphaned directory:
+>   `rm -rf <orphaned-data-dir>`
+
+Do NOT auto-delete the orphan source — match the legacy `.shipyard/` migration pattern of telling the user without acting.
+
+After successful migration, treat this as an UPDATE flow (the migrated dir has a config.md, so the update path applies).
+
+If the user picks "none" or "fresh install", continue with the FRESH install flow as normal. The orphaned data stays at the old path; mention it in the final report so they know it's still there.
 
 ---
 
@@ -205,13 +252,15 @@ Copy template files:
 - `$(shipyard-data)/backlog/BACKLOG.md` from `$(shipyard-data)/templates/BACKLOG.md`
 - `$(shipyard-data)/config.md` — generate from user answers using template format
 
-**Update .gitignore** — append if not already present:
+**Update .gitignore** — append any missing entries:
 ```
 # Claude Code local memory (machine-specific paths — never commit)
 .claude/projects/
+# Shipyard task worktrees (temporary, created by builder subagents)
+.claude/worktrees/
 ```
 
-Note: Shipyard data lives in `${CLAUDE_PLUGIN_DATA}` (outside the project), so no `.shipyard/` gitignore entries needed.
+Note: Shipyard data lives in `${CLAUDE_PLUGIN_DATA}` (outside the project), so no `.shipyard/` gitignore entries needed. Worktrees DO live inside the project (`<repo>/.claude/worktrees/<name>`) and must be ignored to keep them out of git status.
 
 ### Step 3: Analyze Codebase
 
@@ -633,7 +682,7 @@ Regenerate `$(shipyard-data)/codebase-context.md`:
 
 Check for any directories in the standard structure that don't exist yet (new versions may add directories like `debug/`, `spec/references/`). Create them silently.
 
-**Update .gitignore** — append any missing entries (same list as fresh install). This is idempotent — skip entries already present. If `.gitignore` does not exist, create it. Specifically ensure `.claude/projects/` is present (added in a recent Shipyard version to prevent user-specific memory paths from being committed).
+**Update .gitignore** — append any missing entries (same list as fresh install). This is idempotent — skip entries already present. If `.gitignore` does not exist, create it. Specifically ensure both `.claude/projects/` (machine-specific Claude memory) and `.claude/worktrees/` (Shipyard task worktrees) are present. Both were added in recent Shipyard versions.
 
 ### Step 4b: Constitution Advisor (if no strong rules exist)
 

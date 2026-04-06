@@ -1,5 +1,8 @@
 [
   {"name": "no_sprint_branch_config", "type": "not_contains", "pattern": "sprint.branch.*on|sprint_branch"},
+  {"name": "uses_atomic_migrate_command", "type": "contains", "pattern": "shipyard-data migrate \\.shipyard"},
+  {"name": "gitignores_worktrees", "type": "contains", "pattern": "\\.claude/worktrees/"},
+  {"name": "no_legacy_migration_bash_sequence", "type": "not_contains", "pattern": "cp -r \\.shipyard/\\* \"\\$\\(shipyard-data\\)/\""},
   {"name": "no_merge_strategy_config", "type": "not_contains", "pattern": "merge.strategy|merge_strategy"},
   {"name": "detects_main_branch", "type": "contains", "pattern": "main branch|main_branch"},
   {"name": "has_codebase_analysis", "type": "contains", "pattern": "codebase.context|analyze.*codebase"},
@@ -27,5 +30,8 @@
   {"name": "has_websearch_permission", "type": "contains", "pattern": "WebSearch"},
   {"name": "has_merge_not_replace", "type": "contains", "pattern": "never replace|[Mm]erge.*not.*replace|not already present"},
   {"name": "has_test_command_permissions", "type": "contains", "pattern": "test command.*permission|vitest|pytest|npm test"},
-  {"name": "update_mode_has_permissions", "type": "contains", "pattern": "Update Permissions|same permission.*FRESH"}
+  {"name": "update_mode_has_permissions", "type": "contains", "pattern": "Update Permissions|same permission.*FRESH"},
+  {"name": "detects_orphaned_plugin_data", "type": "contains", "pattern": "find-orphans"},
+  {"name": "prompts_for_orphan_migration", "type": "contains", "pattern": "orphaned Shipyard data"},
+  {"name": "announces_orphan_source_after_migration", "type": "contains", "pattern": "safely delete the orphaned"}
 ]
