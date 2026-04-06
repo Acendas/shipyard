@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|NotebookEdit",
+        "matcher": "Edit|Write|NotebookEdit|MultiEdit",
         "hooks": [
           {
             "type": "command",
@@ -20,7 +20,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
@@ -42,7 +42,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultilineEdit",
+        "matcher": "Edit|Write|MultiEdit",
         "async": true,
         "hooks": [
           {
