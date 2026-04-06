@@ -301,6 +301,8 @@ Python [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) that enforc
 
 All Shipyard data lives **outside your project** in `${CLAUDE_PLUGIN_DATA}/projects/<hash>/`. Zero git noise — no `.shipyard/` directory in your repo. Only `.claude/rules/shipyard-*.md` files are installed in the project (plugins can't ship rules remotely).
 
+The hash is derived from the **parent repo root**, so all worktrees of the same project share one data directory. Builder subagents running in `<repo>/.claude/worktrees/<task>` write back to the orchestrator's data dir on `main` — no state divergence across waves.
+
 ```
 plugin-data/projects/<hash>/
 ├── config.md              Project settings
@@ -321,6 +323,12 @@ plugin-data/projects/<hash>/
 ├── debug/                 Persistent debug sessions
 └── verify/                Review verdicts
 ```
+
+**Windows note:** the `shipyard-data.cmd` and `shipyard-context.cmd` wrappers
+delegate to Node and inherit cmd.exe's argument-quoting limitations. Paths
+containing spaces or special characters should be passed via the
+`CLAUDE_PLUGIN_DATA` environment variable rather than as command-line
+arguments. Skills shipped with Shipyard do not pass such arguments.
 
 ## Key Design Decisions
 
