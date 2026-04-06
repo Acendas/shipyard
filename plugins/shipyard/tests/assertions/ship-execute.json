@@ -1,5 +1,6 @@
 [
   {"name": "no_git_push", "type": "not_contains", "pattern": "\\bgit\\s+push\\b"},
+  {"name": "documents_with_lock_for_progress", "type": "contains", "pattern": "shipyard-data with-lock"},
   {"name": "no_sprint_branch_creation", "type": "not_contains", "pattern": "git checkout -b sprint/"},
   {"name": "no_squash_merge", "type": "not_contains", "pattern": "git merge --squash"},
   {"name": "no_squash_merge_ref", "type": "not_contains", "pattern": "squash-merge"},
