@@ -1,0 +1,20 @@
+#!/bin/sh
+# Unix wrapper for shipyard-data.mjs.
+# Skills invoke `shipyard-data` as a bare command; PATH lookup finds this file
+# on macOS/Linux and shipyard-data.cmd on Windows. Both delegate to the .mjs.
+#
+# Symlink-aware: when this wrapper is reached via a PATH symlink (e.g.
+# /usr/local/bin/shipyard-data → plugin path), `dirname "$0"` would point at
+# the symlink's directory, not the plugin's bin/. Resolve the symlink chain
+# before computing DIR so the sibling .mjs lookup works under any install
+# pattern.
+SCRIPT="$0"
+while [ -L "$SCRIPT" ]; do
+  link="$(readlink "$SCRIPT")"
+  case "$link" in
+    /*) SCRIPT="$link" ;;
+    *)  SCRIPT="$(dirname "$SCRIPT")/$link" ;;
+  esac
+done
+DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+exec node "$DIR/shipyard-data.mjs" "$@"

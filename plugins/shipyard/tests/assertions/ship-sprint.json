@@ -1,0 +1,266 @@
+[
+  {
+    "name": "uses_atomic_archive_sprint_command",
+    "type": "contains",
+    "pattern": "shipyard-data archive-sprint"
+  },
+  {
+    "name": "allows_bash_shipyard_data",
+    "type": "contains",
+    "pattern": "Bash\\(shipyard-data:\\*\\)"
+  },
+  {
+    "name": "no_git_push",
+    "type": "not_contains",
+    "pattern": "\\bgit\\s+push\\b"
+  },
+  {
+    "name": "no_sprint_branch_creation",
+    "type": "not_contains",
+    "pattern": "git checkout -b sprint/"
+  },
+  {
+    "name": "no_integration_branch",
+    "type": "not_contains",
+    "pattern": "integration_branch"
+  },
+  {
+    "name": "records_working_branch",
+    "type": "contains",
+    "pattern": "git branch --show-current"
+  },
+  {
+    "name": "has_rice_scoring",
+    "type": "contains",
+    "pattern": "RICE"
+  },
+  {
+    "name": "has_wave_structure",
+    "type": "contains",
+    "pattern": "[Ww]ave"
+  },
+  {
+    "name": "has_capacity_planning",
+    "type": "contains",
+    "pattern": "[Cc]apacity"
+  },
+  {
+    "name": "has_velocity_reference",
+    "type": "contains",
+    "pattern": "[Vv]elocity"
+  },
+  {
+    "name": "has_cancel_mode",
+    "type": "contains",
+    "pattern": "CANCEL"
+  },
+  {
+    "name": "has_extend_mode",
+    "type": "contains",
+    "pattern": "EXTEND"
+  },
+  {
+    "name": "has_research_step",
+    "type": "contains",
+    "pattern": "WebSearch|Research"
+  },
+  {
+    "name": "has_eta_display",
+    "type": "contains",
+    "pattern": "ETA"
+  },
+  {
+    "name": "has_frontmatter_name",
+    "type": "frontmatter_field",
+    "field": "name",
+    "value": "ship-sprint"
+  },
+  {
+    "name": "uses_opus",
+    "type": "frontmatter_field",
+    "field": "model",
+    "value": "opus"
+  },
+  {
+    "name": "has_simplification_scan_step",
+    "type": "contains",
+    "pattern": "Step 3\\.75.*[Ss]implification"
+  },
+  {
+    "name": "simplification_scan_reads_protocol",
+    "type": "contains",
+    "pattern": "simplification-scan\\.md"
+  },
+  {
+    "name": "simplification_scan_scope_guard",
+    "type": "contains",
+    "pattern": "20%.*capacity|capacity.*20%"
+  },
+  {
+    "name": "simplification_scan_before_decompose",
+    "type": "contains",
+    "pattern": "Step 3\\.75.*[Ss]implification.*Step 4.*Decompose",
+    "dotall": true
+  },
+  {
+    "name": "has_session_guard",
+    "type": "contains",
+    "pattern": "\\.active-session\\.json"
+  },
+  {
+    "name": "has_compaction_recovery",
+    "type": "contains",
+    "pattern": "[Cc]ompaction [Rr]ecovery"
+  },
+  {
+    "name": "has_sprint_draft",
+    "type": "contains",
+    "pattern": "SPRINT-DRAFT\\.md"
+  },
+  {
+    "name": "has_plan_mode",
+    "type": "contains",
+    "pattern": "EnterPlanMode"
+  },
+  {
+    "name": "has_quality_gate",
+    "type": "contains",
+    "pattern": "Quality Gate|self-review loop"
+  },
+  {
+    "name": "has_critic_agent",
+    "type": "contains",
+    "pattern": "shipyard-critic|[Aa]dversarial [Cc]riti"
+  },
+  {
+    "name": "has_carry_over_scan",
+    "type": "contains",
+    "pattern": "[Cc]arry.[Oo]ver [Ss]can"
+  },
+  {
+    "name": "has_rules_compliance_check",
+    "type": "contains",
+    "pattern": "[Rr]ules [Cc]ompliance"
+  },
+  {
+    "name": "has_terminology_alignment",
+    "type": "contains",
+    "pattern": "[Tt]erminology [Aa]lignment"
+  },
+  {
+    "name": "has_definition_of_ready",
+    "type": "contains",
+    "pattern": "[Dd]efinition of [Rr]eady"
+  },
+  {
+    "name": "has_implementation_decisions",
+    "type": "contains",
+    "pattern": "[Ii]mplementation [Dd]ecision"
+  },
+  {
+    "name": "has_poc_spike",
+    "type": "contains",
+    "pattern": "POC.*spike|spike.*POC"
+  },
+  {
+    "name": "has_sme_skill_generation",
+    "type": "contains",
+    "pattern": "shipyard-skill-writer|SME"
+  },
+  {
+    "name": "has_token_projection",
+    "type": "contains",
+    "pattern": "token_estimate|[Tt]oken.*projection"
+  },
+  {
+    "name": "has_throughput_tracking",
+    "type": "contains",
+    "pattern": "throughput|pts.*hr|pts/hr"
+  },
+  {
+    "name": "planning_checklists_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-sprint/references/planning-checklists.md"
+  },
+  {
+    "name": "uses_ask_user_question",
+    "type": "contains",
+    "pattern": "AskUserQuestion"
+  },
+  {
+    "name": "uses_shipyard_data_path",
+    "type": "contains",
+    "pattern": "shipyard-data|shipyard-context"
+  },
+  {
+    "name": "has_communication_design_ref",
+    "type": "contains",
+    "pattern": "communication-design\\.md"
+  },
+  {
+    "name": "has_3_layer_pattern",
+    "type": "contains",
+    "pattern": "3-layer.*pattern|3-layer explanation"
+  },
+  {
+    "name": "has_wave_timeline_visual",
+    "type": "contains",
+    "pattern": "visual timeline|Wave.*\u2588\u2588\u2588\u2588"
+  },
+  {
+    "name": "has_dependency_dag",
+    "type": "contains",
+    "pattern": "DEPENDENCY GRAPH|DAG|\u2500\u252c\u2500\u25b6"
+  },
+  {
+    "name": "has_lsp_in_tools",
+    "type": "contains",
+    "pattern": "LSP"
+  },
+  {
+    "name": "has_lsp_first_principle",
+    "type": "contains",
+    "pattern": "LSP first|LSP.*before.*Grep|[Uu]se LSP"
+  },
+  {
+    "name": "has_task_size_guard",
+    "type": "contains",
+    "pattern": "8 discrete items|task size guard|split the task"
+  },
+  {
+    "name": "no_shell_sd_substitution",
+    "type": "not_contains",
+    "pattern": "\\$\\(shipyard-data"
+  },
+  {
+    "name": "no_shell_sc_substitution",
+    "type": "not_contains",
+    "pattern": "\\$\\(shipyard-context"
+  },
+  {
+    "name": "no_sd_shell_var_assignment",
+    "type": "not_contains",
+    "pattern": "SD=\\$\\(shipyard-data"
+  },
+  {
+    "name": "has_session_mutex_check",
+    "type": "contains",
+    "pattern": "Session Mutex Check|session mutex check"
+  },
+  {
+    "name": "mutex_reads_active_session",
+    "type": "contains",
+    "pattern": "Read tool on `<SHIPYARD_DATA>/\\.active-session\\.json`|Read.*<SHIPYARD_DATA>/\\.active-session"
+  },
+  {
+    "name": "mutex_has_2hr_staleness",
+    "type": "contains",
+    "pattern": "more than 2 hours old|2 hours ago"
+  },
+  {
+    "name": "mutex_hard_blocks_active",
+    "type": "contains",
+    "pattern": "HARD BLOCK|hard block.*planning session",
+    "dotall": true
+  }
+]

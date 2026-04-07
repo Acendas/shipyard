@@ -1,0 +1,134 @@
+[
+  {
+    "name": "uses_haiku",
+    "type": "frontmatter_field",
+    "field": "model",
+    "value": "haiku"
+  },
+  {
+    "name": "has_diagnose_subcommand",
+    "type": "contains",
+    "pattern": "shipyard-context diagnose"
+  },
+  {
+    "name": "has_diagnose_section",
+    "type": "contains",
+    "pattern": "diagnose section|/ship-status diagnose"
+  },
+  {
+    "name": "has_dashboard",
+    "type": "contains",
+    "pattern": "[Dd]ashboard|[Pp]rogress|[Oo]verview"
+  },
+  {
+    "name": "has_schema_validation",
+    "type": "contains",
+    "pattern": "Frontmatter Schema|frontmatter"
+  },
+  {
+    "name": "has_auto_fix",
+    "type": "contains",
+    "pattern": "Auto-fix|auto-fix|silently"
+  },
+  {
+    "name": "has_backlog_check",
+    "type": "contains",
+    "pattern": "Backlog Consistency"
+  },
+  {
+    "name": "has_sprint_check",
+    "type": "contains",
+    "pattern": "Sprint Consistency"
+  },
+  {
+    "name": "has_next_action",
+    "type": "contains",
+    "pattern": "NEXT ACTION"
+  },
+  {
+    "name": "no_ship_reconcile_ref",
+    "type": "not_contains",
+    "pattern": "/ship-reconcile"
+  },
+  {
+    "name": "has_frontmatter_name",
+    "type": "frontmatter_field",
+    "field": "name",
+    "value": "ship-status"
+  },
+  {
+    "name": "has_execution_lock_handling",
+    "type": "contains",
+    "pattern": "\\.active-execution\\.json"
+  },
+  {
+    "name": "has_stale_lock_cleanup",
+    "type": "contains",
+    "pattern": "stale|2.*hour|escape hatch"
+  },
+  {
+    "name": "has_handoff_detection",
+    "type": "contains",
+    "pattern": "HANDOFF\\.md"
+  },
+  {
+    "name": "has_id_reference_integrity",
+    "type": "contains",
+    "pattern": "ID.*Reference|[Dd]uplicate.*ID|broken.*dep"
+  },
+  {
+    "name": "has_git_alignment_check",
+    "type": "contains",
+    "pattern": "Git Alignment"
+  },
+  {
+    "name": "has_file_hygiene",
+    "type": "contains",
+    "pattern": "File Hygiene"
+  },
+  {
+    "name": "has_file_size_health",
+    "type": "contains",
+    "pattern": "File Size|rollover"
+  },
+  {
+    "name": "has_reconcile_log",
+    "type": "contains",
+    "pattern": "reconcile-log"
+  },
+  {
+    "name": "has_health_subcommand",
+    "type": "contains",
+    "pattern": "ship-status health|throughput"
+  },
+  {
+    "name": "has_sprint_subcommand",
+    "type": "contains",
+    "pattern": "ship-status sprint|per-wave"
+  },
+  {
+    "name": "uses_ask_user_question",
+    "type": "contains",
+    "pattern": "AskUserQuestion"
+  },
+  {
+    "name": "uses_shipyard_data_path",
+    "type": "contains",
+    "pattern": "shipyard-data|shipyard-context"
+  },
+  {
+    "name": "no_shell_sd_substitution",
+    "type": "not_contains",
+    "pattern": "\\$\\(shipyard-data"
+  },
+  {
+    "name": "no_shell_sc_substitution",
+    "type": "not_contains",
+    "pattern": "\\$\\(shipyard-context"
+  },
+  {
+    "name": "no_sd_shell_var_assignment",
+    "type": "not_contains",
+    "pattern": "SD=\\$\\(shipyard-data"
+  }
+]

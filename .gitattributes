@@ -1,0 +1,24 @@
+# Normalize line endings
+* text=auto
+
+# Markdown
+*.md text eol=lf
+
+# Scripts
+*.sh text eol=lf
+*.py text eol=lf
+
+# JSON
+*.json text eol=lf
+
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text eol=lf
+
+# Archives
+*.tar.gz binary
+*.zip binary

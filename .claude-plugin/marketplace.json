@@ -1,0 +1,59 @@
+{
+  "name": "acendas",
+  "owner": {
+    "name": "Acendas",
+    "email": "info@acendas.ca"
+  },
+  "metadata": {
+    "description": "Developer productivity plugins by Acendas — agile project management, spec-driven development, and sprint automation for Claude Code.",
+    "version": "1.2.0",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "shipyard",
+      "source": "./plugins/shipyard",
+      "description": "Turn your idea into working code — Shipyard runs Claude Code through a spec-driven agile sprint lifecycle: discuss features, plan sprints, build with TDD, review, and ship.",
+      "version": "1.2.0",
+      "author": {
+        "name": "Acendas",
+        "email": "info@acendas.ca"
+      },
+      "homepage": "https://github.com/acendas/shipyard",
+      "repository": "https://github.com/acendas/shipyard",
+      "license": "MIT",
+      "category": "development",
+      "keywords": [
+        "agile",
+        "sprint",
+        "tdd",
+        "project-management",
+        "scrum",
+        "backlog",
+        "retro",
+        "spec",
+        "feature",
+        "review",
+        "release",
+        "kanban",
+        "workflow",
+        "automation",
+        "test-driven-development"
+      ],
+      "tags": [
+        "agile",
+        "sprint-planning",
+        "tdd",
+        "project-management",
+        "spec-driven",
+        "code-review",
+        "backlog-grooming",
+        "feature-specs",
+        "release-management",
+        "debugging",
+        "retro",
+        "workflow-automation"
+      ]
+    }
+  ]
+}
