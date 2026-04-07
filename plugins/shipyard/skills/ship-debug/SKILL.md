@@ -1,7 +1,7 @@
 ---
 name: ship-debug
 description: "Systematic debugging with persistent state that survives session breaks and /clear. Use when the user reports a bug, something isn't working, tests are failing, they're stuck on an error, or they want to investigate unexpected behavior. Also use when the user says 'debug', 'investigate', 'why is this broken', or 'help me fix this'."
-allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, AskUserQuestion, EnterPlanMode, ExitPlanMode]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, AskUserQuestion, EnterPlanMode, ExitPlanMode, "Bash(shipyard-context:*)"]
 model: sonnet
 effort: high
 argument-hint: "[description of the problem] [--resume]"
@@ -15,10 +15,10 @@ Systematic debugging that doesn't lose progress when context compacts or session
 
 !`shipyard-context path`
 
-!`shipyard-context ls-glob "debug/*.md" 5 "No active debug sessions"`
-!`shipyard-context head config.md 5 NO_CONFIG`
+!`shipyard-context list debug-sessions`
+!`shipyard-context view config 5`
 
-**Data path: use the SHIPYARD_DATA path from context above. For Read/Write/Edit tools, use the full literal path (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/...`). NEVER use `~` or `$HOME` in file_path — always start with `/`. For Bash: `SD=$(shipyard-data)` then `$SD/...`. Shell variables like `$SD` do NOT work in Read/Write/Edit file_path — only literal paths. NEVER hardcode or guess paths.**
+**Data path: use the SHIPYARD_DATA path printed in the context block above as a literal absolute prefix for every Read / Grep / Glob / Write / Edit call (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/debug/...`). NEVER use `~`, `$HOME`, or shell variables in `file_path` — always start with `/`. Do NOT invoke `shipyard-data` or `shipyard-context` from Bash inside this skill — use Claude's native Read / Grep / Glob tools instead. Never hardcode or guess paths.**
 
 ## Input
 
@@ -40,7 +40,7 @@ Claude's auto-compaction and `/clear` wipe conversation history. Without a debug
 
 ### Step 1: Create Debug File
 
-Generate a slug from the problem description. Create `$(shipyard-data)/debug/[slug].md`:
+Generate a slug from the problem description. Use the Write tool to create `<SHIPYARD_DATA>/debug/[slug].md` (substitute SHIPYARD_DATA from the context block):
 
 ```markdown
 ---
@@ -170,7 +170,19 @@ Once root cause is identified, present the diagnosis and proposed fix for approv
 
 Once root cause is identified and fix plan is approved:
 
-**Execution lock check** — before writing code, check `$(shipyard-data)/.active-execution.json`. If another session is executing (lock exists and <2 hours old), **hard block**:
+**Planning-session mutex check** — before writing code, use the Read tool on `<SHIPYARD_DATA>/.active-session.json`. Parse the JSON if it exists. If `cleared` is not set, `skill` is not null, AND `started` is less than 2 hours ago, **hard block**:
+```
+⛔ Planning session active — cannot apply debug fix.
+  Skill:   /{skill from file}
+  Topic:   {topic from file}
+  Started: {started from file}
+
+A discussion or sprint planning session is in progress. Finish or pause it first.
+If the planning session crashed: /ship-status (will offer to clear the stale lock)
+```
+Do not proceed. If `cleared` is set, `skill` is null, or `started` is more than 2 hours ago, treat the planning session as inactive — print "(recovered stale planning lock from `/{previous skill}`)" if the lock was stale, then continue to the execution lock check below. The investigation phases (Steps 1-3) are read-only and don't need this check; only the fix-application phase does.
+
+**Execution lock check** — before writing code, use the Read tool on `<SHIPYARD_DATA>/.active-execution.json`. Parse the JSON. If `cleared` is not set AND `started` is less than 2 hours ago, **hard block**:
 ```
 ⛔ BLOCKED: Another execution session is active.
   Skill: [skill name]
@@ -179,7 +191,7 @@ Once root cause is identified and fix plan is approved:
 Finish or pause the active session first, then apply the debug fix.
 If the other session crashed or was closed: /ship-status (will ask to clear the lock)
 ```
-Do not proceed. Do not offer an override. If no lock exists or lock is stale → write the lock while fixing, delete when done.
+Do not proceed. Do not offer an override. If no lock exists, the lock has `cleared` set, or the lock is stale → use the Write tool to write a new lock JSON `{"skill": "ship-debug", "task": "[debug slug]", "started": "[ISO]"}` while fixing. When done, use Write to overwrite the lock with `{"skill": null, "cleared": "<iso>"}` (soft-delete sentinel).
 
 1. Set status → `fixing`
 2. Write the fix (follow project patterns)
@@ -216,7 +228,7 @@ Update `## Resolution` in the debug file with what layers were added and where.
 ### Step 6: Close
 
 1. AskUserQuestion: "Fix verified. Does this resolve the issue?"
-2. If yes: set status → `resolved`, move file to `$(shipyard-data)/debug/resolved/`
+2. If yes: set status → `resolved` in the debug file's frontmatter (Edit in place — do not move). The `reap-obsolete` housekeeping will physically reap resolved debug files after the retention period.
 3. If related to a sprint task, update PROGRESS.md
 4. If this was a hotfix, suggest: "Create a bug report with /ship-bug --hotfix for proper tracking?"
 
@@ -256,8 +268,8 @@ Debug files can bloat during complex investigations. Keep them useful, not exhau
 - **Evidence & Eliminated entries**: 1-2 lines each, not paragraphs
 - **Soft limit: 150 lines per debug file.** If approaching this:
   1. Summarize older Evidence entries into a single "Summary of findings so far" line
-  2. Collapse Eliminated section — replace individual entries with: "Eliminated [N] hypotheses: [one-line list]. See `$(shipyard-data)/debug/resolved/[slug]-investigation-log.md` for details."
-  3. Move verbose investigation details to `$(shipyard-data)/debug/resolved/[slug]-investigation-log.md`
+  2. Collapse Eliminated section — replace individual entries with: "Eliminated [N] hypotheses: [one-line list]. See `<SHIPYARD_DATA>/debug/[slug]-investigation-log.md` for details."
+  3. Use the Write tool to put verbose investigation details in `<SHIPYARD_DATA>/debug/[slug]-investigation-log.md`
   4. Keep Current Focus and Resolution in the main file (these are what matters for resume)
 
 The debug file is a resume-point, not a novel. Future-you needs: what's proven, what's eliminated, what to try next.

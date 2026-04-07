@@ -1,7 +1,7 @@
 ---
 name: ship-backlog
 description: "View, groom, and manage the prioritized backlog sorted by RICE score. Use when the user wants to see the backlog, reprioritize features, run a grooming session, clean up stale items, declare backlog bankruptcy, or decide what to work on next."
-allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, EnterPlanMode, ExitPlanMode]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, EnterPlanMode, ExitPlanMode, "Bash(shipyard-context:*)"]
 model: sonnet
 effort: medium
 argument-hint: "[groom|rank|approve|bankruptcy]"
@@ -17,11 +17,11 @@ Manage the prioritized backlog. Default sort is by RICE score (Reach x Impact x 
 
 !`shipyard-context path`
 
-!`shipyard-context head backlog/BACKLOG.md 50 NO_BACKLOG`
-!`shipyard-context head config.md 50 NO_CONFIG`
-!`shipyard-context head memory/metrics.md 20 NO_METRICS`
+!`shipyard-context view backlog`
+!`shipyard-context view config`
+!`shipyard-context view metrics`
 
-**Data path: use the SHIPYARD_DATA path from context above. For Read/Write/Edit tools, use the full literal path (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/...`). NEVER use `~` or `$HOME` in file_path — always start with `/`. For Bash: `SD=$(shipyard-data)` then `$SD/...`. Shell variables like `$SD` do NOT work in Read/Write/Edit file_path — only literal paths. NEVER hardcode or guess paths.**
+**Data path: use the SHIPYARD_DATA path printed in the context block above as a literal absolute prefix for every Read / Grep / Glob / Write / Edit call (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/spec/features/F001-*.md`). NEVER use `~`, `$HOME`, or shell variables in `file_path` — always start with `/`. Do NOT invoke `shipyard-data` or `shipyard-context` from Bash inside this skill — use Claude's native Read / Grep / Glob tools instead. Never hardcode or guess paths.**
 
 ## Input
 
@@ -44,7 +44,7 @@ For bankruptcy: check if any feature files have status `deferred` with today's d
 
 Read BACKLOG.md for the ordered list of feature IDs. If BACKLOG.md doesn't exist or contains no IDs:
 
-1. Scan `$(shipyard-data)/spec/features/` for features with `status: proposed`
+1. Use the Grep tool with `pattern: ^status: proposed`, `path: <SHIPYARD_DATA>/spec/features`, `glob: F*.md`, `output_mode: files_with_matches` to find proposed features. Then Read each returned file for title, RICE, points.
 2. If proposed features exist → show them and offer to approve:
    ```
    Backlog is empty, but [N] proposed features are waiting for approval:
@@ -59,9 +59,9 @@ Read BACKLOG.md for the ordered list of feature IDs. If BACKLOG.md doesn't exist
    - **discuss first** → suggest `/ship-discuss [ID]` for the top one
 3. If no proposed features either → AskUserQuestion: "The backlog is empty and no features are proposed. Run /ship-discuss to define features."
 
-**CRITICAL:** Always resolve data path via `$(shipyard-data)`. Never hardcode paths or look in other worktrees.
+**CRITICAL:** Always resolve paths via the literal SHIPYARD_DATA prefix from the context block above. Never hardcode paths or look in other worktrees.
 
-For each ID, read the feature file to get live data (title, RICE, points, status, epic, updated date). Also scan `$(shipyard-data)/spec/epics/` to build the epic index. Also read `$(shipyard-data)/sprints/current/SPRINT.md` to identify which features are in the active sprint.
+For each ID, use the Read tool on `<SHIPYARD_DATA>/spec/features/F<NNN>-*.md` (Glob first if you need to discover the slug) to get live data (title, RICE, points, status, epic, updated date). Also use Glob `<SHIPYARD_DATA>/spec/epics/E*.md` then Read each to build the epic index. Also Read `<SHIPYARD_DATA>/sprints/current/SPRINT.md` to identify which features are in the active sprint.
 
 **Display in three sections — sprint first, then backlog, then proposed:**
 
@@ -104,7 +104,7 @@ Then start the **interactive loop** — AskUserQuestion:
 
 Within each section, features are sorted by RICE descending. The overall rank numbers (1, 2, 3...) span all sections for easy picking.
 
-**Important:** Only group by epics that exist in `$(shipyard-data)/spec/epics/` and are referenced by the feature's `epic:` frontmatter field. Do NOT invent categories or group by keywords in titles. If ALL features in a section share the same epic, show it as a header. If mixed, show epic as a column.
+**Important:** Only group by epics that exist in `<SHIPYARD_DATA>/spec/epics/` (verify via Glob) and are referenced by the feature's `epic:` frontmatter field. Do NOT invent categories or group by keywords in titles. If ALL features in a section share the same epic, show it as a header. If mixed, show epic as a column.
 
 This board is generated on-the-fly — it's never stored in BACKLOG.md.
 
@@ -203,9 +203,8 @@ When backlog is overwhelmingly large (50+ items) or consistently ignored:
 
 3. AskUserQuestion: "Archive [K] items and keep [M]? (yes / adjust / cancel)"
 4. If confirmed:
-   - Update status to `deferred` in each archived feature's frontmatter
-   - Move feature files to `$(shipyard-data)/spec/archive/`
-   - Rebuild BACKLOG.md with survivor IDs only
+   - Use the Edit tool to set `status: deferred` in each archived feature's frontmatter (in place — do not move or delete the file). The `reap-obsolete` housekeeping subcommand will physically reap them after the retention period.
+   - Rebuild BACKLOG.md with survivor IDs only (use Edit on `<SHIPYARD_DATA>/spec/BACKLOG.md`).
    - Report: "Archived [K] items. [M] remain."
 
 ### `approve [IDs]` → Approve proposed features into backlog

@@ -6,7 +6,12 @@ model: sonnet
 maxTurns: 100
 memory: project
 permissionMode: acceptEdits
-isolation: worktree
+# `isolation: worktree` deliberately omitted: Claude Code ignores this
+# field in agent frontmatter (anthropics/claude-code#34775). Worktree
+# isolation MUST be passed at the Agent() call site instead. See
+# skills/ship-execute/references/git-strategy.md row #34775. Leaving
+# the field here would mislead future maintainers into thinking the
+# frontmatter is the source of truth when it isn't.
 ---
 
 You are a Shipyard builder agent. You execute sprint tasks by writing code that satisfies spec acceptance criteria.

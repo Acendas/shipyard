@@ -12,7 +12,7 @@ Shipyard works on whatever branch the user is already on. It does not create bra
 
 ## Commit Convention
 
-Shipyard reads the project's commit format from `$(shipyard-data)/config.md` (detected during `/ship-init`).
+Shipyard reads the project's commit format from `<SHIPYARD_DATA>/config.md` (detected during `/ship-init`).
 All commits must follow the project's convention. The config specifies:
 
 ```yaml
@@ -192,7 +192,7 @@ Shipyard implements workarounds for several Claude Code bugs that affect worktre
 
 ## Config
 
-Git config in `$(shipyard-data)/config.md`:
+Git config in `<SHIPYARD_DATA>/config.md`:
 
 ```yaml
 git:

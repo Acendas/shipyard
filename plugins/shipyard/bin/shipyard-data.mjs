@@ -19,7 +19,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getDataDir, getProjectHash, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
@@ -336,10 +336,29 @@ function withLock(args) {
 /**
  * R18: Detect orphaned plugin-data dirs whose recorded .project-root matches
  * the current parent repo or any of its worktrees. This surfaces data that
- * would otherwise be silently abandoned after the R1/F5 worktree-detection
- * fix changed the project hash (a user whose previous sessions ran inside a
- * standalone worktree had data under the worktree-hash; after the fix, the
- * resolver returns the parent-repo-hash and ship-init sees an empty dir).
+ * would otherwise be silently abandoned across resolver semantics changes:
+ *
+ *   - R1/F5 (builder worktrees share parent hash): users whose previous
+ *     sessions ran inside a worktree had data under the worktree-hash;
+ *     after the fix the resolver returns the parent-repo-hash and ship-init
+ *     sees an empty dir. The orphan lives at the old worktree-hash.
+ *
+ *   - User-worktree isolation (user-owned worktrees outside
+ *     `<parent>/.claude/worktrees/` now get their OWN isolated hash instead
+ *     of sharing the parent's): users whose previous sessions ran inside
+ *     one of these worktrees had data under the parent-repo-hash and the
+ *     new resolver now hashes the worktree-toplevel. The orphan lives at
+ *     the old parent-repo-hash — same detection mechanism, mirror direction.
+ *     Heads up when migrating: if two user-worktree sessions of the same
+ *     repo co-mingled state under the parent-repo-hash, only ONE worktree
+ *     can claim that data via /ship-init's migration prompt; the other must
+ *     start fresh. There's no automatic way to de-interleave a shared dir.
+ *
+ * Detection is identical for both cases: enumerate all worktree paths of
+ * the current parent repo via `git worktree list`, build a set of "claimed
+ * paths" (parent + worktrees, all realpath'd), and flag any sibling
+ * `projects/<hash>/` dir whose `.project-root` breadcrumb resolves into
+ * that set.
  *
  * Output: one line per orphan, tab-separated: <orphan-data-dir>\t<recorded-root>
  * Exits 0 with no output when there's nothing to migrate.
@@ -462,6 +481,320 @@ function findOrphans() {
   }
 }
 
+/**
+ * Atomically archive the current sprint into sprints/<sprint-id>/.
+ *
+ * Renames $SHIPYARD_DATA/sprints/current → $SHIPYARD_DATA/sprints/<sprint-id>
+ * and recreates an empty current/ for the next sprint. A single directory
+ * rename is atomic on the same filesystem (rename(2) guarantee) — strictly
+ * safer than the cp + rm bash sequence skills used to synthesize, which
+ * was:
+ *   a) not atomic (partial archive on crash)
+ *   b) out of scope for the auto-approve-data PreToolUse hook (which only
+ *      matches Edit/Write/NotebookEdit/MultiEdit — NOT Bash), so every
+ *      invocation triggered a permission prompt against the plugin data
+ *      dir path ("suspicious path outside project root", issue #41763).
+ *
+ * Routing skills through this single entry point lets them use
+ * `Bash(shipyard-data:*)` in allowed-tools and skip the prompt entirely.
+ * Matches the same pattern enforced for migrations by the eval assertion
+ * `uses_atomic_migrate_command`.
+ *
+ * Sprint ID is validated against a strict allowlist (sprint-NNN where NNN
+ * is 3+ digits) to prevent path traversal via argv. refuse to overwrite
+ * an existing archive dir unless --force is given, matching migrate's
+ * safety contract.
+ */
+function archiveSprint(sprintId, opts = {}) {
+  if (!sprintId) {
+    process.stderr.write(
+      "shipyard-data archive-sprint: missing sprint ID\n" +
+      "  Usage: shipyard-data archive-sprint <sprint-id> [--force]\n" +
+      "  Sprint ID must match: sprint-NNN (3+ digits)\n"
+    );
+    process.exit(1);
+  }
+  // Strict allowlist — rejects path traversal, absolute paths, and any
+  // non-sprint identifier. Must match the pattern skills generate.
+  if (!/^sprint-[0-9]{3,}$/.test(sprintId)) {
+    process.stderr.write(
+      `shipyard-data archive-sprint: invalid sprint ID ${JSON.stringify(sprintId)}\n` +
+      `  Expected format: sprint-NNN (e.g. sprint-001, sprint-042)\n`
+    );
+    process.exit(1);
+  }
+
+  const dataDir = getDataDir({ silent: true });
+  const sprintsDir = join(dataDir, "sprints");
+  const currentDir = join(sprintsDir, "current");
+  const archiveDir = join(sprintsDir, sprintId);
+
+  if (!existsSync(currentDir)) {
+    process.stderr.write(
+      `shipyard-data archive-sprint: no current sprint to archive\n` +
+      `  Expected: ${currentDir}\n`
+    );
+    process.exit(1);
+  }
+
+  if (existsSync(archiveDir)) {
+    if (!opts.force) {
+      process.stderr.write(
+        `shipyard-data archive-sprint: refusing — archive destination already exists: ${archiveDir}\n` +
+        `  Re-run with --force to overwrite (existing contents will be removed first).\n`
+      );
+      process.exit(1);
+    }
+    // --force path: remove the existing archive dir so the rename can
+    // succeed. This is destructive; the operator asked for it explicitly.
+    rmSync(archiveDir, { recursive: true, force: true });
+  }
+
+  mkdirSync(sprintsDir, { recursive: true });
+
+  // Atomic single-syscall archive. Same-filesystem rename guarantees all
+  // current/ contents land in the archive dir in one step — no partial
+  // state on crash, no copy/delete race.
+  renameSync(currentDir, archiveDir);
+
+  // Recreate an empty current/ for the next sprint so skills that expect
+  // the directory to exist (ship-sprint's Compaction Recovery checks for
+  // SPRINT-DRAFT.md there) don't ENOENT on the first read after archive.
+  mkdirSync(currentDir, { recursive: true });
+
+  process.stdout.write(archiveDir + "\n");
+}
+
+/**
+ * Safely delete an orphaned data directory after migration.
+ *
+ * Customer-facing destructive op: when the resolver semantics change (e.g.,
+ * adding worktree-parent detection in commit 7554998), users' prior data
+ * directories become orphaned at the old hash. `find-orphans` discovers
+ * them; `drop-orphan` reaps them. Refuses to delete the current project's
+ * data dir even if invoked with the matching hash — that would destroy
+ * live state.
+ *
+ * Safety:
+ *   1. Hash format strictly validated against `^[0-9a-f]{12}$` (no path
+ *      traversal via argv).
+ *   2. Refuse if the resolved candidate equals or is contained by the
+ *      current data dir (handles symlink/case-insensitive FS edge cases
+ *      that pure hash comparison would miss). Validator C7.
+ *   3. Refuse if the candidate has no `.project-root` breadcrumb file —
+ *      we never `rm -rf` arbitrary directories.
+ *
+ * Logged to .data-ops.log via the same breadcrumb format auto-approve-data
+ * uses, so customers can grep `shipyard-context diagnose` output for the
+ * deletion event.
+ */
+function dropOrphan(hash) {
+  if (!hash) {
+    process.stderr.write(
+      "shipyard-data drop-orphan: missing project hash\n" +
+      "  Usage: shipyard-data drop-orphan <12-hex-hash>\n"
+    );
+    process.exit(1);
+  }
+  if (!/^[0-9a-f]{12}$/.test(hash)) {
+    process.stderr.write(
+      `shipyard-data drop-orphan: invalid hash ${JSON.stringify(hash)}\n` +
+      `  Expected: 12 lowercase hex characters (e.g., dbaa5569a9b3)\n`
+    );
+    process.exit(1);
+  }
+
+  let currentDataDir;
+  try {
+    currentDataDir = getDataDir({ silent: true });
+  } catch {
+    process.stderr.write(
+      "shipyard-data drop-orphan: cannot resolve current data dir; aborting for safety\n"
+    );
+    process.exit(1);
+  }
+
+  const projectsDir = dirname(currentDataDir);
+  const candidate = join(projectsDir, hash);
+  if (!existsSync(candidate)) {
+    process.stderr.write(
+      `shipyard-data drop-orphan: no such directory: ${candidate}\n`
+    );
+    process.exit(1);
+  }
+  // C7: containment check via realpath equality / nesting, not hash equality.
+  const candidateReal = realpathOrResolve(candidate);
+  const currentReal = realpathOrResolve(currentDataDir);
+  if (candidateReal === currentReal) {
+    process.stderr.write(
+      `shipyard-data drop-orphan: refusing to delete the current project's data dir\n` +
+      `  current:   ${currentDataDir}\n` +
+      `  requested: ${candidate}\n`
+    );
+    process.exit(1);
+  }
+  // Reject if either path nests inside the other (symlinked variants).
+  const rel = pathRelative(currentReal, candidateReal);
+  if (!rel || (!rel.startsWith("..") && rel !== "")) {
+    process.stderr.write(
+      `shipyard-data drop-orphan: refusing — candidate overlaps the current data dir via realpath\n` +
+      `  current realpath:   ${currentReal}\n` +
+      `  candidate realpath: ${candidateReal}\n`
+    );
+    process.exit(1);
+  }
+
+  const breadcrumb = join(candidate, ".project-root");
+  if (!existsSync(breadcrumb)) {
+    process.stderr.write(
+      `shipyard-data drop-orphan: refusing — no .project-root breadcrumb at ${breadcrumb}\n` +
+      `  This directory does not look like a Shipyard data dir.\n`
+    );
+    process.exit(1);
+  }
+
+  let recordedRoot = "";
+  try { recordedRoot = readFileSync(breadcrumb, "utf8").trim(); } catch { /* ignore */ }
+
+  rmSync(candidate, { recursive: true, force: false });
+
+  // Best-effort breadcrumb log to the CURRENT data dir's .data-ops.log.
+  // Errors are swallowed — diagnostics never break the command.
+  try {
+    const ts = new Date().toISOString();
+    const line = `${ts} drop-orphan hash=${hash} recorded_root=${recordedRoot} candidate=${candidate}\n`;
+    const logPath = join(currentDataDir, ".data-ops.log");
+    let existing = "";
+    try { existing = readFileSync(logPath, "utf8"); } catch { /* file may not exist */ }
+    writeFileSync(logPath, existing + line);
+  } catch { /* ignore */ }
+
+  process.stdout.write(`Dropped orphan ${hash}\n`);
+}
+
+// Helper for dropOrphan's containment check. Node's path.relative on its own
+// is sufficient because both inputs are pre-realpath'd.
+function pathRelative(from, to) {
+  // Lazy import via path.relative; we already imported `relative` would be
+  // ideal but the file uses pathResolve elsewhere — keep the import surface
+  // small by using a tiny manual implementation.
+  if (from === to) return "";
+  const fromParts = from.split(/[/\\]/);
+  const toParts = to.split(/[/\\]/);
+  let i = 0;
+  while (i < fromParts.length && i < toParts.length && fromParts[i] === toParts[i]) i++;
+  if (i === 0) return null; // disjoint
+  const up = fromParts.slice(i).map(() => "..");
+  const down = toParts.slice(i);
+  return [...up, ...down].join("/") || "";
+}
+
+/**
+ * Reap markdown files marked obsolete or terminally-statused after retention.
+ *
+ * Soft-delete sentinels are written by skill bodies (Edit frontmatter to
+ * `obsolete: true` or `status: graduated|superseded|cancelled`). This
+ * subcommand physically removes them after `--max-age-days` (default 30).
+ *
+ * Scope: scans <SHIPYARD_DATA>/spec/ recursively for `.md` files only. Does
+ * NOT scan JSON sentinel files (`.active-session.json`, `.compaction-count`,
+ * `.loop-state.json`) because those are overwritten in place by the next
+ * skill invocation and never accumulate (validator C6).
+ *
+ * Frontmatter parsing: a minimal regex scan for `^obsolete: true$` and
+ * `^status: (graduated|superseded|cancelled)$` inside the leading `---` /
+ * `---` block. Avoids a YAML dependency.
+ *
+ * Modes:
+ *   --dry-run               → list matches, do not delete
+ *   --max-age-days N        → override the default retention (30 days)
+ *
+ * Logged to .data-ops.log per file removed.
+ */
+function reapObsolete(args) {
+  const dryRun = args.includes("--dry-run");
+  let maxAgeDays = 30;
+  const ageIdx = args.indexOf("--max-age-days");
+  if (ageIdx >= 0 && ageIdx + 1 < args.length) {
+    const n = parseInt(args[ageIdx + 1], 10);
+    if (!Number.isNaN(n) && n >= 0) maxAgeDays = n;
+  }
+  const cutoffMs = Date.now() - maxAgeDays * 86400000;
+
+  let dataDir;
+  try {
+    dataDir = getDataDir({ silent: true });
+  } catch {
+    process.stderr.write("shipyard-data reap-obsolete: cannot resolve data dir\n");
+    process.exit(1);
+  }
+  const specDir = join(dataDir, "spec");
+  if (!existsSync(specDir)) {
+    process.stdout.write("Reaped 0 files (no spec dir)\n");
+    return;
+  }
+
+  const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---/;
+  const OBSOLETE_RE = /^obsolete:\s*true\s*$/m;
+  const STATUS_RE = /^status:\s*(graduated|superseded|cancelled)\s*$/m;
+
+  const matches = [];
+  const walk = (dir) => {
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const ent of entries) {
+      const full = join(dir, ent.name);
+      if (ent.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!ent.name.endsWith(".md")) continue;
+      let content;
+      try { content = readFileSync(full, "utf8"); } catch { continue; }
+      const fm = FRONTMATTER_RE.exec(content);
+      if (!fm) continue;
+      const block = fm[1];
+      const hit = OBSOLETE_RE.test(block) || STATUS_RE.test(block);
+      if (!hit) continue;
+      let st;
+      try { st = statSync(full); } catch { continue; }
+      if (st.mtimeMs > cutoffMs) continue;
+      matches.push(full);
+    }
+  };
+  walk(specDir);
+
+  if (dryRun) {
+    for (const m of matches) process.stdout.write(`would-reap ${m}\n`);
+    process.stdout.write(`Would reap ${matches.length} files (dry-run, max-age-days=${maxAgeDays})\n`);
+    return;
+  }
+
+  let removed = 0;
+  for (const m of matches) {
+    try {
+      rmSync(m, { force: false });
+      removed++;
+    } catch (err) {
+      process.stderr.write(`shipyard-data reap-obsolete: failed to remove ${m}: ${err.message}\n`);
+    }
+  }
+
+  // Best-effort breadcrumb log
+  try {
+    const ts = new Date().toISOString();
+    const lines = matches.slice(0, removed).map((m) => `${ts} reap-obsolete file=${m}\n`).join("");
+    if (lines) {
+      const logPath = join(dataDir, ".data-ops.log");
+      let existing = "";
+      try { existing = readFileSync(logPath, "utf8"); } catch { /* ignore */ }
+      writeFileSync(logPath, existing + lines);
+    }
+  } catch { /* ignore */ }
+
+  process.stdout.write(`Reaped ${removed} obsolete files (max-age-days=${maxAgeDays})\n`);
+}
+
 function main() {
   const command = process.argv[2] ?? "";
   switch (command) {
@@ -486,6 +819,24 @@ function main() {
     case "find-orphans":
       findOrphans();
       break;
+    case "archive-sprint": {
+      // Parse `archive-sprint <sprint-id> [--force]`. Flag may be in
+      // either position.
+      const rest = process.argv.slice(3);
+      const force = rest.includes("--force");
+      const sprintId = rest.find((a) => a !== "--force");
+      archiveSprint(sprintId, { force });
+      break;
+    }
+    case "drop-orphan": {
+      const hash = process.argv[3];
+      dropOrphan(hash);
+      break;
+    }
+    case "reap-obsolete": {
+      reapObsolete(process.argv.slice(3));
+      break;
+    }
     case "project-id":
       process.stdout.write(getProjectHash(getProjectRoot()) + "\n");
       break;
@@ -495,7 +846,7 @@ function main() {
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | migrate <src> [--force] | with-lock <key> -- <cmd> | find-orphans | project-id | project-root\n`,
+          `Expected: (none) | init | migrate <src> [--force] | with-lock <key> -- <cmd> | find-orphans | archive-sprint <sprint-id> [--force] | drop-orphan <hash> | reap-obsolete [--dry-run] [--max-age-days N] | project-id | project-root\n`,
       );
       process.exit(1);
   }

@@ -17,26 +17,33 @@ The orchestrator's ~10-15% context budget has no room for raw test output. A sub
 
 Use this as the `prompt` when spawning the test runner subagent. Replace `<COMMAND>` with the actual test command from config, and `<TIER>` with the test tier name (unit/integration/e2e).
 
+**Why capture via `shipyard-logcap run`, not a raw bash redirect:** redirecting into `<SHIPYARD_DATA>/.test-output.tmp` triggers Claude Code's "suspicious path" permission prompt on every test run because the plugin data dir lives outside the project root (issue #41763). POSIX `mktemp` is not available on plain Windows cmd.exe / PowerShell, so it's not a portable fallback. `shipyard-logcap` is Shipyard's cross-platform capture primitive — a Node implementation with a `.cmd` shim on Windows. It tees stdout+stderr to a rotating file in `$TMPDIR/shipyard/<project-hash>/<session>/<name>.log`, propagates the child exit code, and is readable via `shipyard-logcap tail` / `grep` subcommands without re-running. The capture path is in the default Bash allow scope on every platform.
+
 ```
 You are a test runner. Your job is to run a test command, capture the output, and return a structured summary. Do NOT attempt to fix any failures.
 
 ## Steps
 
-1. Run the test command with output captured to a file:
+1. Run the test command via `shipyard-logcap run`, which captures stdout+stderr to a rotating file in `$TMPDIR` and propagates the child's exit code:
    ```bash
-   <COMMAND> > $(shipyard-data)/.test-output.tmp 2>&1; echo "EXIT:$?"
+   shipyard-logcap run <TIER> -- <COMMAND>
+   echo "EXIT:$?"
    ```
+   Cross-platform: the `shipyard-logcap` binary resolves to a Node script (`.sh` wrapper on macOS/Linux, `.cmd` wrapper on Windows). The capture directory is `$TMPDIR/shipyard/<project-hash>/<session>/` which is always in the default Bash allow scope, so no permission prompt fires. No manual cleanup is needed — the tool rotates files automatically.
 
-2. Read the exit code from the last line of $(shipyard-data)/.test-output.tmp
+2. Read the captured output to produce the summary:
+   - `shipyard-logcap tail <TIER>` — prints the captured stdout+stderr (last ~200 lines by default)
+   - `shipyard-logcap tail <TIER> --filter '<regex>'` — filters while tailing
+   - `shipyard-logcap grep <TIER> '<pattern>' --context 3` — grep within the capture with surrounding context
 
-3. Produce a summary based on the result:
+3. Produce a summary based on the exit code from step 1:
 
    **If PASS (exit 0):**
-   Read the last 10 lines of the output file. Extract the summary line (total tests, time, etc.).
+   `shipyard-logcap tail <TIER>` and extract the framework's summary line (total tests, time, etc.).
    Return: `PASS | <summary line from output>`
 
    **If FAIL with few failures:**
-   Read the output file. Identify failure names and messages (no stack traces).
+   `shipyard-logcap tail <TIER>` and identify failure names + messages (no stack traces).
    Return:
    ```
    FAIL | <N> failures
@@ -46,28 +53,30 @@ You are a test runner. Your job is to run a test command, capture the output, an
    Cap at 30 lines total.
 
    **If FAIL with mass failure (>50% tests failed):**
+   `shipyard-logcap grep <TIER> '(FAIL|ERROR|Error:)' --context 1` to pull the first error's context.
    Return: `FAIL | <N>/<M> failed — likely root cause: <first error message>`
 
-4. Clean up: `rm -f $(shipyard-data)/.test-output.tmp`
-
-5. Return ONLY the summary. Do NOT attempt fixes, do NOT run additional commands.
+4. Return ONLY the summary. Do NOT attempt fixes, do NOT run additional commands. `shipyard-logcap` handles capture rotation so there is nothing to clean up manually.
 ```
 
 ### Multi-Tier Variant (Sprint Completion)
 
-For sprint completion, run all three tiers in a single subagent to avoid spawning overhead. Replace the prompt's step 1 with sequential runs:
+For sprint completion, run all three tiers in a single subagent to avoid spawning overhead. Each tier gets its own capture name so the three outputs don't collide:
 
 ```
-Run these test commands sequentially, capturing each to a separate temp file:
+Run these test commands sequentially, each captured under a distinct shipyard-logcap name:
 
 1. Unit tests:
-   <UNIT_COMMAND> > $(shipyard-data)/.test-output-unit.tmp 2>&1; echo "EXIT:$?"
+   shipyard-logcap run unit -- <UNIT_COMMAND>
+   echo "UNIT_EXIT:$?"
 2. Integration tests:
-   <INTEGRATION_COMMAND> > $(shipyard-data)/.test-output-integration.tmp 2>&1; echo "EXIT:$?"
+   shipyard-logcap run integration -- <INTEGRATION_COMMAND>
+   echo "INT_EXIT:$?"
 3. E2E tests:
-   <E2E_COMMAND> > $(shipyard-data)/.test-output-e2e.tmp 2>&1; echo "EXIT:$?"
+   shipyard-logcap run e2e -- <E2E_COMMAND>
+   echo "E2E_EXIT:$?"
 
-For each tier, read the output file and produce a one-line summary.
+For each tier, call `shipyard-logcap tail <tier>` (or `grep <tier> <pattern>`) to read the capture and produce a one-line summary.
 Skip any tier whose command is empty or "none".
 
 Return a combined summary:
@@ -77,7 +86,7 @@ integration: PASS | 12 passed in 8.1s
 e2e: FAIL | 2/8 failed — login timeout on CI
 ```
 
-Clean up all temp files when done.
+No manual cleanup needed — `shipyard-logcap` rotates captures automatically.
 ```
 
 ## Framework-Agnostic Parsing
@@ -93,7 +102,7 @@ No framework-specific markers, no regex patterns, no parsing assumptions. The su
 
 ## Missing Command Handling
 
-If a test command is not configured in `$(shipyard-data)/config.md` (empty or absent for a tier), the subagent returns:
+If a test command is not configured in `<SHIPYARD_DATA>/config.md` (empty or absent for a tier), the subagent returns:
 
 ```
 SKIP | no test command configured for <tier>

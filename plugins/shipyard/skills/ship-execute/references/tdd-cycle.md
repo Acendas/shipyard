@@ -68,7 +68,7 @@ Git history lives on disk. It doesn't care about context windows. Even after 10 
 ## The TDD Cycle
 
 ### 1. READ SPEC
-- Read task file: `$(shipyard-data)/spec/tasks/[TASK_ID]-*.md`
+- Read task file: `<SHIPYARD_DATA>/spec/tasks/[TASK_ID]-*.md`
 - Read parent feature file for acceptance scenarios
 - Read codebase context for relevant patterns
 
@@ -107,7 +107,7 @@ Git history lives on disk. It doesn't care about context windows. Even after 10 
 ### 8. VISUAL VERIFY (UI tasks only)
 - Screenshot at mobile (375px), tablet (768px), desktop (1024px)
 - Check layout, content, interactive states
-- Save to `$(shipyard-data)/verify/`
+- Save to `<SHIPYARD_DATA>/verify/`
 
 ### 9. COMMIT
 - Stage test files AND implementation files

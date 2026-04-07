@@ -69,8 +69,8 @@ Expected: `shipyard/wt-[FEATURE_ID]-*`. If you see `main` or the working branch,
 
 ## Setup (do this once)
 Read these files for full context:
-- $(shipyard-data)/spec/features/[FEATURE_ID]-*.md (your feature spec — read fully, then check its `references:` frontmatter array and read each listed path in `$(shipyard-data)/spec/references/`; these hold full API contracts, schemas, and protocol specs you must implement against)
-- $(shipyard-data)/codebase-context.md (codebase patterns, first 50 lines)
+- <SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md (your feature spec — read fully, then check its `references:` frontmatter array and read each listed path in `<SHIPYARD_DATA>/spec/references/`; these hold full API contracts, schemas, and protocol specs you must implement against)
+- <SHIPYARD_DATA>/codebase-context.md (codebase patterns, first 50 lines)
 
 ## Task Loop
 Repeat until no pending tasks remain for your feature:
@@ -79,7 +79,7 @@ Repeat until no pending tasks remain for your feature:
    your feature [FEATURE_ID] and whose status is "pending".
 2. Pick the first pending task (they're ordered by dependency)
 3. TaskUpdate(taskId: "N", status: "in_progress")
-4. Read the task spec: $(shipyard-data)/spec/tasks/[TASK_ID]-*.md
+4. Read the task spec: <SHIPYARD_DATA>/spec/tasks/[TASK_ID]-*.md
 5. Read Technical Notes in task and feature files — follow research findings
 6. Execute TDD cycle:
    - RED: Write failing tests matching acceptance scenarios. Run only those tests.

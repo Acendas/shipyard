@@ -1,7 +1,7 @@
 ---
 name: ship-bug
 description: "Report a bug or production issue with minimal ceremony. Creates a spec entry and optional fix task. Use when the user reports something broken, a defect, unexpected behavior, a regression, or needs to file a hotfix for production. Also use for --hotfix emergency production issues."
-allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 model: sonnet
 effort: low
 argument-hint: "[bug description] or --hotfix [description]"
@@ -15,10 +15,10 @@ Create a minimal bug report. The spec already describes correct behavior — bug
 
 !`shipyard-context path`
 
-!`shipyard-context count spec/bugs`
-!`shipyard-context head sprints/current/SPRINT.md 10 NO_SPRINT`
+!`shipyard-context count-of bugs`
+!`shipyard-context view sprint 10`
 
-**Data path: use the SHIPYARD_DATA path from context above. For Read/Write/Edit tools, use the full literal path (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/...`). NEVER use `~` or `$HOME` in file_path — always start with `/`. For Bash: `SD=$(shipyard-data)` then `$SD/...`. Shell variables like `$SD` do NOT work in Read/Write/Edit file_path — only literal paths. NEVER hardcode or guess paths.**
+**Data path: use the SHIPYARD_DATA path printed in the context block above as a literal absolute prefix for every Read / Grep / Glob / Write / Edit call (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/spec/bugs/B001-*.md`). NEVER use `~`, `$HOME`, or shell variables in `file_path` — always start with `/`. Do NOT invoke `shipyard-data` or `shipyard-context` from Bash inside this skill — use Claude's native Read / Grep / Glob tools instead. Never hardcode or guess paths.**
 
 ## Input
 
@@ -39,7 +39,7 @@ $ARGUMENTS
 2. **Try to match feature** — Search spec features for the area this bug relates to.
    If ambiguous with multiple plausible matches, use AskUserQuestion: "Which feature does this bug relate to?" Otherwise, best-guess the match and note it.
 
-3. **Create bug file** — `$(shipyard-data)/spec/bugs/BNNN-[slug].md`:
+3. **Create bug file** — use the Write tool with the literal path `<SHIPYARD_DATA>/spec/bugs/BNNN-[slug].md` (substitute SHIPYARD_DATA from the context block):
 
 ```yaml
 ---
@@ -88,12 +88,12 @@ created: [today]
 
 2. **Create bug file** with `severity: critical` and `hotfix: true` in frontmatter
 
-3. **Auto-start debug session** — create `$(shipyard-data)/debug/B-HOT-NNN.md` with symptoms from the bug report. This ensures systematic investigation instead of guessing at fixes.
+3. **Auto-start debug session** — use the Write tool to create `<SHIPYARD_DATA>/debug/B-HOT-NNN.md` (literal path from context block) with symptoms from the bug report. This ensures systematic investigation instead of guessing at fixes.
 
 4. **Confirm with urgency:**
 ```
 🚨 HOTFIX: B-HOT-NNN — [title]
-  Debug session started: $(shipyard-data)/debug/B-HOT-NNN.md
+  Debug session started: <SHIPYARD_DATA>/debug/B-HOT-NNN.md
   Investigating now — /ship-debug --resume to continue if interrupted
 ```
 

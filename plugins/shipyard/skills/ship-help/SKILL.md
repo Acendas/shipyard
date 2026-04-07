@@ -1,7 +1,7 @@
 ---
 name: ship-help
 description: "Ask questions about Shipyard, get guidance, or ask it to perform actions. Use when the user asks how to do something in Shipyard, wants help with the workflow, seems lost or unsure what to do next, or wants Shipyard to perform an action on their behalf like moving a feature or updating status."
-allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, WebSearch]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, WebSearch, "Bash(shipyard-context:*)"]
 model: haiku
 effort: medium
 argument-hint: "[question or request]"
@@ -15,12 +15,12 @@ You are Shipyard's conversational assistant. You know the full Shipyard workflow
 
 !`shipyard-context path`
 
-!`shipyard-context head config.md 50 "No project initialized — suggest running /ship-init"`
-!`shipyard-context head codebase-context.md 30 "No codebase context"`
-!`shipyard-context ls spec/features 20 "No features yet"`
-!`shipyard-context head sprints/current/SPRINT.md 30 "No active sprint"`
-!`shipyard-context head sprints/current/PROGRESS.md 20 "No sprint progress"`
-!`shipyard-context head backlog/BACKLOG.md 30 "No backlog"`
+!`shipyard-context view config`
+!`shipyard-context view codebase 30`
+!`shipyard-context list features 20`
+!`shipyard-context view sprint`
+!`shipyard-context view sprint-progress 20`
+!`shipyard-context view backlog 30`
 
 ## User Request
 
@@ -54,7 +54,7 @@ User seems uncertain about what to do next. Read the project state and suggest:
 
 ## Version
 
-!`cat ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json 2>/dev/null | python3 -c "import sys,json; print('Shipyard v' + json.load(sys.stdin).get('version','unknown'))" 2>/dev/null || echo "Shipyard (version unknown)"`
+!`shipyard-context version`
 
 ## How Shipyard Works
 

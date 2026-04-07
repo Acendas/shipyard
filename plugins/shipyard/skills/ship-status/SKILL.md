@@ -1,7 +1,7 @@
 ---
 name: ship-status
 description: "Project dashboard showing sprint progress, backlog health, spec coverage, state validation, and what to do next. Also validates and auto-fixes state inconsistencies. Use when the user asks about project status, progress, what's happening, what's left, what to work on next, wants a health check, suspects state corruption, or just wants an overview."
-allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, AskUserQuestion]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 model: haiku
 effort: low
 argument-hint: "[sprint|backlog|health|spec]"
@@ -16,16 +16,16 @@ Read all project state, validate it, auto-fix issues, and present a clear dashbo
 !`shipyard-context path`
 !`shipyard-context diagnose`
 
-!`shipyard-context head config.md 50 NOT_INITIALIZED`
-!`shipyard-context head sprints/current/SPRINT.md 30 NO_SPRINT`
-!`shipyard-context head sprints/current/PROGRESS.md 50 NO_PROGRESS`
-!`shipyard-context head backlog/BACKLOG.md 50 NO_BACKLOG`
-!`shipyard-context head memory/metrics.md 50 NO_METRICS`
+!`shipyard-context view config`
+!`shipyard-context view sprint`
+!`shipyard-context view sprint-progress`
+!`shipyard-context view backlog`
+!`shipyard-context view metrics 50`
 !`shipyard-context debug-count`
-!`shipyard-context head sprints/current/HANDOFF.md 10 NO_HANDOFF`
+!`shipyard-context view sprint-handoff`
 !`shipyard-context status-counts`
 
-**Data path: use the SHIPYARD_DATA path from context above. For Read/Write/Edit tools, use the full literal path (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/...`). NEVER use `~` or `$HOME` in file_path — always start with `/`. For Bash: `SD=$(shipyard-data)` then `$SD/...`. Shell variables like `$SD` do NOT work in Read/Write/Edit file_path — only literal paths. NEVER hardcode or guess paths.**
+**Data path: use the SHIPYARD_DATA path printed in the context block above as a literal absolute prefix for every Read / Grep / Glob / Write / Edit call (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/spec/features/F001-*.md`). NEVER use `~`, `$HOME`, or shell variables in `file_path` — always start with `/`. Do NOT invoke `shipyard-data` or `shipyard-context` from Bash inside this skill — use Claude's native Read / Grep / Glob tools instead. Never hardcode or guess paths.**
 
 ## Input
 
@@ -45,7 +45,7 @@ Before showing the dashboard, run health checks and fix what can be fixed automa
 
 ### Check 1: Frontmatter Schema
 
-Read every `.md` file in `$(shipyard-data)/spec/` and validate frontmatter:
+Use Glob to enumerate every `.md` file under `<SHIPYARD_DATA>/spec/` (substitute the literal SHIPYARD_DATA from the context block), then Read each one and validate frontmatter:
 
 **Feature files** — required: `id` (F+digits), `title` (non-empty), `type` (feature), `epic` (string), `status` (proposed|approved|in-progress|done|deployed|released|cancelled), `story_points` (≥0), `complexity` (low|medium|high|""), `token_estimate` (≥0), `rice_reach` (0-10), `rice_impact` (0-3), `rice_confidence` (0-100), `rice_effort` (>0), `rice_score` (≥0), `dependencies` (list), `references` (list), `tasks` (list), `created` (date)
 
@@ -88,21 +88,21 @@ Skip if not a git repo. Otherwise:
 
 ### Check 6: File Hygiene
 
-- Empty spec files → delete
+- Empty spec files → use Edit to set frontmatter `obsolete: true` (the `reap-obsolete` housekeeping reaps these later)
 - Orphan task files (not in any feature's `tasks:` array) → log as warning
 - Epic files with `features:` arrays → remove the array (membership is derived)
-- Stale `$(shipyard-data)/.loop-state.json` → delete
-- Stale `$(shipyard-data)/.active-session.json` (older than 24hrs) → delete
-- Stale `$(shipyard-data)/.compaction-count` (no active execution lock) → delete
-- Stale `$(shipyard-data)/.active-execution.json` — if it exists:
-  - If older than 2hrs → delete automatically (stale lock)
-  - If less than 2hrs → show it in the dashboard with details and AskUserQuestion: "Execution lock found ([skill], started [time]). Is this session still running? (yes, leave it / no, clear it — session crashed or was closed)". If the user says clear → delete the lock file. This is the escape hatch for crashed sessions.
+- Stale `<SHIPYARD_DATA>/.loop-state.json` → use Write to overwrite with `{"cleared": "<iso>", "events": []}` (soft-delete sentinel; loop-detect treats empty events as inactive)
+- Stale `<SHIPYARD_DATA>/.active-session.json` (older than 24hrs) → use Write to overwrite with `{"skill": null, "cleared": "<iso>"}` (sentinel; session-guard treats `skill: null` as inactive)
+- Stale `<SHIPYARD_DATA>/.compaction-count` (no active execution lock) → use Write to overwrite with content `0`
+- Stale `<SHIPYARD_DATA>/.active-execution.json` — Read it, parse JSON. If `cleared` is set, ignore. Otherwise:
+  - If `started` is older than 2hrs → use Write to overwrite with `{"skill": null, "cleared": "<iso>"}` (stale lock cleared automatically)
+  - If `started` is less than 2hrs ago → show it in the dashboard with details and AskUserQuestion: "Execution lock found ([skill], started [time]). Is this session still running? (yes, leave it / no, clear it — session crashed or was closed)". If the user says clear → use Write to overwrite the lock with `{"skill": null, "cleared": "<iso>"}`. This is the escape hatch for crashed sessions.
 
 ### Check 7: File Size Health
 
-- `metrics.md` > 300 lines → quarterly rollover (move old data to `metrics-[quarter].md`)
-- `BACKLOG.md` > 200 lines → archive completed items
-- `reconcile-log.md` > 200 lines → truncate to last 10 entries
+- `metrics.md` > 300 lines → quarterly rollover. Read the file, split off the older content, use Write to create `<SHIPYARD_DATA>/memory/metrics-[quarter].md`, then use Edit to truncate the original `metrics.md` to the current quarter only.
+- `BACKLOG.md` > 200 lines → archive completed items by Edit (remove their IDs); the underlying feature files keep their `status: done|released` and are reaped by `reap-obsolete` after retention.
+- `reconcile-log.md` > 200 lines → Read it, then use Write to overwrite with the last 10 entries.
 
 **All fixes are silent.** The dashboard shows a summary line at the bottom: "Auto-fixed: N items" with a brief list. Only use AskUserQuestion for destructive ambiguous issues (duplicate IDs, tasks referencing deleted features).
 
@@ -186,7 +186,7 @@ Determine the single most important action:
 - Flag issues: ⚠️ warnings, ❌ blockers
 - Keep output scannable — tables and bullets, no paragraphs
 - Auto-fix silently. Only AskUserQuestion for destructive ambiguous issues.
-- Append fixes to `$(shipyard-data)/reconcile-log.md` (one line per fix with date)
+- Append fixes to `<SHIPYARD_DATA>/reconcile-log.md` (use Read to get current contents, then Write back with the appended line — one line per fix with date)
 
 ## Detailed Views
 

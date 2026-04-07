@@ -15,11 +15,11 @@ Execute a one-off task outside of sprint planning but with Shipyard's guarantees
 
 !`shipyard-context path`
 
-!`shipyard-context head config.md 50 NO_CONFIG`
-!`shipyard-context head codebase-context.md 30 "No codebase context"`
-!`shipyard-context ls-sort "spec/tasks/Q-*.md" "No quick tasks yet"`
+!`shipyard-context view config`
+!`shipyard-context view codebase 30`
+!`shipyard-context list quick-tasks`
 
-**Data path: use the SHIPYARD_DATA path from context above. For Read/Write/Edit tools, use the full literal path (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/...`). NEVER use `~` or `$HOME` in file_path — always start with `/`. For Bash: `SD=$(shipyard-data)` then `$SD/...`. Shell variables like `$SD` do NOT work in Read/Write/Edit file_path — only literal paths. NEVER hardcode or guess paths.**
+**Data path: use the SHIPYARD_DATA path printed in the context block above as a literal absolute prefix for every Read / Grep / Glob / Write / Edit call (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/spec/tasks/Q-001-*.md`). NEVER use `~`, `$HOME`, or shell variables in `file_path` — always start with `/`. Do NOT invoke `shipyard-data` or `shipyard-context` from Bash inside this skill — use Claude's native Read / Grep / Glob tools instead. Never hardcode or guess paths.**
 
 ## Input
 
@@ -27,13 +27,31 @@ $ARGUMENTS
 
 ## Session Guard Cleanup
 
-**First action:** Delete `.active-session.json` from the SHIPYARD_DATA directory (use the full literal path from context above) if it exists — quick tasks are implementing work and the session guard should not block code writes.
+**First action — planning-session mutex check:** Use the Read tool on `<SHIPYARD_DATA>/.active-session.json` (substitute the literal SHIPYARD_DATA path from the context block above). Then decide:
+
+- **File does not exist** → no planning session active. Skip to "Execution Lock Check" below.
+- **File exists.** Parse the JSON and check:
+  1. If `cleared` is set OR `skill` is `null` → previous planning session ended cleanly. Use Write to overwrite the file with `{"skill": null, "cleared": "<iso-timestamp>"}` (idempotent — the soft-delete sentinel ensures `session-guard` treats it as inactive). Skip to "Execution Lock Check" below.
+  2. If `started` is more than 2 hours old → stale lock from a crashed planning session. Print "(recovered stale planning lock from `/{previous skill}` started {N}h ago)", use Write to overwrite with the cleared sentinel, then proceed.
+  3. Otherwise → **HARD BLOCK.** A planning session is active and quick tasks cannot start until it ends:
+  ```
+  ⛔ Planning session active — cannot start a quick task.
+    Skill:   /{skill from file}
+    Topic:   {topic from file}
+    Started: {started from file}
+
+  Finish or pause the planning session first, then run /ship-quick.
+  If the planning session crashed: /ship-status (will offer to clear the stale lock)
+  ```
+  Print this message as the entire response and STOP.
+
+This prevents the failure mode where a discussion is in progress and `/ship-quick` would otherwise trip the session-guard hook on every Edit. Quick tasks are implementing work — they need a clear runway.
 
 ## Execution Lock Check
 
 **Before starting work**, check for concurrent execution:
 
-1. Read `$(shipyard-data)/.active-execution.json` — if it exists and is less than 2 hours old:
+1. Use the Read tool to read `<SHIPYARD_DATA>/.active-execution.json`. If the file exists, parse the JSON and check `cleared` (sentinel marker) and `started` timestamp. If `cleared` is not set AND `started` is less than 2 hours ago:
    ```
    ⛔ BLOCKED: Another execution session is active.
      Skill: [skill name]
@@ -45,7 +63,7 @@ $ARGUMENTS
    ```
    **Hard block — do not proceed. Do not offer an override.** Stop immediately.
 
-2. If no lock exists or lock is stale (>2 hours) → write `$(shipyard-data)/.active-execution.json`:
+2. If no lock exists, the lock has `cleared` set, or the lock is stale (>2 hours) → use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with:
    ```json
    {
      "skill": "ship-quick",
@@ -54,7 +72,7 @@ $ARGUMENTS
    }
    ```
 
-3. **On completion**, delete `$(shipyard-data)/.active-execution.json`.
+3. **On completion**, use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel).
 
 ## Process
 
@@ -71,7 +89,7 @@ Parse the user's task description. Determine:
 
 Create a minimal task file:
 ```yaml
-# $(shipyard-data)/spec/tasks/Q-NNN-[slug].md
+# <SHIPYARD_DATA>/spec/tasks/Q-NNN-[slug].md
 ---
 id: Q-NNN
 title: "[title]"

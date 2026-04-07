@@ -1,10 +1,10 @@
 # Impact Analysis Protocol
 
-When a feature is created or refined, scan existing features for ripple effects. This is triggered conditionally — skip if no features exist in `$(shipyard-data)/spec/features/`.
+When a feature is created or refined, scan existing features for ripple effects. This is triggered conditionally — skip if no features exist in `<SHIPYARD_DATA>/spec/features/`.
 
 ## Scan Protocol
 
-Grep across `$(shipyard-data)/spec/features/` frontmatter for keyword matches against the new/refined feature's title, epic, and domain terms. Only read full files for likely matches. Check four dimensions:
+Grep across `<SHIPYARD_DATA>/spec/features/` frontmatter for keyword matches against the new/refined feature's title, epic, and domain terms. Only read full files for likely matches. Check four dimensions:
 
 - **Duplicates** — Is this substantially the same as an existing feature? Signals: same user story, same acceptance scenarios, same domain nouns. If found → AskUserQuestion: "This looks like it overlaps heavily with [ID: title]. Merge them, keep separate, or refine the distinction?"
 - **Dependencies** — Does the new feature need something from an existing feature? Does an existing feature now need something from this one? Signals: shared domain keywords, overlapping data model entities, API endpoints one produces that another consumes.
@@ -18,7 +18,7 @@ If no impacts are found across all dimensions, state "No cross-feature impacts d
 
 ## Sprint-Active Handling
 
-For each impacted feature, check if it appears in `$(shipyard-data)/sprints/current/SPRINT.md` (by feature ID or its task IDs in wave listings). If sprint-active, classify the impact:
+For each impacted feature, check if it appears in `<SHIPYARD_DATA>/sprints/current/SPRINT.md` (by feature ID or its task IDs in wave listings). If sprint-active, classify the impact:
 
 - **Informational** (dependency-only change): "[ID] is in Sprint N. The dependency link won't block work, but the team should know."
 - **Action-required** (acceptance criteria change, invalidation, or epic move): "[ID]'s acceptance criteria need updating, and it's in Sprint N with X/Y tasks done. Changing criteria now may invalidate completed work."

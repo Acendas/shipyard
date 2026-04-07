@@ -15,11 +15,11 @@ You are setting up (or updating) Shipyard for this project.
 
 !`shipyard-context path`
 
-!`shipyard-context cat version.md NO_VERSION`
-!`shipyard-context head config.md 50 NO_CONFIG`
-!`[ -f .shipyard/config.md ] && echo "LEGACY_SHIPYARD_DETECTED" || echo "NO_LEGACY"`
-!`shipyard-data find-orphans 2>/dev/null || true`
-!`head -50 CLAUDE.md 2>/dev/null || echo "No CLAUDE.md"`
+!`shipyard-context view data-version`
+!`shipyard-context view config`
+!`shipyard-context legacy-check`
+!`shipyard-data find-orphans`
+!`shipyard-context project-claude-md`
 
 ## Detect Mode
 
@@ -116,29 +116,22 @@ If the user picks "none" or "fresh install", continue with the FRESH install flo
 
 ---
 
-Check if `$(shipyard-data)/config.md` exists:
+Check if `<SHIPYARD_DATA>/config.md` exists:
 - **If NO** → FRESH INSTALL mode
 - **If YES** → QUICK CHECK first, then UPDATE if needed
 
 ### Quick Check (fast path for already-initialized projects)
 
-If `$(shipyard-data)/config.md` exists, run these checks before doing anything else:
+If `<SHIPYARD_DATA>/config.md` exists, run these checks before doing anything else:
 
-1. **Rules present and current?** Compare plugin rules against project rules:
-   ```bash
-   PLUGIN_RULES="${CLAUDE_PLUGIN_ROOT}/project-files/rules"
-   for f in "$PLUGIN_RULES"/shipyard-*.md; do
-     name=$(basename "$f")
-     if [ ! -f ".claude/rules/$name" ]; then
-       echo "MISSING: $name"
-     elif ! diff -q "$f" ".claude/rules/$name" >/dev/null 2>&1; then
-       echo "OUTDATED: $name"
-     fi
-   done
-   ```
-   If any rules are MISSING or OUTDATED → re-copy all rules from plugin.
-2. **Config version current?** Read `config_version` from `$(shipyard-data)/config.md` — if matches latest (3), no migration needed
-3. **Codebase context exists?** `ls $(shipyard-data)/codebase-context.md 2>/dev/null` — if exists, no re-analysis needed
+1. **Rules present and current?** Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` to enumerate the canonical rules. For each enumerated file, derive the basename (e.g., `shipyard-data-model.md`) and use the Read tool on `.claude/rules/<basename>`. Classify each:
+   - Read fails (file missing) → MISSING
+   - Read succeeds but content differs from the plugin source (compare full text) → OUTDATED
+   - Read succeeds and content matches → CURRENT
+   
+   If any rules are MISSING or OUTDATED → re-copy them. To copy: Read the source file from `${CLAUDE_PLUGIN_ROOT}/project-files/rules/<basename>` and use Write to write it to `.claude/rules/<basename>`. Repeat per file. This avoids any shell `cp`/`diff`/`for` loops, which are not portable to plain Windows cmd.exe.
+2. **Config version current?** Read `config_version` from `<SHIPYARD_DATA>/config.md` — if matches latest (3), no migration needed
+3. **Codebase context exists?** Use the Read tool on `<SHIPYARD_DATA>/codebase-context.md` (substitute the literal SHIPYARD_DATA path) — if it exists, no re-analysis needed
 
 **If ALL checks pass** → report and exit immediately:
 ```
@@ -203,7 +196,7 @@ Scan the project and present findings: "I detected [X]. Correct?" Only ask if de
 ### Step 2: Create Directory Structure
 
 ```
-$(shipyard-data)/
+<SHIPYARD_DATA>/
 ├── config.md              ← from answers above
 ├── codebase-context.md    ← generated in step 3
 ├── spec/
@@ -233,24 +226,16 @@ shipyard-data init
 This creates all directories in the plugin data area (outside the project — no git noise).
 
 **Install rules into the project:**
-Rules live in the project's `.claude/rules/` (plugins can't ship rules directly):
+Rules live in the project's `.claude/rules/` (plugins can't ship rules directly). Install them using Claude's native tools — no shell `cp` or `mkdir`, which are not portable to Windows cmd.exe:
 
-```bash
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-}"
-if [ -d "$PLUGIN_ROOT/project-files" ]; then
-  mkdir -p .claude/rules
-  cp -r "$PLUGIN_ROOT/project-files/rules/"shipyard-*.md .claude/rules/ 2>/dev/null
-fi
-```
+1. Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` to enumerate the source rule files.
+2. For each enumerated file, Read the source and Write the same content to `.claude/rules/<basename>`. The Write tool creates the parent directory automatically.
 
-Templates are copied into plugin data (not the project):
-```bash
-cp -r "$PLUGIN_ROOT/project-files/templates/"*.md "$(shipyard-data)/templates/" 2>/dev/null
-```
+Templates are copied into plugin data by `shipyard-data init` above — no separate shell step. The init command copies everything under `$CLAUDE_PLUGIN_ROOT/project-files/templates/` into `<SHIPYARD_DATA>/templates/` via Node's `cpSync`, which stays inside the allowlisted `shipyard-data` CLI and never prompts for permission on the plugin data dir. Do NOT synthesize a raw template-copy bash line — the plugin data dir lives outside the project root and every such line would trigger a "suspicious path" prompt.
 
-Copy template files:
-- `$(shipyard-data)/backlog/BACKLOG.md` from `$(shipyard-data)/templates/BACKLOG.md`
-- `$(shipyard-data)/config.md` — generate from user answers using template format
+After init, write these via the Write tool (auto-approved for files inside the data dir):
+- `<SHIPYARD_DATA>/backlog/BACKLOG.md` from `<SHIPYARD_DATA>/templates/BACKLOG.md`
+- `<SHIPYARD_DATA>/config.md` — generate from user answers using template format
 
 **Update .gitignore** — append any missing entries:
 ```
@@ -264,7 +249,7 @@ Note: Shipyard data lives in `${CLAUDE_PLUGIN_DATA}` (outside the project), so n
 
 ### Step 3: Analyze Codebase
 
-Scan the codebase and write findings to `$(shipyard-data)/codebase-context.md`.
+Scan the codebase and write findings to `<SHIPYARD_DATA>/codebase-context.md`.
 
 1. **Project structure** — directory layout, key directories
 2. **Tech stack detected** — frameworks, libraries, versions from package files
@@ -347,7 +332,7 @@ AskUserQuestion: "Found [N] spec documents in [path]/. Shipyard doesn't duplicat
 
 If yes:
 1. Scan each doc — read first 20 lines to understand what it covers
-2. Record the mapping in `$(shipyard-data)/codebase-context.md` under a `## Existing Specs` section:
+2. Record the mapping in `<SHIPYARD_DATA>/codebase-context.md` under a `## Existing Specs` section:
    ```
    ## Existing Specs
    - [path/to/auth-spec.md] — authentication and authorization
@@ -357,11 +342,11 @@ If yes:
 3. Do NOT copy, duplicate, or create feature files from these docs
 4. Report: "Indexed [N] spec documents. Shipyard will reference them in-place during /ship-discuss and /ship-sprint."
 
-Shipyard's spec directory (`$(shipyard-data)/spec/`) holds only the **working set** — features being planned, built, or reviewed. It is NOT a mirror of the entire product. The user's existing docs remain the source of truth for the system as a whole.
+Shipyard's spec directory (`<SHIPYARD_DATA>/spec/`) holds only the **working set** — features being planned, built, or reviewed. It is NOT a mirror of the entire product. The user's existing docs remain the source of truth for the system as a whole.
 
 **If no spec docs found — note brownfield context:**
 
-If the codebase analysis reveals an existing application with routes, components, APIs, or models — note this in `$(shipyard-data)/codebase-context.md` under `## Existing Functionality`:
+If the codebase analysis reveals an existing application with routes, components, APIs, or models — note this in `<SHIPYARD_DATA>/codebase-context.md` under `## Existing Functionality`:
 - List discovered routes, API endpoints, components, models
 - This gives `/ship-discuss` and `/ship-sprint` context about what already exists
 
@@ -407,7 +392,7 @@ subagent_type: shipyard:shipyard-skill-writer
 
 Prompt with:
 - Technologies: the extracted list from above
-- Codebase context path: `$(shipyard-data)/codebase-context.md`
+- Codebase context path: `<SHIPYARD_DATA>/codebase-context.md`
 - Project skills path: `.claude/skills/`
 
 The agent runs silently — no user prompts. It scans `.claude/skills/` for existing coverage, skips technologies already covered, generates SME skills for the rest, self-validates all paths and commands, and returns a report.
@@ -427,7 +412,7 @@ No coverage (insufficient usage):
 
 ### Step 4: Initialize Memory
 
-Write initial project conventions to `$(shipyard-data)/memory/project-context.md` so they persist across sessions and are shared across the team:
+Write initial project conventions to `<SHIPYARD_DATA>/memory/project-context.md` so they persist across sessions and are shared across the team:
 
 ```markdown
 ---
@@ -448,42 +433,21 @@ updated: [date]
 [project-specific domain terms and what they mean]
 ```
 
-**Important:** Write to `$(shipyard-data)/memory/project-context.md`, not to Claude's `~/.claude/` memory system. Claude's memory path embeds the user's local filesystem path (e.g., `-Users-alice-...`), which breaks for other team members and gets misrouted when agents run inside git worktrees. The `$(shipyard-data)/memory/` path is project-relative, user-neutral, and tracked in git.
+**Important:** Write to `<SHIPYARD_DATA>/memory/project-context.md`, not to Claude's `~/.claude/` memory system. Claude's memory path embeds the user's local filesystem path (e.g., `-Users-alice-...`), which breaks for other team members and gets misrouted when agents run inside git worktrees. The `<SHIPYARD_DATA>/memory/` path is project-relative, user-neutral, and tracked in git.
 
 ### Step 5: Self-Test (Doctor)
 
 Run a quick diagnostic to verify the installation works. Check each item silently, report results:
 
-```bash
-# 1. Rules installed?
-ls .claude/rules/shipyard-*.md 2>/dev/null | wc -l
-# Expected: 7
+Run each check using Claude's native tools (substitute the literal SHIPYARD_DATA path from the context block for `<SHIPYARD_DATA>`):
 
-# 2. Templates installed?
-ls $(shipyard-data)/templates/*.md 2>/dev/null | wc -l
-# Expected: 9
-
-# 3. Config valid?
-head -3 $(shipyard-data)/config.md 2>/dev/null | grep -q 'config_version'
-# Expected: exit 0
-
-# 4. Git ready?
-git rev-parse --git-dir 2>/dev/null && git log -1 --format=%H 2>/dev/null
-# Expected: both succeed
-
-# 5. Worktree capability?
-git rev-parse --git-common-dir 2>/dev/null
-# If differs from --git-dir → project is a worktree, parallel execution unavailable
-
-# 6. Plugin agents reachable?
-# Verify agents exist at ${CLAUDE_PLUGIN_ROOT}/agents/shipyard-*.md
-ls ${CLAUDE_PLUGIN_ROOT}/agents/shipyard-*.md 2>/dev/null | wc -l
-# Expected: 4
-
-# 7. Test commands configured?
-grep -q 'unit:' $(shipyard-data)/config.md 2>/dev/null
-# Expected: exit 0 (test commands detected)
-```
+1. **Rules installed?** Use Glob `.claude/rules/shipyard-*.md` and count results. Expected: 7.
+2. **Templates installed?** Use Glob `<SHIPYARD_DATA>/templates/*.md` and count results. Expected: 9.
+3. **Config valid?** Use Read on `<SHIPYARD_DATA>/config.md` (limit 3) and confirm `config_version` appears. Expected: yes.
+4. **Git ready?** Bash: `git rev-parse --git-dir 2>/dev/null && git log -1 --format=%H 2>/dev/null`. Expected: both succeed.
+5. **Worktree capability?** Bash: `git rev-parse --git-common-dir 2>/dev/null`. If it differs from `--git-dir`, the project is a worktree and parallel execution falls back to the parent.
+6. **Plugin agents reachable?** Use Glob `${CLAUDE_PLUGIN_ROOT}/agents/shipyard-*.md` and count results. Expected: 4.
+7. **Test commands configured?** Use Read on `<SHIPYARD_DATA>/config.md` and confirm a `unit:` field appears under `test_commands`. Expected: yes.
 
 Report:
 ```
@@ -576,24 +540,24 @@ Tell the user:
 ### Step 1: Preserve State
 
 Read existing config. Do NOT modify:
-- `$(shipyard-data)/spec/` (user's spec data)
-- `$(shipyard-data)/backlog/` (user's backlog)
-- `$(shipyard-data)/sprints/` (sprint history)
-- `$(shipyard-data)/memory/` (metrics, retro insights) — **exception:** create `project-context.md` if it doesn't exist (see Step 4c)
+- `<SHIPYARD_DATA>/spec/` (user's spec data)
+- `<SHIPYARD_DATA>/backlog/` (user's backlog)
+- `<SHIPYARD_DATA>/sprints/` (sprint history)
+- `<SHIPYARD_DATA>/memory/` (metrics, retro insights) — **exception:** create `project-context.md` if it doesn't exist (see Step 4c)
 
 ### Step 2: Migrate Config
 
 Read the current config's `config_version` (absence = version 1). Compare against the latest template's version.
 
 **If config is outdated:**
-1. Read `$(shipyard-data)/templates/config.md` for the latest schema
+1. Read `<SHIPYARD_DATA>/templates/config.md` for the latest schema
 2. Detect missing fields — compare existing config keys against template keys
 3. Backfill missing fields with template defaults, preserving all existing values
 4. Update `config_version` to current
 5. Report what changed: "Added 3 new config fields: test_commands.scoped, git.delete_merged_branches, staleness.critical_age"
 
 **If spec frontmatter has changed between versions:**
-1. Scan `$(shipyard-data)/spec/features/*.md` and `$(shipyard-data)/spec/tasks/*.md`
+1. Scan `<SHIPYARD_DATA>/spec/features/*.md` and `<SHIPYARD_DATA>/spec/tasks/*.md`
 2. Compare each file's frontmatter against the current template
 3. Backfill missing frontmatter fields (e.g., `references: []`, `children: []`) with defaults
 4. Report: "Updated frontmatter in 12 feature files (added references, children fields)"
@@ -610,10 +574,7 @@ The v3 data model enforces single-source-of-truth: feature files own feature dat
 
 **1. BACKLOG.md — multi-column → ID-only**
 
-Check if `$(shipyard-data)/backlog/BACKLOG.md` contains columns beyond `Rank` and `ID` (e.g., `Title`, `RICE`, `Points`, `Status`):
-```bash
-head -5 $(shipyard-data)/backlog/BACKLOG.md
-```
+Use the Read tool on `<SHIPYARD_DATA>/backlog/BACKLOG.md` (limit 5) and check if it contains columns beyond `Rank` and `ID` (e.g., `Title`, `RICE`, `Points`, `Status`):
 If old format detected:
 - Extract the `ID` column values and their rank order
 - Rewrite BACKLOG.md using the new template format: `| Rank | ID |` rows + `## Overrides` section
@@ -621,44 +582,36 @@ If old format detected:
 
 **2. SPRINT.md — full task tables → task ID waves**
 
-If `$(shipyard-data)/sprints/current/SPRINT.md` exists and contains task data columns (Title, Effort, Status) beyond just task IDs in wave groups:
+If `<SHIPYARD_DATA>/sprints/current/SPRINT.md` exists and contains task data columns (Title, Effort, Status) beyond just task IDs in wave groups:
 - Extract task IDs and their wave assignments
 - Rewrite wave sections to contain only task IDs with `<!-- Read task files for details -->` comments
 - Preserve all frontmatter (sprint goal, capacity, mode, branch, status)
 
 **3. PROGRESS.md — old format → session log**
 
-If `$(shipyard-data)/sprints/current/PROGRESS.md` exists and contains task completion tracking tables (columns like `Task`, `Status`, `Completed`):
+If `<SHIPYARD_DATA>/sprints/current/PROGRESS.md` exists and contains task completion tracking tables (columns like `Task`, `Status`, `Completed`):
 - Task completion status lives in task files now — these tables are redundant
 - Rewrite to new format: `## Blockers` table, `## Deviations` table, `## Patch Tasks` table, `## Session Log`
 - Preserve any existing blocker or deviation entries
 
 **4. Epic files — remove `features:` arrays**
 
-Scan `$(shipyard-data)/spec/epics/*.md`:
-```bash
-grep -l "^features:" $(shipyard-data)/spec/epics/*.md 2>/dev/null
-```
-For each file with a `features:` array in frontmatter:
+Use Grep with `pattern: ^features:`, `path: <SHIPYARD_DATA>/spec/epics`, `glob: E*.md`, `output_mode: files_with_matches` to find epics with `features:` arrays. For each match:
 - Remove the `features:` key and its array values from frontmatter
 - Remove any `## Features` table in the body
 - Epic membership is now derived from feature `epic:` fields
 
 **5. Feature files — remove inline task tables**
 
-Scan `$(shipyard-data)/spec/features/*.md` for `## Tasks` sections containing markdown tables:
-```bash
-grep -l "^## Tasks" $(shipyard-data)/spec/features/*.md 2>/dev/null
-```
-For each file:
+Use Grep with `pattern: ^## Tasks`, `path: <SHIPYARD_DATA>/spec/features`, `glob: F*.md`, `output_mode: files_with_matches` to find feature files with inline task tables. For each match:
 - Ensure `tasks:` array exists in frontmatter (extract task IDs from table if needed)
 - Remove the `## Tasks` section and its table from the body
 - Task data lives in task files referenced by the `tasks:` array
 
 **6. Idea and bug file frontmatter backfill**
 
-Scan `$(shipyard-data)/spec/ideas/*.md` — backfill `story_points: 0` if missing.
-Scan `$(shipyard-data)/spec/bugs/*.md` — backfill `hotfix: false` if missing.
+Scan `<SHIPYARD_DATA>/spec/ideas/*.md` — backfill `story_points: 0` if missing.
+Scan `<SHIPYARD_DATA>/spec/bugs/*.md` — backfill `hotfix: false` if missing.
 
 **Report migration:**
 ```
@@ -674,7 +627,7 @@ Data model migrated (v2 → v3):
 
 ### Step 3: Re-analyze Codebase
 
-Regenerate `$(shipyard-data)/codebase-context.md`:
+Regenerate `<SHIPYARD_DATA>/codebase-context.md`:
 - Compare with previous version if it exists
 - Report delta: "Found 15 new files, 2 new dependencies, 1 new test pattern"
 
@@ -690,9 +643,9 @@ If the project lacks detailed `.claude/rules/` files (beyond Shipyard's own `shi
 
 ### Step 4c: Create project-context.md if missing
 
-Check if `$(shipyard-data)/memory/project-context.md` exists:
+Check if `<SHIPYARD_DATA>/memory/project-context.md` exists:
 - **If YES** — leave it untouched.
-- **If NO** — create it using the fresh install Step 4 template format. Derive content by reading `$(shipyard-data)/codebase-context.md` (written in Step 3) and extracting: tech stack versions and frameworks → `## Tech Stack`, test framework and commands → `## Testing`, detected naming patterns → `## Naming Conventions`, project-specific terms → `## Key Terminology`. Set `updated:` to today's date in frontmatter.
+- **If NO** — create it using the fresh install Step 4 template format. Derive content by reading `<SHIPYARD_DATA>/codebase-context.md` (written in Step 3) and extracting: tech stack versions and frameworks → `## Tech Stack`, test framework and commands → `## Testing`, detected naming patterns → `## Naming Conventions`, project-specific terms → `## Key Terminology`. Set `updated:` to today's date in frontmatter.
 
 This file was added in a recent Shipyard version. Existing projects won't have it until the first update run.
 

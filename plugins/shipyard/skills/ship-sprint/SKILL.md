@@ -1,7 +1,7 @@
 ---
 name: ship-sprint
 description: "Plan a new sprint — break features into tasks, find the critical path, and group tasks into waves for parallel execution. Or cancel an active sprint. Use when the user wants to start a sprint, plan work, pull features from backlog into a sprint, cancel a running sprint, or organize tasks into execution waves."
-allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, EnterPlanMode, ExitPlanMode, WebSearch, WebFetch]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, EnterPlanMode, ExitPlanMode, WebSearch, WebFetch, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 model: opus
 effort: high
 argument-hint: "[--cancel]"
@@ -14,21 +14,46 @@ Plan a new sprint by pulling features from the backlog and decomposing into wave
 ## Context
 
 !`shipyard-context path`
-!`shipyard-context head config.md 50 NO_CONFIG`
-!`shipyard-context head backlog/BACKLOG.md 50 NO_BACKLOG`
-!`shipyard-context head sprints/current/SPRINT.md 30 NO_ACTIVE_SPRINT`
-!`shipyard-context head memory/metrics.md 20 NO_METRICS`
-!`shipyard-context head codebase-context.md 30 "No codebase context"`
+!`shipyard-context view config`
+!`shipyard-context view backlog`
+!`shipyard-context view sprint`
+!`shipyard-context view metrics`
+!`shipyard-context view codebase 30`
 
-**Data path: use the SHIPYARD_DATA path from context above. For Read/Write/Edit tools, use the full literal path (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/...`). NEVER use `~` or `$HOME` in file_path — always start with `/`. For Bash: `SD=$(shipyard-data)` then `$SD/...`. Shell variables like `$SD` do NOT work in Read/Write/Edit file_path — only literal paths. NEVER hardcode or guess paths.**
+**Data path: use the SHIPYARD_DATA path printed in the context block above as a literal absolute prefix for every Read / Grep / Glob / Write / Edit call (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/sprints/current/SPRINT.md`). NEVER use `~`, `$HOME`, or shell variables in `file_path` — always start with `/`. Do NOT invoke shipyard-data or shipyard-context via shell command substitution — Read those files via the Read tool with the literal SHIPYARD_DATA prefix instead. The only Shipyard binary you may invoke from Bash is `shipyard-data archive-sprint sprint-NNN` for the atomic sprint-archive operation. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path; never include shell-substitution forms in a subagent prompt.**
 
 ## Input
 
 $ARGUMENTS
 
+## Session Mutex Check
+
+**Absolute first action — before reading any context, before mode detection, before anything.** Use the Read tool on `<SHIPYARD_DATA>/.active-session.json` (substitute the literal SHIPYARD_DATA path from the context block above). Then decide:
+
+- **File does not exist** → no other planning session is active. Proceed to "Session Guard" below.
+- **File exists.** Parse the JSON and check three fields:
+  1. If `cleared` is set OR `skill` is `null` → previous session ended cleanly (soft-delete sentinel). Proceed.
+  2. If `started` timestamp is more than 2 hours old → stale lock (probably a crashed session). Print one line to the user: "(recovered stale lock from `/{previous skill}` started {N}h ago)". Proceed.
+  3. Otherwise → **HARD BLOCK.** Another planning session is active. Print this message as the entire response and STOP — do not continue with any other instructions, do not load any context, do not call any other tools:
+
+  ```
+  ⛔ Another planning session is active.
+    Skill:   /{skill from file}
+    Topic:   {topic from file}
+    Started: {started from file}
+
+  Concurrent planning sessions can corrupt the backlog and allocate
+  duplicate task IDs. Finish or pause the active session first.
+
+  If the other session crashed or was closed:
+    Run /ship-status — it will offer to clear the stale lock.
+  ```
+
+This is a Read+Write mutex. There is a small theoretical race window between the Read and the Write below, but in practice two human-typed `/ship-sprint` invocations cannot collide within milliseconds.
+
 ## Session Guard
 
-**First action before anything else:** Write `.active-session.json` to the SHIPYARD_DATA directory (use the full literal path from context above — e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/.active-session.json`). This prevents post-compaction implementation drift:
+**Second action — only if the mutex check above said proceed:** Use the Write tool to write `.active-session.json` to the SHIPYARD_DATA directory (use the full literal path from the context block — e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/.active-session.json`). This both claims the mutex (overwriting any stale or cleared marker) AND prevents post-compaction implementation drift:
 
 ```json
 {
@@ -63,7 +88,7 @@ This file activates a PreToolUse hook that blocks source code writes during plan
 
   Handle cleanup transparently:
   1. If velocity not recorded → record it now (sum story_points from done features, write to metrics.md)
-  2. Archive: move `$(shipyard-data)/sprints/current/*` → `$(shipyard-data)/sprints/sprint-NNN/`
+  2. Archive by running `shipyard-data archive-sprint sprint-NNN` from Bash (substitute the real sprint ID). This atomically renames `<SHIPYARD_DATA>/sprints/current/` → `<SHIPYARD_DATA>/sprints/sprint-NNN/` and recreates an empty `current/`. Do NOT synthesize raw `cp`/`mv`/`mkdir` commands against the plugin data dir — they're not portable and not atomic. The `shipyard-data archive-sprint` invocation works because this skill has `Bash(shipyard-data:*)` in its allowlist.
   3. Report: "Archived sprint [ID]. Velocity: [N] pts recorded."
   4. Then proceed to PLAN mode
 
@@ -75,10 +100,11 @@ This file activates a PreToolUse hook that blocks source code writes during plan
 
 If you lose context mid-planning (e.g., after auto-compaction):
 
-1. Check for `$(shipyard-data)/sprints/current/SPRINT-DRAFT.md`
-   - If draft exists, check staleness: read `created` from frontmatter. If the draft is from a previous session (more than a few hours old) → AskUserQuestion: "A sprint draft from [date] exists with features [list]. Resume it, or delete and start fresh? (resume / start fresh)"
+1. Use the Read tool on `<SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md` (substitute the literal SHIPYARD_DATA path).
+   - If draft exists, check staleness: read `created` from frontmatter. If the draft is from a previous session (more than a few hours old) → AskUserQuestion: "A sprint draft from [date] exists with features [list]. Resume it, or start fresh (the existing draft will be overwritten)? (resume / start fresh)"
    - If current/resumed → load it, skip to Step 10 (Present Plan and Confirm)
-2. If no draft, check `$(shipyard-data)/spec/tasks/` for recently-created task files with `status: approved`
+   - If "start fresh" → use the Write tool to overwrite SPRINT-DRAFT.md with the new draft content (no separate delete step needed; Write replaces).
+2. If no draft, use Grep with `pattern: ^status: approved`, `path: <SHIPYARD_DATA>/spec/tasks`, `glob: T*.md`, `output_mode: files_with_matches` to find recently-created task files
    - Group by parent feature (each task has `feature:` in frontmatter)
    - **Verify completeness**: confirm all selected features have at least one task file. If any features have no tasks, those were not yet decomposed — fall through to branch 3 (restart from Step 1) rather than presenting an incomplete plan
    - These are the features selected in Step 2, decomposed in Step 4
@@ -96,7 +122,7 @@ The draft captures the full sprint plan (waves, critical path, execution mode). 
 
 ### Step 1: Determine Capacity
 
-Read velocity from `$(shipyard-data)/memory/metrics.md` (loaded in context above). Look for `Velocity: N pts` lines from prior sprints. If multiple sprints exist, average the last 3 for a rolling velocity.
+Use the Read tool on `<SHIPYARD_DATA>/memory/metrics.md` (also loaded in context above). Look for `Velocity: N pts` lines from prior sprints. If multiple sprints exist, average the last 3 for a rolling velocity.
 
 Also scan metrics.md for `Throughput:` lines (format: `Throughput: X.X pts/hr (N pts in M.M hrs active)  # Sprint NNN`). Extract the float value before `pts/hr` from each line. Average the last 3 values (or all available if fewer than 3 exist) → `avg_throughput`. If no `Throughput:` lines exist, `avg_throughput` is null.
 
@@ -111,10 +137,10 @@ Before selecting features, scan for unfinished work from previous cycles. These 
 
 **Scan these locations:**
 
-1. **Open bugs** — `$(shipyard-data)/spec/bugs/` for files with `status: open` or `status: investigating`. Read each to get title, severity, source (sprint ID, code review, integration test).
-2. **Blocked tasks** — `$(shipyard-data)/spec/tasks/` for files with `status: blocked`. Read each to get title, parent feature, blocked reason.
-3. **Retro action items** — `$(shipyard-data)/spec/ideas/` for files with `source: retro-*`. These are improvements the team committed to during retrospectives.
-4. **In-progress features** — `$(shipyard-data)/spec/features/` for files with `status: in-progress` that are NOT in an active sprint. These were started but not completed/approved in a previous sprint.
+1. **Open bugs** — Use Grep with `pattern: ^status: (open|investigating)`, `path: <SHIPYARD_DATA>/spec/bugs`, `glob: B*.md`, `output_mode: files_with_matches`. Read each match to get title, severity, source (sprint ID, code review, integration test).
+2. **Blocked tasks** — Use Grep with `pattern: ^status: blocked`, `path: <SHIPYARD_DATA>/spec/tasks`, `glob: T*.md`, `output_mode: files_with_matches`. Read each match to get title, parent feature, blocked reason.
+3. **Retro action items** — Use Grep with `pattern: ^source: retro-`, `path: <SHIPYARD_DATA>/spec/ideas`, `glob: IDEA-*.md`, `output_mode: files_with_matches`. These are improvements the team committed to during retrospectives.
+4. **In-progress features** — Use Grep with `pattern: ^status: in-progress`, `path: <SHIPYARD_DATA>/spec/features`, `glob: F*.md`, `output_mode: files_with_matches`. Filter to features NOT in an active sprint (read SPRINT.md to find current sprint feature IDs). These were started but not completed/approved in a previous sprint.
 
 **Display carry-over work before the feature list (if any exists):**
 
@@ -214,7 +240,7 @@ Before breaking features into tasks, research how to build each one well. Start 
 
 **Internal research (first)** — **use LSP first** (`documentSymbol`, `findReferences`, `goToDefinition`, `hover`) for all code navigation. It's faster and uses fewer tokens than reading whole files. Fall back to Grep/Read if LSP isn't available. See `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/lsp-strategy.md`.
 - Read the feature file fully — Technical Notes, and also Interface, Data Model, Configuration, Flows, Error Handling sections if present
-- Check `references:` in the feature's frontmatter — each entry is a full relative path (e.g., `$(shipyard-data)/spec/references/F001-api.md`). Read each listed file directly for full API contracts, schemas, and protocol specs. This is where the detailed technical content lives.
+- Check `references:` in the feature's frontmatter — each entry is a full relative path (e.g., `<SHIPYARD_DATA>/spec/references/F001-api.md`). Read each listed file directly for full API contracts, schemas, and protocol specs. This is where the detailed technical content lives.
 - Identify patterns already in use — how similar things are built in this project
 - Check shared utilities, components, or services that can be reused (don't hand-roll what exists)
 - **Scan project tools** — check what the user already has set up:
@@ -463,7 +489,7 @@ Now that research has identified the libraries, patterns, and utilities this spr
    - New utilities/helpers being created (from architecture analysis)
    - New patterns being introduced (from implementation strategy)
 2. Run the 5 detection strategies from the protocol against the codebase
-3. Also check existing IDEA files from `$(shipyard-data)/spec/ideas/` with `source: "simplification-scan"` — a previous `/ship-discuss` may have already found opportunities for features now entering the sprint. Re-evaluate those: are they still valid? Can any be promoted to sprint tasks now?
+3. Also check existing IDEA files: use Grep with `pattern: ^source: "?simplification-scan`, `path: <SHIPYARD_DATA>/spec/ideas`, `glob: IDEA-*.md`, `output_mode: files_with_matches` — a previous `/ship-discuss` may have already found opportunities for features now entering the sprint. Re-evaluate those: are they still valid? Can any be promoted to sprint tasks now?
 
 **Routing at sprint time:**
 
@@ -487,7 +513,7 @@ During decomposition, always include cleanup as explicit tasks — not afterthou
 
 For each selected feature, read its spec file and:
 1. Check the feature's `tasks:` array in frontmatter ��� are tasks already defined?
-2. If not, break into atomic tasks and create task files in `$(shipyard-data)/spec/tasks/TNNN-[slug].md` with frontmatter: id, title, feature (parent ID), status, effort (S/M/L), dependencies
+2. If not, break into atomic tasks and use the Write tool to create task files at `<SHIPYARD_DATA>/spec/tasks/TNNN-[slug].md` with frontmatter: id, title, feature (parent ID), status, effort (S/M/L), dependencies
 3. Update the feature's `tasks:` array with the new task IDs
 4. Task files are the **single source of truth** for task data — title, effort, status, dependencies all live there
 5. **Populate `## Technical Notes` in each task file** using findings from Steps 3–3.5: architecture impact, files to modify, implementation strategy, decisions from the Decision Log, patterns to follow, gotchas, cleanup items. Use the template format defined above. Every task must have Technical Notes — the builder reads these before writing any code.
@@ -529,7 +555,7 @@ Generate next sprint ID (sprint-NNN). Compute the full plan in memory:
 - SPRINT.md content: sprint goal, capacity, wave structure (task IDs only), critical path, execution mode
 - PROGRESS.md content: empty current wave tracker and session log
 
-Write `$(shipyard-data)/sprints/current/SPRINT-DRAFT.md` as a compaction checkpoint:
+Use the Write tool to write `<SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md` as a compaction checkpoint:
 
 ```yaml
 ---
@@ -593,9 +619,9 @@ subagent_type: shipyard:shipyard-critic
 Prompt the critic with:
 - Mode: `sprint-critique`
 - Stakes: `[standard|high]`
-- Artifact paths: SPRINT-DRAFT.md path + all task file paths (full paths from `$(shipyard-data)/spec/tasks/`)
+- Artifact paths: SPRINT-DRAFT.md path + all task file paths (full paths from `<SHIPYARD_DATA>/spec/tasks/`)
 - Also include feature spec paths (the critic needs to verify tasks cover all acceptance scenarios)
-- Codebase context path: `$(shipyard-data)/codebase-context.md`
+- Codebase context path: `<SHIPYARD_DATA>/codebase-context.md`
 - Project rules: `.claude/rules/project-*.md`
 
 **Process the critic's findings:**
@@ -658,18 +684,18 @@ Then for each wave: task IDs + titles, execution (sequential/parallel), dependen
 **Exit plan mode** (`ExitPlanMode`) — triggers the built-in approval flow:
 - **Approve** → proceed to Step 11 (create sprint)
 - **Refine** → user gives feedback, iterate on specific tasks/waves
-- **Cancel** → delete SPRINT-DRAFT.md, delete task files created in Step 4, clear `tasks:` arrays in feature frontmatter
+- **Cancel** → use Edit to set `status: cancelled` in SPRINT-DRAFT.md frontmatter; for each task file created in Step 4, use Edit to set `status: cancelled`; use Edit to clear `tasks:` arrays in feature frontmatter. The `reap-obsolete` housekeeping subcommand reaps these later. No physical file deletion needed.
 
 ### Step 11: Create Sprint (after approval)
 
 If approved:
 
-1. Delete SPRINT-DRAFT.md (superseded by the approved SPRINT.md). Write SPRINT.md and PROGRESS.md
+1. Use Edit to set `status: superseded` in SPRINT-DRAFT.md frontmatter (the `reap-obsolete` housekeeping reaps it later — do not physically delete). Use Write to create SPRINT.md and PROGRESS.md.
 2. Update feature statuses to `in-progress` in feature frontmatter
 3. Remove pulled feature IDs from BACKLOG.md
 4. **Record working branch** — capture the user's current branch: `git branch --show-current`. Write `branch: <current branch>` to SPRINT.md frontmatter. Shipyard works on whatever branch the user is already on — it does not create sprint branches.
 
-**Clean up session guard:** Delete `$(shipyard-data)/.active-session.json` — planning is complete.
+**Clean up session guard:** Use the Write tool to overwrite `<SHIPYARD_DATA>/.active-session.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel — `session-guard` treats `skill: null` as inactive). Planning is complete.
 
 Then show:
 ```
@@ -779,9 +805,8 @@ Then show:
    - Any uncommitted work is committed as WIP
    - Clean up any isolated working copies (worktrees)
    - Stay on current branch (user handles branch switching)
-5. Move sprint files to `$(shipyard-data)/sprints/sprint-NNN/` (archive)
-6. Clear `$(shipyard-data)/sprints/current/`
-7. Report: "Sprint cancelled. [N] tasks done (kept), [M] returned to backlog."
+5. Archive the cancelled sprint: run `shipyard-data archive-sprint sprint-NNN` (substitute the real sprint ID). This atomically renames `current/` → `sprint-NNN/` and recreates an empty `current/` in a single allowlisted call. Do NOT fall back to raw `cp`/`mv`/`mkdir` against the data dir — those prompt for permission because the plugin data dir is outside the project root.
+6. Report: "Sprint cancelled. [N] tasks done (kept), [M] returned to backlog."
 
 ## Rules
 

@@ -15,12 +15,12 @@ Verify completed work against spec. Auto-test, screenshot, demo to user, get app
 
 !`shipyard-context path`
 
-!`shipyard-context head config.md 50 NO_CONFIG`
-!`shipyard-context head sprints/current/SPRINT.md 80 NO_SPRINT`
-!`shipyard-context head sprints/current/PROGRESS.md 50 NO_PROGRESS`
-!`shipyard-context head memory/metrics.md 50 NO_METRICS`
+!`shipyard-context view config`
+!`shipyard-context view sprint 80`
+!`shipyard-context view sprint-progress`
+!`shipyard-context view metrics 50`
 
-**Data path: use the SHIPYARD_DATA path from context above. For Read/Write/Edit tools, use the full literal path (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/...`). NEVER use `~` or `$HOME` in file_path — always start with `/`. For Bash: `SD=$(shipyard-data)` then `$SD/...`. Shell variables like `$SD` do NOT work in Read/Write/Edit file_path — only literal paths. NEVER hardcode or guess paths.**
+**Data path: use the SHIPYARD_DATA path printed in the context block above as a literal absolute prefix for every Read / Grep / Glob / Write / Edit call (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/sprints/current/SPRINT.md`). NEVER use `~`, `$HOME`, or shell variables in `file_path` — always start with `/`. For Bash: this skill has generic `Bash` for running project test commands and git, but NEVER invoke shipyard-data or shipyard-context via shell command substitution — Read those files via the Read tool with the literal SHIPYARD_DATA prefix instead. The only Shipyard binary you may invoke from Bash is the `shipyard-data archive-sprint sprint-NNN` form during the Release stage. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path; never include shell-substitution forms in a subagent prompt.**
 
 ## Input
 
@@ -41,7 +41,7 @@ $ARGUMENTS
 
 If you lose context mid-review (e.g., after auto-compaction):
 
-1. Check `$(shipyard-data)/verify/` for existing `*-verdict.md` files — these features are already reviewed
+1. Use Glob `<SHIPYARD_DATA>/verify/*-verdict.md` to find existing verdict files — these features are already reviewed
 2. Read SPRINT.md — get the list of features to review
 3. Skip features with verdict files where `complete: true`. If a verdict has `complete: false`, that review was interrupted — re-run the pipeline for that feature
 4. **Staleness check**: read the feature spec file to find its `tasks:` list, then read each task file's Technical Notes for source file paths. If the most recent commit touching those source/test files (`git log -1 --format=%ci -- [paths]`) is newer than the verdict's `reviewed_at`, re-run the review — code has changed since the verdict was written
@@ -87,7 +87,7 @@ The code review uses 6 specialized scanners in parallel + an opus investigator f
    - Phase 2 (Wave 1): spawn all 6 specialized scanners IN A SINGLE MESSAGE (parallel)
    - Phase 3 (Aggregate & dedupe): merge findings, sort by severity/confidence
    - Phase 4 (Wave 2): conditional `shipyard:shipyard-investigator` deep dives for high-stakes findings
-   - Phase 5 (Final report): write `$(shipyard-data)/sprints/current/CODE-REVIEW.md` with VERDICT, COUNTS, and ---ACTIONABLE--- sections
+   - Phase 5 (Final report): use the Write tool to write `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md` (literal path) with VERDICT, COUNTS, and ---ACTIONABLE--- sections
 
    First iteration uses: `git diff $(git merge-base HEAD <main_branch>)...HEAD`
    Subsequent iterations use the cumulative delta: `git diff <pre-code-review-tag>..HEAD`
@@ -103,10 +103,10 @@ The code review uses 6 specialized scanners in parallel + an opus investigator f
    - Count decreased → improvement, continue fixing
    - Count unchanged or increased → fixes are introducing new issues. AskUserQuestion: "Code review isn't converging — [N] must-fix issues remain after [iteration] fix attempts. Proceed to demo with current state, or investigate manually? (proceed / investigate)"
 
-5. **Fix** — Spawn `Agent` with `subagent_type: shipyard:shipyard-builder` (no worktree, works on the working branch):
+5. **Fix** — Spawn `Agent` with `subagent_type: shipyard:shipyard-builder` (no worktree, works on the working branch). Substitute the literal SHIPYARD_DATA path from the context block for `<SHIPYARD_DATA>` in the prompt below before spawning:
    ```
    Address code review findings.
-   Read $(shipyard-data)/sprints/current/CODE-REVIEW.md — skip everything above ---ACTIONABLE---.
+   Read <SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md — skip everything above ---ACTIONABLE---.
    Fix all M (must-fix) and S (should-fix) items listed below the separator.
    Each finding is one line: [file:line] — [category] — [description]. Fix: [suggestion].
    Follow TDD — update or add tests for any bug fixes.
@@ -121,7 +121,7 @@ The code review uses 6 specialized scanners in parallel + an opus investigator f
 - **Clean pass** — zero must-fix and zero should-fix → proceed to Stage 1
 - **Only consider items remain** → proceed to Stage 1
 - **Diminishing returns failed** → AskUserQuestion immediately
-- **3 iterations reached** — For remaining must-fix items, create bug files at `$(shipyard-data)/spec/bugs/B-CR-[slug].md` so they surface in the next sprint. Then AskUserQuestion: "Code review ran 3 iterations. [N] items remain — tracked as [bug IDs]. Proceed to demo, or keep fixing?"
+- **3 iterations reached** — For remaining must-fix items, use the Write tool to create bug files at `<SHIPYARD_DATA>/spec/bugs/B-CR-[slug].md` so they surface in the next sprint. Then AskUserQuestion: "Code review ran 3 iterations. [N] items remain — tracked as [bug IDs]. Proceed to demo, or keep fixing?"
 
 **Cleanup:** After exiting (any condition), delete the checkpoint tag:
 ```bash
@@ -140,18 +140,18 @@ Log each iteration in PROGRESS.md:
 ### Stage 1: Run Tests & Spec Verification
 
 **1a. Run all tests** — delegate to a `shipyard:shipyard-test-runner` subagent to avoid polluting the review context with raw test output:
-- Spawn `Agent` with `subagent_type: shipyard:shipyard-test-runner` and prompt: "Run the full test suite: unit (`test_commands.unit`), integration (`test_commands.integration`), and end-to-end (`test_commands.e2e`) from `$(shipyard-data)/config.md`. If specific commands aren't configured, fall back to `testing_framework` field. Return the structured summary."
+- Substitute the literal SHIPYARD_DATA path for `<SHIPYARD_DATA>` in the prompt below, then spawn `Agent` with `subagent_type: shipyard:shipyard-test-runner` and prompt: "Run the full test suite: unit (`test_commands.unit`), integration (`test_commands.integration`), and end-to-end (`test_commands.e2e`) read from `<SHIPYARD_DATA>/config.md`. If specific commands aren't configured, fall back to `testing_framework` field. Return the structured summary."
 - Use the returned summary (PASS/FAIL counts) for Stage 3-5 — do not re-run tests yourself.
 
 **1b. Spec review via specialized scanner** — Before spawning, read the feature file's `references:` frontmatter array and collect any paths listed there. Then spawn `Agent` with `subagent_type: shipyard:shipyard-review-spec`:
 
-If there are reference files:
+If there are reference files (substitute the literal SHIPYARD_DATA path for `<SHIPYARD_DATA>` before spawning):
 ```
 Run a spec review on feature [FEATURE_ID].
 Mode: spec review
-Feature spec: $(shipyard-data)/spec/features/[FEATURE_ID]-*.md
-Reference files: $(shipyard-data)/spec/references/F001-api.md, $(shipyard-data)/spec/references/F001-schema.md
-Task files: $(shipyard-data)/spec/tasks/ (filter by feature: [FEATURE_ID])
+Feature spec: <SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md
+Reference files: <SHIPYARD_DATA>/spec/references/F001-api.md, <SHIPYARD_DATA>/spec/references/F001-schema.md
+Task files: <SHIPYARD_DATA>/spec/tasks/ (filter by feature: [FEATURE_ID])
 Implementation files: <git diff --name-only $(git merge-base HEAD <main_branch>)...HEAD>
 ```
 
@@ -167,7 +167,7 @@ If the feature has UI components:
 1. Ensure dev server is running (auto-start if needed)
 2. Run end-to-end tests with screenshot capture
 3. Screenshots at 3 viewports: mobile (375px), tablet (768px), desktop (1024px)
-4. Save to `$(shipyard-data)/verify/[feature-id]/`
+4. Use the Write tool to save to `<SHIPYARD_DATA>/verify/[feature-id]/`
 
 **Live-capture the dev server and E2E runs.** Anything you run here to observe behavior (dev server startup logs, E2E runner output, `curl` sanity checks against the running app) goes through `shipyard-logcap run <name> --max-size <S> --max-files <N> -- <command>` unless the command already writes its own log file. Review re-runs are the most expensive kind — Opus-level reasoning burning tokens on output you already saw. If the first run surfaces something you want to inspect more closely, `shipyard-logcap grep` the existing capture with a different pattern **before** re-running the thing. Full guide and decision table for picking bounds: `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/live-capture.md`.
 
@@ -224,7 +224,7 @@ Additionally detect:
 
 For each gap, classify:
 - **Simple** (missing test, TODO left in, missing validation) → patch task for builder
-- **Complex** (feature doesn't work but tests pass, wiring broken, behavior contradicts spec) → start a debug session instead of a blind patch. Create `$(shipyard-data)/debug/[feature-id]-[gap].md` with the symptoms and evidence from the review.
+- **Complex** (feature doesn't work but tests pass, wiring broken, behavior contradicts spec) → start a debug session instead of a blind patch. Use the Write tool to create `<SHIPYARD_DATA>/debug/[feature-id]-[gap].md` with the symptoms and evidence from the review.
 
 ### Stage 4.5: Quality Gate (self-review loop)
 
@@ -257,14 +257,15 @@ After the self-review loop stabilizes, spawn the critic agent to challenge the r
 
 Spawn `Agent` with `subagent_type: shipyard:shipyard-critic`:
 
+Substitute the literal SHIPYARD_DATA path for `<SHIPYARD_DATA>` before spawning:
 ```
 Critique this review's findings for feature [FEATURE_ID].
 Mode: review-critique
 Stakes: [standard or high — match the feature's complexity]
 Artifact paths:
-  - Feature spec: $(shipyard-data)/spec/features/[FEATURE_ID]-*.md
-  - Task files: $(shipyard-data)/spec/tasks/ (filter by feature: [FEATURE_ID])
-Codebase context path: $(shipyard-data)/codebase-context.md
+  - Feature spec: <SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md
+  - Task files: <SHIPYARD_DATA>/spec/tasks/ (filter by feature: [FEATURE_ID])
+Codebase context path: <SHIPYARD_DATA>/codebase-context.md
 Project rules path: .claude/rules/**/*.md
 
 Review findings to challenge:
@@ -289,7 +290,7 @@ Do not re-run the full review pipeline. This is a surgical pass on the critic's 
 
 ### Checkpoint: Write Verdict
 
-Write `$(shipyard-data)/verify/[feature-ID]-verdict.md` with structured results:
+Use the Write tool to write `<SHIPYARD_DATA>/verify/[feature-ID]-verdict.md` with structured results:
 
 ```yaml
 ---
@@ -365,7 +366,7 @@ Fast-track for hotfixes:
 
 After sprint approval (or when `--retro-only` is passed), run the retrospective. This analyzes what happened, captures learnings, and creates improvement items.
 
-If `--retro-only` with a sprint ID (e.g., `--retro-only sprint-003`), read that sprint's archived files from `$(shipyard-data)/sprints/sprint-NNN/` instead of `current/`.
+If `--retro-only` with a sprint ID (e.g., `--retro-only sprint-003`), Read that sprint's archived files from `<SHIPYARD_DATA>/sprints/sprint-NNN/` instead of `current/`.
 
 ### Retro Compaction Recovery
 
@@ -421,9 +422,9 @@ Append responses to RETRO-DATA.md under `## Team Feedback`. Update frontmatter: 
 
 ### Retro Step 3: Create Action Items
 
-For each actionable improvement, create an idea file:
+For each actionable improvement, use the Write tool to create an idea file at `<SHIPYARD_DATA>/spec/ideas/IDEA-NNN-[slug].md`:
 ```yaml
-# $(shipyard-data)/spec/ideas/IDEA-NNN-[slug].md
+# <SHIPYARD_DATA>/spec/ideas/IDEA-NNN-[slug].md
 ---
 id: IDEA-NNN
 title: "[improvement]"
@@ -439,7 +440,7 @@ Update RETRO-DATA.md: `step: action_items_created`, `ideas_created: [IDEA-NNN, .
 
 ### Retro Step 4: Update Metrics
 
-1. **Update metrics** — append to `$(shipyard-data)/memory/metrics.md`: velocity, carry-over rate, bug rate, estimate accuracy, anti-pattern flags
+1. **Update metrics** — Read `<SHIPYARD_DATA>/memory/metrics.md`, then use Write to overwrite with the previous content plus appended new entries: velocity, carry-over rate, bug rate, estimate accuracy, anti-pattern flags
 2. **Quarterly rollover** — if metrics.md exceeds 300 lines, archive older data to `metrics-[quarter].md`
 3. **Save to memory** — key retro insights that persist across sessions
 
@@ -480,7 +481,7 @@ The plan should include:
 
 **STATUS CHANGES** — what moves:
 - Features: [IDs] status `done` → `released`, `released_at: [date]`
-- Sprint: archived to `$(shipyard-data)/sprints/sprint-NNN/`
+- Sprint: archived to `<SHIPYARD_DATA>/sprints/sprint-NNN/`
 
 **RETRO HIGHLIGHTS** — key numbers from the retro (if just completed):
 - Velocity, throughput, estimate accuracy
@@ -504,7 +505,7 @@ The plan should include:
 
 ### Release Step 3: Archive Sprint
 
-Move `$(shipyard-data)/sprints/current/*` → `$(shipyard-data)/sprints/sprint-NNN/`, clear `current/`.
+Run `shipyard-data archive-sprint sprint-NNN` from Bash (substitute the real sprint ID). This atomically renames `<SHIPYARD_DATA>/sprints/current/` → `<SHIPYARD_DATA>/sprints/sprint-NNN/` and recreates an empty `current/` for the next cycle. Do NOT synthesize raw `cp`/`mv`/`mkdir` against the plugin data dir — those are not portable and not atomic. `shipyard-data archive-sprint` is the only Shipyard binary you need to invoke from Bash, and it works because this skill has generic `Bash` allowed.
 
 ### Final: Run Status
 

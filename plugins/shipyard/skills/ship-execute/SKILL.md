@@ -15,12 +15,12 @@ Execute sprint tasks following the wave plan. Every task follows Red → Green �
 
 !`shipyard-context path`
 
-!`shipyard-context head config.md 50 NO_CONFIG`
-!`shipyard-context head sprints/current/SPRINT.md 80 NO_SPRINT`
-!`shipyard-context head sprints/current/PROGRESS.md 50 NO_PROGRESS`
-!`shipyard-context head codebase-context.md 50 "No codebase context"`
+!`shipyard-context view config`
+!`shipyard-context view sprint 80`
+!`shipyard-context view sprint-progress`
+!`shipyard-context view codebase`
 
-**Data path: use the SHIPYARD_DATA path from context above. For Read/Write/Edit tools, use the full literal path (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/...`). NEVER use `~` or `$HOME` in file_path — always start with `/`. For Bash: `SD=$(shipyard-data)` then `$SD/...`. Shell variables like `$SD` do NOT work in Read/Write/Edit file_path — only literal paths. NEVER hardcode or guess paths.**
+**Data path: use the SHIPYARD_DATA path printed in the context block above as a literal absolute prefix for every Read / Grep / Glob / Write / Edit call (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/spec/tasks/T001-*.md`). NEVER use `~`, `$HOME`, or shell variables in `file_path` — always start with `/`. For Bash: this skill has generic `Bash` for running project test commands and git operations, but NEVER read Shipyard state files via shell command substitution — Read them via the Read tool with the literal SHIPYARD_DATA prefix instead. The only Shipyard binary you may invoke from Bash is `shipyard-data with-lock sprint -- <cmd>` for serialized state writes during recovery (rare). When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path; never include shell-substitution forms in a subagent prompt.**
 
 ## Input
 
@@ -28,13 +28,32 @@ $ARGUMENTS
 
 ## Session Guard Cleanup
 
-**First action:** Delete `.active-session.json` from the SHIPYARD_DATA directory (use the full literal path from context above) if it exists — execution is an implementing skill and the session guard should not block code writes.
+**First action — planning-session mutex check:** Use the Read tool on `<SHIPYARD_DATA>/.active-session.json` (substitute the literal SHIPYARD_DATA path from the context block above). Then decide:
+
+- **File does not exist** → no planning session active. Skip to "Execution Lock" below.
+- **File exists.** Parse the JSON and check:
+  1. If `cleared` is set OR `skill` is `null` → previous planning session ended cleanly. Use the Write tool to overwrite the file with `{"skill": null, "cleared": "<iso-timestamp>"}` (idempotent — keeps the soft-delete sentinel). Skip to "Execution Lock" below.
+  2. If `started` is more than 2 hours old → stale lock from a crashed planning session. Print "(recovered stale planning lock from `/{previous skill}` started {N}h ago)" to the user, use Write to overwrite with the cleared sentinel, then proceed.
+  3. Otherwise → **HARD BLOCK.** A planning session is active and execution cannot start until it ends:
+  ```
+  ⛔ Planning session active — cannot start execution.
+    Skill:   /{skill from file}
+    Topic:   {topic from file}
+    Started: {started from file}
+
+  Finish or pause the planning session first, then run /ship-execute.
+  If the planning session crashed or was closed:
+    Run /ship-status — it will offer to clear the stale lock.
+  ```
+  Print this message as the entire response and STOP — do not load any context, do not call any other tools.
+
+This prevents the failure mode where a discussion is in progress in one terminal and execution gets started in another, which would trip the session-guard hook on every Edit.
 
 ## Execution Lock
 
 **Before starting work**, check for concurrent execution:
 
-1. Read `$(shipyard-data)/.active-execution.json` — if it exists and is less than 2 hours old:
+1. Use the Read tool to read `<SHIPYARD_DATA>/.active-execution.json` (substitute SHIPYARD_DATA from the context block). Parse the JSON. If `cleared` is not set AND `started` is less than 2 hours ago:
    ```
    ⛔ BLOCKED: Another execution session is active.
      Skill: [skill name]
@@ -46,7 +65,7 @@ $ARGUMENTS
    ```
    **Hard block — do not proceed. Do not offer an override.** Stop immediately.
 
-2. If no lock exists or lock is stale (>2 hours) → write `$(shipyard-data)/.active-execution.json`:
+2. If no lock exists, the lock has `cleared` set, or the lock is stale (>2 hours) → use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with:
    ```json
    {
      "skill": "ship-execute",
@@ -55,9 +74,9 @@ $ARGUMENTS
      "started": "[ISO date]"
    }
    ```
-   Also delete `$(shipyard-data)/.compaction-count` if it exists — reset the counter for this session.
+   Also use the Write tool to overwrite `<SHIPYARD_DATA>/.compaction-count` with content `0` — reset the counter for this session.
 
-3. **On sprint completion or pause** (HANDOFF.md written), delete both `$(shipyard-data)/.active-execution.json` and `$(shipyard-data)/.compaction-count`.
+3. **On sprint completion or pause** (HANDOFF.md written), use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` and overwrite `<SHIPYARD_DATA>/.compaction-count` with content `0`. (Soft-delete sentinels — session-guard treats `skill: null` as inactive.)
 
 ## Detect Mode
 
@@ -138,11 +157,21 @@ Skip the wrapper when the command already file-backs its own output (wrapping wo
 
 **Before anything else**, check for leftover worktrees from a previous session. This applies to ALL modes (solo, subagent, team) — any mode can leave behind worktrees with uncommitted work after a crash, quota exhaustion, or killed session.
 
+**First, prune stale git worktree metadata** — if the user manually deleted a worktree directory (e.g., `rm -rf`), git's internal `.git/worktrees/<name>/` administrative dir lingers, and the next `git worktree add` for that name fails with "already exists". This is two lines to defend against and free:
+
 ```bash
-git worktree list | grep 'shipyard/wt-'
+git worktree prune
 ```
 
-**If no `shipyard/wt-*` worktrees exist → skip to Step 1.**
+`git worktree prune` is a portable git subcommand and works identically on macOS, Linux, and Windows. It only removes administrative metadata for worktree directories that no longer exist on disk — it never touches your actual worktrees, your branches, or your commits.
+
+Then list current worktrees:
+
+```bash
+git worktree list
+```
+
+If the listing shows no `shipyard/wt-*` paths, **skip to Step 1**. Otherwise, salvage each one as described below.
 
 If worktrees exist, salvage all of them before proceeding:
 
@@ -323,10 +352,10 @@ For each task in the wave, spawn Agent with:
     - If current branch matches the working branch → you're in solo mode. Correct.
     - If neither → HARD STOP. The worktree hook failed. Do NOT checkout the working branch — that bypasses rebase/review. Do NOT write any code. Report back: "WORKTREE BRANCH FAILURE — task not started. Actual branch: [name]".
 
-    Read these files for context:
-    - $(shipyard-data)/spec/tasks/[TASK_ID]-*.md (your task spec)
-    - $(shipyard-data)/spec/features/[FEATURE_ID]-*.md (parent feature — read fully, then check its `references:` frontmatter array and read each listed path in `$(shipyard-data)/spec/references/`; these hold full API contracts, schemas, and protocol specs you must implement against)
-    - $(shipyard-data)/codebase-context.md (codebase patterns)
+    Read these files for context (substitute the literal SHIPYARD_DATA path from the context block before spawning):
+    - <SHIPYARD_DATA>/spec/tasks/[TASK_ID]-*.md (your task spec)
+    - <SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md (parent feature — read fully, then check its `references:` frontmatter array and read each listed path in <SHIPYARD_DATA>/spec/references/; these hold full API contracts, schemas, and protocol specs you must implement against)
+    - <SHIPYARD_DATA>/codebase-context.md (codebase patterns)
     - .claude/rules/ (ALL project rules — not just shipyard-*. These contain architecture constraints, naming conventions, banned patterns you must follow)
 
     Read Technical Notes in task and feature files — they contain research
@@ -430,7 +459,7 @@ Between waves (each wave is a group of tasks that ran together):
 - **Clean branch check** — run `git status --porcelain` on the orchestrator's branch. If there are uncommitted changes (modified, untracked, or staged files), something went wrong during the merge process. Commit any legitimate changes (e.g., PROGRESS.md, task file status updates) with `chore(shipyard): wave [N] state update`. If unexpected changes exist (source files that shouldn't have been modified by the orchestrator), AskUserQuestion: "Unexpected uncommitted changes found after Wave [N] merge: [file list]. These shouldn't be here — the orchestrator doesn't write source code. Commit as-is, stash, or investigate? (commit / stash / investigate). Recommended: investigate." **The orchestrator's branch must be clean before starting the next wave.**
 - **Update PROGRESS.md** — set frontmatter `current_wave` to the next wave number. This is the orchestrator's checkpoint — if context is lost to auto-compaction, this field tells you where to resume. Today this write happens only from the orchestrator (teammates never touch PROGRESS.md, see references/team-mode.md), but if you ever need to update it from a context where another writer might be active (recovery flows, parallel review fixers, future team-mode changes), wrap the write in `shipyard-data with-lock sprint -- <command>` to serialize against other writers. Example: `shipyard-data with-lock sprint -- python3 -c "..."` or any short edit script. The lock primitive is documented in `bin/shipyard-data.mjs` (`with-lock` subcommand).
 - **Delegate INTEGRATION tests to a test subagent** — spawn an `Agent` with `subagent_type: shipyard:shipyard-test-runner` (no `isolation: worktree`) following the pattern in `references/test-delegation.md`. Pass it the `test_commands.integration` command from config (or scoped by sprint feature paths). Receive back a structured summary (PASS/FAIL/SKIP). Act on the summary — do NOT run tests directly in this session.
-- **If integration tests FAIL** → do NOT fix code or lint errors directly. Spawn a `shipyard:shipyard-builder` subagent (no worktree) with the failure summary and this instruction: "Fix the failing tests. Read git.main_branch from $(shipyard-data)/config.md. Run `git diff $(git merge-base HEAD [main_branch])...HEAD --name-only` to identify in-scope files. Only fix errors in files that appear in that diff — pre-existing errors in files outside the diff are not your responsibility." After the builder returns, rerun integration tests (spawn test subagent again) to confirm fixes resolved the failures. If still failing → **create a bug file** at `$(shipyard-data)/spec/bugs/B-INT-[slug].md` with the failure details, test output, and attempted fix summary. Then escalate to user via AskUserQuestion with the failure details and bug ID. The bug file ensures the issue is tracked and surfaced in the next sprint planning.
+- **If integration tests FAIL** → do NOT fix code or lint errors directly. Spawn a `shipyard:shipyard-builder` subagent (no worktree) with the failure summary and this instruction (substitute the literal SHIPYARD_DATA path before spawning): "Fix the failing tests. Read `git.main_branch` from `<SHIPYARD_DATA>/config.md` via the Read tool. Run `git diff $(git merge-base HEAD [main_branch])...HEAD --name-only` to identify in-scope files. Only fix errors in files that appear in that diff — pre-existing errors in files outside the diff are not your responsibility." After the builder returns, rerun integration tests (spawn test subagent again) to confirm fixes resolved the failures. If still failing → **use the Write tool to create a bug file** at `<SHIPYARD_DATA>/spec/bugs/B-INT-[slug].md` with the failure details, test output, and attempted fix summary. Then escalate to user via AskUserQuestion with the failure details and bug ID. The bug file ensures the issue is tracked and surfaced in the next sprint planning.
 - Verify all tasks in completed wave satisfy their acceptance criteria
 - Check for gaps (acceptance scenario without implementation)
 - If gaps found → create patch tasks, add to next wave
@@ -459,20 +488,17 @@ Between waves (each wave is a group of tasks that ran together):
 
   **Auto-continue to the next wave without pausing.** The orchestrator stays lean (~10-15% context) by delegating to subagents. Do not suggest `/clear`, do not suggest re-invoking `/ship-execute`, do not ask "do you want to continue?" — just proceed to the next wave.
 
-  **Context pressure detection:** At each wave boundary, check `$(shipyard-data)/.compaction-count`:
-  ```bash
-  cat $(shipyard-data)/.compaction-count 2>/dev/null
-  ```
+  **Context pressure detection:** At each wave boundary, use the Read tool on `<SHIPYARD_DATA>/.compaction-count` (substitute SHIPYARD_DATA from the context block). The file contains a single integer. Treat a missing file as `0`.
   - **count = 1** → note it, continue normally
   - **count = 2** → warn in wave report: "⚠ Context pressure building — will auto-pause after this wave if another compaction fires"
-  - **count >= 3** → **auto-pause immediately.** Write HANDOFF.md, delete the compaction counter, and tell the user:
+  - **count >= 3** → **auto-pause immediately.** Use the Write tool to write HANDOFF.md, then use Write to overwrite `<SHIPYARD_DATA>/.compaction-count` with content `0`, and tell the user:
     ```
     ⚠ Auto-pausing — 3 compactions detected, session is running hot.
     Progress saved. Run: /clear then /ship-execute (resumes from Wave [N+1])
     ```
     This pre-empts quota exhaustion by pausing while there's still enough context to write a clean handoff.
 
-  The compaction counter is tracked by the PostCompact hook and reset when execution starts (delete `.compaction-count` in the execution lock step).
+  The compaction counter is incremented by the PostCompact hook and reset to `0` (via Write) when execution starts (in the execution lock step above).
 
 ### Compaction Recovery
 
@@ -555,7 +581,7 @@ If the same file is edited 5+ times without a commit:
 - Pause and reassess approach
 - Re-read the spec
 - Consider simplifying
-- If stuck after 7+ iterations → **escalate to debug mode**: create a debug session file (`$(shipyard-data)/debug/[task-id].md`) with the symptoms, what was tried, and what was eliminated. Then AskUserQuestion:
+- If stuck after 7+ iterations → **escalate to debug mode**: use the Write tool to create a debug session file at `<SHIPYARD_DATA>/debug/[task-id].md` with the symptoms, what was tried, and what was eliminated. Then AskUserQuestion:
 
   "Builder is stuck on [task] after [N] attempts. I've started a debug session to investigate systematically.
 
@@ -573,7 +599,7 @@ Claude Code's `--continue` restores conversation history, but it doesn't know pr
 
 ### On Pause (user says "pause", "stop", "break", or session is ending)
 
-Write `$(shipyard-data)/sprints/current/HANDOFF.md`:
+Use the Write tool to write `<SHIPYARD_DATA>/sprints/current/HANDOFF.md`:
 ```markdown
 ---
 paused_at: [ISO timestamp]
@@ -606,7 +632,7 @@ queued_tracks: [F003, F007]  # (team mode only) feature tracks waiting to be spa
 
 ### On Resume
 
-When `/ship-execute` runs and `$(shipyard-data)/sprints/current/HANDOFF.md` exists:
+When `/ship-execute` runs and `<SHIPYARD_DATA>/sprints/current/HANDOFF.md` exists (use Read to check):
 
 **Note:** Step 0 (worktree salvage) has already run before reaching this point. All leftover worktrees have been salvaged and merged onto the working branch. New worktrees will branch from this consolidated state.
 

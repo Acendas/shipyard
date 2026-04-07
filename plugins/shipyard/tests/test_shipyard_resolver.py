@@ -137,72 +137,97 @@ class TestShipyardResolver(unittest.TestCase):
                     f'data-dir {data_dir!r} should start with {plugin_data}/projects/'
                 )
 
-    def test_worktree_returns_parent_repo_root(self):
-        """F5: Inside a git worktree, project-root must return the PARENT repo path,
-        not the worktree path. This is the critical fix for state divergence."""
-        # Create a real git repo + worktree to verify
-        with tempfile.TemporaryDirectory() as parent:
-            # Init parent repo
-            subprocess.run(['git', 'init', '-q', parent], check=True)
-            subprocess.run(
-                ['git', '-C', parent, 'commit', '--allow-empty', '-m', 'init', '-q'],
-                check=True,
-                env={**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
-                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'},
-            )
-            # Create a worktree
-            wt_path = os.path.join(parent, 'wt-test')
-            subprocess.run(
-                ['git', '-C', parent, 'worktree', 'add', '-q', wt_path],
-                check=True,
-                env={**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
-                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'},
-            )
+    def _git_init_with_commit(self, path):
+        subprocess.run(['git', 'init', '-q', path], check=True)
+        subprocess.run(
+            ['git', '-C', path, 'commit', '--allow-empty', '-m', 'init', '-q'],
+            check=True,
+            env={**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
+                 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'},
+        )
 
-            # Resolve from inside the worktree — should return parent root
+    def _add_worktree(self, parent, wt_path):
+        os.makedirs(os.path.dirname(wt_path), exist_ok=True)
+        subprocess.run(
+            ['git', '-C', parent, 'worktree', 'add', '-q', wt_path],
+            check=True,
+            env={**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
+                 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'},
+        )
+
+    def test_builder_worktree_returns_parent_repo_root(self):
+        """F5/D1: A shipyard-spawned BUILDER worktree at
+        `<parent>/.claude/worktrees/<feature>/` must return the parent repo
+        root so builder subagents share state with the orchestrator across
+        wave boundaries. This is the load-bearing case that the F5 fix exists
+        for — changing it breaks `/ship-execute`.
+        """
+        with tempfile.TemporaryDirectory() as parent:
+            self._git_init_with_commit(parent)
+            wt_path = os.path.join(parent, '.claude', 'worktrees', 'feat-x')
+            self._add_worktree(parent, wt_path)
+
             wt_root, _ = run_resolver('project-root', cwd=wt_path)
             parent_root, _ = run_resolver('project-root', cwd=parent)
 
-            # Both must resolve to the same path (parent), not the worktree
             self.assertEqual(
                 os.path.realpath(wt_root),
                 os.path.realpath(parent_root),
-                'Worktree must hash to parent repo root, not worktree path',
+                'Builder worktree must hash to parent repo root, not worktree path',
             )
 
-            # Hashes must also match
             wt_hash, _ = run_resolver('project-hash', cwd=wt_path)
             parent_hash, _ = run_resolver('project-hash', cwd=parent)
             self.assertEqual(wt_hash, parent_hash)
 
+    def test_user_worktree_isolates_from_parent(self):
+        """Two independent humans running Claude sessions in separate
+        user-owned worktrees of the same repo (e.g.
+        `trunk3.worktrees/dev` and `trunk3.worktrees/amdb`) must get
+        ISOLATED data dirs. Otherwise `/ship-sprint` and backlog writes
+        clobber each other. Locking only prevents torn writes, not logical
+        overwrite.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = os.path.join(tmp, 'trunk3')
+            os.makedirs(parent)
+            self._git_init_with_commit(parent)
 
-    def test_worktree_with_claude_project_dir_set(self):
+            # Two user worktrees OUTSIDE of <parent>/.claude/worktrees/ —
+            # mirrors the real-world `trunk3.worktrees/dev` shape.
+            wt_dev = os.path.join(tmp, 'trunk3.worktrees', 'dev')
+            wt_amdb = os.path.join(tmp, 'trunk3.worktrees', 'amdb')
+            self._add_worktree(parent, wt_dev)
+            self._add_worktree(parent, wt_amdb)
+
+            parent_root, _ = run_resolver('project-root', cwd=parent)
+            dev_root, _ = run_resolver('project-root', cwd=wt_dev)
+            amdb_root, _ = run_resolver('project-root', cwd=wt_amdb)
+
+            # User worktrees return their OWN toplevel, not the parent.
+            self.assertEqual(os.path.realpath(dev_root), os.path.realpath(wt_dev))
+            self.assertEqual(os.path.realpath(amdb_root), os.path.realpath(wt_amdb))
+            self.assertNotEqual(os.path.realpath(dev_root), os.path.realpath(parent_root))
+
+            # Hashes must all differ → three distinct data dirs.
+            parent_hash, _ = run_resolver('project-hash', cwd=parent)
+            dev_hash, _ = run_resolver('project-hash', cwd=wt_dev)
+            amdb_hash, _ = run_resolver('project-hash', cwd=wt_amdb)
+            self.assertNotEqual(dev_hash, amdb_hash)
+            self.assertNotEqual(dev_hash, parent_hash)
+            self.assertNotEqual(amdb_hash, parent_hash)
+
+    def test_builder_worktree_with_claude_project_dir_set(self):
         """R1: Production scenario — Claude Code sets CLAUDE_PROJECT_DIR to
-        the session cwd, which for a builder subagent IS the worktree path.
-        The resolver must still detect the worktree and return the parent
-        repo root, not short-circuit on the env var.
-
-        This test exists because the existing F5 test stripped CLAUDE_PROJECT_DIR
-        from the environment, hiding the bug entirely.
+        the builder subagent's worktree cwd. The resolver must still detect
+        this as a builder worktree (under `.claude/worktrees/`) and return
+        the parent repo root, not short-circuit on the env var.
         """
         with tempfile.TemporaryDirectory() as parent:
-            subprocess.run(['git', 'init', '-q', parent], check=True)
-            subprocess.run(
-                ['git', '-C', parent, 'commit', '--allow-empty', '-m', 'init', '-q'],
-                check=True,
-                env={**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
-                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'},
-            )
-            wt_path = os.path.join(parent, 'wt-test')
-            subprocess.run(
-                ['git', '-C', parent, 'worktree', 'add', '-q', wt_path],
-                check=True,
-                env={**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
-                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'},
-            )
+            self._git_init_with_commit(parent)
+            wt_path = os.path.join(parent, '.claude', 'worktrees', 'feat-x')
+            self._add_worktree(parent, wt_path)
 
-            # Run from an unrelated cwd to prove the env var (not cwd) is the
-            # starting point for git discovery.
             with tempfile.TemporaryDirectory() as unrelated:
                 wt_root, code = run_resolver_with_env(
                     'project-root',
@@ -213,8 +238,35 @@ class TestShipyardResolver(unittest.TestCase):
                 self.assertEqual(
                     os.path.realpath(wt_root),
                     os.path.realpath(parent),
-                    f'CLAUDE_PROJECT_DIR=worktree must resolve to parent repo, '
+                    f'CLAUDE_PROJECT_DIR=builder-worktree must resolve to parent repo, '
                     f'got {wt_root!r}, expected {parent!r}',
+                )
+
+    def test_user_worktree_with_claude_project_dir_set(self):
+        """Production scenario for independent parallel sessions: Claude Code
+        sets CLAUDE_PROJECT_DIR to a user-owned worktree. The resolver must
+        return the worktree's own toplevel (not the parent), so that data is
+        isolated from other worktrees of the same repo.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = os.path.join(tmp, 'trunk3')
+            os.makedirs(parent)
+            self._git_init_with_commit(parent)
+            wt_path = os.path.join(tmp, 'trunk3.worktrees', 'dev')
+            self._add_worktree(parent, wt_path)
+
+            with tempfile.TemporaryDirectory() as unrelated:
+                root, code = run_resolver_with_env(
+                    'project-root',
+                    env_extra={'CLAUDE_PROJECT_DIR': wt_path},
+                    cwd=unrelated,
+                )
+                self.assertEqual(code, 0)
+                self.assertEqual(
+                    os.path.realpath(root),
+                    os.path.realpath(wt_path),
+                    f'CLAUDE_PROJECT_DIR=user-worktree must isolate to the '
+                    f'worktree toplevel, got {root!r}, expected {wt_path!r}',
                 )
 
     def test_relative_claude_project_dir_resolved_consistently(self):
@@ -369,14 +421,16 @@ class TestShipyardResolverProductionScenarios(unittest.TestCase):
                 self.assertEqual(code, 0)
                 self.assertEqual(os.path.realpath(root), os.path.realpath(repo))
 
-    def test_worktree_with_claude_project_dir(self):
-        """Worktree: CLAUDE_PROJECT_DIR set to worktree path → resolver
-        returns parent repo root. Production scenario for builder subagents.
-        Mirrors test_worktree_with_claude_project_dir_set above and lives
-        here so the production-scenario class has full coverage."""
+    def test_builder_worktree_with_claude_project_dir(self):
+        """Builder worktree under `<parent>/.claude/worktrees/<feat>`:
+        CLAUDE_PROJECT_DIR set to worktree path → resolver returns parent
+        repo root. Production scenario for builder subagents spawned by
+        /ship-execute.
+        """
         with tempfile.TemporaryDirectory() as parent:
             self._git_init(parent)
-            wt_path = os.path.join(parent, 'wt-test')
+            wt_path = os.path.join(parent, '.claude', 'worktrees', 'feat-x')
+            os.makedirs(os.path.dirname(wt_path), exist_ok=True)
             subprocess.run(
                 ['git', '-C', parent, 'worktree', 'add', '-q', wt_path],
                 check=True,
@@ -393,7 +447,37 @@ class TestShipyardResolverProductionScenarios(unittest.TestCase):
                 self.assertEqual(
                     os.path.realpath(root),
                     os.path.realpath(parent),
-                    'CLAUDE_PROJECT_DIR=worktree must resolve to parent repo',
+                    'CLAUDE_PROJECT_DIR=builder-worktree must resolve to parent repo',
+                )
+
+    def test_user_worktree_with_claude_project_dir(self):
+        """User-owned worktree OUTSIDE `.claude/worktrees/`: resolver must
+        return the worktree toplevel, not the parent, so independent Claude
+        sessions on separate branches get isolated data dirs.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = os.path.join(tmp, 'trunk3')
+            os.makedirs(parent)
+            self._git_init(parent)
+            wt_path = os.path.join(tmp, 'trunk3.worktrees', 'dev')
+            os.makedirs(os.path.dirname(wt_path), exist_ok=True)
+            subprocess.run(
+                ['git', '-C', parent, 'worktree', 'add', '-q', wt_path],
+                check=True,
+                env={**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
+                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'},
+            )
+            with tempfile.TemporaryDirectory() as unrelated:
+                root, code = run_resolver_with_env(
+                    'project-root',
+                    env_extra={'CLAUDE_PROJECT_DIR': wt_path},
+                    cwd=unrelated,
+                )
+                self.assertEqual(code, 0)
+                self.assertEqual(
+                    os.path.realpath(root),
+                    os.path.realpath(wt_path),
+                    'CLAUDE_PROJECT_DIR=user-worktree must isolate to worktree',
                 )
 
     def test_relative_claude_project_dir_resolved(self):

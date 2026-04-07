@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 
 /**
  * Run a git command and return stdout, or null on failure.
@@ -42,20 +42,37 @@ function runGit(args, cwd) {
 }
 
 /**
- * Find the parent repo root, even when called from inside a worktree.
+ * Resolve the "project root" — the path whose hash selects the data dir.
  *
- * `git rev-parse --show-toplevel` returns the WORKTREE path inside a worktree,
- * which is wrong for our purposes — builder subagents in worktrees should
- * share state with the orchestrator on main, so all worktrees of one project
- * must hash to the same value.
+ * Worktree semantics have two distinct cases we must tell apart:
  *
- * Strategy:
- * 1. CLAUDE_PROJECT_DIR env var (set by Claude Code in many contexts)
- * 2. git-common-dir != git-dir → we're in a worktree, parent repo is one up
- * 3. git-common-dir == git-dir → normal repo, use show-toplevel
- * 4. fallback to cwd
+ *   A. BUILDER worktree — spawned by shipyard itself under
+ *      `<parentRepo>/.claude/worktrees/<feature-id>/` during `/ship-execute`.
+ *      Builder subagents in these worktrees MUST share state with the
+ *      orchestrator on the main checkout; otherwise wave-boundary bookkeeping
+ *      diverges. → hash the parent repo path.
  *
- * All paths are realpath'd so symlinked checkouts hash consistently.
+ *   B. USER worktree — a human-created worktree (e.g.
+ *      `/work/afm-app/trunk3.worktrees/dev`) hosting an independent Claude
+ *      session on a different branch. These are unrelated projects from
+ *      Shipyard's POV and MUST get isolated state; otherwise two humans
+ *      running parallel sessions on separate branches clobber each other's
+ *      sprints/backlog/config (locking only prevents torn writes, not
+ *      logical overwrite). → hash the worktree's own toplevel path.
+ *
+ * We distinguish the two by path shape: a worktree is treated as a builder
+ * worktree iff its realpath'd toplevel is contained in
+ * `<parentRepo>/.claude/worktrees/`. Everything else is a user worktree.
+ *
+ * Non-worktree repos continue to hash `git rev-parse --show-toplevel`, and
+ * the fallback is cwd (or resolved CLAUDE_PROJECT_DIR). All returned paths
+ * are realpath'd so symlinked checkouts hash consistently.
+ *
+ * NB: This changes hash semantics for anyone previously running Shipyard
+ * inside a user-owned worktree (their data was under the parent-repo hash;
+ * it's now under the worktree-specific hash). `shipyard-data find-orphans`
+ * + `/ship-init`'s migration prompt handle the recovery path — see the
+ * `.project-root` breadcrumb logic in shipyard-data.mjs.
  */
 export function getProjectRoot() {
   // CLAUDE_PROJECT_DIR (set by Claude Code) is used as the *starting cwd* for
@@ -91,19 +108,44 @@ export function getProjectRoot() {
     }
 
     if (absCommonDir !== absGitDir) {
-      // We're inside a worktree. The parent repo root is the directory
-      // containing the parent .git folder.
-      const parentRoot = dirname(absCommonDir);
-      if (existsSync(parentRoot)) {
+      // We're inside a worktree. Resolve BOTH the parent repo root and
+      // this worktree's own toplevel, then decide which to return based
+      // on the builder-vs-user classification documented above.
+      const parentRootRaw = dirname(absCommonDir);
+      let parentRoot = parentRootRaw;
+      if (existsSync(parentRootRaw)) {
         try {
-          return realpathSync(parentRoot);
+          parentRoot = realpathSync(parentRootRaw);
         } catch {
-          return parentRoot;
+          /* keep raw */
         }
       }
+
+      const toplevelRaw = runGit(["rev-parse", "--show-toplevel"], startCwd);
+      let worktreeTop;
+      if (toplevelRaw && existsSync(toplevelRaw)) {
+        try {
+          worktreeTop = realpathSync(toplevelRaw);
+        } catch {
+          worktreeTop = toplevelRaw;
+        }
+      }
+
+      // Builder worktrees live at `<parentRoot>/.claude/worktrees/<feature>`.
+      // Containment check uses realpath'd paths + a trailing separator so
+      // `/p/.claude/worktrees-other/x` doesn't match `/p/.claude/worktrees/`.
+      // If we couldn't resolve worktreeTop for some reason, fall back to the
+      // old behavior (return parent) — safer than misclassifying.
+      if (!worktreeTop) {
+        return parentRoot;
+      }
+      const builderPrefix =
+        join(parentRoot, ".claude", "worktrees") + sep;
+      const isBuilderWorktree = (worktreeTop + sep).startsWith(builderPrefix);
+      return isBuilderWorktree ? parentRoot : worktreeTop;
     }
 
-    // Normal repo (or worktree fallback failed) — use show-toplevel
+    // Normal repo (not a worktree) — use show-toplevel
     const toplevel = runGit(["rev-parse", "--show-toplevel"], startCwd);
     if (toplevel && existsSync(toplevel)) {
       try {

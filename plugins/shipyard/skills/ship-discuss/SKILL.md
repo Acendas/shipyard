@@ -1,7 +1,7 @@
 ---
 name: ship-discuss
 description: "Feature discovery — from quick idea capture to full spec with acceptance criteria. Use when the user mentions a new feature, a 'what if', a 'we should also', wants to discuss requirements, brainstorm, refine an existing feature, explore what to build next, define acceptance criteria, or jot down something for later."
-allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, EnterPlanMode, ExitPlanMode, WebSearch, WebFetch]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, EnterPlanMode, ExitPlanMode, WebSearch, WebFetch, "Bash(shipyard-context:*)"]
 model: opus
 effort: high
 argument-hint: "[topic, feature ID, or quick idea]"
@@ -15,20 +15,45 @@ You are facilitating a feature discovery conversation. This is fluid — not a q
 
 !`shipyard-context path`
 
-!`shipyard-context head config.md 50 NO_CONFIG`
-!`shipyard-context head codebase-context.md 50 "No codebase context"`
-!`shipyard-context ls spec/epics 20 "No epics yet"`
-!`shipyard-context ls spec/features 30 "No features yet"`
+!`shipyard-context view config`
+!`shipyard-context view codebase`
+!`shipyard-context list epics`
+!`shipyard-context list features`
 
-**Data path: use the SHIPYARD_DATA path from context above. For Read/Write/Edit tools, use the full literal path (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/...`). NEVER use `~` or `$HOME` in file_path — always start with `/`. For Bash: `SD=$(shipyard-data)` then `$SD/...`. Shell variables like `$SD` do NOT work in Read/Write/Edit file_path — only literal paths. NEVER hardcode or guess paths.**
+**Data path: use the SHIPYARD_DATA path printed in the context block above as a literal absolute prefix for every Read / Grep / Glob / Write / Edit call (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/spec/features/F001-*.md`). NEVER use `~`, `$HOME`, or shell variables in `file_path` — always start with `/`. Do NOT invoke shipyard-data or shipyard-context via shell command substitution — Read those files via the Read tool with the literal SHIPYARD_DATA prefix instead. Never hardcode or guess paths.**
 
 ## Input
 
 $ARGUMENTS
 
+## Session Mutex Check
+
+**Absolute first action — before reading any context, before mode detection, before anything.** Use the Read tool on `<SHIPYARD_DATA>/.active-session.json` (substitute the literal SHIPYARD_DATA path from the context block above). Then decide:
+
+- **File does not exist** → no other planning session is active. Proceed to "Session Guard" below.
+- **File exists.** Parse the JSON and check three fields:
+  1. If `cleared` is set OR `skill` is `null` → previous session ended cleanly (soft-delete sentinel). Proceed.
+  2. If `started` timestamp is more than 2 hours old → stale lock (probably a crashed session). Print one line to the user: "(recovered stale lock from `/{previous skill}` started {N}h ago)". Proceed.
+  3. Otherwise → **HARD BLOCK.** Another planning session is active. Print this message as the entire response and STOP — do not continue with any other instructions, do not load any context, do not call any other tools:
+
+  ```
+  ⛔ Another planning session is active.
+    Skill:   /{skill from file}
+    Topic:   {topic from file}
+    Started: {started from file}
+
+  Concurrent planning sessions can corrupt the spec and lose research notes.
+  Finish or pause the active session first.
+
+  If the other session crashed or was closed:
+    Run /ship-status — it will offer to clear the stale lock.
+  ```
+
+This is a Read+Write mutex. There is a small theoretical race window between the Read and the Write below, but in practice two human-typed `/ship-discuss` invocations cannot collide within milliseconds.
+
 ## Session Guard
 
-**First action before anything else:** Write `.active-session.json` to the SHIPYARD_DATA directory (use the full literal path from context above — e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/.active-session.json`). This prevents post-compaction implementation drift:
+**Second action — only if the mutex check above said proceed:** Use the Write tool to write `.active-session.json` to the SHIPYARD_DATA directory (use the full literal path from the context block — e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/.active-session.json`). This both claims the mutex (overwriting any stale or cleared marker) AND prevents post-compaction implementation drift:
 
 ```json
 {
@@ -45,10 +70,34 @@ This file activates a PreToolUse hook that blocks source code writes. If you fin
 - If input is an **epic ID** (E001) → **EPIC mode** (refine epic scope, cascade changes to features)
 - If input is an **idea ID** (IDEA-NNN) → **IDEA mode** (convert idea to feature — see below)
 - If input is a **feature ID** (F001) → **REFINE mode** (load existing, gather updates)
+- If input is a **triage phrase** — phrases like "anything requires discussion", "anything requires discussion?", "what's open", "what needs discussion", "what needs attention", "what's pending", "what needs refinement" → **TRIAGE mode** (see below)
 - If input is a **short one-liner** (under ~20 words, no questions, no detail) → **CAPTURE mode** (quick idea, zero ceremony)
 - If input describes something **large** (multiple features implied, a whole product area) → offer: "This sounds like an epic — multiple features under one initiative. Discuss as an epic, or start with the first feature? (epic / feature)"
 - If input is a **detailed topic** or the user is asking questions → **NEW mode** (start fresh conversation)
 - If no input → AskUserQuestion: "What would you like to discuss?"
+
+### TRIAGE Mode: Surface what needs discussion
+
+When the user asks "anything requires discussion" or similar:
+
+1. Use Grep with `pattern: ^status: proposed`, `path: <SHIPYARD_DATA>/spec/features`, `glob: F*.md`, `output_mode: files_with_matches` to find features still at `status: proposed`. For each match, Read the file and extract `id`, `title`, `story_points`, and acceptance criteria count.
+2. Use Glob `<SHIPYARD_DATA>/spec/ideas/IDEA-*.md` to enumerate idea files. For each, Read the file, parse frontmatter, and skip any with `status: graduated` or `status: rejected`.
+3. Present the result as a compact triage list:
+   ```
+   Items needing discussion:
+
+   PROPOSED FEATURES (refine acceptance criteria, estimate, decide):
+     [1] F012 — Payment Analytics (proposed, 0 pts, 0 scenarios)
+     [2] F015 — Split Payments (proposed, 8 pts, 2 scenarios)
+
+   IDEAS (capture-only — flesh out into features):
+     [3] IDEA-007 — Magic-link auth (captured 2026-03-12)
+     [4] IDEA-009 — Bulk export to CSV (captured 2026-03-21)
+   ```
+4. AskUserQuestion: "Pick a number to discuss, or type 'all proposed' to walk through every proposed feature, or 'done' to exit triage."
+5. On selection, jump into the appropriate mode (REFINE for a feature, IDEA for an idea). Do not run any bash commands and do not improvise pipelines — every list item came from native Read/Grep/Glob calls above.
+
+If both lists are empty: "Nothing currently needs discussion. The proposed-feature queue is empty and there are no captured ideas. Run /ship-discuss with a topic to start something new."
 
 ---
 
@@ -56,14 +105,15 @@ This file activates a PreToolUse hook that blocks source code writes. If you fin
 
 If you lose context mid-discussion (e.g., after auto-compaction):
 
-1. Check for `$(shipyard-data)/spec/.research-draft.md`
-   - If found → research and challenge phases completed. Read it for findings. Resume from Phase 2 (Viability Gate)
-   - If found but its `topic:` doesn't match the current discussion topic → AskUserQuestion: "A previous discussion left unfinished research on '[topic]'. Delete it and start fresh on your current topic? (delete / keep and resume that topic instead)"
-     - **delete**: Delete `.research-draft.md`, proceed fresh into Phase 1.5 (Research) for the current topic
+1. Use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md`. If it exists, parse its frontmatter — if `obsolete: true` is set, treat it as absent (skip to step 2). Otherwise:
+   - If found and `topic:` matches → research and challenge phases completed. Read it for findings. Resume from Phase 2 (Viability Gate)
+   - If found but its `topic:` doesn't match the current discussion topic → AskUserQuestion: "A previous discussion left unfinished research on '[topic]'. Mark it obsolete and start fresh on your current topic? (mark obsolete / keep and resume that topic instead)"
+     - **mark obsolete**: use Edit to set `obsolete: true` in the draft's frontmatter, proceed fresh into Phase 1.5 (Research) for the current topic
      - **keep**: Switch to the old topic. Read `topic:` from `.research-draft.md`, load its research findings, and resume from Phase 2 (Viability Gate) for that topic. Inform the user: "Resuming discussion on [old topic]. To discuss [new topic], run /ship-discuss [new topic] in a new session."
-2. Check for feature file matching the topic in `$(shipyard-data)/spec/features/`
+2. Check for feature file matching the topic: use Glob `<SHIPYARD_DATA>/spec/features/F*-*.md` to enumerate, then Read each and match by title against the current topic.
    - If found with empty acceptance criteria → Phase 3 incomplete, resume Phase 3
-   - If found with acceptance criteria → Phase 3 done, resume from Phase 3.5 (Impact Analysis)
+   - If found with acceptance criteria and `status: proposed` → Phase 3 done, resume from Phase 3.5 (Impact Analysis)
+   - If found with `status: approved` but `.active-session.json` still has `skill: ship-discuss` (not cleared) → Phase 6 (Finalize) was interrupted mid-sequence. Read BACKLOG.md: if the feature ID is already listed, resume from Phase 6 step 3 (idea archival) or step 4 (Next Up) depending on whether an idea file still has `status: proposed`. If the feature ID is missing from BACKLOG.md, resume from Phase 6 step 2 (append to BACKLOG.md). Either way, the final session-guard sentinel write still runs last.
 3. If neither file exists → pre-research phases only (interactive). AskUserQuestion: "A previous discussion session was interrupted before research completed. Can you summarize what was decided so far?" Resume from Phase 1.5 (Research)
 
 Research findings are the most expensive state to lose (WebSearch/WebFetch results). The research draft file preserves them.
@@ -76,7 +126,7 @@ When the input is a short one-liner — capture it instantly and offer to go dee
 
 ### Step C1: Create Idea File
 
-Generate the next available IDEA-NNN ID. Write to `$(shipyard-data)/spec/ideas/IDEA-NNN-[slug].md`:
+Generate the next available IDEA-NNN ID. Write to `<SHIPYARD_DATA>/spec/ideas/IDEA-NNN-[slug].md`:
 
 ```yaml
 ---
@@ -126,8 +176,8 @@ When the input is an epic ID (E001) or the user describes a large initiative.
 ### Step EP1: Load Epic Context
 
 If existing epic:
-1. Read the epic file from `$(shipyard-data)/spec/epics/E00N-*.md`
-2. Find all features in this epic: scan `$(shipyard-data)/spec/features/` for files with `epic: E00N` in frontmatter
+1. Use Glob `<SHIPYARD_DATA>/spec/epics/E00N-*.md` (substitute the epic ID), then Read the matching file.
+2. Find all features in this epic: use Grep with `pattern: ^epic: E00N`, `path: <SHIPYARD_DATA>/spec/features`, `glob: F*.md`, `output_mode: files_with_matches`, then Read each match.
 3. For each feature, read title, status, story points, acceptance criteria count
 
 Present the current state:
@@ -234,7 +284,7 @@ When the input is an idea ID (IDEA-NNN), the goal is to graduate it into a prope
 
 ### Step I1: Load Idea
 
-Read `$(shipyard-data)/spec/ideas/IDEA-NNN-[slug].md`. Extract:
+Read `<SHIPYARD_DATA>/spec/ideas/IDEA-NNN-[slug].md`. Extract:
 - Title and description
 - "Why It Might Matter" section
 - Any initial thoughts
@@ -248,20 +298,20 @@ Idea: IDEA-NNN — [title]
 
 ### Step I2: Seed NEW Mode
 
-Pass the idea content as context into the full NEW mode flow (Phases 1 → 5), starting at Phase 1. The idea's description pre-answers some of Phase 1's questions — skip what's already clear, focus AskUserQuestion on genuine unknowns.
+Pass the idea content as context into the full NEW mode flow (Phases 1 → 6), starting at Phase 1. The idea's description pre-answers some of Phase 1's questions — skip what's already clear, focus AskUserQuestion on genuine unknowns.
 
-Run all phases in sequence: Phase 1 (Understand) → Phase 1.5 (Research) → Phase 1.5b (Challenge & Surface) → Phase 2 (Viability Gate) → Phase 3 (Write to Spec as FNNN) → **Phase 3.5 (Impact Analysis)** → **Phase 3.7 (Simplification Scan)** → Phase 4 (Capture tangential ideas) → Phase 5 (Wrap up).
+Run all phases in sequence: Phase 1 (Understand) → Phase 1.5 (Research) → Phase 1.5b (Challenge & Surface) → Phase 2 (Viability Gate) → Phase 3 (Write to Spec as FNNN) → **Phase 3.5 (Impact Analysis)** → **Phase 3.7 (Simplification Scan)** → Phase 4 (Capture tangential ideas) → Phase 5 (Spec Approval Gate) → Phase 6 (Finalize).
 
 Impact Analysis (Phase 3.5) runs as normal — it scans existing features for dependencies, overlaps, conflicts, and invalidations caused by the new feature, and uses AskUserQuestion to confirm what to apply.
 
-### Step I3: Archive the Idea
+### Step I3: Mark the Idea as Graduated
 
-After the feature file is written and approved (Phase 5), delete the original idea file:
+Idea archival happens inside Phase 6 (Finalize), between the BACKLOG.md append and the session-guard cleanup — not here and not as a standalone step. The graduation target is:
 ```
-$(shipyard-data)/spec/ideas/IDEA-NNN-[slug].md
+<SHIPYARD_DATA>/spec/ideas/IDEA-NNN-[slug].md
 ```
 
-Then confirm: "IDEA-NNN has been graduated to [FNNN: title] and removed from the ideas list."
+When Phase 6 runs for an idea-sourced feature, after appending to BACKLOG.md, use the Edit tool to set the idea file's frontmatter to `status: graduated` and add `graduated_to: FNNN`. Confirm: "IDEA-NNN has been graduated to [FNNN: title]." Doing the Edit inside Phase 6 keeps it inside the session-guard window. Listings filter `status: graduated` ideas out by default; the `reap-obsolete` housekeeping reaps them physically after retention.
 
 ---
 
@@ -299,9 +349,9 @@ Once you understand what the user wants, research before challenging. This makes
 - If no `project-*.md` files exist, skip silently.
 
 **Internal research (second)** — scan the codebase and existing spec. **Use LSP first** (`documentSymbol`, `findReferences`, `goToDefinition`) for code navigation — it's faster and cheaper than reading whole files. Fall back to Grep/Read if LSP isn't available.
-- Existing features that overlap or connect (read `$(shipyard-data)/spec/features/`)
+- Existing features that overlap or connect (use Glob `<SHIPYARD_DATA>/spec/features/F*.md`, then Read each)
 - Codebase patterns relevant to this feature (LSP `documentSymbol` for structure, `findReferences` for usage patterns, Grep/Glob as fallback)
-- Technical constraints from the stack (read `$(shipyard-data)/codebase-context.md`)
+- Technical constraints from the stack (read `<SHIPYARD_DATA>/codebase-context.md`)
 
 **How others do it (third)** — use WebSearch and WebFetch to study real-world implementations:
 - How do established products solve this same problem? Search for "[domain] how [product] handles [feature]" (e.g., "how Stripe handles payment retries", "how Linear implements real-time sync", "how Notion does collaborative editing")
@@ -363,7 +413,7 @@ Present findings as a compact visual summary before the AskUserQuestion — this
 ```
 
 Run the full analysis from `references/challenge-surface.md`:
-!`head -80 ${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/challenge-surface.md 2>/dev/null`
+!`shipyard-context reference ship-discuss challenge-surface 80`
 
 **Then run these additional analyses:**
 - **Edge cases:** Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/edge-case-framework.md` — apply boundary value analysis, state transition analysis, data cardinality sweep, temporal edge cases, concurrency checks
@@ -373,7 +423,7 @@ Run the full analysis from `references/challenge-surface.md`:
 
 **Do not proceed to Phase 2 until grey areas are resolved or explicitly deferred.**
 
-Write research findings and challenge resolutions to `$(shipyard-data)/spec/.research-draft.md`:
+Write research findings and challenge resolutions to `<SHIPYARD_DATA>/spec/.research-draft.md`:
 
 ```yaml
 ---
@@ -394,7 +444,7 @@ Before writing to spec, silently evaluate each feature:
 4. **TESTABLE** — Can we verify with automated tests + demo? → KILL if purely subjective
 5. **SCOPED** — Is it one feature, not three in a trench coat? → SPLIT if multiple stories
 
-If viability kills the feature, delete `$(shipyard-data)/spec/.research-draft.md`.
+If viability kills the feature, use the Edit tool to set `obsolete: true` in `<SHIPYARD_DATA>/spec/.research-draft.md`'s frontmatter (soft-delete sentinel — recovery logic filters it out; `reap-obsolete` reaps it later).
 
 If a feature fails a gate, AskUserQuestion — don't block. Frame positively: "This feature needs X to be buildable" not "This feature fails because X is missing."
 Example: "I can't write testable acceptance criteria for this yet — the scope is too broad. Can we narrow it to something specific? (narrow it / capture as-is and refine later)"
@@ -403,12 +453,12 @@ The user can override: "Just capture it as proposed, we'll refine later."
 
 ### Phase 3: Write to Spec
 
-If `$(shipyard-data)/spec/.research-draft.md` exists, absorb its content into the feature file's `## Technical Notes` and `## Decision Log` sections. **Do not delete the research file yet** — it serves as a recovery checkpoint until Phase 3 is fully complete (feature file written with acceptance criteria, estimates, and epic assignment). Delete `.research-draft.md` after Phase 3 finishes.
+Use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md`. If it exists and is not marked `obsolete: true`, absorb its content into the feature file's `## Technical Notes` and `## Decision Log` sections. **Do not mark it obsolete yet** — it serves as a recovery checkpoint until Phase 3 is fully complete (feature file written with acceptance criteria, estimates, and epic assignment). Use Edit to set `obsolete: true` in `.research-draft.md`'s frontmatter only after Phase 3 finishes.
 
 For each well-defined feature:
 
 1. **Generate ID** — Next available FNNN (F001, F002, etc.)
-2. **Determine epic** — Read existing epics from `$(shipyard-data)/spec/epics/` and features from `$(shipyard-data)/spec/features/` (check their `epic:` field to see what's grouped where). Then decide:
+2. **Determine epic** — Use Glob `<SHIPYARD_DATA>/spec/epics/E*.md` to enumerate epics and Read each. Use Grep with `pattern: ^epic:`, `path: <SHIPYARD_DATA>/spec/features`, `glob: F*.md`, `output_mode: content`, `-n: false` to see how features are grouped. Then decide:
 
    **Does it belong to an existing epic?** Check if the feature:
    - Shares the same user-facing domain (e.g., auth, payments, onboarding)
@@ -432,7 +482,7 @@ For each well-defined feature:
 
    **If no epics exist yet** — create the first one if the feature is part of a larger initiative. Otherwise, leave `epic: ""` and let it accumulate. Epics emerge from patterns, don't force them early.
 
-3. **Write feature file** to `$(shipyard-data)/spec/features/FNNN-[slug].md`.
+3. **Write feature file** to `<SHIPYARD_DATA>/spec/features/FNNN-[slug].md`.
 
    **Frontmatter — every field is required. No omissions.**
    ```yaml
@@ -452,7 +502,7 @@ For each well-defined feature:
    rice_score: 0          # computed: (reach × impact × confidence) / effort
    feasibility: 0         # 1–10 from viability gate
    dependencies: []       # feature IDs this depends on
-   references: []         # full relative paths: $(shipyard-data)/spec/references/FNNN-slug.md
+   references: []         # full relative paths: <SHIPYARD_DATA>/spec/references/FNNN-slug.md
    children: []           # sub-feature IDs if split
    tasks: []              # populated during sprint planning
    created: YYYY-MM-DD
@@ -471,11 +521,11 @@ For each well-defined feature:
    - **Error Handling** — only if specific failure modes or error responses were discussed. Skip if not.
    - Technical notes (research findings — from `.research-draft.md`)
    - Decision log (decisions made during this discussion)
-   - **No inline task table** — tasks are created as separate files in `$(shipyard-data)/spec/tasks/` and referenced via the `tasks:` array in frontmatter. Preliminary task IDs can be listed during discuss; full task files are created during sprint planning.
+   - **No inline task table** — tasks are created as separate files in `<SHIPYARD_DATA>/spec/tasks/` and referenced via the `tasks:` array in frontmatter. Preliminary task IDs can be listed during discuss; full task files are created during sprint planning.
    - **Hard limit: 200 lines per file.** If the feature has 10+ acceptance scenarios or extensive technical notes, split it:
      - Split into sub-features (F001a, F001b) for large scenario sets
-     - Extract API contracts, data models, wireframes to `$(shipyard-data)/spec/references/FNNN-<slug>.md`. Add frontmatter to each extracted file: `feature: FNNN` and `source: extracted from FNNN during discuss`.
-     - Add full relative paths (e.g., `$(shipyard-data)/spec/references/F001-api.md`) to the `references:` array in the feature's frontmatter
+     - Extract API contracts, data models, wireframes to `<SHIPYARD_DATA>/spec/references/FNNN-<slug>.md`. Add frontmatter to each extracted file: `feature: FNNN` and `source: extracted from FNNN during discuss`.
+     - Add full relative paths (e.g., `<SHIPYARD_DATA>/spec/references/F001-api.md`) to the `references:` array in the feature's frontmatter
      - Plan the split BEFORE writing, not after
 
 4. **Initial estimates** — fill every RICE field in the frontmatter written above:
@@ -497,7 +547,7 @@ For each well-defined feature:
              ──overlaps─▶ F005 (shared data model)
 ```
 
-Skip if no existing features in `$(shipyard-data)/spec/features/`.
+Skip if Glob `<SHIPYARD_DATA>/spec/features/F*.md` returns no results.
 
 ### Phase 3.7: Simplification Opportunity Scan
 
@@ -523,7 +573,7 @@ Any tangential features mentioned → create as idea files via the same logic as
 ### Phase 4.5: Backlog Re-evaluation
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/backlog-reeval.md`
-!`head -55 ${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/backlog-reeval.md 2>/dev/null`
+!`shipyard-context reference ship-discuss backlog-reeval 55`
 
 Skip if BACKLOG.md is empty or doesn't exist.
 
@@ -574,7 +624,7 @@ Prompt the critic with:
 - Mode: `feature-critique`
 - Stakes: `[standard|high]`
 - Artifact paths: all feature files written in Phase 3 (full paths)
-- Codebase context path: `$(shipyard-data)/codebase-context.md`
+- Codebase context path: `<SHIPYARD_DATA>/codebase-context.md`
 - Project rules: `.claude/rules/project-*.md`
 
 **Process the critic's findings:**
@@ -589,39 +639,45 @@ Prompt the critic with:
 
 **Do NOT re-run the critic after fixes.** One round only. Address what you can, ask the user about the rest, and proceed.
 
-### Phase 5: Wrap Up — Plan Mode Summary
+### Phase 5: Spec Approval Gate (NOT an Implementation Plan)
 
-Feature files are already written (proposed status). Now enter plan mode to present the complete picture for approval.
+Feature files are already written with `status: proposed`. Use `EnterPlanMode` because it is Claude Code's generic approval + pause primitive, **not** because code changes follow. Implementation belongs to `/ship-execute` after `/ship-sprint` plans the work. It is never this skill's job.
 
-**Enter plan mode** (`EnterPlanMode`) and present the discussion summary as the plan:
+**STOP rule — read before entering plan mode.**
 
-The plan should include:
+The payload is a *spec approval summary*: past-tense outcomes only. What was discovered, decided, and written to spec files. No future-tense implementation verbs (`will modify`, `add function`, `edit class`, `change file`). If you catch yourself composing any of the following, you are in the wrong skill — exit plan mode without calling it, and resume the discussion:
 
-**FEATURES DEFINED** — for each feature:
-- ID, title, points, RICE, complexity
-- User story (one line)
-- Acceptance scenarios count and names
-- NFRs identified
-- Failure modes (high RPN items)
-- Edge cases discovered
-- Dependencies
+- File paths outside `<SHIPYARD_DATA>/` as steps to change
+- A task list that reads like TODO items for building the feature
+- Anything that looks like `/ship-execute`'s output
 
-**IDEAS CAPTURED** — tangential ideas captured during discussion
+The failure mode this rule exists to prevent: a customer session where `EnterPlanMode` was called with code-change steps, the user approved assuming it was the spec, and source files got edited during a discussion session. `EnterPlanMode` is a generic approval primitive. It is not a signal to generate implementation steps.
 
-**EPIC** — if assigned, show epic with all features
+**Enter plan mode** (`EnterPlanMode`) with the discussion outcome. Use these sections only — describe what already exists in the spec files, not what should be built:
 
-**IMPACTS** — cross-feature changes applied
+- **FEATURES DEFINED** — per feature: ID, title, points, RICE, complexity, one-line user story, acceptance-scenario count, NFRs, high-RPN failure modes, edge cases, dependencies
+- **IDEAS CAPTURED** — tangential ideas filed during discussion
+- **EPIC** — if assigned, show epic with all features
+- **IMPACTS** — cross-feature changes already applied to spec files
+- **BACKLOG EFFECT** — re-estimation notes, priority shifts
+- **UNRESOLVED** — quality-gate items flagged for follow-up
 
-**BACKLOG EFFECT** — re-estimation notes, priority shifts
+**Exit plan mode** (`ExitPlanMode`) — this triggers Claude Code's built-in approval flow:
 
-**UNRESOLVED** — any quality gate items that couldn't be fixed (flagged for follow-up)
+- **Approve** → **mandatory** proceed to Phase 6 (Finalize). The discussion is not complete until Phase 6 runs in full.
+- **Refine** → stay in discussion, iterate on flagged features, re-enter Phase 5 when ready. Do not touch `.active-session.json`.
+- **Reject** → leave features at `status: proposed`, stop. User can resume later with `/ship-discuss [ID]`. Do not touch `.active-session.json`.
 
-**Exit plan mode** (`ExitPlanMode`) — this triggers the built-in approval flow. The user can:
-- **Approve** → update feature statuses to `approved`, add IDs to BACKLOG.md
-- **Refine** → keep planning, user gives feedback, iterate on specific features
-- **Reject** → features stay `proposed`, user refines later with `/ship-discuss [ID]`
+### Phase 6: Finalize (only on Approve)
 
-After approval, **clean up session guard:** Delete `$(shipyard-data)/.active-session.json` — the discussion is complete.
+Run these steps in order. The session guard stays active until the **very last** step so that any accidental Edit to a source file during Finalize still gets blocked — that's the whole point of the ordering. Do not reorder to "optimize" the cleanup.
+
+1. **Update feature statuses.** For each approved feature, change `status: proposed` → `status: approved` in its spec file (`.md`, allowed by the guard).
+2. **Append to BACKLOG.md.** Use the Edit tool to add approved feature IDs to `<SHIPYARD_DATA>/spec/BACKLOG.md` (`.md`, allowed by the guard).
+3. **Mark graduated ideas.** If any features were sourced from an IDEA file (IDEA mode), use the Edit tool to set `status: graduated` and add `graduated_to: FNNN` in the corresponding `<SHIPYARD_DATA>/spec/ideas/IDEA-NNN-*.md` frontmatter now. Doing this here — inside the guarded window — keeps the lifecycle change inside the session-guard cover.
+4. **Use the Edit tool to also mark `.research-draft.md` obsolete** if it still exists with the current topic — sets `obsolete: true` in its frontmatter.
+5. **Print the Next Up block** (see below). The user sees it and the conversation is effectively over.
+6. **Last action — after everything above has flushed:** use the Write tool to overwrite `<SHIPYARD_DATA>/.active-session.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel — `session-guard` treats `skill: null` as inactive). Until this step, any Edit to a source-code path is still blocked by the session guard. After this step, do **not** continue with any tool calls — the discussion is done. If the user wants to build the feature, they will run `/ship-sprint` in a new session.
 
 ---
 
@@ -631,7 +687,7 @@ After approval, **clean up session guard:** Delete `$(shipyard-data)/.active-ses
 
 Before anything else, check if this feature is in an active sprint:
 
-1. **Read the active sprint file** (`$(shipyard-data)/sprints/current/SPRINT.md` — check if this feature's ID appears in any wave, or if any task in the feature's `tasks:` array appears in the sprint)
+1. **Read the active sprint file** (`<SHIPYARD_DATA>/sprints/current/SPRINT.md` — check if this feature's ID appears in any wave, or if any task in the feature's `tasks:` array appears in the sprint)
 2. **Check task status** — are any tasks for this feature already in-progress or completed?
 
 If the feature is **in an active sprint**, AskUserQuestion:
@@ -663,7 +719,7 @@ If tasks are **in-progress or completed**, add extra caution:
 ### Step 2: Challenge Existing Spec (same technique as Phase 1.5b — applied to existing content)
 
 Run the full Challenge & Surface analysis against the **existing feature content**:
-!`head -80 ${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/challenge-surface.md 2>/dev/null`
+!`shipyard-context reference ship-discuss challenge-surface 80`
 
 Apply each section to what's already in the spec — audit assumptions baked into the current writing, sweep for edge cases not covered by existing acceptance scenarios, scan for conflicts with features added since this was first discussed, and list what's still missing.
 
@@ -715,6 +771,19 @@ Then AskUserQuestion: "Sprint is now over capacity. Options:"
 - **Replan** — cancel and re-plan the sprint (`/ship-sprint --cancel`, then `/ship-sprint`)
 
 Update the sprint file with whatever the user chooses.
+
+### Step 5: Approval Gate & Finalize
+
+After the impact analysis (and any sprint-replan choices) is applied, run Phase 5 (Spec Approval Gate) and Phase 6 (Finalize) against the refined feature. Same STOP rule, same ordering invariant: the session guard stays active until the last step.
+
+REFINE-specific differences from the NEW-mode finalize:
+
+- Phase 6 step 1 is a no-op for features that were already `status: approved` before this session — leave the status alone.
+- Phase 6 step 2 is a no-op if the feature ID is already in BACKLOG.md (REFINE edits an existing backlog entry, it does not append a duplicate).
+- Phase 6 step 3 (idea archival) only applies if this REFINE run just graduated an idea; otherwise skip.
+- Phase 6 steps 4 and 5 (Next Up + `.active-session.json` delete) always run, in that order. The guard cleanup is still the very last action so any accidental source-code Edit during the wrap-up is still blocked.
+
+If the REFINE run was interrupted by the "cancel" branch of the Sprint Impact Check (Step 0), the session guard still needs to be cleaned up — delete `.active-session.json` as the last action before returning control to the user.
 
 ---
 

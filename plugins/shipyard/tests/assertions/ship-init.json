@@ -1,37 +1,204 @@
 [
-  {"name": "no_sprint_branch_config", "type": "not_contains", "pattern": "sprint.branch.*on|sprint_branch"},
-  {"name": "uses_atomic_migrate_command", "type": "contains", "pattern": "shipyard-data migrate \\.shipyard"},
-  {"name": "gitignores_worktrees", "type": "contains", "pattern": "\\.claude/worktrees/"},
-  {"name": "no_legacy_migration_bash_sequence", "type": "not_contains", "pattern": "cp -r \\.shipyard/\\* \"\\$\\(shipyard-data\\)/\""},
-  {"name": "no_merge_strategy_config", "type": "not_contains", "pattern": "merge.strategy|merge_strategy"},
-  {"name": "detects_main_branch", "type": "contains", "pattern": "main branch|main_branch"},
-  {"name": "has_codebase_analysis", "type": "contains", "pattern": "codebase.context|analyze.*codebase"},
-  {"name": "has_stack_detection", "type": "contains", "pattern": "stack|framework|detect"},
-  {"name": "spec_is_working_set", "type": "contains", "pattern": "working set|NOT a mirror|not a catalog"},
-  {"name": "no_deployed_feature_creation", "type": "not_contains", "pattern": "status:\\s*deployed.*already exists"},
-  {"name": "references_in_place", "type": "contains", "pattern": "reference.*in.place|index|in-place"},
-  {"name": "no_gsd_mention", "type": "not_contains", "pattern": "\\bGSD\\b"},
-  {"name": "no_speckit_mention", "type": "not_contains", "pattern": "[Ss]peckit"},
-  {"name": "has_frontmatter_name", "type": "frontmatter_field", "field": "name", "value": "ship-init"},
-  {"name": "uses_sonnet", "type": "frontmatter_field", "field": "model", "value": "sonnet"},
-  {"name": "has_fresh_install_mode", "type": "contains", "pattern": "FRESH|fresh install"},
-  {"name": "has_update_mode", "type": "contains", "pattern": "UPDATE|update mode"},
-  {"name": "has_legacy_migration", "type": "contains", "pattern": "LEGACY|legacy|\\.shipyard"},
-  {"name": "has_git_repo_check", "type": "contains", "pattern": "git init|git rev-parse|[Ee]nsure.*[Gg]it"},
-  {"name": "has_self_test", "type": "contains", "pattern": "[Ss]elf.?[Tt]est|doctor|SELF-TEST"},
-  {"name": "has_constitution_advisor", "type": "contains", "pattern": "constitution"},
-  {"name": "has_sme_skill_generation", "type": "contains", "pattern": "shipyard-skill-writer|SME"},
-  {"name": "has_commit_format_detection", "type": "contains", "pattern": "commit.*format|commit.*convention"},
-  {"name": "uses_ask_user_question", "type": "contains", "pattern": "AskUserQuestion"},
-  {"name": "uses_shipyard_data_path", "type": "contains", "pattern": "shipyard-data|shipyard-context"},
-  {"name": "has_rules_copy", "type": "contains", "pattern": "rules.*copy|copy.*rules|\\.claude/rules"},
-  {"name": "has_permission_setup", "type": "contains", "pattern": "Configure Permissions|settings\\.local\\.json"},
-  {"name": "has_git_bash_permission", "type": "contains", "pattern": "Bash\\(git"},
-  {"name": "has_websearch_permission", "type": "contains", "pattern": "WebSearch"},
-  {"name": "has_merge_not_replace", "type": "contains", "pattern": "never replace|[Mm]erge.*not.*replace|not already present"},
-  {"name": "has_test_command_permissions", "type": "contains", "pattern": "test command.*permission|vitest|pytest|npm test"},
-  {"name": "update_mode_has_permissions", "type": "contains", "pattern": "Update Permissions|same permission.*FRESH"},
-  {"name": "detects_orphaned_plugin_data", "type": "contains", "pattern": "find-orphans"},
-  {"name": "prompts_for_orphan_migration", "type": "contains", "pattern": "orphaned Shipyard data"},
-  {"name": "announces_orphan_source_after_migration", "type": "contains", "pattern": "safely delete the orphaned"}
+  {
+    "name": "no_sprint_branch_config",
+    "type": "not_contains",
+    "pattern": "sprint.branch.*on|sprint_branch"
+  },
+  {
+    "name": "uses_atomic_migrate_command",
+    "type": "contains",
+    "pattern": "shipyard-data migrate \\.shipyard"
+  },
+  {
+    "name": "gitignores_worktrees",
+    "type": "contains",
+    "pattern": "\\.claude/worktrees/"
+  },
+  {
+    "name": "no_legacy_migration_bash_sequence",
+    "type": "not_contains",
+    "pattern": "cp -r \\.shipyard/\\* \"\\$\\(shipyard-data\\)/\""
+  },
+  {
+    "name": "no_redundant_templates_cp",
+    "type": "not_contains",
+    "pattern": "cp -r \"\\$PLUGIN_ROOT/project-files/templates/\""
+  },
+  {
+    "name": "relies_on_init_for_templates",
+    "type": "contains",
+    "pattern": "templates are copied into plugin data by `shipyard-data init`|copied into plugin data by `shipyard-data init`"
+  },
+  {
+    "name": "no_merge_strategy_config",
+    "type": "not_contains",
+    "pattern": "merge.strategy|merge_strategy"
+  },
+  {
+    "name": "detects_main_branch",
+    "type": "contains",
+    "pattern": "main branch|main_branch"
+  },
+  {
+    "name": "has_codebase_analysis",
+    "type": "contains",
+    "pattern": "codebase.context|analyze.*codebase"
+  },
+  {
+    "name": "has_stack_detection",
+    "type": "contains",
+    "pattern": "stack|framework|detect"
+  },
+  {
+    "name": "spec_is_working_set",
+    "type": "contains",
+    "pattern": "working set|NOT a mirror|not a catalog"
+  },
+  {
+    "name": "no_deployed_feature_creation",
+    "type": "not_contains",
+    "pattern": "status:\\s*deployed.*already exists"
+  },
+  {
+    "name": "references_in_place",
+    "type": "contains",
+    "pattern": "reference.*in.place|index|in-place"
+  },
+  {
+    "name": "no_gsd_mention",
+    "type": "not_contains",
+    "pattern": "\\bGSD\\b"
+  },
+  {
+    "name": "no_speckit_mention",
+    "type": "not_contains",
+    "pattern": "[Ss]peckit"
+  },
+  {
+    "name": "has_frontmatter_name",
+    "type": "frontmatter_field",
+    "field": "name",
+    "value": "ship-init"
+  },
+  {
+    "name": "uses_sonnet",
+    "type": "frontmatter_field",
+    "field": "model",
+    "value": "sonnet"
+  },
+  {
+    "name": "has_fresh_install_mode",
+    "type": "contains",
+    "pattern": "FRESH|fresh install"
+  },
+  {
+    "name": "has_update_mode",
+    "type": "contains",
+    "pattern": "UPDATE|update mode"
+  },
+  {
+    "name": "has_legacy_migration",
+    "type": "contains",
+    "pattern": "LEGACY|legacy|\\.shipyard"
+  },
+  {
+    "name": "has_git_repo_check",
+    "type": "contains",
+    "pattern": "git init|git rev-parse|[Ee]nsure.*[Gg]it"
+  },
+  {
+    "name": "has_self_test",
+    "type": "contains",
+    "pattern": "[Ss]elf.?[Tt]est|doctor|SELF-TEST"
+  },
+  {
+    "name": "has_constitution_advisor",
+    "type": "contains",
+    "pattern": "constitution"
+  },
+  {
+    "name": "has_sme_skill_generation",
+    "type": "contains",
+    "pattern": "shipyard-skill-writer|SME"
+  },
+  {
+    "name": "has_commit_format_detection",
+    "type": "contains",
+    "pattern": "commit.*format|commit.*convention"
+  },
+  {
+    "name": "uses_ask_user_question",
+    "type": "contains",
+    "pattern": "AskUserQuestion"
+  },
+  {
+    "name": "uses_shipyard_data_path",
+    "type": "contains",
+    "pattern": "shipyard-data|shipyard-context"
+  },
+  {
+    "name": "has_rules_copy",
+    "type": "contains",
+    "pattern": "rules.*copy|copy.*rules|\\.claude/rules"
+  },
+  {
+    "name": "has_permission_setup",
+    "type": "contains",
+    "pattern": "Configure Permissions|settings\\.local\\.json"
+  },
+  {
+    "name": "has_git_bash_permission",
+    "type": "contains",
+    "pattern": "Bash\\(git"
+  },
+  {
+    "name": "has_websearch_permission",
+    "type": "contains",
+    "pattern": "WebSearch"
+  },
+  {
+    "name": "has_merge_not_replace",
+    "type": "contains",
+    "pattern": "never replace|[Mm]erge.*not.*replace|not already present"
+  },
+  {
+    "name": "has_test_command_permissions",
+    "type": "contains",
+    "pattern": "test command.*permission|vitest|pytest|npm test"
+  },
+  {
+    "name": "update_mode_has_permissions",
+    "type": "contains",
+    "pattern": "Update Permissions|same permission.*FRESH"
+  },
+  {
+    "name": "detects_orphaned_plugin_data",
+    "type": "contains",
+    "pattern": "find-orphans"
+  },
+  {
+    "name": "prompts_for_orphan_migration",
+    "type": "contains",
+    "pattern": "orphaned Shipyard data"
+  },
+  {
+    "name": "announces_orphan_source_after_migration",
+    "type": "contains",
+    "pattern": "safely delete the orphaned"
+  },
+  {
+    "name": "no_shell_sd_substitution",
+    "type": "not_contains",
+    "pattern": "\\$\\(shipyard-data"
+  },
+  {
+    "name": "no_shell_sc_substitution",
+    "type": "not_contains",
+    "pattern": "\\$\\(shipyard-context"
+  },
+  {
+    "name": "no_sd_shell_var_assignment",
+    "type": "not_contains",
+    "pattern": "SD=\\$\\(shipyard-data"
+  }
 ]

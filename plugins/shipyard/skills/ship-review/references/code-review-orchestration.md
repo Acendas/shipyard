@@ -93,7 +93,7 @@ Confidence ≥ 80 only. Return findings in the standard format.
 Run a project conventions review on this sprint's changes.
 Diff command: <your diff range>
 Scope: <all code files>
-Load all project rules from .claude/rules/ and $(shipyard-data)/codebase-context.md before reviewing.
+Load all project rules from .claude/rules/ and <SHIPYARD_DATA>/codebase-context.md before reviewing.
 Look for: constitution violations, learnings violations, codebase pattern deviations, duplication, dead code, magic numbers.
 Confidence ≥ 80 only. Return findings in the standard format.
 ```
@@ -113,9 +113,9 @@ Confidence ≥ 80 only. Return findings in the standard format.
 Run a spec compliance review on this sprint's changes.
 Diff command: <your diff range>
 Feature: <feature ID>
-Spec file: $(shipyard-data)/spec/features/<feature>.md
+Spec file: <SHIPYARD_DATA>/spec/features/<feature>.md
 Reference files: <if any>
-Task spec files: $(shipyard-data)/spec/tasks/T-<feature>-*.md
+Task spec files: <SHIPYARD_DATA>/spec/tasks/T-<feature>-*.md
 Implementation files: <code files>
 Look for: missing acceptance criterion implementation, over-building, interface contract violations.
 Confidence ≥ 80 only. Return findings in the standard format.
@@ -199,7 +199,7 @@ After investigators return their verdicts:
 
 ## Phase 5 — Final Report
 
-Use the standard two-section output format. Write the result to `$(shipyard-data)/sprints/current/CODE-REVIEW.md`:
+Use the standard two-section output format. Write the result to `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md`:
 
 ```
 VERDICT: approve | must-fix | needs-discussion

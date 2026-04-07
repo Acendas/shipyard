@@ -1,7 +1,7 @@
 ---
 name: ship-spec
 description: "View, browse, search, and manage the product specification. Use when the user wants to see the spec, look up a feature or epic by ID, search for something in the spec, change a feature status, move features between epics, archive spec items, or absorb an external document into the spec."
-allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, EnterPlanMode, ExitPlanMode]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, EnterPlanMode, ExitPlanMode, "Bash(shipyard-context:*)"]
 model: sonnet
 effort: medium
 argument-hint: "[feature/epic ID] or [search term] or [subcommand]"
@@ -17,7 +17,7 @@ Browse, search, and manage the product specification.
 
 !`shipyard-context spec-counts`
 
-**Data path: use the SHIPYARD_DATA path from context above. For Read/Write/Edit tools, use the full literal path (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/...`). NEVER use `~` or `$HOME` in file_path — always start with `/`. For Bash: `SD=$(shipyard-data)` then `$SD/...`. Shell variables like `$SD` do NOT work in Read/Write/Edit file_path — only literal paths. NEVER hardcode or guess paths.**
+**Data path: use the SHIPYARD_DATA path printed in the context block above as a literal absolute prefix for every Read / Grep / Glob / Write / Edit call (e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/spec/features/F001-*.md`). NEVER use `~`, `$HOME`, or shell variables in `file_path` — always start with `/`. Do NOT invoke `shipyard-data` or `shipyard-context` from Bash inside this skill — use Claude's native Read / Grep / Glob tools instead. Never hardcode or guess paths.**
 
 ## Input
 
@@ -112,7 +112,7 @@ Show the full feature spec: user story, acceptance criteria, NFRs, failure modes
  Scenarios: 4/6 covered by tests
 ```
 
-Read the feature's `tasks:` array, read each task file for status/effort. Also scan `$(shipyard-data)/spec/bugs/` for bugs with `feature:` matching this ID. Map acceptance scenarios to test coverage by checking if each Given/When/Then has a corresponding test (from review verdicts if available).
+Read the feature's `tasks:` array, read each task file for status/effort. Also use Grep with `pattern: ^feature: F<NNN>$`, `path: <SHIPYARD_DATA>/spec/bugs`, `glob: B*.md`, `output_mode: files_with_matches` to find related bugs, then Read each. Map acceptance scenarios to test coverage by checking if each Given/When/Then has a corresponding test (from review verdicts if available).
 
 Also show linked items:
 - References: list with one-line summary
@@ -141,7 +141,7 @@ REFERENCE: [filename]
 [full content of reference file]
 ```
 
-Reference files live in `$(shipyard-data)/spec/references/`. They hold full technical content (API contracts, schemas, flows, config specs) and are part of the spec — never skip them.
+Reference files live in `<SHIPYARD_DATA>/spec/references/`. They hold full technical content (API contracts, schemas, flows, config specs) and are part of the spec — never skip them.
 
 After showing detail, AskUserQuestion: "What next? (back / edit / related features / done)"
 
@@ -149,14 +149,14 @@ After showing detail, AskUserQuestion: "What next? (back / edit / related featur
 If argument doesn't match an ID pattern or a known subcommand, search across all spec files:
 - Search file names and frontmatter titles
 - Search file content for the term
-- **Also search `$(shipyard-data)/spec/references/`** — technical docs are part of the spec
+- **Also search `<SHIPYARD_DATA>/spec/references/`** via Grep with `path: <SHIPYARD_DATA>/spec/references` — technical docs are part of the spec
 - Present matching files with relevant excerpts
 
 ### Subcommands
 
 `/ship-spec ideas` — List all captured ideas pending discussion.
-  1. Read all files in `$(shipyard-data)/spec/ideas/`.
-  2. For each, read frontmatter: `id`, `title`, `created`, and first line of body as description.
+  1. Use Glob with `pattern: <SHIPYARD_DATA>/spec/ideas/IDEA-*.md` to enumerate idea files, then Read each.
+  2. For each, read frontmatter: `id`, `title`, `created`, `status`, and first line of body as description. Skip files where `status: graduated` (they were already promoted to features).
   3. Display as a scannable list:
 
 ```
@@ -178,7 +178,7 @@ IDEAS — [N] pending discussion
 
 `/ship-spec move F001 E002` — Move feature F001 to epic E002
 
-`/ship-spec archive F001` — Archive feature (move to spec/archive/)
+`/ship-spec archive F001` — Archive feature: use Edit to set frontmatter `status: deferred` (do NOT physically move the file — `reap-obsolete` will reap it after the retention period).
 
 `/ship-spec diff F001` — Show change history for F001 (git log for the file)
 
@@ -195,20 +195,20 @@ IDEAS — [N] pending discussion
        3. Create new feature — the doc describes NEW work beyond what was shipped
        ```
        AskUserQuestion with the options above.
-     - If no feature ID provided (auto-match mode below), also check: does the document describe functionality that already exists in the codebase? Grep for key terms from the doc in `$(shipyard-data)/codebase-context.md` and in features with `status: done|deployed|released`. If a match is found, warn before creating a new feature for already-built work.
+     - If no feature ID provided (auto-match mode below), also check: does the document describe functionality that already exists in the codebase? Use Grep for key terms from the doc against `<SHIPYARD_DATA>/codebase-context.md` and against feature files matching `status: done|deployed|released` (use Grep with `pattern: ^status: (done|deployed|released)`, `glob: F*.md`, `path: <SHIPYARD_DATA>/spec/features`, `output_mode: files_with_matches`, then Read each). If a match is found, warn before creating a new feature for already-built work.
   3. Infer a slug from the filename (e.g., `spec/docs/payment-flow.md` → `payment-flow`).
-  4. Write to `$(shipyard-data)/spec/references/F001-<slug>.md`:
+  4. Use the Write tool to create `<SHIPYARD_DATA>/spec/references/F001-<slug>.md`:
      - If the source file has no YAML frontmatter: prepend `---\nfeature: F001\nsource: <original-path>\n---\n` then the full content.
      - If the source file already has YAML frontmatter (starts with `---`): merge `feature: F001` and `source: <original-path>` into the existing frontmatter block rather than prepending a second one.
-  5. Add the full path `$(shipyard-data)/spec/references/F001-<slug>.md` to the `references:` array in F001's frontmatter. Always store full relative paths, not bare filenames.
-  6. Confirm: "Absorbed [filename] → $(shipyard-data)/spec/references/F001-<slug>.md and linked to F001."
+  5. Use Edit to add the full path `<SHIPYARD_DATA>/spec/references/F001-<slug>.md` to the `references:` array in F001's frontmatter. Always store full relative paths, not bare filenames.
+  6. Confirm: "Absorbed [filename] → <SHIPYARD_DATA>/spec/references/F001-<slug>.md and linked to F001."
   If F001 doesn't exist yet, AskUserQuestion: "F001 not found. Create it first with /ship-discuss, then absorb."
 
 `/ship-spec absorb <path>` (no feature ID) — Absorb an external document and auto-match or create a feature for it.
   1. Read the file at `<path>` in full.
   2. **Completion check** — scan the document's content against existing features:
      - Check features with `status: done|deployed|released` — does this doc describe something already shipped?
-     - Check `$(shipyard-data)/codebase-context.md` — does this describe existing functionality?
+     - Read `<SHIPYARD_DATA>/codebase-context.md` and Grep it for key terms from the document — does this describe existing functionality?
      - If match found: "This document describes [feature/functionality] which is already [status]. Skip, or absorb as reference to [matched feature]? (skip / absorb as ref / create new — this is NEW work)"
   3. From the title/content, find the best matching existing feature (grep for similar titles).
   4. AskUserQuestion: "This looks like it belongs to [F001: Payment Processor]. Absorb there, or create a new feature? (F001 / new / [other ID])"
@@ -221,12 +221,12 @@ IDEAS — [N] pending discussion
   Shipyard's spec is the working set (what's being planned/built). The user's product spec is the source of truth (what the product IS). After features ship, the product spec should reflect them. This command bridges that gap.
 
   **Step 1: Find the user's product spec**
-  - Read `$(shipyard-data)/codebase-context.md` → check `## Existing Specs` section for indexed doc paths
+  - Read `<SHIPYARD_DATA>/codebase-context.md` → check `## Existing Specs` section for indexed doc paths
   - If no indexed specs → AskUserQuestion: "Where is your product spec? Provide a path or directory (e.g., `docs/spec/`, `SPEC.md`, `docs/product/`)"
-  - Cache the path in `$(shipyard-data)/config.md` under `product_spec_path:` for future syncs
+  - Use Edit to cache the path in `<SHIPYARD_DATA>/config.md` under `product_spec_path:` for future syncs
 
   **Step 2: Find syncable features**
-  - Scan `$(shipyard-data)/spec/features/` for features that have changed since last sync
+  - Use Glob `<SHIPYARD_DATA>/spec/features/F*.md` to enumerate feature files, then Read each and check `synced_at` vs `updated` in frontmatter to find features changed since last sync
   - A feature is syncable if:
     - It has no `synced_at:` in frontmatter (never synced), OR
     - Its `updated:` date is newer than `synced_at:` (changed since last sync)
@@ -360,11 +360,11 @@ When changing status, update it **in the feature file frontmatter** (single sour
 
 ## Rules
 
-- **CRITICAL: All Shipyard data lives at `$(shipyard-data)/`.** Always resolve the path by running `shipyard-data` in Bash. NEVER hardcode paths like `.shipyard/` or guess absolute paths. NEVER look for Shipyard data in other worktrees or directories. When you need to read spec files, run: `SPEC=$(shipyard-data)/spec` then use `$SPEC/features/`, `$SPEC/epics/`, etc.
+- **CRITICAL: All Shipyard data lives at `<SHIPYARD_DATA>/`.** Always resolve the path from the literal SHIPYARD_DATA prefix printed in the context block above (via the `!\`shipyard-context path\`` pre-exec line). Use that literal path with Read/Grep/Glob/Write/Edit. NEVER invoke `shipyard-data` from Bash inside this skill — it is not in this skill's allowlist and the compound `$()` substitution form trips Claude Code's bash matcher. NEVER hardcode paths like `.shipyard/` or guess absolute paths. NEVER look for Shipyard data in other worktrees or directories.
 - Read-only by default. Only modify files when an explicit subcommand is used.
 - When changing status, validate the transition is legal using the state machine above.
-- When archiving, move file to `$(shipyard-data)/spec/archive/` and remove the ID from BACKLOG.md (if present).
-- For status changes that remove from backlog (approved → deferred), remove the ID from BACKLOG.md. No other data needs updating — BACKLOG.md only stores IDs.
+- When archiving, use Edit to set `status: deferred` in the feature's frontmatter and Edit BACKLOG.md to remove the ID. Do NOT physically move files — `reap-obsolete` housekeeping handles physical removal after retention.
+- For status changes that remove from backlog (approved → deferred), use Edit to remove the ID from BACKLOG.md. No other data needs updating — BACKLOG.md only stores IDs.
 - **Always use AskUserQuestion when clarification is needed:**
   - ID not found → AskUserQuestion: "[ID] doesn't exist. Did you mean [closest match]? Or provide the correct ID."
   - Ambiguous search returns multiple matches → AskUserQuestion: "Found [N] matches: [list]. Which one?"
