@@ -70,7 +70,7 @@ This file activates a PreToolUse hook that blocks source code writes. If you fin
 - If input is an **epic ID** (E001) → **EPIC mode** (refine epic scope, cascade changes to features)
 - If input is an **idea ID** (IDEA-NNN) → **IDEA mode** (convert idea to feature — see below)
 - If input is a **feature ID** (F001) → **REFINE mode** (load existing, gather updates)
-- If input is a **triage phrase** — phrases like "anything requires discussion", "anything requires discussion?", "what's open", "what needs discussion", "what needs attention", "what's pending", "what needs refinement" → **TRIAGE mode** (see below)
+- If input is a **triage phrase** — phrases like "anything requires discussion", "anything requires discussion?", "what's open", "what needs discussion", "what needs attention", "what's pending", "what needs refinement", "anything else", "discuss anything", "what else", "any ideas", "any ideas to discuss", "what ideas" → **TRIAGE mode** (see below)
 - If input is a **short one-liner** (under ~20 words, no questions, no detail) → **CAPTURE mode** (quick idea, zero ceremony)
 - If input describes something **large** (multiple features implied, a whole product area) → offer: "This sounds like an epic — multiple features under one initiative. Discuss as an epic, or start with the first feature? (epic / feature)"
 - If input is a **detailed topic** or the user is asking questions → **NEW mode** (start fresh conversation)

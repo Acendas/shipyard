@@ -227,19 +227,25 @@ class TestNameValidation(LogcapTestBase):
 
 class TestBoundsValidation(LogcapTestBase):
 
-    def test_rejects_sub_64k_max_size(self):
-        # Min is 64 * 1024 = 65536. Anything smaller is rejected because
-        # Node's pipe chunks can reach that size, and chunks can't be
-        # split mid-text without breaking lines.
-        for bad in ['1K', '8K', '32K', '63K', '65535']:
+    def test_rejects_sub_1k_max_size(self):
+        # Min is 1 * 1024 = 1024. With line-boundary rotation (carry-over
+        # buffer keyed on \n), chunk size no longer sets a floor — the
+        # minimum exists only so rotation bookkeeping doesn't dominate
+        # real capture bytes at extremely small sizes.
+        #
+        # Historically the floor was 64K because chunk-boundary rotation
+        # couldn't split a chunk mid-text. That limitation no longer
+        # applies after the line-boundary rotation fix; see the "Line
+        # boundaries and rotation" section in live-capture.md.
+        for bad in ['1', '100', '500', '1023']:
             _, stderr, rc = run_cli(
                 ['run', 'tiny', '--max-size', bad,
                  '--', 'sh', '-c', 'true'],
                 env_extra=self.env,
             )
             self.assertNotEqual(rc, 0, f'size {bad!r} should be rejected')
-            self.assertIn('64', stderr,
-                f'error for {bad!r} should mention the 64K floor')
+            self.assertIn('1024', stderr,
+                f'error for {bad!r} should mention the 1K floor')
 
     def test_rejects_zero_max_files(self):
         _, _, rc = run_cli(
@@ -249,8 +255,8 @@ class TestBoundsValidation(LogcapTestBase):
         self.assertNotEqual(rc, 0)
 
     def test_parses_valid_size_units(self):
-        # All values must be >= 64K to pass the floor check.
-        for size in ['64K', '128K', '1M', '2m', '65536']:
+        # All values must be >= 1K to pass the (lowered) floor check.
+        for size in ['1K', '64K', '128K', '1M', '2m', '65536']:
             _, _, rc = run_cli(
                 ['run', 'sizetest', '--max-size', size,
                  '--', 'sh', '-c', 'true'],
@@ -392,6 +398,260 @@ class TestProjectIsolation(LogcapTestBase):
         )
         self.assertNotEqual(rc, 0)
         self.assertIn('SHIPYARD_LOGCAP_SESSION', stderr)
+
+
+class TestLineBoundaryRotation(LogcapTestBase):
+    """Load-bearing test for the line-boundary rotation fix. Without it,
+    high-rate streams like `adb logcat` get lines cut across rotation
+    boundaries, and `grep` against either file misses the match.
+
+    The test emits a known pattern of complete lines, forces many
+    rotations via a tight --max-size, then concatenates all rotated files
+    and asserts every original line is present intact (no broken lines).
+    """
+
+    def _cat_all_rotations(self, name):
+        """Read the base capture file plus all .log.N rotations, return
+        the concatenated content as a single string (oldest first so the
+        ordering matches the child's emission order)."""
+        stdout, _, _ = run_cli(['path', name], env_extra=self.env)
+        live_path = stdout.strip()
+        directory = os.path.dirname(live_path)
+        # Order: highest .N first (oldest), then base file (newest).
+        rotations = []
+        for entry in sorted(os.listdir(directory), reverse=True):
+            if entry.startswith(os.path.basename(live_path) + '.'):
+                with open(os.path.join(directory, entry)) as f:
+                    rotations.append(f.read())
+        with open(live_path) as f:
+            rotations.append(f.read())
+        return ''.join(rotations)
+
+    def test_high_volume_rotation_preserves_line_boundaries(self):
+        """Emit 200 distinctive long lines under a tight 2K bound — this
+        will trigger rotation ~every 20–30 lines. Every original line
+        must appear intact in the concatenated output. A broken line
+        (split mid-message at a rotation boundary) is a test failure."""
+        # Each line is ~80 chars; at max-size 2K we rotate every ~25 lines
+        # across 200 lines → ~8 rotations during this capture.
+        cmd = ('for i in $(seq 1 200); do '
+               'printf "line_%03d_ActivityManager: Starting activity message_here_padding\\n" $i; '
+               'done')
+        _, _, rc = run_cli(
+            ['run', 'linetest', '--max-size', '2048', '--max-files', '20',
+             '--', 'sh', '-c', cmd],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 0)
+
+        content = self._cat_all_rotations('linetest')
+        lines = [l for l in content.split('\n') if l]
+        # Every line should match the exact pattern — no truncation.
+        import re
+        pattern = re.compile(
+            r'^line_\d{3}_ActivityManager: Starting activity message_here_padding$'
+        )
+        broken = [l for l in lines if not pattern.match(l)]
+        self.assertEqual(broken, [],
+            f'found {len(broken)} broken lines (first 3): {broken[:3]}')
+        # And every line 001–200 should be present.
+        self.assertEqual(len(lines), 200,
+            f'expected 200 lines, got {len(lines)}')
+
+    def test_eof_flushes_unterminated_final_line(self):
+        """If the child emits a final line without a trailing newline,
+        the carry buffer must be flushed at EOF so the line lands on
+        disk. Without the flush, the tail of the output would silently
+        disappear."""
+        _, _, rc = run_cli(
+            ['run', 'noeof', '--', 'sh', '-c',
+             'printf "line1\\nline2\\nfinal-no-newline"'],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 0)
+
+        content = self._cat_all_rotations('noeof')
+        self.assertIn('line1', content)
+        self.assertIn('line2', content)
+        self.assertIn('final-no-newline', content)
+
+
+class TestCmdFile(LogcapTestBase):
+    """Tests for --cmd-file — the Windows-safe / shell-hostile command
+    escape hatch that reads argv tokens from a file instead of the command
+    line. Needed for things like `adb logcat ActivityManager:I '*:S'`
+    where the filter spec has globs and quotes that cmd.exe mangles."""
+
+    def _write_cmd_file(self, lines):
+        path = os.path.join(self.tmp_root, 'cmd.txt')
+        with open(path, 'w') as f:
+            f.write('\n'.join(lines) + '\n')
+        return path
+
+    def test_cmd_file_runs_command(self):
+        cmd_path = self._write_cmd_file([
+            '# comment (should be ignored)',
+            '',  # blank line (should be ignored)
+            'sh',
+            '-c',
+            'echo "hello from cmd-file"',
+        ])
+        _, _, rc = run_cli(
+            ['run', 'cmdfiletest', '--cmd-file', cmd_path],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 0)
+
+        stdout, _, _ = run_cli(['path', 'cmdfiletest'], env_extra=self.env)
+        with open(stdout.strip()) as f:
+            content = f.read()
+        self.assertIn('hello from cmd-file', content)
+
+    def test_cmd_file_preserves_shell_hostile_tokens(self):
+        """The whole point of --cmd-file: tokens with spaces, globs,
+        quotes, colons land verbatim in argv without shell re-tokenization.
+        Simulates the adb logcat filter use case."""
+        cmd_path = self._write_cmd_file([
+            'sh',
+            '-c',
+            # This line contains spaces, a literal *, single quotes, and colons
+            "echo 'ActivityManager:I *:S token with spaces'",
+        ])
+        _, _, rc = run_cli(
+            ['run', 'hostile', '--cmd-file', cmd_path],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 0)
+
+        stdout, _, _ = run_cli(['path', 'hostile'], env_extra=self.env)
+        with open(stdout.strip()) as f:
+            content = f.read()
+        self.assertIn('ActivityManager:I *:S token with spaces', content)
+
+    def test_cmd_file_and_dashdash_mutually_exclusive(self):
+        cmd_path = self._write_cmd_file(['sh', '-c', 'true'])
+        _, stderr, rc = run_cli(
+            ['run', 'both', '--cmd-file', cmd_path, '--', 'sh', '-c', 'true'],
+            env_extra=self.env,
+        )
+        self.assertNotEqual(rc, 0)
+        self.assertIn('mutually exclusive', stderr)
+
+    def test_cmd_file_missing_path_fails(self):
+        _, stderr, rc = run_cli(
+            ['run', 'missing', '--cmd-file', '/nonexistent/path.txt'],
+            env_extra=self.env,
+        )
+        self.assertNotEqual(rc, 0)
+        self.assertIn('cannot read', stderr)
+
+    def test_cmd_file_empty_file_fails(self):
+        cmd_path = self._write_cmd_file(['# only a comment', ''])
+        _, stderr, rc = run_cli(
+            ['run', 'empty', '--cmd-file', cmd_path],
+            env_extra=self.env,
+        )
+        self.assertNotEqual(rc, 0)
+        self.assertIn('no command tokens', stderr)
+
+
+class TestActiveSessionFile(LogcapTestBase):
+    """Tests for the <SHIPYARD_DATA>/.active-logcap-session file sentinel
+    that replaces the env-var-based session grouping. Bulletproof across
+    Claude Code Bash tool calls (which don't share env state between
+    invocations)."""
+
+    def _data_dir(self):
+        stdout, _, _ = run_cli([], env_extra=self.env)
+        # logcap doesn't print the data dir — use shipyard-data for that.
+        result = subprocess.run(
+            ['node', os.path.join(os.path.dirname(CLI), 'shipyard-data.mjs')],
+            capture_output=True, text=True,
+            env={**os.environ, **self.env, **{
+                k: '' for k in ['CLAUDE_PROJECT_DIR'] if k not in self.env
+            }},
+        )
+        return result.stdout.strip()
+
+    def test_active_session_file_controls_grouping(self):
+        # Initialize the data dir (ensures the directory exists)
+        subprocess.run(
+            ['node', os.path.join(os.path.dirname(CLI), 'shipyard-data.mjs'), 'init'],
+            capture_output=True, text=True,
+            env={**os.environ, **self.env},
+        )
+        data_dir = self._data_dir()
+        session_file = os.path.join(data_dir, '.active-logcap-session')
+        with open(session_file, 'w') as f:
+            f.write('sprint-007-wave-2')
+
+        # No env var set — logcap should read the file
+        env_no_session = dict(self.env)
+        env_no_session.pop('SHIPYARD_LOGCAP_SESSION', None)
+
+        _, _, rc = run_cli(
+            ['run', 'filesess', '--', 'sh', '-c', 'echo hello'],
+            env_extra=env_no_session,
+        )
+        self.assertEqual(rc, 0)
+
+        stdout, _, _ = run_cli(['path', 'filesess'], env_extra=env_no_session)
+        capture_path = stdout.strip()
+        # The capture path should contain the session name from the file
+        self.assertIn('sprint-007-wave-2', capture_path)
+
+    def test_env_var_beats_active_session_file(self):
+        subprocess.run(
+            ['node', os.path.join(os.path.dirname(CLI), 'shipyard-data.mjs'), 'init'],
+            capture_output=True, text=True,
+            env={**os.environ, **self.env},
+        )
+        data_dir = self._data_dir()
+        session_file = os.path.join(data_dir, '.active-logcap-session')
+        with open(session_file, 'w') as f:
+            f.write('file-wins')
+
+        env_with_env = dict(self.env)
+        env_with_env['SHIPYARD_LOGCAP_SESSION'] = 'env-wins'
+
+        _, _, rc = run_cli(
+            ['run', 'envbeats', '--', 'sh', '-c', 'echo hello'],
+            env_extra=env_with_env,
+        )
+        self.assertEqual(rc, 0)
+
+        stdout, _, _ = run_cli(['path', 'envbeats'], env_extra=env_with_env)
+        capture_path = stdout.strip()
+        self.assertIn('env-wins', capture_path)
+        self.assertNotIn('file-wins', capture_path)
+
+    def test_invalid_session_file_falls_through_to_daily(self):
+        subprocess.run(
+            ['node', os.path.join(os.path.dirname(CLI), 'shipyard-data.mjs'), 'init'],
+            capture_output=True, text=True,
+            env={**os.environ, **self.env},
+        )
+        data_dir = self._data_dir()
+        session_file = os.path.join(data_dir, '.active-logcap-session')
+        # Plant invalid content that won't match the allowlist
+        with open(session_file, 'w') as f:
+            f.write('../escape/attempt')
+
+        env_no_session = dict(self.env)
+        env_no_session.pop('SHIPYARD_LOGCAP_SESSION', None)
+
+        # Should fall through to per-day fallback, not fail
+        _, _, rc = run_cli(
+            ['run', 'fallback', '--', 'sh', '-c', 'echo hello'],
+            env_extra=env_no_session,
+        )
+        self.assertEqual(rc, 0)
+
+        stdout, _, _ = run_cli(['path', 'fallback'], env_extra=env_no_session)
+        capture_path = stdout.strip()
+        # The session directory should be session-YYYYMMDD, not the bad content
+        self.assertIn('session-', capture_path)
+        self.assertNotIn('escape', capture_path)
 
 
 if __name__ == '__main__':

@@ -262,5 +262,124 @@
     "type": "contains",
     "pattern": "HARD BLOCK|hard block.*planning session",
     "dotall": true
+  },
+  {
+    "name": "task_frontmatter_has_kind_field",
+    "type": "contains",
+    "pattern": "kind.*feature.*operational.*research",
+    "dotall": true
+  },
+  {
+    "name": "task_kinds_reference_linked",
+    "type": "contains",
+    "pattern": "references/task-kinds\\.md"
+  },
+  {
+    "name": "operational_requires_verify_command",
+    "type": "contains",
+    "pattern": "verify_command"
+  },
+  {
+    "name": "kind_classifier_uses_ask_user_question",
+    "type": "contains",
+    "pattern": "operational.*AskUserQuestion|AskUserQuestion.*operational",
+    "dotall": true
+  },
+  {
+    "name": "dor_gate_checks_operational_verify_command",
+    "type": "contains",
+    "pattern": "operational.*verify_command",
+    "dotall": true
+  },
+  {
+    "name": "dor_forbids_nested_operational",
+    "type": "contains",
+    "pattern": "operational.*operational|operational.*nested|Operational.*operational",
+    "dotall": true
+  },
+  {
+    "name": "carry_over_scans_silent_pass",
+    "type": "contains",
+    "pattern": "kind: operational|PREVIOUSLY MARKED DONE WITHOUT EVIDENCE|Silent-pass suspects",
+    "dotall": true
+  },
+  {
+    "name": "carry_over_display_silent_pass_section",
+    "type": "contains",
+    "pattern": "PREVIOUSLY MARKED DONE WITHOUT EVIDENCE"
+  },
+  {
+    "name": "task_kinds_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-sprint/references/task-kinds.md"
+  },
+  {
+    "name": "dor_gate_checks_research_scope",
+    "type": "contains",
+    "pattern": "research.*research_scope|research_scope.*research",
+    "dotall": true
+  },
+  {
+    "name": "task_kinds_ref_has_research_contract",
+    "type": "contains",
+    "pattern": "research_scope",
+    "target": "ref:task-kinds.md"
+  },
+  {
+    "name": "task_kinds_ref_research_no_longer_deferred",
+    "type": "not_contains",
+    "pattern": "Execution-path status.*not yet implemented|falls back.*feature",
+    "target": "ref:task-kinds.md",
+    "dotall": true
+  },
+  {
+    "name": "carry_over_check_needs_attention",
+    "type": "contains",
+    "pattern": "status: needs-attention|NEEDS ATTENTION"
+  },
+  {
+    "name": "carry_over_display_needs_attention_section",
+    "type": "contains",
+    "pattern": "NEEDS ATTENTION.*prior sprint escalation|prior sprint escalation",
+    "dotall": true
+  },
+  {
+    "name": "carry_over_needs_attention_no_auto_carry",
+    "type": "contains",
+    "pattern": "Do NOT auto-carry|not auto-carry|do not auto-carry",
+    "dotall": true
+  },
+  {
+    "name": "carryover_scans_all_idea_origins",
+    "type": "contains",
+    "pattern": "\\^source: \\(execute\\|review-gap\\|retro\\)"
+  },
+  {
+    "name": "carryover_dual_match_retro_legacy",
+    "type": "contains",
+    "pattern": "retro-sprint|hyphen-separated|retro[-/]",
+    "dotall": true
+  },
+  {
+    "name": "carryover_has_recency_filter",
+    "type": "contains",
+    "pattern": "last 2 sprint|14 days|Recency filter",
+    "dotall": true
+  },
+  {
+    "name": "carryover_has_idea_cap",
+    "type": "contains",
+    "pattern": "8 ideas|at most \\*\\*8\\*\\*|cap:.*8"
+  },
+  {
+    "name": "carryover_forbids_wildcard_source",
+    "type": "contains",
+    "pattern": "do NOT widen to|not auto-carry.*inline capture|inline capture.*not auto-carry",
+    "dotall": true
+  },
+  {
+    "name": "carryover_display_has_carried_over_ideas_section",
+    "type": "contains",
+    "pattern": "CARRIED-OVER IDEAS"
   }
 ]

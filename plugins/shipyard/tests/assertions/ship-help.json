@@ -6,10 +6,10 @@
     "value": "ship-help"
   },
   {
-    "name": "uses_haiku",
+    "name": "uses_sonnet",
     "type": "frontmatter_field",
     "field": "model",
-    "value": "haiku"
+    "value": "sonnet"
   },
   {
     "name": "has_question_mode",

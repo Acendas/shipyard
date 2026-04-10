@@ -156,6 +156,7 @@ Shipyard implements workarounds for several Claude Code bugs that affect worktre
 | Bug | Impact | Workaround |
 |-----|--------|------------|
 | **#37549** — `isolation: worktree` silently ignored with `team_name` | Team mode agents run in main repo, no isolation | Manual worktree creation before spawning teammates (see team-mode.md) |
+| **`isolation: worktree` silently fails** — platform sometimes ignores the flag even without `team_name` | Subagent mode agents run on working branch, no isolation | Pre-flight probe detects this; falls back to manual worktree creation (same pattern as team-mode #37549 workaround) |
 | **#34645** — Parallel worktree creation races on `.git/config.lock` | Some agents fail on spawn | File lock in worktree-branch.py serializes creation |
 | **#34775** — Agent frontmatter `isolation: worktree` ignored | Builder agent runs unisolated | Always pass `isolation: "worktree"` in Agent() call, never rely on frontmatter |
 | **#40262** — Hook stdout corrupts worktree path | Worktree creation fails | All hooks document STDOUT CONTRACT; only WorktreeCreate writes to stdout |

@@ -2,7 +2,7 @@
 name: ship-help
 description: "Ask questions about Shipyard, get guidance, or ask it to perform actions. Use when the user asks how to do something in Shipyard, wants help with the workflow, seems lost or unsure what to do next, or wants Shipyard to perform an action on their behalf like moving a feature or updating status."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, WebSearch, "Bash(shipyard-context:*)"]
-model: haiku
+model: sonnet
 effort: medium
 argument-hint: "[question or request]"
 ---

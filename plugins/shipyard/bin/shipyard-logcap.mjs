@@ -25,8 +25,15 @@
  *   - session from $SHIPYARD_LOGCAP_SESSION (ship-execute sets it to
  *     <sprint>-wave-<N>) or per-shell-timestamp fallback.
  *
+ * Not to be confused with Android's `adb logcat` — Shipyard-logc*a*p is the
+ * output-capture wrapper; Android log*ca*t is a separate device-log stream.
+ * Shipyard-logcap can wrap `adb logcat` to capture Android device logs (see
+ * the "Android adb logcat" section in skills/ship-execute/references/live-
+ * capture.md), but the two names refer to different tools.
+ *
  * Usage:
  *   shipyard-logcap run <name> [--max-size S] [--max-files N] -- <command...>
+ *   shipyard-logcap run <name> [--max-size S] [--max-files N] --cmd-file <path>
  *   shipyard-logcap tail <name> [--filter <regex>] [--follow]
  *   shipyard-logcap grep <name> <pattern> [--context N]
  *   shipyard-logcap list [--project]
@@ -55,6 +62,7 @@ import { createInterface } from "node:readline";
 import { platform, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
+  getDataDir,
   getProjectHash,
   getProjectRoot,
   ShipyardResolverError,
@@ -75,7 +83,14 @@ const DEFAULT_MAX_FILES = 10;
 // ceiling by up to one chunk. Setting the floor at 64 KB ensures the
 // overflow is bounded to at most one chunk's worth — a well-understood
 // size-based rotation semantic. Bounds tighter than this surprise users.
-const MIN_MAX_SIZE = 64 * 1024;
+// Minimum --max-size bound. Historically 64K (matching Node's child-process
+// pipe chunk size) because the old rotation logic couldn't split a chunk
+// mid-text without breaking lines. With the carryOver-based line-boundary
+// rotation in teeChunk (see ~line 366), line boundaries are preserved
+// regardless of chunk size, so we can safely lower the floor to 1K. This
+// enables tight bounds for testing and for commands with very small
+// expected output where a 64K floor would mean "no rotation ever."
+const MIN_MAX_SIZE = 1024;
 
 // Capture name allowlist. Same shape as worktree name validation elsewhere
 // in shipyard: first char alnum, 1-64 chars total, no path traversal, no
@@ -127,23 +142,70 @@ function getProjectCaptureRoot() {
 
 /**
  * Return the current session directory under the project capture root.
- * Session is $SHIPYARD_LOGCAP_SESSION if set (ship-execute sets it to
- * <sprint>-wave-<N>), otherwise a stable per-process timestamp.
+ *
+ * Session resolution priority (first wins):
+ *
+ *   1. `$SHIPYARD_LOGCAP_SESSION` env var — highest priority, lets a user
+ *      or test override on a per-command basis.
+ *   2. `<SHIPYARD_DATA>/.active-logcap-session` file — the canonical
+ *      in-project pointer set by ship-execute at wave-start. This is the
+ *      bulletproof path: Bash tool calls in Claude Code don't share env
+ *      state (each call spawns a fresh shell), so an `export` in one
+ *      invocation doesn't propagate to the next. Writing the session
+ *      name to a file bypasses env propagation entirely.
+ *   3. Per-day fallback (`session-YYYYMMDD`) — lets a cross-command
+ *      tail/grep in the same day still find earlier captures.
+ *
+ * ship-execute writes `.active-logcap-session` via the Write tool at the
+ * start of each wave (`<sprint>-wave-<N>`) and clears it (or overwrites)
+ * on the next wave. Other skills (ship-debug, ship-quick, ship-review)
+ * benefit automatically — they don't need to know about sessions at all.
  */
 function getSessionDir(captureRoot) {
+  const SESSION_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+  // 1. Env var — highest priority, allows overrides
   let session = process.env.SHIPYARD_LOGCAP_SESSION;
   if (session) {
-    // Sanitize: session names come from skill context and become directory
-    // names. Same allowlist shape as capture names but longer limit.
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(session)) {
+    if (!SESSION_RE.test(session)) {
       throw new LogcapError(
         `shipyard-logcap: invalid SHIPYARD_LOGCAP_SESSION value. ` +
           `Must match [A-Za-z0-9][A-Za-z0-9._-]{0,127}.`,
       );
     }
-  } else {
-    session = getFallbackSession();
+    return join(captureRoot, session);
   }
+
+  // 2. Active session file under SHIPYARD_DATA — the path that actually
+  //    works across Claude Code Bash tool calls. Best-effort: if the
+  //    resolver can't find the data dir (e.g., running outside a project)
+  //    or the file is missing/unreadable/invalid, fall through silently.
+  try {
+    const dataDir = getDataDir({ silent: true });
+    if (dataDir) {
+      const sessionFile = join(dataDir, ".active-logcap-session");
+      if (existsSync(sessionFile)) {
+        const raw = readFileSync(sessionFile, "utf8").trim();
+        if (raw && SESSION_RE.test(raw)) {
+          return join(captureRoot, raw);
+        }
+        // Invalid content in session file → log a breadcrumb and fall
+        // through to the per-day fallback. Don't fail loud — the user
+        // may have hand-edited the file or a prior write corrupted it;
+        // in either case the right thing is to keep capturing, not abort.
+        writeBreadcrumb("invalid_session_file", {
+          path: sessionFile,
+          content_length: raw.length,
+        });
+      }
+    }
+  } catch {
+    // Any resolver error → fall through. Logcap must remain usable
+    // even if the plugin data dir is unreachable.
+  }
+
+  // 3. Per-day fallback
+  session = getFallbackSession();
   return join(captureRoot, session);
 }
 
@@ -322,19 +384,82 @@ function rotate(logPath, maxFiles) {
  * parent's corresponding streams, and exit with the child's exit code.
  */
 async function cmdRun(args) {
-  // Split at `--`. Everything before is logcap options; everything after is
-  // the user's command.
+  // Two ways to pass the wrapped command:
+  //
+  //   1. Trailing `-- <argv...>` (the classic form — use this on POSIX or
+  //      for commands with simple tokens)
+  //   2. `--cmd-file <path>` option (use this on Windows for commands with
+  //      spaces, quotes, globs, or other cmd.exe-hostile tokens — the file
+  //      contains one argv token per line, no shell interpretation)
+  //
+  // The `--cmd-file` escape hatch exists because the .cmd wrapper cannot
+  // reliably pass quoted arguments containing spaces, `& | < > ^ " *`
+  // through cmd.exe's `%*` expansion. This is a real-world blocker for
+  // Android `adb logcat ActivityManager:I '*:S'` on Windows — the filter
+  // spec has quotes and a literal `*` that cmd.exe globs. Writing the
+  // command to a file and passing --cmd-file sidesteps the entire cmd.exe
+  // tokenizer.
+  //
+  // Mutually exclusive: a run with --cmd-file must not also have `--`
+  // followed by a command. A run without --cmd-file must have `--`.
+  const cmdFileIdx = args.indexOf("--cmd-file");
   const sep = args.indexOf("--");
-  if (sep === -1) {
-    throw new LogcapError(
-      `shipyard-logcap run: missing \`--\` separator before the command.\n` +
-        `Usage: shipyard-logcap run <name> [--max-size S] [--max-files N] -- <command...>`,
-    );
-  }
-  const logcapArgs = args.slice(0, sep);
-  const cmdArgs = args.slice(sep + 1);
-  if (cmdArgs.length === 0) {
-    throw new LogcapError("shipyard-logcap run: no command given after `--`.");
+
+  let logcapArgs;
+  let cmdArgs;
+
+  if (cmdFileIdx !== -1) {
+    // --cmd-file form. Pull the path out of args, keep the rest as logcap options.
+    const cmdFilePath = args[cmdFileIdx + 1];
+    if (!cmdFilePath || cmdFilePath.startsWith("--")) {
+      throw new LogcapError(
+        `shipyard-logcap run: --cmd-file requires a path argument.`,
+      );
+    }
+    if (sep !== -1) {
+      throw new LogcapError(
+        `shipyard-logcap run: --cmd-file and \`-- <command>\` are mutually exclusive. ` +
+          `Pick one.`,
+      );
+    }
+    // Read the file. Each non-empty non-comment line is one argv token,
+    // verbatim (no quote handling, no variable expansion). This is
+    // intentionally dumb — the whole point is to bypass shell tokenization.
+    let fileContent;
+    try {
+      fileContent = readFileSync(cmdFilePath, "utf8");
+    } catch (err) {
+      throw new LogcapError(
+        `shipyard-logcap run: cannot read --cmd-file "${cmdFilePath}": ${err.message}`,
+      );
+    }
+    cmdArgs = fileContent
+      .split(/\r?\n/)
+      .map((l) => l.trimEnd())
+      .filter((l) => l.length > 0 && !l.startsWith("#"));
+    if (cmdArgs.length === 0) {
+      throw new LogcapError(
+        `shipyard-logcap run: --cmd-file "${cmdFilePath}" contains no command tokens ` +
+          `(every line is empty or starts with #).`,
+      );
+    }
+    // Remove --cmd-file and its arg from the logcap options list.
+    logcapArgs = args.slice(0, cmdFileIdx).concat(args.slice(cmdFileIdx + 2));
+  } else {
+    // Classic `--` form. Everything before is logcap options; everything
+    // after is the user's command.
+    if (sep === -1) {
+      throw new LogcapError(
+        `shipyard-logcap run: missing \`--\` separator before the command.\n` +
+          `Usage: shipyard-logcap run <name> [--max-size S] [--max-files N] -- <command...>\n` +
+          `  or:  shipyard-logcap run <name> [--max-size S] [--max-files N] --cmd-file <path>`,
+      );
+    }
+    logcapArgs = args.slice(0, sep);
+    cmdArgs = args.slice(sep + 1);
+    if (cmdArgs.length === 0) {
+      throw new LogcapError("shipyard-logcap run: no command given after `--`.");
+    }
   }
 
   const opts = parseRunOptions(logcapArgs);
@@ -366,19 +491,33 @@ async function cmdRun(args) {
   let fd = openSync(logPath, "a");
   let written = statSync(logPath).size;
 
-  function teeChunk(chunk, parentStream) {
-    // Forward to parent stream first — live view is the user's source of
-    // truth for watching progress. Even if the file write fails, the live
-    // stream stays intact.
-    try {
-      parentStream.write(chunk);
-    } catch {
-      // Parent stream closed (pipe broken upstream). Continue capturing to
-      // the file; don't let a closed pipe kill the wrapped command.
-    }
+  // Line-boundary rotation: accumulate partial lines in `carryOver` so the
+  // file on disk always ends on a newline (except at EOF when the child
+  // emitted a final line without a trailing \n). This prevents the "line
+  // split across rotation boundary" bug that breaks `grep` context on
+  // high-rate streams like `adb logcat`:
+  //
+  //   chunk N (before fix): "...ActivityManager: Start"  → written to file.log.1
+  //   chunk N+1            : "ing activity foo\n..."     → written to file.log
+  //   grep "Starting activity foo" → NO MATCH in either file
+  //
+  // With line-boundary rotation, `file.log.1` ends on the previous \n and
+  // the "ActivityManager: Starting activity foo\n" line lands whole in
+  // `file.log`. Grep works cross-rotation within a single file.
+  //
+  // Safety cap: if a stream produces no newlines at all (binary dump,
+  // pathological single-line input), force-flush after CARRY_MAX_BYTES so
+  // carryOver can't grow unbounded in memory. At that point we lose the
+  // line-boundary guarantee but the process stays bounded.
+  const CARRY_MAX_BYTES = 1024 * 1024; // 1 MB
+  let carryOver = Buffer.alloc(0);
 
-    // Rotate if this chunk would exceed maxSize.
-    if (written + chunk.length > opts.maxSize) {
+  // Write a pre-line-aligned slice to the current file, rotating first if
+  // the slice would push the file past maxSize. Splitting the rotation
+  // check out of teeChunk lets us reuse it for EOF flushing (flushCarry).
+  function writeSlice(slice) {
+    if (slice.length === 0) return;
+    if (written + slice.length > opts.maxSize) {
       try {
         closeSync(fd);
       } catch {
@@ -412,12 +551,10 @@ async function cmdRun(args) {
         return;
       }
     }
-
-    // Append to file.
     if (fd !== -1) {
       try {
-        writeSync(fd, chunk);
-        written += chunk.length;
+        writeSync(fd, slice);
+        written += slice.length;
       } catch (err) {
         writeBreadcrumb("write_failed", {
           name: opts.name,
@@ -427,6 +564,58 @@ async function cmdRun(args) {
           `logcap: warning: write failed (${err.message}); capture may be incomplete\n`,
         );
       }
+    }
+  }
+
+  function teeChunk(chunk, parentStream) {
+    // Forward to parent stream first — live view is the user's source of
+    // truth for watching progress. Even if the file write fails, the live
+    // stream stays intact. The live view is ALWAYS unbuffered; line-boundary
+    // alignment only applies to the file-on-disk path.
+    try {
+      parentStream.write(chunk);
+    } catch {
+      // Parent stream closed (pipe broken upstream). Continue capturing to
+      // the file; don't let a closed pipe kill the wrapped command.
+    }
+
+    // Append to the carry buffer.
+    carryOver = carryOver.length === 0 ? chunk : Buffer.concat([carryOver, chunk]);
+
+    // Find the last newline in the accumulated buffer. Everything up to and
+    // including that newline is line-aligned and safe to write to the file.
+    // Everything after it is a partial line that stays in carryOver until
+    // the next chunk arrives (or flushCarry runs at EOF).
+    const lastNL = carryOver.lastIndexOf(0x0a); // \n
+    if (lastNL >= 0) {
+      const slice = carryOver.subarray(0, lastNL + 1);
+      carryOver = carryOver.subarray(lastNL + 1);
+      writeSlice(slice);
+      return;
+    }
+
+    // No newline yet. Hold the carryOver until more data comes in — unless
+    // we've accumulated so much that holding it risks running out of memory
+    // (binary dump, pathological single-line input). At that point the
+    // line-boundary guarantee is worth less than staying bounded; flush what
+    // we have.
+    if (carryOver.length >= CARRY_MAX_BYTES) {
+      writeBreadcrumb("carry_overflow_flushed", {
+        name: opts.name,
+        bytes: carryOver.length,
+      });
+      writeSlice(carryOver);
+      carryOver = Buffer.alloc(0);
+    }
+  }
+
+  // Flush any residual partial line at EOF. Called when the child exits so
+  // the final line (which may or may not end in \n) lands on disk before
+  // the wrapper returns.
+  function flushCarry() {
+    if (carryOver.length > 0) {
+      writeSlice(carryOver);
+      carryOver = Buffer.alloc(0);
     }
   }
 
@@ -481,6 +670,12 @@ async function cmdRun(args) {
     });
   });
 
+  // Flush any residual partial line from the carry buffer. This handles
+  // the case where the child emitted a final line without a trailing \n,
+  // or died mid-line (crash, SIGKILL). Without this flush, the tail of
+  // the output would be silently lost.
+  flushCarry();
+
   try {
     if (fd !== -1) closeSync(fd);
   } catch {}
@@ -532,10 +727,8 @@ function parseRunOptions(args) {
 
   if (maxSize < MIN_MAX_SIZE) {
     throw new LogcapError(
-      `shipyard-logcap: --max-size must be at least ${MIN_MAX_SIZE} bytes (64K). ` +
-        `Smaller bounds are unsafe because Node's child-process pipe can deliver ` +
-        `chunks up to this size, and we can't split a chunk mid-text without breaking ` +
-        `lines — so any bound below 64K is silently overflowed by the first chunk.`,
+      `shipyard-logcap: --max-size must be at least ${MIN_MAX_SIZE} bytes (1K). ` +
+        `Smaller bounds make rotation overhead dominate actual capture.`,
     );
   }
 
@@ -921,16 +1114,29 @@ async function main() {
 
 function printHelp() {
   process.stderr.write(
-    `shipyard-logcap — tee a command's output to a rotating file in tmp\n\n` +
+    `shipyard-logcap — tee a command's output to a rotating file in tmp\n` +
+      `  (Not to be confused with Android's \`adb logcat\`. Shipyard-logcap can\n` +
+      `   wrap an \`adb logcat\` invocation to capture device logs, but the two\n` +
+      `   names refer to different tools: logc[a]p = Shipyard wrapper (this);\n` +
+      `   log[ca]t = Android device log stream.)\n\n` +
       `Usage:\n` +
       `  shipyard-logcap run <name> [--max-size S] [--max-files N] -- <command...>\n` +
+      `  shipyard-logcap run <name> [--max-size S] [--max-files N] --cmd-file <path>\n` +
+      `       (--cmd-file reads newline-delimited argv tokens from a file — use this\n` +
+      `        on Windows or for commands with quotes, globs, or shell-hostile tokens\n` +
+      `        like \`adb logcat ActivityManager:I '*:S'\`)\n` +
       `  shipyard-logcap tail <name> [--filter <regex>] [--follow]\n` +
       `  shipyard-logcap grep <name> <pattern> [--context N]\n` +
       `  shipyard-logcap list\n` +
       `  shipyard-logcap path <name>\n` +
       `  shipyard-logcap probe\n` +
       `  shipyard-logcap prune [--older-than 24h]\n\n` +
-      `See skills/ship-execute/references/live-capture.md for the full guide.\n`,
+      `Session (directory grouping) resolution order:\n` +
+      `  1. $SHIPYARD_LOGCAP_SESSION env var\n` +
+      `  2. <SHIPYARD_DATA>/.active-logcap-session file contents\n` +
+      `  3. per-day fallback (session-YYYYMMDD)\n\n` +
+      `See skills/ship-execute/references/live-capture.md for the full guide,\n` +
+      `including the Android \`adb logcat\` section for mobile device workflows.\n`,
   );
 }
 

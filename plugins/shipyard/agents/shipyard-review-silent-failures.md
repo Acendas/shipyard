@@ -28,6 +28,7 @@ You only flag these patterns:
 8. **Logged but not propagated** — `console.log(err)` then continue as if nothing happened, when caller needs to know
 9. **Catch-then-rethrow-as-different-type that loses stack** — `throw new Error("failed")` from inside a catch
 10. **Conditional that only handles success** — `if (result.ok) { ... }` with no else branch when failure matters
+11. **Operational task marked done without captured evidence** — when reviewing a feature, scan its tasks for `kind: operational` entries. Any operational task with `status: done` but missing `verify_output:` (or pointing at a missing/empty `shipyard-logcap` capture) is a silent failure at the orchestration layer: the task's deliverable was running a command, and nothing recorded that the command ran. This is the exact shape of the /ship-execute silent-pass bug. Confidence 95+ when `verify_output:` is absent entirely; confidence 90 when the capture file is missing on disk; confidence 85 when the capture is zero-byte. Cite the task file path and line of the `status: done` frontmatter entry.
 
 ## What is NOT a silent failure
 

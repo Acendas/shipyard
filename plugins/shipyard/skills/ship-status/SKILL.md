@@ -2,8 +2,7 @@
 name: ship-status
 description: "Project dashboard showing sprint progress, backlog health, spec coverage, state validation, and what to do next. Also validates and auto-fixes state inconsistencies. Use when the user asks about project status, progress, what's happening, what's left, what to work on next, wants a health check, suspects state corruption, or just wants an overview."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
-model: haiku
-effort: low
+model: sonnet
 argument-hint: "[sprint|backlog|health|spec]"
 ---
 
@@ -49,7 +48,7 @@ Use Glob to enumerate every `.md` file under `<SHIPYARD_DATA>/spec/` (substitute
 
 **Feature files** — required: `id` (F+digits), `title` (non-empty), `type` (feature), `epic` (string), `status` (proposed|approved|in-progress|done|deployed|released|cancelled), `story_points` (≥0), `complexity` (low|medium|high|""), `token_estimate` (≥0), `rice_reach` (0-10), `rice_impact` (0-3), `rice_confidence` (0-100), `rice_effort` (>0), `rice_score` (≥0), `dependencies` (list), `references` (list), `tasks` (list), `created` (date)
 
-**Task files** — required: `id` (T+digits), `title` (non-empty), `feature` (valid feature ID), `status` (pending|in-progress|done|blocked), `effort` (S|M|L), `dependencies` (list)
+**Task files** — required: `id` (T+digits), `title` (non-empty), `feature` (valid feature ID), `status` (pending|in-progress|done|blocked|needs-attention), `effort` (S|M|L), `dependencies` (list). The `needs-attention` status is set by the operational fix-findings loop or the research dispatcher when escalation triggers — it means "prior attempt produced a full audit trail but the task did not converge; needs a human decision." Distinct from `blocked` (waiting on an external dependency). See `references/task-kinds.md` for the escalation semantics.
 
 **Bug files** — required: `id` (B+digits), `title`, `status`, `severity`
 
@@ -95,8 +94,8 @@ State files use the soft-delete sentinel pattern: overwrite with a "cleared" mar
 - Epic files with `features:` arrays → remove the array (membership is derived)
 - Stale `<SHIPYARD_DATA>/.loop-state.json` → Write `{"cleared": "<iso>", "events": []}`
 - Stale `<SHIPYARD_DATA>/.active-session.json` (>24h old) → Write `{"skill": null, "cleared": "<iso>"}`
-- Stale `<SHIPYARD_DATA>/.compaction-count` (no active execution lock) → Write content `0`
-- `<SHIPYARD_DATA>/.active-execution.json` — Read it, parse JSON. If `cleared` is set, ignore. Otherwise: if `started` is >2h old, Write the cleared sentinel automatically; if <2h, show it in the dashboard and AskUserQuestion: "Execution lock found ([skill], started [time]). Still running? (yes, leave it / no, clear it)". On clear, Write the cleared sentinel.
+- Stale `<SHIPYARD_DATA>/.compaction-count` file (legacy — the counter now lives on the execution lock) → use the Bash tool to `rm` it if present; it's dead state from an older plugin version.
+- `<SHIPYARD_DATA>/.active-execution.json` — Read it, parse JSON. If `cleared` is set, ignore. Otherwise: if `started` is >2h old, Write the cleared sentinel automatically; if <2h, show it in the dashboard and AskUserQuestion: "Execution lock found ([skill], started [time]). Still running? (yes, leave it / no, clear it)". On clear, Write the cleared sentinel (which also clears any `compaction_count` field on the old lock).
 
 ### Check 7: File Size Health
 
@@ -295,4 +294,4 @@ Per-epic completion matrix with feature status indicators and overall product pr
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-Status indicators: ✅ done/released | 🔄 in-progress | ⬜ proposed/approved | ⛔ blocked
+Status indicators: ✅ done/released | 🔄 in-progress | ⬜ proposed/approved | ⛔ blocked | ⚠️ needs-attention

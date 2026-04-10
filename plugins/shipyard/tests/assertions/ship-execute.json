@@ -188,7 +188,37 @@
   {
     "name": "has_compaction_counter",
     "type": "contains",
-    "pattern": "\\.compaction-count|compaction.*3"
+    "pattern": "compaction_count|context pressure|[Cc]ompaction [Pp]ressure"
+  },
+  {
+    "name": "tracks_compaction_on_lock",
+    "type": "contains",
+    "pattern": "tracks_compaction_pressure"
+  },
+  {
+    "name": "auto_pause_at_5",
+    "type": "contains",
+    "pattern": "count [>=≥]+ ?5|count = 5|5 times this sprint|reconstructed 5 times"
+  },
+  {
+    "name": "warns_at_4",
+    "type": "contains",
+    "pattern": "count = 4|summarised 4 times"
+  },
+  {
+    "name": "no_legacy_compaction_count_file",
+    "type": "not_contains",
+    "pattern": "\\.compaction-count"
+  },
+  {
+    "name": "no_quota_framing_for_pause",
+    "type": "not_contains",
+    "pattern": "before quota runs out|pre-empts? quota exhaustion|quota[- ]driven pause"
+  },
+  {
+    "name": "has_context_pressure_reference",
+    "type": "contains",
+    "pattern": "references/context-pressure\\.md"
   },
   {
     "name": "no_code_review_loop_in_execute",
@@ -509,7 +539,7 @@
     "name": "workaround_team_hard_stop_wrong_branch",
     "type": "contains",
     "pattern": "HARD STOP",
-    "target": "ref:team-mode.md"
+    "target": "agent:shipyard-builder"
   },
   {
     "name": "workaround_already_on_worktree_branch_readiness",
@@ -788,5 +818,460 @@
     "pattern": "isolation:\\s*worktree.*deliberately omitted|34775",
     "target": "agent:shipyard-builder",
     "dotall": true
+  },
+  {
+    "name": "operational_tasks_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-execute/references/operational-tasks.md"
+  },
+  {
+    "name": "task_kind_routing_in_step3",
+    "type": "contains",
+    "pattern": "Task Kind Routing|kind: operational.*operational-tasks\\.md",
+    "dotall": true
+  },
+  {
+    "name": "operational_tasks_reference_linked",
+    "type": "contains",
+    "pattern": "operational-tasks\\.md"
+  },
+  {
+    "name": "post_subagent_operational_gate",
+    "type": "contains",
+    "pattern": "verify_output.*operational|operational.*verify_output",
+    "dotall": true
+  },
+  {
+    "name": "post_subagent_bogus_pass_event",
+    "type": "contains",
+    "pattern": "operational_task_bogus_pass"
+  },
+  {
+    "name": "builder_hard_stops_on_non_feature_kind",
+    "type": "contains",
+    "pattern": "TASK KIND MISMATCH",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "builder_kind_check_is_step0",
+    "type": "contains",
+    "pattern": "Step 0.*kind|Task kind check",
+    "target": "agent:shipyard-builder",
+    "dotall": true
+  },
+  {
+    "name": "builder_emits_task_kind_mismatch",
+    "type": "contains",
+    "pattern": "task_kind_mismatch",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "builder_full_suite_rule_scoped_to_feature",
+    "type": "contains",
+    "pattern": "Never run the full suite during TDD on a `kind: feature`|full suite.*kind: feature",
+    "target": "agent:shipyard-builder",
+    "dotall": true
+  },
+  {
+    "name": "operational_ref_uses_shipyard_logcap",
+    "type": "contains",
+    "pattern": "shipyard-logcap run",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_uses_test_runner",
+    "type": "contains",
+    "pattern": "shipyard-test-runner",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_has_fix_findings_loop",
+    "type": "contains",
+    "pattern": "fix-findings|Fix-findings",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_has_max_iterations",
+    "type": "contains",
+    "pattern": "max_iterations"
+  },
+  {
+    "name": "operational_ref_has_patch_task_cap",
+    "type": "contains",
+    "pattern": "max_patch_tasks|cumulative patch tasks",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_forbids_recursion",
+    "type": "contains",
+    "pattern": "Recursion is forbidden|MUST be `kind: feature`|nest operational tasks",
+    "target": "ref:operational-tasks.md",
+    "dotall": true
+  },
+  {
+    "name": "operational_ref_verify_history_append",
+    "type": "contains",
+    "pattern": "verify_history",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_emits_verify_started",
+    "type": "contains",
+    "pattern": "operational_task_verify_started",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_emits_passed",
+    "type": "contains",
+    "pattern": "operational_task_passed",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_emits_bogus_pass",
+    "type": "contains",
+    "pattern": "operational_task_bogus_pass",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_escalation_path",
+    "type": "contains",
+    "pattern": "operational_task_escalated|needs-attention",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_empty_capture_check",
+    "type": "contains",
+    "pattern": "empty capture|zero.byte|non-zero byte count|CAPTURE_BYTES|wc -c",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_has_classifier_table",
+    "type": "contains",
+    "pattern": "actionable.*non-actionable|actionable_findings|Classify findings",
+    "target": "ref:operational-tasks.md",
+    "dotall": true
+  },
+  {
+    "name": "operational_ref_patch_task_id_pattern",
+    "type": "contains",
+    "pattern": "PARENT_TASK_ID.*p<iteration|p<N><letter|T07-p1a",
+    "target": "ref:operational-tasks.md",
+    "dotall": true
+  },
+  {
+    "name": "operational_ref_uses_write_tool_for_patches",
+    "type": "contains",
+    "pattern": "Write tool directly|use the Write tool",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_patch_template_has_kind_feature",
+    "type": "contains",
+    "pattern": "kind: feature",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_parent_operational_audit_trail",
+    "type": "contains",
+    "pattern": "parent_operational",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_has_decision_tree",
+    "type": "contains",
+    "pattern": "iteration_budget_exhausted.*patch_task_cap_exceeded.*finding_reappeared_after_fix",
+    "target": "ref:operational-tasks.md",
+    "dotall": true
+  },
+  {
+    "name": "operational_ref_patches_serial_not_parallel",
+    "type": "contains",
+    "pattern": "serial|sequentially|serial dispatch",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_no_worktree_isolation_for_patches",
+    "type": "contains",
+    "pattern": "no `isolation: worktree`|Omit it|without a worktree",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "operational_ref_patches_persist_as_audit",
+    "type": "contains",
+    "pattern": "Do not delete patch task files|audit trail|persist.*spec/tasks",
+    "target": "ref:operational-tasks.md",
+    "dotall": true
+  },
+  {
+    "name": "research_tasks_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-execute/references/research-tasks.md"
+  },
+  {
+    "name": "task_kind_routing_handles_research",
+    "type": "contains",
+    "pattern": "kind: research.*research-tasks\\.md|research-tasks\\.md.*research",
+    "dotall": true
+  },
+  {
+    "name": "no_research_kind_fallback_stub",
+    "type": "not_contains",
+    "pattern": "research_kind_fallback"
+  },
+  {
+    "name": "no_research_kind_fallback_in_operational_ref",
+    "type": "not_contains",
+    "pattern": "research_kind_fallback",
+    "target": "ref:operational-tasks.md"
+  },
+  {
+    "name": "no_research_kind_fallback_in_research_ref",
+    "type": "not_contains",
+    "pattern": "research_kind_fallback",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "research_ref_uses_researcher",
+    "type": "contains",
+    "pattern": "shipyard-researcher",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "research_ref_has_scope_resolution",
+    "type": "contains",
+    "pattern": "research_scope",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "research_ref_has_output_field",
+    "type": "contains",
+    "pattern": "research_output",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "research_ref_emits_started",
+    "type": "contains",
+    "pattern": "research_task_started",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "research_ref_emits_passed",
+    "type": "contains",
+    "pattern": "research_task_passed",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "research_ref_emits_bogus_pass",
+    "type": "contains",
+    "pattern": "research_task_bogus_pass",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "research_ref_emits_escalated",
+    "type": "contains",
+    "pattern": "research_task_escalated|needs-attention",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "research_ref_no_fix_findings_loop",
+    "type": "contains",
+    "pattern": "No fix-findings loop|no fix-findings loop|one-shot",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "research_ref_requires_finding_section",
+    "type": "contains",
+    "pattern": "### Finding",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "post_subagent_research_gate",
+    "type": "contains",
+    "pattern": "research_output.*research|kind: research.*research_output",
+    "dotall": true
+  },
+  {
+    "name": "researcher_has_write_tool",
+    "type": "contains",
+    "pattern": "tools:.*Write",
+    "target": "agent:shipyard-researcher"
+  },
+  {
+    "name": "researcher_still_disallows_edit_bash",
+    "type": "contains",
+    "pattern": "disallowedTools:.*Edit.*Bash|disallowedTools:.*Bash.*Edit",
+    "target": "agent:shipyard-researcher",
+    "dotall": true
+  },
+  {
+    "name": "researcher_scopes_write_to_research_dir",
+    "type": "contains",
+    "pattern": "scoped to.*<SHIPYARD_DATA>/research|SHIPYARD_DATA.*research.*scoped|Write.*scoped.*research",
+    "target": "agent:shipyard-researcher",
+    "dotall": true
+  },
+  {
+    "name": "researcher_has_task_driven_mode",
+    "type": "contains",
+    "pattern": "[Tt]ask-driven [Mm]ode|task-driven mode",
+    "target": "agent:shipyard-researcher"
+  },
+  {
+    "name": "researcher_has_findings_doc_template",
+    "type": "contains",
+    "pattern": "Findings Doc Template|### Finding",
+    "target": "agent:shipyard-researcher"
+  },
+  {
+    "name": "researcher_write_scope_by_contract",
+    "type": "contains",
+    "pattern": "by contract|Write scope.*by contract",
+    "target": "agent:shipyard-researcher",
+    "dotall": true
+  },
+  {
+    "name": "researcher_write_scope_not_aspirational",
+    "type": "not_contains",
+    "pattern": "by convention",
+    "target": "agent:shipyard-researcher"
+  },
+  {
+    "name": "researcher_description_mentions_task_driven_trigger",
+    "type": "contains",
+    "pattern": "description:.*kind: research",
+    "target": "agent:shipyard-researcher"
+  },
+  {
+    "name": "research_ref_slug_from_existing_filename",
+    "type": "contains",
+    "pattern": "read the task's existing slug|existing slug from its filename|Glob.*spec/tasks",
+    "target": "ref:research-tasks.md",
+    "dotall": true
+  },
+  {
+    "name": "research_ref_no_mkdir_dash_p",
+    "type": "not_contains",
+    "pattern": "mkdir -p",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "research_ref_post_subagent_porcelain_check",
+    "type": "contains",
+    "pattern": "porcelain check|git status --porcelain|Write-scope enforcement",
+    "target": "ref:research-tasks.md",
+    "dotall": true
+  },
+  {
+    "name": "research_ref_out_of_scope_write_event",
+    "type": "contains",
+    "pattern": "research_out_of_scope_write",
+    "target": "ref:research-tasks.md"
+  },
+  {
+    "name": "post_subagent_gate_has_porcelain_check",
+    "type": "contains",
+    "pattern": "porcelain check|research_out_of_scope_write|Write-scope enforcement"
+  },
+  {
+    "name": "operational_ref_iteration_counter_semantics",
+    "type": "contains",
+    "pattern": "Counter unit semantics|counts the.*verify runs|initial verify.*re-verifies",
+    "target": "ref:operational-tasks.md",
+    "dotall": true
+  },
+  {
+    "name": "operational_ref_kind_research_points_at_research_tasks_ref",
+    "type": "contains",
+    "pattern": "kind: research.*research-tasks\\.md",
+    "target": "ref:operational-tasks.md",
+    "dotall": true
+  },
+  {
+    "name": "skill_mentions_idea_capture_chain",
+    "type": "contains",
+    "pattern": "IDEA.*spec/ideas|Capture Deferred Unknowns"
+  },
+  {
+    "name": "builder_has_capture_deferred_unknowns_section",
+    "type": "contains",
+    "pattern": "Capture Deferred Unknowns",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "builder_uses_atomic_idea_allocator",
+    "type": "contains",
+    "pattern": "shipyard-data next-id ideas",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "builder_idea_cap_three_per_task",
+    "type": "contains",
+    "pattern": "3 IDEAs per task|3 per task|cap of 3",
+    "target": "agent:shipyard-builder",
+    "dotall": true
+  },
+  {
+    "name": "builder_idea_source_tag_execute",
+    "type": "contains",
+    "pattern": "source: execute/",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "builder_idea_capture_is_commit_gated",
+    "type": "contains",
+    "pattern": "atomic.*task|committed.*alongside|roll back",
+    "target": "agent:shipyard-builder",
+    "dotall": true
+  },
+  {
+    "name": "builder_forbids_guessing_idea_id",
+    "type": "contains",
+    "pattern": "Do NOT `ls spec/ideas|Do NOT ls spec/ideas|allocator.*safe way",
+    "target": "agent:shipyard-builder",
+    "dotall": true
+  },
+  {
+    "name": "builder_tdd_runs_through_logcap",
+    "type": "contains",
+    "pattern": "shipyard-logcap run",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "builder_red_phase_has_logcap_capture",
+    "type": "contains",
+    "pattern": "<TASK_ID>-red",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "builder_green_phase_has_logcap_capture",
+    "type": "contains",
+    "pattern": "<TASK_ID>-green",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "builder_mutate_phase_has_logcap_capture",
+    "type": "contains",
+    "pattern": "<TASK_ID>-mutate",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "ship_execute_uses_active_logcap_session_file",
+    "type": "contains",
+    "pattern": "\\.active-logcap-session"
+  },
+  {
+    "name": "ship_execute_no_export_shipyard_logcap_session",
+    "type": "not_contains",
+    "pattern": "export SHIPYARD_LOGCAP_SESSION"
+  },
+  {
+    "name": "ship_execute_forbids_run_pipe_to_tail_in_body",
+    "type": "not_contains",
+    "pattern": "shipyard-logcap run[^\\n]*\\|[^\\n]*tail"
+  },
+  {
+    "name": "ship_execute_live_capture_covers_backgrounding_trap",
+    "type": "contains",
+    "pattern": "0-byte|exit\\s*14[347]|Backgrounded .run. killed|apparent-wrapper-failure"
   }
 ]

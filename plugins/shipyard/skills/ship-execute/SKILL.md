@@ -71,12 +71,14 @@ This prevents the failure mode where a discussion is in progress in one terminal
      "skill": "ship-execute",
      "sprint": "[sprint ID]",
      "wave": "[current wave]",
-     "started": "[ISO date]"
+     "started": "[ISO date]",
+     "tracks_compaction_pressure": true,
+     "compaction_count": 0
    }
    ```
-   Also use the Write tool to overwrite `<SHIPYARD_DATA>/.compaction-count` with content `0` — reset the counter for this session.
+   The `tracks_compaction_pressure` flag opts this lock into the context-pressure counter managed by the PostCompact hook. The counter lives on the lock object itself — when the lock is cleared, the counter dies with it, so there is no separate reset step and no cross-skill leakage. See `references/context-pressure.md` for the full contract.
 
-3. **On sprint completion or pause** (HANDOFF.md written), use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` and overwrite `<SHIPYARD_DATA>/.compaction-count` with content `0`. (Soft-delete sentinels — session-guard treats `skill: null` as inactive.)
+3. **On sprint completion or pause** (HANDOFF.md written), use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}`. (Soft-delete sentinel — session-guard treats `skill: null` as inactive, and because the counter was a field on the old lock object it vanishes with the overwrite.)
 
 ## Detect Mode
 
@@ -246,14 +248,13 @@ Spawn a minimal Agent with `isolation: worktree` and prompt: "Run `git branch --
 
 Check the result:
 - Branch starts with `shipyard/wt-` → **pass**. Clean up: `git worktree remove <path> && git branch -D shipyard/wt-probe` from the repo root.
-- Branch is `main` or doesn't start with `shipyard/wt-` → **fail**. The WorktreeCreate hook is not firing. Report in the readiness check:
+- Branch is `main` or doesn't start with `shipyard/wt-` → **fail**. The `isolation: worktree` mechanism is broken (Claude Code bug — the platform sometimes silently ignores the isolation flag). Report in the readiness check:
   ```
   Worktree probe: FAIL — worktree created on [branch] instead of shipyard/wt-*
-    The WorktreeCreate hook may not be registered or is failing silently.
-    Builders would commit directly to your branch, bypassing rebase/review.
-    Fix: check hook registration, or switch to solo mode for this sprint.
+    Claude Code's isolation: worktree is not working. Falling back to manual worktree creation.
+    Subagent mode will still run with full isolation — worktrees are created via git CLI instead.
   ```
-  Clean up the probe worktree. The user sees this during plan approval and can fix it or switch to solo mode before execution begins.
+  Clean up the probe worktree. **Set `manual_worktrees = true` for the rest of this sprint.** This flag changes how subagent mode spawns agents — see "Subagent Mode" below. The user sees this during plan approval and can confirm before execution begins.
 
 **WAVE 1** — what runs first:
 - [task IDs + titles + effort]
@@ -275,7 +276,11 @@ Check the result:
 
 ### Step 2: Execute Waves
 
-**Capture session tag (per wave):** before spawning builders for a wave, export `SHIPYARD_LOGCAP_SESSION=<sprint-id>-wave-<N>` in any shell you use to run verification commands via `shipyard-logcap`. This groups that wave's captures under one folder so `shipyard-logcap list` stays readable across a multi-wave sprint. Re-analysis during wave boundary checks (Step 4) or review (ship-review) can then find the wave's output by session name instead of hunting through timestamps.
+**Capture session tag (per wave).** Before spawning builders for a wave, use the Write tool to create/overwrite `<SHIPYARD_DATA>/.active-logcap-session` with a single line containing `<sprint-id>-wave-<N>` (e.g., `sprint-007-wave-2`). This is the file that `shipyard-logcap` reads to decide which session directory new captures land in — writing it here means every logcap invocation from any skill, subagent, or hook during this wave automatically groups into one folder without needing an env var.
+
+**Why the file and not an env var:** each Bash tool call in Claude Code spawns a fresh shell, so shell-level exports of the session variable do NOT propagate to the next invocation or to subagents. The file sentinel at `<SHIPYARD_DATA>/.active-logcap-session` is the only mechanism that works cross-process, cross-subagent, and cross-hook. `shipyard-logcap` reads it internally (resolution order: env var → file → per-day fallback) so neither you nor the builder needs to know about it after this single write.
+
+**Clearing the session** is optional — if you don't overwrite the file at wave boundaries, the next wave will inherit the prior wave's session name until a new write lands. Best practice: overwrite at the start of every wave with the new `<sprint-id>-wave-<N+1>` value so `shipyard-logcap list` shows a clean wave-by-wave layout. At sprint completion, overwrite with `<sprint-id>-complete` so any post-sprint verification (ship-review runs) lands in its own folder.
 
 For each wave (starting from current):
 
@@ -286,6 +291,16 @@ Spawn subagents **sequentially** — one task at a time, same branch (no worktre
 
 #### Subagent Mode (4-10 tasks per wave)
 Spawn subagents **in parallel** — one per task, each in an isolated worktree.
+
+**If `manual_worktrees = true`** (probe failed — `isolation: worktree` is broken):
+
+Create worktrees manually before spawning, same pattern as team-mode (bug #37549 workaround). Serialize creation to avoid git lock contention:
+```bash
+# For each task in the wave, create a worktree from the working branch:
+CURRENT_SHA=$(git rev-parse HEAD)
+git worktree add -b shipyard/wt-TASK_ID .claude/worktrees/TASK_ID "$CURRENT_SHA"
+```
+Then spawn agents **without** `isolation: worktree` and pass the worktree path in the prompt. See the modified subagent prompt below.
 
 #### Team Mode (10+ tasks)
 Spawn persistent teammates per feature track using Agent Teams. Each teammate works through all tasks in its feature — more efficient than per-task subagents for features with 3+ tasks. **Max 4 concurrent teammates** — additional feature tracks are queued and spawned as earlier ones complete.
@@ -305,14 +320,26 @@ Read `branch` from SPRINT.md frontmatter.
 
 The WorktreeCreate hook branches worktrees from the current local branch. If the orchestrator is on the wrong branch, all worktrees will branch from the wrong place.
 
-#### Subagent Prompt (solo + subagent modes)
+#### Task Kind Routing (REQUIRED before every dispatch)
+
+Before spawning any agent for a task, read the task file frontmatter and check `kind:`. The dispatch path depends on the kind — getting this wrong is how the silent-pass bug happens.
+
+- **`kind: feature`** or **absent** → standard `shipyard-builder` dispatch below (this is the path the rest of this section documents).
+- **`kind: operational`** → **DO NOT spawn the builder.** Follow the full protocol in `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/operational-tasks.md`. That file defines how to resolve `verify_command`, dispatch `shipyard-test-runner` via `shipyard-logcap`, run the fix-findings loop, and gate "done" on captured output. The post-subagent gate at the end of this step also has an operational-specific branch — see Step 2 Post-Subagent below.
+- **`kind: research`** → **DO NOT spawn the builder.** Follow the full protocol in `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/research-tasks.md`. Research tasks dispatch to `shipyard-researcher` in task-driven mode (the agent has `Write` scoped to `<SHIPYARD_DATA>/research/` for exactly this purpose). The dispatcher gates done on a populated `research_output:` field pointing at a non-empty findings doc with at least one `### Finding` section. Post-subagent gate for research tasks is Step 2 "Post-Subagent" steps 9–11 below.
+
+**Why this matters.** The silent-pass failure mode — `/ship-execute` marking "run E2E suite and fix findings" tasks done without running any tests — is the exact bug introduced when operational tasks hit the builder. The builder has no Red step for an operational task, exits clean on an empty tree, and the "Before Exiting" check passes trivially. This routing split is the primary fix. The `shipyard-builder` agent ALSO has a Step 0 HARD STOP that refuses any task with `kind: operational` — but that's defense in depth. The first line of defense is this router.
+
+**Note — builders may write IDEA files during task execution.** As part of their process (step 10, CAPTURE DEFERRED UNKNOWNS), builders are allowed to write up to 3 `IDEA-*` files to `<SHIPYARD_DATA>/spec/ideas/` for deferred unknowns and scope-adjacent rot discovered while building. These are staged and committed atomically with the task's implementation, so they survive (or roll back) with it. IDEAs written during execution surface in `/ship-sprint`'s carry-over scan and `/ship-backlog`'s IDEAS section on subsequent planning cycles — this is the idea-capture chain that prevents observations from vanishing at session end. See `agents/shipyard-builder.md` → "Capture Deferred Unknowns" for the rules, caps, and frontmatter template.
+
+#### Subagent Prompt (solo + subagent modes — kind: feature only)
 
 The `shipyard-builder` agent body is the canonical contract — branch verification, TDD cycle, Rules section, Deviation Rules, When Blocked, and Before Exiting are all defined there. The orchestrator only passes task-specific dispatch info; the agent body carries the rest.
 
 ```
 For each task in the wave, spawn Agent with:
   subagent_type: shipyard:shipyard-builder
-  isolation: worktree  (subagent mode) or omit (solo mode)
+  isolation: worktree  (subagent mode, probe passed) or omit (solo mode or manual_worktrees)
   prompt: |
     Task: [TASK_ID]
     Working branch: [branch from SPRINT.md frontmatter]
@@ -331,14 +358,39 @@ For each task in the wave, spawn Agent with:
     Everything else — branch verification, TDD cycle, rules, exit protocol — follows your agent body. Do not deviate.
 ```
 
+**If `manual_worktrees = true`**, add `Worktree path:` to the prompt header (the builder agent keys off this field to enter manual worktree mode — see its "Startup: Branch Verification" section):
+```
+    Task: [TASK_ID]
+    Working branch: [branch from SPRINT.md frontmatter]
+    Worktree path: [absolute path to .claude/worktrees/TASK_ID]
+    Data dir: [literal SHIPYARD_DATA path from context block]
+```
+
 #### Post-Subagent (all modes)
-Spot-check each subagent before merging:
+Spot-check each subagent before merging. The check differs by task kind — read the task file's `kind:` field first.
+
+**For `kind: feature` tasks:**
 1. Verify key files exist (ls the implementation + test files)
 2. Verify git commits present (git log --grep="TASK_ID" in worktree)
 3. **Item completeness check**: if the task's Technical Notes lists discrete items (e.g., "migrate these 8 calls", "add these 5 endpoints"), grep the diff for each item. Count how many were actually addressed vs how many were listed. If <100% → flag as incomplete, don't merge, re-spawn builder with the missing items listed explicitly
 4. If no commits or missing files → flag as failed, don't merge
 
-Rebase and merge verified worktree branches back to the working branch (subagent/team mode).
+**For `kind: operational` tasks:**
+5. Verify the task file now has a non-empty `verify_output:` field. If missing or empty → emit `operational_task_bogus_pass` with `reason=missing_verify_output` and do NOT mark done.
+6. Verify the capture exists and is non-empty. Using the name from `verify_output:`, resolve its path via `shipyard-logcap path <name>` and check byte count (for example, via `shipyard-logcap tail <name> | wc -c`). If the file is missing or zero-byte → emit `operational_task_bogus_pass` with `reason=empty_capture` or `capture_file_missing` and do NOT mark done.
+7. Verify the final `verify_history` entry on the task file has `exit: 0`. If the last attempt exited non-zero, the task is not done regardless of what the dispatcher wrote — emit `operational_task_bogus_pass` with `reason=final_history_not_green`.
+8. A task that fails any of 5–7 is re-dispatched through the operational loop (if under iteration budget) or escalated (Step 5 of `references/operational-tasks.md`).
+
+**For `kind: research` tasks:**
+9. Verify the task file now has a non-empty `research_output:` field. If missing or empty → emit `research_task_bogus_pass` with `reason=missing_research_output` and do NOT mark done.
+10. Resolve the path: either literal absolute path, or relative-to-research-dir (join `<SHIPYARD_DATA>/research/` + value). Use `Read` to confirm the file exists and is not empty. Missing → `research_task_bogus_pass` with `reason=output_file_missing`. Empty or nearly empty (no substantive body) → `reason=empty_findings_doc`.
+11. Verify the doc has at least one `### Finding` section (use Grep with pattern `^### Finding`). Zero matches → `research_task_bogus_pass` with `reason=no_findings_reported`. The Findings Doc Template requires at least one numbered finding; a zero-finding doc is a stub and does not satisfy the task.
+12. **Write-scope enforcement.** The researcher has the `Write` tool but is contractually scoped to the single findings doc at the dispatch path. Run the porcelain check: working tree must be byte-identical to the pre-dispatch snapshot, and `<SHIPYARD_DATA>/research/` must differ by exactly one file (the expected findings doc). Any other write → emit `research_out_of_scope_write` with the list of unexpectedly modified files and escalate directly (do NOT retry — retrying produces another out-of-scope write). The full protocol is in `references/research-tasks.md` Post-Subagent gate check #5.
+13. A task that fails 9–11 is re-dispatched through the research protocol (Step 3 failure path of `references/research-tasks.md`, single retry allowed only for transient failures) or escalated (Step 4 of that file). A task that fails 12 is escalated without retry.
+
+**This is the last line of defense** against silent-pass regression across all three kinds. Even if the router drifts, the builder guard drifts, and the operational/research dispatchers drift, these checks catch the exact failure modes: operational tasks marked done without captured command output, research tasks marked done without a substantive findings doc.
+
+Rebase and merge verified worktree branches back to the working branch (subagent/team mode — feature tasks only; operational tasks run on the working branch without worktrees).
 
 ### Step 3: Per-Task Execution (THE TDD CYCLE)
 
@@ -397,17 +449,18 @@ Between waves (each wave is a group of tasks that ran together):
 
   **Auto-continue to the next wave without pausing.** The orchestrator stays lean (~10-15% context) by delegating to subagents. Do not suggest `/clear`, do not suggest re-invoking `/ship-execute`, do not ask "do you want to continue?" — just proceed to the next wave.
 
-  **Context pressure detection:** At each wave boundary, use the Read tool on `<SHIPYARD_DATA>/.compaction-count` (substitute SHIPYARD_DATA from the context block). The file contains a single integer. Treat a missing file as `0`.
-  - **count = 1** → note it, continue normally
-  - **count = 2** → warn in wave report: "⚠ Context pressure building — will auto-pause after this wave if another compaction fires"
-  - **count >= 3** → **auto-pause immediately.** Use the Write tool to write HANDOFF.md, then use Write to overwrite `<SHIPYARD_DATA>/.compaction-count` with content `0`, and tell the user:
+  **Context pressure detection:** At each wave boundary, use the Read tool on `<SHIPYARD_DATA>/.active-execution.json` (substitute SHIPYARD_DATA from the context block). Parse the JSON and read the `compaction_count` field. Treat a missing field as `0`. Thresholds (tuned for 1M-context models):
+  - **count ≤ 3** → note it in passing, continue normally
+  - **count = 4** → warn in wave report: "⚠ Context summarised 4 times — working memory is degrading. One more compaction will trigger an auto-pause recommendation."
+  - **count ≥ 5** → **auto-pause at this wave boundary.** Use the Write tool to write HANDOFF.md, then use Write to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel — clears the lock AND the counter in one write), and tell the user:
     ```
-    ⚠ Auto-pausing — 3 compactions detected, session is running hot.
-    Progress saved. Run: /clear then /ship-execute (resumes from Wave [N+1])
+    ⚠ Auto-pausing at wave boundary — conversation history has been reconstructed 5 times this sprint.
+    Working memory is degrading. Progress saved.
+    Run: /clear then /ship-execute (resumes from Wave [N+1] with a fresh window)
     ```
-    This pre-empts quota exhaustion by pausing while there's still enough context to write a clean handoff.
+    The pause is a quality decision, not a quota decision. On 1M-context models you have plenty of runway left — but each auto-compaction is a lossy summarisation, and by count 5 Claude is operating on a summary-of-a-summary-of-a-summary and starting to make things up. A fresh window restores full working memory.
 
-  The compaction counter is incremented by the PostCompact hook and reset to `0` (via Write) when execution starts (in the execution lock step above).
+  The counter is a field on the execution lock itself, managed by the PostCompact hook and gated by the lock's `tracks_compaction_pressure` flag. No separate reset step — the counter lives and dies with the lock. Full contract in `references/context-pressure.md`.
 
 ### Compaction Recovery
 

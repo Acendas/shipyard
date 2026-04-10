@@ -130,5 +130,30 @@
     "name": "planning_check_reads_active_session",
     "type": "contains",
     "pattern": "Read.*<SHIPYARD_DATA>/\\.active-session"
+  },
+  {
+    "name": "debug_runs_through_logcap",
+    "type": "contains",
+    "pattern": "shipyard-logcap run"
+  },
+  {
+    "name": "debug_iter_capture_naming",
+    "type": "contains",
+    "pattern": "<debug-slug>-iter<N>|debug-slug>-iter"
+  },
+  {
+    "name": "debug_verify_runs_captured",
+    "type": "contains",
+    "pattern": "<debug-slug>-verify-repro|verify-repro|verify-tests"
+  },
+  {
+    "name": "debug_allowed_tools_has_logcap",
+    "type": "contains",
+    "pattern": "Bash\\(shipyard-logcap:"
+  },
+  {
+    "name": "debug_evidence_references_captures",
+    "type": "contains",
+    "pattern": "capture: <debug-slug|capture name"
   }
 ]

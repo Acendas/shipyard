@@ -302,5 +302,25 @@
     "type": "contains",
     "pattern": "HARD BLOCK|hard block.*planning session",
     "dotall": true
+  },
+  {
+    "name": "triage_trigger_anything_else",
+    "type": "contains",
+    "pattern": "anything else"
+  },
+  {
+    "name": "triage_trigger_discuss_anything",
+    "type": "contains",
+    "pattern": "discuss anything"
+  },
+  {
+    "name": "triage_trigger_what_else",
+    "type": "contains",
+    "pattern": "what else"
+  },
+  {
+    "name": "triage_trigger_any_ideas",
+    "type": "contains",
+    "pattern": "any ideas"
   }
 ]

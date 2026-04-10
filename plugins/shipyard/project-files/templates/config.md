@@ -28,6 +28,9 @@ wip_limits:
 staleness:
   warning_age: 60
   critical_age: 120
+operational_tasks:
+  max_iterations: 3           # fix-findings loop budget for kind:operational tasks
+  max_patch_tasks: 5          # scope-creep guard — escalate if cumulative patch tasks > this
 ---
 
 # Project Configuration

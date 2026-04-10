@@ -1,5 +1,7 @@
 # Live Verification Capture
 
+> **`shipyard-logcap` (with a `p`) is Shipyard's output-capture wrapper.** Not to be confused with Android's `adb logcat` (with a `t`) — which is a separate tool that emits device logs. Shipyard-logcap can *wrap* an `adb logcat` invocation to capture Android device logs (see "Android `adb logcat`" section below), but the two names/tools are distinct. When in doubt: logc**a**p = Shipyard wrapper; log**ca**t = Android device log stream.
+
 ## The principle
 
 When a verification step runs a command and you want to watch its output, wrap it so the output is re-analyzable without re-running. The cost of re-running a verification is tokens, wall-clock time, and sometimes money (device minutes, cloud builds, flaky repros). The cost of keeping the raw stream around is a temp file that gets deleted afterward. The math is always in favor of capture.
@@ -80,9 +82,11 @@ Pick from this decision table and extrapolate for cases not listed:
 | Test suite with verbose output (`pytest -s`, `cargo test --nocapture`, `go test -v`, `jest --verbose`) | `--max-size 2M --max-files 8` | Bursty but bounded. You want enough room for a full failing traceback plus surrounding context. |
 | Long-running dev server / container logs (`npm run dev`, `docker compose up`, `cargo run`, `tail -f service.log`) | `--max-size 4M --max-files 10` | Steady high-volume stream. You want a wide sliding window so the last ~40MB of traffic is always available. |
 | Chatty build (webpack, gradle, `cargo build --verbose`, Next.js build) | `--max-size 1M --max-files 10` | Many medium files keeps individual files navigable for grep. |
+| **Android `adb logcat` (streaming device logs)** | **`--max-size 4M --max-files 20`** | High-rate, can be 1000+ lines/sec on a busy device. Wider ring than dev servers because logcat emits everything from every process, not just one service. See the dedicated Android section below for filter tips. |
+| **Android `adb logcat -d` (one-shot dump)** | **`--max-size 8M --max-files 3`** | Bounded by buffer size, typically 1–4 MB per dump. Few files is fine because there's no rotation pressure. |
 | Unknown or can't classify | `--max-size 1M --max-files 5` | Conservative middle. Override if it overflows. |
 
-**Minimum `--max-size` is 64K** — the primitive rejects smaller values. Reason: Node's child-process pipe delivers data in chunks up to 64K, and chunks can't be split mid-text without breaking lines. Any bound below 64K would be silently overflowed by the first chunk. For most real captures this floor is invisible; the smallest recommended entry in the table above (`500K`) is already ~8× the floor.
+**Minimum `--max-size` is 1K** — the primitive rejects smaller values as not worth the rotation overhead. For most real captures this floor is invisible; the smallest recommended entry in the table above (`500K`) is ~500× the floor.
 
 **Check free space before picking bounds for a high-volume command.**
 
@@ -123,7 +127,58 @@ shipyard-logcap run smoke --max-size 500K --max-files 5 -- ./scripts/smoke.sh
 
 # Bug repro wrapped under a bug ID
 shipyard-logcap run bhot-042-repro --max-size 1M --max-files 5 -- ./repro.sh
+
+# Android device log stream (wraps adb logcat)
+shipyard-logcap run device-logs --max-size 4M --max-files 20 -- adb logcat -v threadtime
+
+# Android one-shot dump (adb logcat -d exits immediately)
+shipyard-logcap run crash-snapshot --max-size 8M --max-files 3 -- adb logcat -d -b crash
 ```
+
+## Android `adb logcat`
+
+Shipyard-logcap is a first-class wrapper for Android device logs via `adb logcat`. Three quirks to know:
+
+**Streaming vs dump.** `adb logcat` runs until interrupted (`Ctrl-C` / SIGTERM); `adb logcat -d` dumps the current buffer and exits. Shipyard-logcap handles both — there is no internal timeout in `run`, so streaming commands work, and signal forwarding propagates `Ctrl-C` to the child so `adb` exits cleanly on POSIX. (On Windows, signal propagation to spawned children is unreliable per Node's limitations — the wrapper kills cleanly but `adb` may linger for a few seconds before its own socket closes.)
+
+**Line boundaries across rotation.** Earlier versions of logcap cut lines mid-message at rotation boundaries, which broke `grep` context on high-rate streams like logcat (thousands of lines per second). The current implementation uses a carry-over buffer keyed on `\n` — the capture file always ends on a newline, so every rotation boundary is clean and `grep` matches full lines regardless of where rotation happened. You can verify this: run a logcat session with a tight `--max-size` so rotation triggers frequently, then `shipyard-logcap grep device-logs "ActivityManager: Starting activity"` — every match will be a complete line with the full message intact.
+
+**Filter specs with shell-hostile tokens.** Android logcat filters use syntax like `ActivityManager:I '*:S'` — the `*:S` means "silence everything else", and the `*` is a literal logcat wildcard, not a shell glob. On POSIX shells the single quotes protect it; on Windows `cmd.exe`, `%*` expansion in the `.cmd` wrapper strips quotes and the shell expands `*` against the current working directory, which corrupts the filter.
+
+The fix is the `--cmd-file` flag, which reads the command from a newline-delimited argv file instead of shell tokens. Write your logcat invocation to a file once, then pass the file path to logcap — no shell tokenization involved. See the dedicated section below.
+
+### `--cmd-file` — bypass shell tokenization
+
+For commands with quotes, spaces, globs, or other cmd.exe-hostile tokens, `--cmd-file <path>` lets you read the wrapped command from a file instead of passing it on the command line:
+
+```bash
+# Write the command once — each line is one argv token, no shell interpretation
+cat > logcat-cmd.txt <<'EOF'
+# Blank lines and # comments are ignored
+adb
+logcat
+-v
+threadtime
+ActivityManager:I
+*:S
+EOF
+
+shipyard-logcap run device-logs --max-size 4M --max-files 20 --cmd-file logcat-cmd.txt
+```
+
+The `--cmd-file` flag:
+- Reads the file. Each non-empty, non-comment line is one argv token (verbatim — no quote handling, no variable expansion, no shell splitting).
+- Is mutually exclusive with `-- <command...>` — pick one form per invocation.
+- Works identically on POSIX and Windows — it bypasses cmd.exe's `%*` handling entirely.
+- Is also useful for any command with multi-line arguments, embedded newlines, or tokens that are awkward to shell-quote (JSON payloads, complex `find` expressions, `awk` programs).
+
+### Logcat tips
+
+- **Clear the buffer before a fresh capture** with `adb logcat -c` (one-shot, no capture needed) so your capture doesn't start with stale lines from a previous session.
+- **Skip `-v color`** when capturing. Color escapes land as raw `\e[...m` bytes in the capture file and pollute `tail`/`grep` readability. Use `-v threadtime` for a clean tabular format.
+- **Scope by PID** with `adb logcat --pid=$(adb shell pidof <your.package>)` to drop noise from unrelated processes.
+- **Re-analyze without re-running** — logcat will behave differently next time (different crash, different ordering, different device state). The capture is your source of truth. `shipyard-logcap grep device-logs "FATAL EXCEPTION"` is how you investigate, not another `adb logcat` run.
+- **Rotation under a chatty device.** With `--max-size 4M --max-files 20` you get up to 80 MB of rolling buffer — enough to hold ~20 seconds of a noisy emulator at full tilt. Raise `--max-files` if you need a longer history.
 
 Then analyze without re-running:
 
@@ -139,7 +194,7 @@ shipyard-logcap list                         # see what captures exist for this 
 `$TMPDIR/shipyard/<project-hash>/<session>/<name>.log[.1][.2]...`
 
 - `<project-hash>` comes from Shipyard's resolver — the same hash used for plugin data, which is worktree-aware. All worktrees of one project share one capture dir, so a builder subagent running in `.claude/worktrees/foo/` and the orchestrator on `main` write to the same place and can read each other's captures.
-- `<session>` is `$SHIPYARD_LOGCAP_SESSION` if set, otherwise a timestamp from the first `run` in the shell. `ship-execute` sets it to `<sprint-id>-wave-<N>` so captures from one sprint wave group together.
+- `<session>` resolution priority (first wins): (1) `$SHIPYARD_LOGCAP_SESSION` env var if set, (2) `<SHIPYARD_DATA>/.active-logcap-session` file contents if present and valid, (3) per-day bucket `session-YYYYMMDD`. `ship-execute` writes `<sprint-id>-wave-<N>` to the file at wave boundaries — this is the bulletproof mechanism that works across Claude Code Bash tool calls (each call spawns a fresh shell, so env vars don't propagate between invocations; the file is read fresh by each `shipyard-logcap run`).
 - Captures are ephemeral. Tmp cleanup will eventually reap them; `shipyard-logcap prune` does it explicitly. **Do not treat captures as long-term storage.** If you need something to survive past the session, copy it out or paste the relevant excerpt somewhere durable.
 
 ## Redaction
@@ -156,14 +211,17 @@ Captures contain raw stdout+stderr. That can include:
 
 When quoting from a capture in user-visible output, quote only the specific lines you need and check them.
 
-## Chunk boundaries
+## Line boundaries and rotation
 
-Rotation is chunk-boundary-based, not byte-exact. When a chunk arrives that would push the live file over `--max-size`, the primitive rotates *before* writing the chunk, then writes the whole chunk into the fresh file. This means:
+Rotation is **line-boundary-based**. The primitive accumulates incoming stdout/stderr chunks in an in-memory carry buffer, finds the last `\n`, and writes everything up to and including that newline to the capture file. The trailing partial line stays in carry until the next chunk arrives (or until EOF, where it's flushed even if there's no trailing newline). Rotation only ever happens on a line-aligned boundary — the capture file always ends with a complete line (except at EOF when the child emitted an unterminated final line).
 
-- A single chunk larger than `--max-size` (unusual but possible — e.g. a program that dumps a huge stack trace in one write) lands in a file whose size briefly exceeds the bound by up to one chunk. The next chunk rotates again. Over a capture, the total size stays bounded by `max_files × (max_size + chunk_size)`.
-- This is why `--max-size` has a 64K floor: smaller bounds would make "one chunk" dominate the file size and the rotation cap would lose meaning.
+**Why this matters:** without line-boundary rotation, a single log line straddling a rotation boundary would be split across `file.log.1` and `file.log`, and `grep` against either file would miss the match. For high-rate streams like `adb logcat` (1000+ lines/sec) this is the difference between "I can find the crash" and "I need to re-run the device".
 
-You can rely on rotation to bound capture growth for normal output. If a command is known to emit single giant writes you need to keep, raise `--max-size` to cover a reasonable multiple of the expected chunk size.
+**Carry buffer safety cap:** if a stream produces no newlines at all for 1 MB (pathological binary dump or single-line input), the carry is force-flushed and rotation becomes chunk-aligned for that stretch. The capture stays bounded; only the line-boundary guarantee is relaxed under pathological input.
+
+**Size overshoot per rotation:** a line that itself exceeds `--max-size` will push the current file past the bound by up to one line's worth. The next line triggers rotation. Over a whole capture, total size is bounded by `max_files × (max_size + longest_line)`, not `max_files × max_size` exactly — within tolerance for all realistic workloads.
+
+**`--max-size` floor is 1K.** With line-boundary rotation, chunk size no longer sets a floor; the minimum exists only so rotation bookkeeping doesn't dominate real capture bytes at extremely small sizes.
 
 ## Failure modes
 
@@ -172,6 +230,9 @@ You can rely on rotation to bound capture growth for normal output. If a command
 - **Rotation lock contention or rename failure mid-run.** The primitive logs a one-line warning to stderr and **keeps the child command running.** Losing capture is always preferable to killing the user's test run. The warning lands in `.logcap.log` for diagnosis via `shipyard-context diagnose`.
 - **`list` shows nothing when you expected captures.** Almost always a resolver mismatch. `shipyard-logcap probe` prints the project hash and tmp path it's looking at; compare against where you thought captures were going.
 - **Child command exited but capture file is empty.** The command wrote nothing to stdout/stderr. Not a capture bug. Check the command itself.
+- **Pipeline after `run` produces zero live output.** If you write `shipyard-logcap run <name> -- <cmd> | grep ... | tail -N`, the visible pipeline will emit nothing until the wrapped command exits — `tail -N` blocks until stdin closes, and block-buffered `grep` over a pipe compounds it. The capture file on disk is filling normally the whole time. Do not interpret a silent pipeline as "capture is broken." Stop piping the `run` through filters at all; query the capture afterwards with `shipyard-logcap tail <name> --filter <regex>` / `shipyard-logcap grep <name> <pattern>`, or watch progress live from a second shell with `shipyard-logcap tail <name> --follow`.
+- **Backgrounded `run` killed by the harness, 0-byte capture, exit 143/137/144.** `shipyard-logcap` has no internal timeout on `run` and does not spawn background tasks itself. If you invoke logcap through Claude Code's Bash tool with `run_in_background: true`, the Bash tool's own backgrounded-task timeout (default 2 minutes) will kill the entire pipeline when it fires. `SIGTERM` propagates through logcap to the wrapped child; the child dies before flushing; the capture file stays at 0 bytes; the visible exit code is 143 (SIGTERM), 137 (SIGKILL if something escalates), or 144 (signal 16 — observed on macOS under Claude Code's Bash tool). **None of these are logcap failures.** They are externally-killed runs. Remediation: do not background `shipyard-logcap run`. Run it synchronously and, if the suite is legitimately long, raise the Bash tool's `timeout` parameter explicitly instead of backgrounding. If you need live observability while a long run is in progress, open a second Bash call and `shipyard-logcap tail <name> --follow` against the on-disk capture.
+- **Apparent-wrapper-failure reasoning trap.** When a `run` surfaces anything unexpected (0-byte capture, non-zero exit, silent terminal), the wrong first hypothesis is "logcap is broken, fall back to running the command bare." The wrapper is dumb I/O plumbing; the exit code you see is the wrapped command's exit code (or a signal from the layer above logcap). Diagnose in this order before touching any fallback: (1) `shipyard-logcap list` to confirm the capture exists, (2) `shipyard-logcap path <name>` + read the file directly for partial output, (3) check whether you backgrounded the Bash call, (4) check whether the wrapped command genuinely hung (infinite loop, clock mismatch, wedged daemon). Falling back to a bare run loses the audit trail, re-rolls device/daemon state, and almost never diagnoses the real problem — because the real problem was virtually never the wrapper.
 
 ## Override precedence
 

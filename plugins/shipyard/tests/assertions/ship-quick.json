@@ -72,6 +72,11 @@
     "pattern": "\\$\\(shipyard-data"
   },
   {
+    "name": "no_compaction_counter_leak",
+    "type": "not_contains",
+    "pattern": "compaction_count|tracks_compaction_pressure|\\.compaction-count"
+  },
+  {
     "name": "no_shell_sc_substitution",
     "type": "not_contains",
     "pattern": "\\$\\(shipyard-context"
@@ -90,5 +95,145 @@
     "name": "planning_check_reads_active_session",
     "type": "contains",
     "pattern": "Read.*<SHIPYARD_DATA>/\\.active-session"
+  },
+  {
+    "name": "uses_chore_commit",
+    "type": "contains",
+    "pattern": "chore\\(Q-NNN\\)"
+  },
+  {
+    "name": "uses_fix_commit",
+    "type": "contains",
+    "pattern": "fix\\(Q-NNN\\)"
+  },
+  {
+    "name": "no_feat_commit",
+    "type": "not_contains",
+    "pattern": "feat\\(Q-NNN\\)"
+  },
+  {
+    "name": "no_home_tilde_in_file_path",
+    "type": "not_contains",
+    "pattern": "file_path.*~/"
+  },
+  {
+    "name": "no_home_env_in_file_path",
+    "type": "not_contains",
+    "pattern": "file_path.*\\$HOME"
+  },
+  {
+    "name": "has_argument_hint",
+    "type": "contains",
+    "pattern": "argument-hint:.*task description"
+  },
+  {
+    "name": "allowed_tools_has_read",
+    "type": "contains",
+    "pattern": "allowed-tools:.*Read"
+  },
+  {
+    "name": "allowed_tools_has_write",
+    "type": "contains",
+    "pattern": "allowed-tools:.*Write"
+  },
+  {
+    "name": "execution_lock_clear_sentinel",
+    "type": "contains",
+    "pattern": "\"cleared\""
+  },
+  {
+    "name": "execution_lock_soft_delete",
+    "type": "contains",
+    "pattern": "\"skill\": null"
+  },
+  {
+    "name": "q_nnn_task_file_path",
+    "type": "contains",
+    "pattern": "spec/tasks/Q-"
+  },
+  {
+    "name": "q_nnn_derivation_explained",
+    "type": "contains",
+    "pattern": "highest existing number \\+ 1|list quick-tasks"
+  },
+  {
+    "name": "tdd_bucket_classification",
+    "type": "contains",
+    "pattern": "Testable behavior change|classify the task"
+  },
+  {
+    "name": "mutate_verify_step",
+    "type": "contains",
+    "pattern": "[Mm]utate-verify|mutate.*verify"
+  },
+  {
+    "name": "full_suite_before_commit",
+    "type": "contains",
+    "pattern": "full suite|full test"
+  },
+  {
+    "name": "quick_runs_through_logcap",
+    "type": "contains",
+    "pattern": "shipyard-logcap run"
+  },
+  {
+    "name": "quick_red_phase_capture",
+    "type": "contains",
+    "pattern": "<Q-NNN>-red|Q-NNN>-red"
+  },
+  {
+    "name": "quick_green_phase_capture",
+    "type": "contains",
+    "pattern": "<Q-NNN>-green|Q-NNN>-green"
+  },
+  {
+    "name": "quick_full_suite_capture",
+    "type": "contains",
+    "pattern": "<Q-NNN>-full-suite|Q-NNN>-full-suite"
+  },
+  {
+    "name": "quick_baseline_capture_for_refactor",
+    "type": "contains",
+    "pattern": "<Q-NNN>-baseline|Q-NNN>-baseline"
+  },
+  {
+    "name": "mentions_logcap_tail_or_grep_after_run",
+    "type": "contains",
+    "pattern": "shipyard-logcap\\s+(tail|grep)"
+  },
+  {
+    "name": "references_verification_capture_doc",
+    "type": "contains",
+    "pattern": "references/verification-capture\\.md"
+  },
+  {
+    "name": "verification_capture_reference_exists",
+    "type": "file_exists",
+    "path": "skills/ship-quick/references/verification-capture.md"
+  },
+  {
+    "name": "forbids_run_pipe_to_tail_in_body",
+    "type": "not_contains",
+    "pattern": "shipyard-logcap run[^\\n]*\\|[^\\n]*tail"
+  },
+  {
+    "name": "forbids_backgrounding_logcap_run_in_body",
+    "type": "not_contains",
+    "pattern": "run_in_background:\\s*true[^\\n]*shipyard-logcap"
+  },
+  {
+    "name": "teaches_synchronous_logcap_run",
+    "type": "contains",
+    "pattern": "synchronous|do not background|never set .run_in_background"
+  },
+  {
+    "name": "teaches_wrapper_failure_diagnosis",
+    "type": "contains",
+    "pattern": "0-byte|exit\\s*14[347]|appears to fail"
+  },
+  {
+    "name": "bashoutput_not_in_allowed_tools",
+    "type": "not_contains",
+    "pattern": "allowed-tools:[^\\n]*BashOutput"
   }
 ]

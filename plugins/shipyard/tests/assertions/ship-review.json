@@ -235,5 +235,77 @@
     "name": "no_sd_shell_var_assignment",
     "type": "not_contains",
     "pattern": "SD=\\$\\(shipyard-data"
+  },
+  {
+    "name": "operational_evidence_check_stage3",
+    "type": "contains",
+    "pattern": "Operational Task Evidence Check|kind: operational.*verify_output",
+    "dotall": true
+  },
+  {
+    "name": "operational_review_flags_silent_pass",
+    "type": "contains",
+    "pattern": "SILENT-PASS|silent-pass"
+  },
+  {
+    "name": "operational_review_checks_capture_bytes",
+    "type": "contains",
+    "pattern": "byte|bytes|shipyard-logcap"
+  },
+  {
+    "name": "silent_failures_reviewer_operational_awareness",
+    "type": "contains",
+    "pattern": "kind: operational|operational task",
+    "target": "agent:shipyard-review-silent-failures"
+  },
+  {
+    "name": "retro_uses_atomic_idea_allocator",
+    "type": "contains",
+    "pattern": "shipyard-data next-id ideas"
+  },
+  {
+    "name": "retro_source_tag_slash_convention",
+    "type": "contains",
+    "pattern": "source: retro/"
+  },
+  {
+    "name": "retro_forbids_manual_idea_numbering",
+    "type": "contains",
+    "pattern": "Do NOT `ls spec/ideas|Do NOT ls spec/ideas|allocator is the only safe way",
+    "dotall": true
+  },
+  {
+    "name": "stage4_captures_out_of_scope_as_ideas",
+    "type": "contains",
+    "pattern": "Capture Out-of-Scope Gaps as IDEAs"
+  },
+  {
+    "name": "stage4_uses_review_gap_source_tag",
+    "type": "contains",
+    "pattern": "source: review-gap/"
+  },
+  {
+    "name": "stage4_idea_cap_five_per_stage",
+    "type": "contains",
+    "pattern": "5 IDEAs per review stage|5 per stage",
+    "dotall": true
+  },
+  {
+    "name": "stage4_out_of_scope_only",
+    "type": "contains",
+    "pattern": "out-of-scope only|Out-of-scope \\(real|EXCLUSIVELY for observations",
+    "dotall": true
+  },
+  {
+    "name": "stage4_found_during_field",
+    "type": "contains",
+    "pattern": "found_during:.*surface-gap-stage-4|found_during:.*code-review-stage-0",
+    "dotall": true
+  },
+  {
+    "name": "stage0_out_of_scope_ideas_cross_ref",
+    "type": "contains",
+    "pattern": "Out-of-scope findings in Stage 0|code-review-stage-0",
+    "dotall": true
   }
 ]

@@ -50,22 +50,8 @@ If a feature has only 1 task, it still gets its own teammate (simpler than speci
 ```
 You are a Shipyard builder working on feature [FEATURE_ID] as part of team "sprint-NNN".
 
-## MANDATORY FIRST ACTION — Worktree Setup
-
-Your worktree is at: [WORKTREE_PATH]
 Working branch: [branch from SPRINT.md]
-
-**CRITICAL:** You must work inside your worktree, not the main repo. For ALL file operations:
-- Bash commands: `cd "[WORKTREE_PATH]" && <command>` (Bash doesn't persist cd between calls)
-- Read/Write/Edit/Grep/Glob: use absolute paths prefixed with `[WORKTREE_PATH]/`
-
-Verify your worktree is set up correctly:
-```bash
-cd "[WORKTREE_PATH]" && git branch --show-current
-```
-Expected: `shipyard/wt-[FEATURE_ID]-*`. If you see `main` or the working branch, HARD STOP and report.
-
-**Why:** Claude Code's `isolation: worktree` is silently ignored when `team_name` is set (bug #37549). Your worktree was created manually by the lead. If you operate in the main repo, you'll conflict with other teammates.
+Worktree path: [WORKTREE_PATH]
 
 ## Setup (do this once)
 Read these files for full context:

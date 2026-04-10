@@ -92,6 +92,8 @@ Per iteration (max 3):
 
 **Exit:** clean pass → Stage 1. 3 iterations reached with remaining must-fix → use Write to create `<SHIPYARD_DATA>/spec/bugs/B-CR-[slug].md` per finding so they surface in the next sprint, then AskUserQuestion whether to proceed to demo. After exit, delete checkpoint tags: `git tag --list 'pre-code-review-*' | xargs -I {} git tag -d {}`.
 
+**Out-of-scope findings in Stage 0 code review.** If any scanner surfaces a concrete defect that is real but *outside the sprint's diff scope* (e.g., while reviewing the auth feature's diff, the silent-failures scanner flagged a swallowed exception in a helper that wasn't touched by the sprint), capture it as an IDEA — not a `B-CR-*` bug. The B-CR bugs are for in-scope code-review findings that need fixing before this sprint ships; out-of-scope findings are for the next sprint's planning to consider. See Stage 4's "Capture Out-of-Scope Gaps as IDEAs" section for the full protocol — it applies to Stage 0 findings too, with `found_during: code-review-stage-0` in the frontmatter instead of `surface-gap-stage-4`. Hard cap: 5 per stage (enforced separately from Stage 4's cap — Stage 0 and Stage 4 have independent budgets).
+
 Log each iteration in PROGRESS.md:
 ```
 ## Code Review
@@ -177,6 +179,23 @@ Grep for imports/usage to verify component A actually calls component B:
 
 Any item that isn't "Good to go" → flag as a gap.
 
+**4. Operational Task Evidence Check** — For any task in this feature with `kind: operational`, the standard Wiring Check is useless: operational tasks produce no code artifacts to import-check. They need a different verdict based on captured command output instead.
+
+For each `kind: operational` task in the feature:
+```
+  ✅ T007 — verify_output: T007-verify-iter2, 8412 bytes, last exit: 0
+  ❌ T012 — verify_output: absent (SILENT-PASS: task marked done without running command)
+  ⚠️ T019 — verify_output: T019-verify-iter1, 0 bytes (capture empty — broken runner?)
+```
+
+Check each operational task:
+1. Task file has `verify_output:` field populated (not empty string, not commented out). Missing → **SILENT-PASS**, the exact failure mode the operational dispatch path exists to prevent.
+2. `shipyard-logcap path <verify_output>` resolves to an existing file. Missing file → **capture lost**, needs re-run.
+3. Byte count is non-zero. Zero bytes → **broken runner**, the command reported success but produced no output.
+4. Final `verify_history` entry has `exit: 0`. Non-zero → task shouldn't be done at all.
+
+Any operational task that fails any of these is a **critical gap** — automatically upgraded to must-fix regardless of what the acceptance criteria say, because the task's deliverable was running a command and we have no evidence the command ran. If you find a silent-pass, also recommend the user add the task to `ship-sprint`'s carry-over scan (Step 1.5, check #5) as a safety net for the next sprint.
+
 ### Stage 4: Surface Gap Analysis
 
 Additionally detect:
@@ -186,9 +205,55 @@ Additionally detect:
 - **Security concerns** — hardcoded values, missing input validation
 - **Anti-patterns** — TODO comments, console.log left in, empty catch blocks
 
-For each gap, classify:
-- **Simple** (missing test, TODO left in, missing validation) → patch task for builder
-- **Complex** (feature doesn't work but tests pass, wiring broken, behavior contradicts spec) → start a debug session instead of a blind patch. Use the Write tool to create `<SHIPYARD_DATA>/debug/[feature-id]-[gap].md` with the symptoms and evidence from the review.
+For each gap, classify into one of three destinations — this is a decision tree, not a menu, and the classification determines which persistence target the gap lands in:
+
+- **Simple and in-scope** (missing test for this feature, TODO left in this feature's files, missing validation on this feature's inputs) → **patch task** for builder. Use the existing patch-task creation flow.
+- **Complex and in-scope** (feature doesn't work but tests pass, wiring broken within this feature, behavior contradicts this feature's spec) → **debug session**. Use the Write tool to create `<SHIPYARD_DATA>/debug/[feature-id]-[gap].md` with the symptoms and evidence from the review.
+- **Out-of-scope** (real defect or smell that isn't in the feature being reviewed — e.g., while reviewing the payments feature, the scanner flagged a race condition in the auth middleware) → **IDEA file**. Capture the observation as an idea so it doesn't vanish, without polluting the current feature's review. See "Capture Out-of-Scope Gaps as IDEAs" below.
+
+**Capture Out-of-Scope Gaps as IDEAs.**
+
+Out-of-scope gaps are real defects — they deserve tracking — but they don't belong in the current feature's patch-task list (which would blow up sprint scope) or the debug session (which is feature-specific). The existing destinations (`bugs/`, `debug/`, patch tasks) are all scope-locked to the thing being reviewed. IDEAs are the overflow valve for "real but not now."
+
+**Hard cap: 5 IDEAs per review stage** (5 for Stage 0 code-review findings, 5 for Stage 4 gap findings — 10 total per review run). If you have more than 5 out-of-scope findings in a stage, write exactly ONE summary IDEA with `overflow: true` in the frontmatter and a bulleted list of the additional items in the body. Why 5? Same reasoning as the builder's 3-per-task cap — idea farms are how signal gets drowned in noise.
+
+**When to capture vs when to let it go:**
+
+- **Capture** — concrete defects, latent bugs, architectural smells with a specific citation (file:line), security concerns that aren't in the current feature's threat model, deprecated API usage, silent failure modes.
+- **Do NOT capture** — style preferences, "this could be cleaner", "I would have designed this differently", refactor wishes without a concrete defect, things already tracked in bugs/ or debug/ sessions (would duplicate), gaps that are actually in-scope for the feature being reviewed.
+
+**How to capture** (mechanical):
+
+1. Allocate an ID atomically: run `shipyard-data next-id ideas` — returns a zero-padded 3-digit string (e.g., `042`). **Do NOT `ls` and guess** — parallel reviewers would race.
+
+2. Write the IDEA file via the Write tool at `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` (slug is lowercase-kebab-case, ≤5 words):
+   ```yaml
+   ---
+   id: IDEA-<id>
+   title: "<one-line observation>"
+   type: gap
+   status: proposed
+   source: review-gap/<sprint-id>
+   found_during: surface-gap-stage-4     # or code-review-stage-0
+   feature_reviewed: <feature-id>        # the feature you were reviewing when you found this
+   created: <current ISO date>
+   ---
+
+   ## Observation
+
+   <2–3 sentences: what you found, where (file:line), why it's a real defect, not a preference>
+
+   ## Evidence
+
+   - File: <path:line>
+   - Pattern: <what the scanner / review flagged>
+   - Severity estimate: low | medium | high
+   - Why out-of-scope: <why this doesn't belong in the current feature's patch tasks>
+   ```
+
+3. Repeat up to 5 per stage. On overflow, collapse to one `overflow: true` IDEA.
+
+**Hard rule — out-of-scope only.** In-scope must-fix items still become bugs (`B-CR-*.md` in Stage 0). Complex in-scope issues still become debug sessions. Simple in-scope issues still become patch tasks. IDEAs are EXCLUSIVELY for observations that are real but belong to a different feature, a different sprint, or a future cleanup pass. Violating this rule floods the IDEA backlog with bugs masquerading as ideas and makes `/ship-discuss` unusable.
 
 ### Stage 4.5: Quality Gate (self-review loop)
 
@@ -380,21 +445,26 @@ Append responses to RETRO-DATA.md under `## Team Feedback`. Update frontmatter: 
 
 ### Retro Step 3: Create Action Items
 
-For each actionable improvement, use the Write tool to create an idea file at `<SHIPYARD_DATA>/spec/ideas/IDEA-NNN-[slug].md`:
+For each actionable improvement, allocate an ID atomically and write an idea file.
+
+**Allocate the ID.** Run `shipyard-data next-id ideas` — the CLI returns a zero-padded 3-digit string (e.g., `042`). Use it as `IDEA-042` in the filename and the `id` frontmatter field. **Do NOT `ls spec/ideas/` and pick a number manually** — parallel sessions would race and clobber each other. The allocator is the only safe way to pick an idea ID.
+
+**Write the file** via the Write tool at `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with this frontmatter:
 ```yaml
-# <SHIPYARD_DATA>/spec/ideas/IDEA-NNN-[slug].md
 ---
-id: IDEA-NNN
+id: IDEA-<id>
 title: "[improvement]"
 type: improvement
 status: proposed
-source: retro-sprint-NNN
+source: retro/<sprint-id>
 story_points: [estimate]
 created: [today]
 ---
 ```
 
-Update RETRO-DATA.md: `step: action_items_created`, `ideas_created: [IDEA-NNN, ...]`.
+**Source-tag format.** `source: retro/<sprint-id>` (slash-separated origin, e.g., `retro/sprint-007`) is the new convention — it mirrors `execute/<sprint-id>` and `review-gap/<sprint-id>` so the carry-over scan can grep with a single regex `^source: (execute|review-gap|retro)/`. The old `retro-sprint-NNN` format (hyphen-separated) is still recognized by readers for backwards compatibility with IDEAs created before this change, but new IDEAs must use the slash form.
+
+Update RETRO-DATA.md: `step: action_items_created`, `ideas_created: [IDEA-<id>, ...]`.
 
 ### Retro Step 4: Update Metrics
 

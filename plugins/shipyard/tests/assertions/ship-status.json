@@ -1,9 +1,9 @@
 [
   {
-    "name": "uses_haiku",
+    "name": "uses_sonnet",
     "type": "frontmatter_field",
     "field": "model",
-    "value": "haiku"
+    "value": "sonnet"
   },
   {
     "name": "has_diagnose_subcommand",
@@ -130,5 +130,22 @@
     "name": "no_sd_shell_var_assignment",
     "type": "not_contains",
     "pattern": "SD=\\$\\(shipyard-data"
+  },
+  {
+    "name": "task_status_enum_includes_needs_attention",
+    "type": "contains",
+    "pattern": "pending.*in-progress.*done.*blocked.*needs-attention",
+    "dotall": true
+  },
+  {
+    "name": "status_indicator_for_needs_attention",
+    "type": "contains",
+    "pattern": "⚠️ needs-attention|⚠ needs-attention|needs-attention.*⚠"
+  },
+  {
+    "name": "needs_attention_distinct_from_blocked",
+    "type": "contains",
+    "pattern": "needs-attention.*blocked|distinct from.*blocked|tried and failed",
+    "dotall": true
   }
 ]

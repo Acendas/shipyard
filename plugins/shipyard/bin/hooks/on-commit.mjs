@@ -15,7 +15,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { atomicWrite, resolveShipyardData, sanitizeForLog } from "../_hook_lib.mjs";
+import { atomicWrite, logEvent, resolveShipyardData, sanitizeForLog } from "../_hook_lib.mjs";
 
 const DOMAIN_PATTERNS = [
   [["auth", "login", "session", "token", "jwt", "oauth"], "auth"],
@@ -52,6 +52,63 @@ function getCommittedFiles() {
       process.stderr.write(`⚠️  on-commit: git diff-tree failed: ${err.message}\n`);
     }
     return new Set();
+  }
+}
+
+// Match task files: any .md file under a `spec/tasks/` directory.
+export function isTaskFile(filepath) {
+  return /(?:^|[/\\])spec[/\\]tasks[/\\][^/\\]+\.md$/i.test(filepath);
+}
+
+// Minimal YAML frontmatter parser — scalar string fields only. Mirrors the
+// helper in tdd-check.mjs; they share the same minimal shape. Do not factor
+// out prematurely — if either hook grows list/nesting needs, the two will
+// diverge naturally.
+export function parseTaskFrontmatter(content) {
+  const m = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return {};
+  const out = {};
+  for (const line of m[1].split(/\r?\n/)) {
+    const kv = line.match(/^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$/);
+    if (!kv) continue;
+    let val = kv[2].trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (val.startsWith("#")) val = "";
+    out[kv[1]] = val;
+  }
+  return out;
+}
+
+/**
+ * For every committed task file whose frontmatter shows a `kind: operational`
+ * task transitioning to `status: done` with a populated `verify_output`, emit
+ * an `operational_task_passed` diagnostic event. Missing `operational_task_passed`
+ * events for operational tasks that ARE marked done is the smoking-gun signal
+ * for silent-pass regressions — the post-subagent gate in ship-execute is
+ * supposed to emit it, and if it didn't but the task still landed as done, the
+ * gate drifted. Emitting from this hook means the event fires regardless of
+ * which path marked the task done.
+ */
+export function emitOperationalTaskPassedEvents(committedFiles, shipyardData) {
+  for (const f of committedFiles) {
+    if (!isTaskFile(f)) continue;
+    let content;
+    try {
+      content = readFileSync(f, "utf8");
+    } catch (_err) {
+      continue;
+    }
+    const fm = parseTaskFrontmatter(content);
+    if (fm.kind !== "operational") continue;
+    if (fm.status !== "done") continue;
+    const verifyOutput = fm.verify_output || "";
+    if (!verifyOutput) continue; // tdd-check should have blocked this case
+    logEvent(shipyardData, "operational_task_passed", {
+      task_file: f,
+      capture: verifyOutput,
+    });
   }
 }
 
@@ -146,5 +203,18 @@ export async function run(hookInput, _env) {
 
   const resolved = resetLoopState(loopStatePath);
   signalLearningCapture(resolved);
+
+  // Emit operational_task_passed events for any committed task files that
+  // just transitioned an operational task to done. Early-return-fast if the
+  // commit has no task files in it — keeps the hot path cheap on every
+  // commit in the repo. Wrapped in try/catch because this is diagnostic-only
+  // and must never fail the commit.
+  try {
+    const committedFiles = getCommittedFiles();
+    emitOperationalTaskPassedEvents(committedFiles, shipyardData);
+  } catch (err) {
+    process.stderr.write(`⚠️  on-commit: operational_task_passed emission failed: ${err.message}\n`);
+  }
+
   return 0;
 }

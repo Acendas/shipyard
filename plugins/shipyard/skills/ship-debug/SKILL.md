@@ -1,7 +1,7 @@
 ---
 name: ship-debug
 description: "Systematic debugging with persistent state that survives session breaks and /clear. Use when the user reports a bug, something isn't working, tests are failing, they're stuck on an error, or they want to investigate unexpected behavior. Also use when the user says 'debug', 'investigate', 'why is this broken', or 'help me fix this'."
-allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, AskUserQuestion, EnterPlanMode, ExitPlanMode, "Bash(shipyard-context:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, AskUserQuestion, EnterPlanMode, ExitPlanMode, "Bash(shipyard-context:*)", "Bash(shipyard-logcap:*)", "Bash(shipyard-data:*)"]
 model: sonnet
 effort: high
 argument-hint: "[description of the problem] [--resume]"
@@ -116,15 +116,23 @@ Follow the scientific method:
 
 1. **Form hypothesis** — based on symptoms and evidence
 2. **Design test** — a specific check that will confirm or eliminate the hypothesis
-3. **Run test** — execute the check (read code, run command, check logs)
+3. **Run test** — execute the check (read code, run command, check logs). **Every command run goes through `shipyard-logcap`.** Never invoke a test runner, reproduction script, or diagnostic command directly — wrap it:
+   ```
+   shipyard-logcap run <debug-slug>-iter<N> -- <command>
+   ```
+   Where `<debug-slug>` is the slug from the debug file name (`<SHIPYARD_DATA>/debug/<slug>.md`) and `<N>` is the hypothesis iteration counter (starts at 1, increments for each hypothesis you test). Example: `shipyard-logcap run auth-timeout-iter3 -- npm run test:e2e auth/login`.
+
+   **Why this is non-negotiable for debug sessions:** debug sessions are the canonical "re-run expensive things to gather one more signal" workflow, and context compaction mid-investigation is common (long sessions, many hypotheses, `/clear` between steps). If you run commands directly, the output is lost to compaction and the next `/ship-debug --resume` has to re-run everything to see what happened. With logcap, every prior iteration's output is on disk, named by hypothesis iter, and `shipyard-logcap grep <debug-slug>-iter2 "Expected"` is a sub-second re-read instead of a multi-minute re-run.
+
+   **For long-running streams** (dev servers, watch mode, `adb logcat`, tail -f equivalents), logcap handles signal forwarding so `Ctrl-C` propagates cleanly, and line-boundary rotation keeps `grep` context intact across rotation. See `skills/ship-execute/references/live-capture.md` for the decision table on `--max-size` / `--max-files` bounds per workload class.
 4. **Record result**:
-   - If hypothesis eliminated → APPEND to `## Eliminated` with evidence
-   - If evidence found → APPEND to `## Evidence`
-   - If root cause found → update `## Resolution`
+   - If hypothesis eliminated → APPEND to `## Eliminated` with evidence AND the logcap capture name so it's reproducible: `eliminated: <hypothesis> | evidence: <summary> | capture: <debug-slug>-iter<N>`
+   - If evidence found → APPEND to `## Evidence` with the capture name: `finding: <what> | capture: <debug-slug>-iter<N> | line_refs: <file:line>`
+   - If root cause found → update `## Resolution` and reference the final capture that proved it
 5. **Update Current Focus** — overwrite with next hypothesis and next action
 6. **Repeat** until root cause found
 
-Update the debug file after EVERY step. This is critical — if context compacts mid-investigation, the file is the only record.
+Update the debug file after EVERY step. This is critical — if context compacts mid-investigation, the file is the only record. The logcap captures are the *evidence* backing the file's claims — together they form a resumable audit trail.
 
 **Fix attempt tracking:** When you reach Step 4 and apply a fix that doesn't work, increment `fix_attempts` in the debug file's `## Current Focus` section. Track what each attempt changed and why it failed. After **3 failed fix attempts** (actual code changes applied and verified to not work — not hypotheses eliminated):
 
@@ -196,15 +204,15 @@ Do not proceed. Do not offer an override. If no lock exists, the lock has `clear
 1. Set status → `fixing`
 2. Write the fix (follow project patterns)
 3. Write a regression test that fails without the fix
-4. Run tests to verify
-5. Update `## Resolution` with root cause, fix description, files changed
+4. **Run tests to verify via `shipyard-logcap run <debug-slug>-fix -- <test-command>`**. The capture is the proof the fix worked — referenced in `## Resolution.verification`.
+5. Update `## Resolution` with root cause, fix description, files changed, and the verification capture name.
 
 ### Step 5: Verify
 
 1. Set status → `verifying`
-2. Run the reproduction steps — problem should be gone
-3. Run tests for the affected feature — all should pass
-4. Update `## Resolution.verification` with results
+2. **Run the reproduction steps via `shipyard-logcap run <debug-slug>-verify-repro -- <repro-command>`** — the bug should no longer reproduce. The capture proves it; a naked "I ran the repro and it's fixed" claim is exactly what the logcap wrapper prevents (silent-pass failure mode, identical to the operational-task silent-pass bug).
+3. **Run tests for the affected feature via `shipyard-logcap run <debug-slug>-verify-tests -- <test-command>`** — all should pass.
+4. Update `## Resolution.verification` with results AND the two capture names so the resolution is independently verifiable.
 
 ### Step 5.5: Defense-in-Depth
 

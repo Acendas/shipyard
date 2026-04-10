@@ -54,6 +54,15 @@ import { fileURLToPath } from "node:url";
 const DEFAULT_LOG_MAX_LINES = 1000;
 const DEFAULT_LOG_MAX_BYTES = 256 * 1024;
 
+// Structured event log (JSONL). Distinct from per-hook breadcrumb logs
+// (.auto-approve.log, .session-guard.log) — this is the cross-cutting
+// diagnostic timeline for `shipyard-context diagnose` and bug reports.
+// Larger caps than breadcrumbs because users need enough history to
+// reconstruct "what happened" during a sprint that failed hours ago.
+export const EVENTS_LOG_NAME = ".shipyard-events.jsonl";
+const DEFAULT_EVENTS_MAX_LINES = 5000;
+const DEFAULT_EVENTS_MAX_BYTES = 1024 * 1024; // 1 MB
+
 // Frozen identifier allowlists. Copied verbatim from the Python side.
 export const WORKTREE_NAME_RE = Object.freeze(
   /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/,
@@ -256,6 +265,110 @@ export function logBreadcrumb(
       atomicWrite(logPath, updated);
     } catch {
       // swallow
+    }
+  });
+}
+
+/**
+ * Append a structured event to the Shipyard event log.
+ *
+ * Events are stored as JSONL at `$SHIPYARD_DATA/.shipyard-events.jsonl`,
+ * one JSON object per line:
+ *
+ *     {"ts":"<iso+00:00>","type":"<event_type>", ...fields}
+ *
+ * This is the cross-cutting diagnostic timeline. It is a passive artifact
+ * on disk — nothing in the normal skill flow reads it, so emitting events
+ * costs zero Claude tokens in steady state. Users query it on demand via
+ * `shipyard-data events tail` or the `shipyard-context diagnose` dump.
+ *
+ * Design goals:
+ *   1. Hooks emit events reliably. Skill bodies can too via
+ *      `shipyard-data events emit`, but the authoritative signal is the
+ *      hook-side event stream because Claude can forget to emit under
+ *      context pressure.
+ *   2. Writes are append-only with locking + byte-capped rotation. Same
+ *      `withLockfile` + atomic-write strategy as `logBreadcrumb`.
+ *   3. Errors are swallowed. Losing an event is strictly better than
+ *      failing a tool call.
+ *   4. Field values are sanitized (`sanitizeForLog`) before JSON encoding
+ *      to block log-line forgery via embedded newlines / ANSI and indirect
+ *      prompt injection via user-controlled paths / frontmatter.
+ *
+ * Caps are larger than per-hook breadcrumb logs (5000 lines / 1 MB) because
+ * a user filing a bug report two hours after the incident needs enough
+ * timeline to locate the relevant window.
+ *
+ * @param {string} dataDir  Absolute path to the Shipyard data dir. Falsy → no-op.
+ * @param {string} type     Event type identifier. Falsy → no-op.
+ * @param {object} fields   Extra fields to merge into the event object.
+ *                          Numbers and booleans pass through; everything
+ *                          else is coerced via sanitizeForLog.
+ * @param {object} opts     `{maxLines, maxBytes}` overrides for tests.
+ */
+export function logEvent(dataDir, type, fields = {}, opts = {}) {
+  if (!dataDir || !type) return;
+  try {
+    mkdirSync(dataDir, { recursive: true });
+  } catch {
+    return;
+  }
+
+  const maxLines = opts.maxLines ?? DEFAULT_EVENTS_MAX_LINES;
+  const maxBytes = opts.maxBytes ?? DEFAULT_EVENTS_MAX_BYTES;
+  const logPath = join(dataDir, EVENTS_LOG_NAME);
+
+  // Sanitize each field value. Numbers + booleans pass through untouched
+  // so counts, durations, and flags stay machine-readable. Strings and
+  // everything else get scrubbed of control chars and capped at 200 chars
+  // — long enough for file paths, short enough that a single malicious
+  // input cannot blow up the log line.
+  const sanitized = {};
+  if (fields && typeof fields === "object") {
+    for (const [k, v] of Object.entries(fields)) {
+      if (v === null || v === undefined) continue;
+      if (typeof v === "number" && Number.isFinite(v)) {
+        sanitized[k] = v;
+      } else if (typeof v === "boolean") {
+        sanitized[k] = v;
+      } else {
+        sanitized[k] = sanitizeForLog(v, 200);
+      }
+    }
+  }
+
+  const ts = new Date().toISOString().replace(/\.\d{3}Z$/, "+00:00");
+  const event = { ts, type: sanitizeForLog(type, 64), ...sanitized };
+
+  let line;
+  try {
+    line = JSON.stringify(event) + "\n";
+  } catch {
+    // Fields contained something that couldn't be serialized (e.g. a
+    // BigInt or a circular reference from a caller that was sloppy).
+    // Drop the event rather than corrupt the log.
+    return;
+  }
+
+  withLockfile(logPath + ".lock", () => {
+    try {
+      let existing = "";
+      try {
+        existing = readFileSync(logPath, "utf8");
+      } catch {
+        existing = "";
+      }
+      let updated = existing + line;
+      if (Buffer.byteLength(updated, "utf8") > maxBytes) {
+        const lines = updated.split("\n");
+        if (lines.length > maxLines) {
+          const kept = lines.slice(-maxLines - 1);
+          updated = kept.join("\n");
+        }
+      }
+      atomicWrite(logPath, updated);
+    } catch {
+      // swallow — diagnostics must not break hooks
     }
   });
 }

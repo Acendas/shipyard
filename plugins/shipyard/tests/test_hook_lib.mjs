@@ -19,6 +19,8 @@ import {
   sanitizeForLog,
   dataDirContains,
   logBreadcrumb,
+  logEvent,
+  EVENTS_LOG_NAME,
   resolveShipyardData,
   atomicWrite,
   withLockfile,
@@ -350,4 +352,150 @@ test("REFERENCE_NAME_RE rejects path traversal", () => {
   assert.equal(REFERENCE_NAME_RE.test("../etc"), false);
   assert.equal(REFERENCE_NAME_RE.test("/abs"), false);
   assert.equal(REFERENCE_NAME_RE.test(""), false);
+});
+
+// ---- logEvent ----
+//
+// `logEvent` is the writer side of the structured event log
+// (`.shipyard-events.jsonl`) used by `shipyard-data events` and the
+// `shipyard-context diagnose` dump. The contract: append-only JSONL,
+// sanitized fields, byte-capped rotation, errors swallowed.
+
+function withTempEventsDir(fn) {
+  const dir = mkdtempSync(join(tmpdir(), "events-test-"));
+  try {
+    return fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function readEvents(dir) {
+  const path = join(dir, EVENTS_LOG_NAME);
+  try {
+    return readFileSync(path, "utf8")
+      .trimEnd()
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
+  } catch {
+    return [];
+  }
+}
+
+test("logEvent: writes a single JSONL line with type and ts", () => {
+  withTempEventsDir((dir) => {
+    logEvent(dir, "compaction_detected", { count: 3, sprint: "S001" });
+    const events = readEvents(dir);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, "compaction_detected");
+    assert.equal(events[0].count, 3);
+    assert.equal(events[0].sprint, "S001");
+    assert.match(events[0].ts, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$/);
+  });
+});
+
+test("logEvent: appends without truncating earlier events", () => {
+  withTempEventsDir((dir) => {
+    logEvent(dir, "first", { n: 1 });
+    logEvent(dir, "second", { n: 2 });
+    logEvent(dir, "third", { n: 3 });
+    const events = readEvents(dir);
+    assert.equal(events.length, 3);
+    assert.equal(events[0].type, "first");
+    assert.equal(events[2].type, "third");
+  });
+});
+
+test("logEvent: preserves number and boolean field types", () => {
+  withTempEventsDir((dir) => {
+    logEvent(dir, "x", { count: 42, ratio: 3.14, flag: true, off: false });
+    const [ev] = readEvents(dir);
+    assert.equal(typeof ev.count, "number");
+    assert.equal(ev.count, 42);
+    assert.equal(typeof ev.ratio, "number");
+    assert.equal(ev.ratio, 3.14);
+    assert.equal(typeof ev.flag, "boolean");
+    assert.equal(ev.flag, true);
+    assert.equal(ev.off, false);
+  });
+});
+
+test("logEvent: sanitizes string fields against newline forgery", () => {
+  withTempEventsDir((dir) => {
+    // A malicious file path containing a newline + a fake log line.
+    // sanitizeForLog must strip the newline so the JSON line stays one
+    // line and the fake event cannot be smuggled in.
+    logEvent(dir, "session_guard_blocked", {
+      file: "ok.ts\n{\"type\":\"FAKE\"}",
+    });
+    const path = join(dir, EVENTS_LOG_NAME);
+    const raw = readFileSync(path, "utf8");
+    // One trailing newline = one event line on disk.
+    assert.equal(raw.split("\n").filter(Boolean).length, 1);
+    const events = readEvents(dir);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, "session_guard_blocked");
+    assert.ok(!events[0].file.includes("\n"));
+  });
+});
+
+test("logEvent: drops null and undefined fields", () => {
+  withTempEventsDir((dir) => {
+    logEvent(dir, "x", { kept: 1, gone: null, also_gone: undefined });
+    const [ev] = readEvents(dir);
+    assert.equal(ev.kept, 1);
+    assert.ok(!("gone" in ev));
+    assert.ok(!("also_gone" in ev));
+  });
+});
+
+test("logEvent: no-op when dataDir is empty", () => {
+  // No throw, no file created. Mirrors logBreadcrumb's contract.
+  logEvent("", "x", { a: 1 });
+  // If we got here without throwing, the contract held.
+});
+
+test("logEvent: no-op when type is empty", () => {
+  withTempEventsDir((dir) => {
+    logEvent(dir, "", { a: 1 });
+    const events = readEvents(dir);
+    assert.equal(events.length, 0);
+  });
+});
+
+test("logEvent: rotates by tail when over byte cap", () => {
+  withTempEventsDir((dir) => {
+    // Tiny caps so we trigger rotation deterministically. Each event is
+    // ~80 bytes; 5 lines × ~80 ≈ 400 B, well over a 200 B cap.
+    for (let i = 0; i < 10; i++) {
+      logEvent(
+        dir,
+        "x",
+        { i, padding: "abcdefghij".repeat(3) },
+        { maxLines: 4, maxBytes: 200 },
+      );
+    }
+    const events = readEvents(dir);
+    // Rotation keeps the tail. Exact count depends on JSON encoding size,
+    // but it must be << 10 and the most recent event must be present.
+    assert.ok(events.length <= 5, `expected rotation, got ${events.length} events`);
+    assert.equal(events[events.length - 1].i, 9);
+  });
+});
+
+test("logEvent: handles unserializable values by dropping the event", () => {
+  withTempEventsDir((dir) => {
+    const cyclic = {};
+    cyclic.self = cyclic;
+    logEvent(dir, "x", { bad: cyclic });
+    // Sanitize coerces objects to strings via String(), so the event
+    // SHOULD actually be written (with bad="[object Object]") because
+    // sanitizeForLog will stringify it before JSON.stringify sees it.
+    // What we're testing here is that the call doesn't THROW.
+    const events = readEvents(dir);
+    // Event was either written (sanitized to a string) or dropped — both
+    // are acceptable; the contract is "doesn't throw".
+    assert.ok(events.length === 0 || events.length === 1);
+  });
 });

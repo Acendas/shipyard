@@ -100,5 +100,38 @@
     "name": "no_sd_shell_var_assignment",
     "type": "not_contains",
     "pattern": "SD=\\$\\(shipyard-data"
+  },
+  {
+    "name": "backlog_has_ideas_section",
+    "type": "contains",
+    "pattern": "IDEAS \\(captured observations|IDEAS section"
+  },
+  {
+    "name": "backlog_reads_spec_ideas",
+    "type": "contains",
+    "pattern": "spec/ideas/IDEA-"
+  },
+  {
+    "name": "backlog_filters_graduated_ideas",
+    "type": "contains",
+    "pattern": "graduated.*rejected|rejected.*graduated",
+    "dotall": true
+  },
+  {
+    "name": "backlog_ideas_paginated_5_plus_5",
+    "type": "contains",
+    "pattern": "5 newest \\+ 5 oldest|cap at 10",
+    "dotall": true
+  },
+  {
+    "name": "backlog_ideas_no_drilldown",
+    "type": "contains",
+    "pattern": "No drill-down for ideas|refined via.*ship-discuss IDEA",
+    "dotall": true
+  },
+  {
+    "name": "backlog_ideas_section_omitted_when_empty",
+    "type": "contains",
+    "pattern": "omit the IDEAS section|no ideas.*omit"
   }
 ]

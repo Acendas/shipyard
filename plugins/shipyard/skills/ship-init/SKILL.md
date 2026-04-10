@@ -180,6 +180,10 @@ Scan the project first — auto-detect as much as possible. Only ask what you ca
    - `scoped` — run a subset by pattern (e.g., `vitest run --testPathPattern`)
    If not detectable, AskUserQuestion: "I couldn't auto-detect your test commands. What commands do you use to run tests? (e.g., `npm test`, `pytest`, `go test ./...`)"
 
+   These keys double as the resolution target for `kind: operational` tasks — an operational task whose `verify_command: test_commands.e2e` resolves to whatever is under `test_commands.e2e` here. Keeping one source of truth for "how do I run X" means renaming a test runner in one place updates every operational task that references it.
+
+   **`operational_tasks.max_iterations`** (default `3`) and **`operational_tasks.max_patch_tasks`** (default `5`) are the fix-findings loop budget and scope-creep guard for `kind: operational` tasks. See `skills/ship-sprint/references/task-kinds.md` for the full semantics. Override per-task with `verify_max_iterations:` in task frontmatter.
+
 **Auto-detect these (confirm, don't ask):**
 Scan the project and present findings: "I detected [X]. Correct?" Only ask if detection fails.
 5. **Project type** — infer from stack (Next.js → web-app, Express → api, etc.)

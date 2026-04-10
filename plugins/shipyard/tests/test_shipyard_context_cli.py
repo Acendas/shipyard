@@ -170,6 +170,32 @@ class TestCountOfSubcommand(NamedSubcommandBase):
         out, _, _ = run_cli(['count-of', 'bugs'], env_extra=self.env, cwd=self.project_dir)
         self.assertEqual(out.strip(), '2')
 
+    def test_count_of_ideas_empty(self):
+        """Fresh project has no ideas directory — count-of ideas must return 0
+        cleanly, not error. Pre-fix this count was missing from the registry
+        entirely, so skill bodies couldn't ask 'how many ideas do we have?'
+        in their context blocks."""
+        out, _, rc = run_cli(['count-of', 'ideas'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), '0')
+
+    def test_count_of_ideas_populated(self):
+        """Populated ideas directory — count matches file count, mirroring
+        the bugs/features/epics counters that already worked."""
+        self.write_data_file('spec/ideas/IDEA-001-foo.md', 'x')
+        self.write_data_file('spec/ideas/IDEA-002-bar.md', 'x')
+        self.write_data_file('spec/ideas/IDEA-003-baz.md', 'x')
+        out, _, _ = run_cli(['count-of', 'ideas'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(out.strip(), '3')
+
+    def test_count_of_tasks_populated(self):
+        """Tasks counter was also added alongside ideas — same shape, same
+        registry entry."""
+        self.write_data_file('spec/tasks/T001-foo.md', 'x')
+        self.write_data_file('spec/tasks/T002-bar.md', 'x')
+        out, _, _ = run_cli(['count-of', 'tasks'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(out.strip(), '2')
+
     def test_count_of_unknown_errors(self):
         _, err, rc = run_cli(['count-of', 'bogus'], env_extra=self.env, cwd=self.project_dir)
         self.assertNotEqual(rc, 0)
@@ -330,6 +356,49 @@ class TestWindowsSafetySmoke(NamedSubcommandBase):
                 if re.search(r'"[^"]*\s[^"]*"', line) or re.search(r"'[^']*\s[^']*'", line):
                     offenders.append((name, line))
         self.assertEqual(offenders, [], f"quoted-space args found: {offenders}")
+
+
+class TestDiagnoseEventsTail(NamedSubcommandBase):
+    """`shipyard-context diagnose` should include the structured event log
+    tail in its output. This is the surface customers paste into bug
+    reports — the events are how we tell "orchestrator auto-paused"
+    apart from "subagent ran out of context" without further questions.
+    """
+
+    def test_diagnose_reports_no_events_when_log_missing(self):
+        out, _, code = run_cli(
+            ['diagnose'], env_extra=self.env, cwd=self.project_dir
+        )
+        self.assertEqual(code, 0)
+        self.assertIn('SHIPYARD_EVENTS_LOG=(does not exist', out)
+
+    def test_diagnose_includes_events_tail_when_log_present(self):
+        # Plant an events file via the shipyard-data emit subcommand so we
+        # exercise the same write path that hooks use.
+        data_cli = os.path.join(
+            os.path.dirname(__file__), '..', 'bin', 'shipyard-data.mjs'
+        )
+        for i in range(3):
+            subprocess.run(
+                ['node', data_cli, 'events', 'emit',
+                 'compaction_detected', f'count={i}', f'sprint="S00{i}"'],
+                env={**os.environ, **self.env},
+                check=True,
+                capture_output=True,
+            )
+        out, _, code = run_cli(
+            ['diagnose'], env_extra=self.env, cwd=self.project_dir
+        )
+        self.assertEqual(code, 0)
+        # Header line shows the path
+        self.assertIn('SHIPYARD_EVENTS_LOG=', out)
+        self.assertIn('.shipyard-events.jsonl', out)
+        # Tail line shows count
+        self.assertIn('SHIPYARD_EVENTS_TAIL_3_LINES:', out)
+        # All three events appear in raw JSONL form
+        self.assertEqual(out.count('compaction_detected'), 3)
+        self.assertIn('"count":0', out)
+        self.assertIn('"count":2', out)
 
 
 if __name__ == '__main__':

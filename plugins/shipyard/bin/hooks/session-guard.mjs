@@ -27,6 +27,7 @@ import { homedir } from "node:os";
 import {
   dataDirContains,
   logBreadcrumb,
+  logEvent,
   resolveShipyardData,
 } from "../_hook_lib.mjs";
 
@@ -201,6 +202,14 @@ export async function run(hookInput, env) {
 
   // Active non-implementation session + source-code write → block
   logLine(shipyardData, "block", session.skill, toolName, absFilePath);
+  // Structured event for cross-cutting timeline. Only block events are
+  // logged — allow events would dwarf the log at zero diagnostic value.
+  logEvent(shipyardData, "session_guard_blocked", {
+    skill: session.skill,
+    topic: session.topic,
+    tool: toolName,
+    file: absFilePath,
+  });
   process.stderr.write(
     `⚠️  SESSION GUARD: You are in a /${session.skill} session (topic: ${session.topic}).\n` +
     `Do not implement features during discussion/planning.\n` +

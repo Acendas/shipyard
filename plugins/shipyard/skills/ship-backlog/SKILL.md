@@ -63,7 +63,9 @@ Read BACKLOG.md for the ordered list of feature IDs. If BACKLOG.md doesn't exist
 
 For each ID, use the Read tool on `<SHIPYARD_DATA>/spec/features/F<NNN>-*.md` (Glob first if you need to discover the slug) to get live data (title, RICE, points, status, epic, updated date). Also use Glob `<SHIPYARD_DATA>/spec/epics/E*.md` then Read each to build the epic index. Also Read `<SHIPYARD_DATA>/sprints/current/SPRINT.md` to identify which features are in the active sprint.
 
-**Display in three sections — sprint first, then backlog, then proposed:**
+**Also load ideas.** Use Glob `<SHIPYARD_DATA>/spec/ideas/IDEA-*.md` to enumerate ideas, then Read each one. Filter out any idea whose `status:` is `graduated` (already promoted to a feature) or `rejected` (triaged out). The remaining ideas form the pool for the IDEAS section below. Sort by `created:` descending (newest first).
+
+**Display in four sections — sprint first, then backlog, then proposed, then ideas:**
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -85,11 +87,30 @@ For each ID, use the Read tool on `<SHIPYARD_DATA>/spec/features/F<NNN>-*.md` (G
   [6] F016 — [title]       | RICE 12.0 | 3 pts
   [7] F017 — [title]       | RICE  9.5 | 8 pts
 
+ IDEAS (captured observations — refine via /ship-discuss IDEA-NNN)
+  [8]  IDEA-045 — Swallowed exception in logging wrapper (review-gap/sprint-006)
+  [9]  IDEA-044 — Evaluate argon2id vs bcrypt (execute/sprint-006)
+  [10] IDEA-043 — Reduce test flakiness in CI (retro/sprint-005)
+  [11] IDEA-042 — Add request tracing headers (retro/sprint-005)
+  [12] IDEA-038 — Deferred auth cleanup from T009 (execute/sprint-004)
+  — (5 more) —
+  [13] IDEA-012 — Investigate Redis vs Postgres LISTEN/NOTIFY (capture)
+  [14] IDEA-011 — Drop legacy config.v1 loader (retro/sprint-002)
+  [15] IDEA-010 — Stale session cleanup job (execute/sprint-002)
+  [16] IDEA-008 — Replace regex date parser (capture)
+  [17] IDEA-006 — Extract pricing service (capture)
+  + 14 more — run /ship-discuss (no args) to triage all ideas
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 If no active sprint, omit the IN SPRINT section.
 If no proposed features, omit the PROPOSED section.
+If no ideas (after filtering graduated + rejected), omit the IDEAS section.
+
+**IDEAS section pagination (cap at 10):** to keep the board scannable on long-running projects, show only the **5 newest + 5 oldest** non-graduated/non-rejected ideas. If the total count exceeds 10, add a `— (N more) —` separator row between the two halves and a `+ N more — run /ship-discuss (no args) to triage all ideas` footer line at the bottom. This gives the user recent activity at the top and long-tail items at the bottom without making the board a multi-screen scroll. The source-tag suffix in parentheses (e.g., `review-gap/sprint-006`) tells the user at a glance where each idea came from — retro items look distinct from execute-time captures.
+
+**No drill-down for ideas in the main interactive loop.** Ideas don't have RICE scores, story points, or groomable fields — they're pre-features. If the user picks an idea number, print: "Ideas are refined via `/ship-discuss IDEA-NNN`. Run that to graduate the idea into a proper feature with acceptance criteria and story points." Do NOT invoke the drill-down code path that features use.
 
 Then start the **interactive loop** — AskUserQuestion:
 

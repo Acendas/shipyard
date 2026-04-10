@@ -268,6 +268,8 @@ const COUNT_REGISTRY = {
   bugs: ["spec", "bugs"],
   features: ["spec", "features"],
   epics: ["spec", "epics"],
+  ideas: ["spec", "ideas"],
+  tasks: ["spec", "tasks"],
 };
 
 // Skill slug and reference-name allowlists. Tight on purpose — these are
@@ -345,6 +347,25 @@ function main() {
         }
       } else {
         out("AUTO_APPROVE_LOG=(does not exist)");
+      }
+
+      // Structured event log tail. This is the cross-cutting timeline
+      // (compactions, session blocks, TDD violations, builder returns)
+      // that the auto-approve log doesn't cover. Bug reports paste this
+      // and we get the full picture of what happened.
+      const eventsPath = join(sd, ".shipyard-events.jsonl");
+      if (existsSync(eventsPath)) {
+        out(`SHIPYARD_EVENTS_LOG=${eventsPath}`);
+        try {
+          const all = readFileSync(eventsPath, "utf8").trimEnd().split("\n").filter(Boolean);
+          const tail = all.slice(-50);
+          out(`SHIPYARD_EVENTS_TAIL_${tail.length}_LINES:`);
+          for (const line of tail) out(line);
+        } catch {
+          out("SHIPYARD_EVENTS_TAIL=(read failed)");
+        }
+      } else {
+        out("SHIPYARD_EVENTS_LOG=(does not exist — no events recorded yet)");
       }
 
       // Logcap breadcrumb tail — recent shipyard-logcap activity for this

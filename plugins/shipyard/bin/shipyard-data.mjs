@@ -22,6 +22,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { EVENTS_LOG_NAME, logEvent, withLockfile } from "./_hook_lib.mjs";
 import { getDataDir, getProjectHash, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
@@ -795,6 +796,321 @@ function reapObsolete(args) {
   process.stdout.write(`Reaped ${removed} obsolete files (max-age-days=${maxAgeDays})\n`);
 }
 
+/**
+ * `shipyard-data events` — query and emit structured events from
+ * `$SHIPYARD_DATA/.shipyard-events.jsonl`. The events log is the primary
+ * cross-cutting diagnostic for bug reports — see `_hook_lib.mjs::logEvent`
+ * for the schema and the writer side.
+ *
+ * Subcommands:
+ *
+ *   tail [-n N]               last N events (default 50), pretty-printed
+ *   tail [-n N] --json        last N events as raw JSONL (for piping into jq)
+ *   grep <type-substring>     events whose `type` field contains the substring
+ *   since <iso|duration>      events at or after the given timestamp.
+ *                             Duration form: "1h", "30m", "2d", "45s".
+ *   json                      entire log as JSONL (rotated tail)
+ *   emit <type> [k=v ...]     manually emit one event. Used by skill bodies
+ *                             that want to record narrative events
+ *                             (sprint_started, task_completed, etc.)
+ *                             from a bash backtick. Values parse as JSON
+ *                             where possible (numbers, true/false), else
+ *                             plain strings.
+ */
+function eventsCmd(args) {
+  const dataDir = getDataDir();
+  const logPath = join(dataDir, EVENTS_LOG_NAME);
+  const sub = args[0] ?? "tail";
+
+  function readAllEvents() {
+    if (!existsSync(logPath)) return [];
+    let raw;
+    try {
+      raw = readFileSync(logPath, "utf8");
+    } catch (err) {
+      process.stderr.write(`shipyard-data events: cannot read log: ${err.message}\n`);
+      process.exit(1);
+    }
+    const out = [];
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        out.push(JSON.parse(trimmed));
+      } catch {
+        // Tolerate malformed lines (e.g., partial write recovered after a
+        // crash). The events log is best-effort, not a database.
+      }
+    }
+    return out;
+  }
+
+  function pretty(ev) {
+    // Compact one-liner: "ts type k1=v1 k2=v2 ...". Quoted only if value
+    // contains a space; otherwise bare for grep-friendliness.
+    const parts = [ev.ts || "?", ev.type || "?"];
+    for (const [k, v] of Object.entries(ev)) {
+      if (k === "ts" || k === "type") continue;
+      const s = typeof v === "string" ? v : JSON.stringify(v);
+      const needsQuote = /\s/.test(s);
+      parts.push(`${k}=${needsQuote ? JSON.stringify(s) : s}`);
+    }
+    return parts.join(" ");
+  }
+
+  function parseDuration(s) {
+    // "1h", "30m", "2d", "45s" → ms
+    const m = /^(\d+)([smhd])$/.exec(s);
+    if (!m) return null;
+    const n = parseInt(m[1], 10);
+    const unit = m[2];
+    const mul = unit === "s" ? 1000 : unit === "m" ? 60_000 : unit === "h" ? 3_600_000 : 86_400_000;
+    return n * mul;
+  }
+
+  switch (sub) {
+    case "tail": {
+      let n = 50;
+      let asJson = false;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === "-n" && args[i + 1]) {
+          const v = parseInt(args[i + 1], 10);
+          if (Number.isFinite(v) && v > 0) n = v;
+          i++;
+        } else if (args[i] === "--json") {
+          asJson = true;
+        }
+      }
+      const events = readAllEvents();
+      const tail = events.slice(-n);
+      for (const ev of tail) {
+        process.stdout.write((asJson ? JSON.stringify(ev) : pretty(ev)) + "\n");
+      }
+      break;
+    }
+    case "grep": {
+      const needle = args[1] || "";
+      if (!needle) {
+        process.stderr.write("shipyard-data events grep: <type-substring> is required\n");
+        process.exit(1);
+      }
+      const events = readAllEvents();
+      for (const ev of events) {
+        if (typeof ev.type === "string" && ev.type.includes(needle)) {
+          process.stdout.write(pretty(ev) + "\n");
+        }
+      }
+      break;
+    }
+    case "since": {
+      const arg = args[1] || "";
+      if (!arg) {
+        process.stderr.write("shipyard-data events since: <iso-or-duration> is required (e.g. '1h', '2026-04-07T17:00:00Z')\n");
+        process.exit(1);
+      }
+      let cutoffMs;
+      const dur = parseDuration(arg);
+      if (dur !== null) {
+        cutoffMs = Date.now() - dur;
+      } else {
+        const parsed = Date.parse(arg);
+        if (Number.isNaN(parsed)) {
+          process.stderr.write(`shipyard-data events since: cannot parse "${arg}" as ISO timestamp or duration (Ns/Nm/Nh/Nd)\n`);
+          process.exit(1);
+        }
+        cutoffMs = parsed;
+      }
+      const events = readAllEvents();
+      for (const ev of events) {
+        const t = Date.parse(ev.ts);
+        if (Number.isFinite(t) && t >= cutoffMs) {
+          process.stdout.write(pretty(ev) + "\n");
+        }
+      }
+      break;
+    }
+    case "json": {
+      // Stream the raw JSONL — preserves the on-disk shape exactly so
+      // pipelines like `shipyard-data events json | jq 'select(...)'`
+      // work without re-parsing pretty output.
+      if (!existsSync(logPath)) break;
+      try {
+        process.stdout.write(readFileSync(logPath, "utf8"));
+      } catch (err) {
+        process.stderr.write(`shipyard-data events json: cannot read log: ${err.message}\n`);
+        process.exit(1);
+      }
+      break;
+    }
+    case "emit": {
+      const type = args[1];
+      if (!type) {
+        process.stderr.write("shipyard-data events emit: <type> is required\n");
+        process.exit(1);
+      }
+      const fields = {};
+      for (let i = 2; i < args.length; i++) {
+        const a = args[i];
+        const eq = a.indexOf("=");
+        if (eq <= 0) continue;
+        const k = a.slice(0, eq);
+        const rawV = a.slice(eq + 1);
+        // Try JSON-parse first (so "count=3" → number 3, "ok=true" → bool).
+        // Fall back to plain string for everything else.
+        let v;
+        try {
+          v = JSON.parse(rawV);
+        } catch {
+          v = rawV;
+        }
+        fields[k] = v;
+      }
+      logEvent(dataDir, type, fields);
+      break;
+    }
+    default:
+      process.stderr.write(
+        `shipyard-data events: unknown subcommand "${sub}". ` +
+          `Expected: tail [-n N] [--json] | grep <substring> | since <iso|duration> | json | emit <type> [k=v ...]\n`,
+      );
+      process.exit(1);
+  }
+}
+
+/**
+ * Allocate the next available ID for a given entity kind (currently: `ideas`,
+ * `bugs`, `features`, `epics`, `tasks`).
+ *
+ * Problem this solves: parallel builders writing ideas (or any entity kind)
+ * concurrently would all scan `spec/<kind>/` and see the same max, producing
+ * colliding IDs and silently clobbering each other's work. The prior state
+ * of the art was "generate next available IDEA-NNN" as prose in skill bodies
+ * with no atomicity — a pre-existing latent race.
+ *
+ * The fix: a sequence file at `<SHIPYARD_DATA>/spec/<kind>/.id-seq` holding
+ * the last-allocated integer. Allocation is serialized by `withLockfile`
+ * (O_EXCL lockfile, cross-platform, already used by the event log and
+ * breadcrumb writers). On first use (seq file missing), scan existing files
+ * to seed the counter. On corruption (unreadable seq file), fall back to
+ * scan + 1.
+ *
+ * Prefix table maps kind → ID prefix in filenames. Keep in sync with the
+ * conventions in project-files/templates/ and the skills that create these
+ * files.
+ *
+ * CLI:
+ *   shipyard-data next-id ideas      → prints e.g. "042"
+ *   shipyard-data next-id bugs       → prints next bug id
+ *   shipyard-data next-id features   → etc.
+ *
+ * Output format is a zero-padded 3-digit string (matching the historical
+ * NNN conventions), no trailing newline — callers that want newline use
+ * `$(shipyard-data next-id ideas)` inside existing skill patterns OR read
+ * directly. (Note: skill bodies must NOT shell-substitute `shipyard-data`
+ * — they read the number from this CLI inside an agent or subprocess.)
+ */
+function nextIdCmd(args) {
+  const kind = args[0];
+  if (!kind) {
+    process.stderr.write(
+      `shipyard-data next-id: missing kind argument. Expected: ideas|bugs|features|epics|tasks\n`,
+    );
+    process.exit(1);
+  }
+
+  // Map kind → {dir, prefix}. The dir is relative to <SHIPYARD_DATA>.
+  const KIND_TABLE = {
+    ideas: { dir: join("spec", "ideas"), prefix: "IDEA-" },
+    bugs: { dir: join("spec", "bugs"), prefix: "B-" },
+    features: { dir: join("spec", "features"), prefix: "F" },
+    epics: { dir: join("spec", "epics"), prefix: "E" },
+    tasks: { dir: join("spec", "tasks"), prefix: "T" },
+  };
+  const entry = KIND_TABLE[kind];
+  if (!entry) {
+    process.stderr.write(
+      `shipyard-data next-id: unknown kind "${kind}". Expected one of: ${Object.keys(KIND_TABLE).join("|")}\n`,
+    );
+    process.exit(1);
+  }
+
+  const dataDir = getDataDir();
+  const kindDir = join(dataDir, entry.dir);
+  // Ensure the entity directory exists. Fresh projects with no ideas/bugs/etc
+  // land here on first allocation. mkdirSync is idempotent with recursive.
+  mkdirSync(kindDir, { recursive: true });
+
+  const seqPath = join(kindDir, ".id-seq");
+  const lockPath = seqPath + ".lock";
+
+  // Scan existing files to find the highest extant ID. Used as a fallback
+  // when the seq file is missing or unreadable, AND as a safety floor — if
+  // someone hand-creates an IDEA-999 file outside this allocator, we must
+  // not hand out IDEA-500 on the next call. max(seq, scan) + 1 wins.
+  function scanMax() {
+    let max = 0;
+    let entries;
+    try {
+      entries = readdirSync(kindDir);
+    } catch {
+      return 0;
+    }
+    // Match <prefix><digits> at the start of the filename. For prefixes
+    // that end in `-` (IDEA-, B-) the separator is already in the prefix.
+    // For bare-letter prefixes (F, E, T) we allow an optional separator.
+    // Use a regex built from the prefix for safety.
+    const escaped = entry.prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`^${escaped}0*(\\d+)`);
+    for (const name of entries) {
+      if (name.startsWith(".")) continue;
+      const m = name.match(re);
+      if (!m) continue;
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return max;
+  }
+
+  let allocated = null;
+  withLockfile(lockPath, () => {
+    let seq = 0;
+    if (existsSync(seqPath)) {
+      try {
+        const raw = readFileSync(seqPath, "utf8").trim();
+        const parsed = parseInt(raw, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) seq = parsed;
+      } catch {
+        // unreadable seq file — fall through to scan
+      }
+    }
+    const scanned = scanMax();
+    const base = Math.max(seq, scanned);
+    const next = base + 1;
+    // Atomic write: write to temp then rename. The lockfile serializes
+    // callers, so concurrent writes to the seq file are impossible while
+    // the lock is held, but we still want a rename to avoid half-written
+    // files if the process is killed mid-write.
+    const tmpPath = seqPath + ".tmp";
+    writeFileSync(tmpPath, String(next), "utf8");
+    renameSync(tmpPath, seqPath);
+    allocated = next;
+  });
+
+  if (allocated === null) {
+    // withLockfile fails open (runs fn anyway if it can't acquire). The
+    // closure wrote `allocated`, so we should always have a value — if
+    // not, something is very wrong.
+    process.stderr.write(
+      `shipyard-data next-id: allocation failed — lockfile unavailable and closure did not run. This is a bug.\n`,
+    );
+    process.exit(1);
+  }
+
+  // Zero-padded 3-digit output, matching historical NNN conventions.
+  const padded = String(allocated).padStart(3, "0");
+  process.stdout.write(padded + "\n");
+}
+
 function main() {
   const command = process.argv[2] ?? "";
   switch (command) {
@@ -837,16 +1153,24 @@ function main() {
       reapObsolete(process.argv.slice(3));
       break;
     }
+    case "events": {
+      eventsCmd(process.argv.slice(3));
+      break;
+    }
     case "project-id":
       process.stdout.write(getProjectHash(getProjectRoot()) + "\n");
       break;
     case "project-root":
       process.stdout.write(getProjectRoot() + "\n");
       break;
+    case "next-id": {
+      nextIdCmd(process.argv.slice(3));
+      break;
+    }
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | migrate <src> [--force] | with-lock <key> -- <cmd> | find-orphans | archive-sprint <sprint-id> [--force] | drop-orphan <hash> | reap-obsolete [--dry-run] [--max-age-days N] | project-id | project-root\n`,
+          `Expected: (none) | init | migrate <src> [--force] | with-lock <key> -- <cmd> | find-orphans | archive-sprint <sprint-id> [--force] | drop-orphan <hash> | reap-obsolete [--dry-run] [--max-age-days N] | events <subcmd> | next-id <kind> | project-id | project-root\n`,
       );
       process.exit(1);
   }
