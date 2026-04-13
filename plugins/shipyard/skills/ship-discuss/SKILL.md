@@ -1,7 +1,7 @@
 ---
 name: ship-discuss
 description: "Feature discovery — from quick idea capture to full spec with acceptance criteria. Use when the user mentions a new feature, a 'what if', a 'we should also', wants to discuss requirements, brainstorm, refine an existing feature, explore what to build next, define acceptance criteria, or jot down something for later."
-allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, EnterPlanMode, ExitPlanMode, WebSearch, WebFetch, "Bash(shipyard-context:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, "Bash(shipyard-context:*)"]
 model: opus
 effort: high
 argument-hint: "[topic, feature ID, or quick idea]"
@@ -626,19 +626,17 @@ Prompt the critic with:
 
 ### Phase 5: Spec Approval Gate (NOT an Implementation Plan)
 
-Feature files are already written with `status: proposed`. Use `EnterPlanMode` because it is Claude Code's generic approval + pause primitive, **not** because code changes follow. Implementation belongs to `/ship-execute` after `/ship-sprint` plans the work. It is never this skill's job.
+Feature files are already written with `status: proposed`. This is a spec approval summary — implementation belongs to `/ship-execute` after `/ship-sprint` plans the work. It is never this skill's job.
 
-**STOP rule — read before entering plan mode.**
+**STOP rule — read before presenting the summary.**
 
-The payload is a *spec approval summary*: past-tense outcomes only. What was discovered, decided, and written to spec files. No future-tense implementation verbs (`will modify`, `add function`, `edit class`, `change file`). If you catch yourself composing any of the following, you are in the wrong skill — exit plan mode without calling it, and resume the discussion:
+The summary is *past-tense outcomes only*. What was discovered, decided, and written to spec files. No future-tense implementation verbs (`will modify`, `add function`, `edit class`, `change file`). If you catch yourself composing any of the following, you are in the wrong skill — stop and resume the discussion:
 
 - File paths outside `<SHIPYARD_DATA>/` as steps to change
 - A task list that reads like TODO items for building the feature
 - Anything that looks like `/ship-execute`'s output
 
-The failure mode this rule exists to prevent: a customer session where `EnterPlanMode` was called with code-change steps, the user approved assuming it was the spec, and source files got edited during a discussion session. `EnterPlanMode` is a generic approval primitive. It is not a signal to generate implementation steps.
-
-**Enter plan mode** (`EnterPlanMode`) with the discussion outcome. Use these sections only — describe what already exists in the spec files, not what should be built:
+Output the discussion outcome as text. Use these sections only — describe what already exists in the spec files, not what should be built:
 
 - **FEATURES DEFINED** — per feature: ID, title, points, RICE, complexity, one-line user story, acceptance-scenario count, NFRs, high-RPN failure modes, edge cases, dependencies
 - **IDEAS CAPTURED** — tangential ideas filed during discussion
@@ -647,11 +645,10 @@ The failure mode this rule exists to prevent: a customer session where `EnterPla
 - **BACKLOG EFFECT** — re-estimation notes, priority shifts
 - **UNRESOLVED** — quality-gate items flagged for follow-up
 
-**Exit plan mode** (`ExitPlanMode`) — this triggers Claude Code's built-in approval flow:
-
-- **Approve** → **mandatory** proceed to Phase 6 (Finalize). The discussion is not complete until Phase 6 runs in full.
-- **Refine** → stay in discussion, iterate on flagged features, re-enter Phase 5 when ready. Do not touch `.active-session.json`.
-- **Reject** → leave features at `status: proposed`, stop. User can resume later with `/ship-discuss [ID]`. Do not touch `.active-session.json`.
+Then use `AskUserQuestion` for approval:
+- **Approve (Recommended)** — proceed to Phase 6 (Finalize). The discussion is not complete until Phase 6 runs in full.
+- **Refine** — stay in discussion, iterate on flagged features, re-enter Phase 5 when ready. Do not touch `.active-session.json`.
+- **Reject** — leave features at `status: proposed`, stop. User can resume later with `/ship-discuss [ID]`. Do not touch `.active-session.json`.
 
 ### Phase 6: Finalize (only on Approve)
 

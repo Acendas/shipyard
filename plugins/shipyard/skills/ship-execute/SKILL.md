@@ -1,7 +1,7 @@
 ---
 name: ship-execute
 description: "Execute the current sprint by running tasks in waves with strict test-driven development (write tests first, then code). Supports solo, subagent, and team execution modes. Use when the user wants to start building, execute sprint tasks, run a specific task, apply a hotfix, or resume execution after a break."
-allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, EnterPlanMode, ExitPlanMode, TeamCreate, TeamDelete, TaskCreate, TaskUpdate, TaskGet, TaskList, SendMessage]
+allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, TeamCreate, TeamDelete, TaskCreate, TaskUpdate, TaskGet, TaskList, SendMessage]
 model: sonnet
 effort: medium
 argument-hint: "[--task ID] [--hotfix ID] [--mode solo|subagent|team]"
@@ -215,11 +215,11 @@ For each task ID in the current wave, read its task file to get title, effort, s
 
 **Record sprint start time (idempotent):** Read SPRINT.md frontmatter. If `started_at` is null or absent, write `started_at: <current ISO 8601 timestamp>` to SPRINT.md frontmatter. If `started_at` already has a value, leave it unchanged — this must never overwrite an existing timestamp so that resuming a paused sprint does not reset the clock.
 
-### Step 1.5: Execution Readiness — Plan Mode (first wave only)
+### Step 1.5: Execution Readiness Check (first wave only)
 
 On a fresh sprint start (case 3 above — no tasks done yet), present a readiness check before writing any code. Skip this step on resume and crash recovery (cases 1 and 2).
 
-**Enter plan mode** (`EnterPlanMode`) and present:
+Output the readiness check as text:
 
 **READINESS CHECK**
 - Branch: `[current branch]` — [matches SPRINT.md / mismatch warning / ⚠️ ON WORKTREE BRANCH]
@@ -227,7 +227,7 @@ On a fresh sprint start (case 3 above — no tasks done yet), present a readines
 - Execution mode: [solo / subagent / team]
 - Worktree probe: [pass / fail / skipped (solo mode)]
 - Total: [N] tasks across [M] waves
-- Teammates: [N feature tracks, M concurrent (max 4), K queued] (team mode only)
+- Teammates: [N feature tracks, M concurrent (max `max_parallel_agents`), K queued] (team mode only)
 
 If current branch starts with `shipyard/wt-`, add a prominent warning:
 ```
@@ -238,12 +238,8 @@ If current branch starts with `shipyard/wt-`, add a prominent warning:
 
 **Worktree probe** (subagent/team mode only — skip for solo):
 
-Before presenting the plan, verify worktree creation works end-to-end. This catches hook failures during plan mode when user interaction is expected, instead of mid-execution when it would block autonomous flow.
+Before asking the user, verify worktree creation works end-to-end. This catches hook failures while user interaction is expected, instead of mid-execution when it would block autonomous flow.
 
-```bash
-# Create a throwaway worktree to test the hook
-# The WorktreeCreate hook should fire and create a shipyard/wt-probe branch
-```
 Spawn a minimal Agent with `isolation: worktree` and prompt: "Run `git branch --show-current` and report the branch name. Do nothing else."
 
 Check the result:
@@ -254,7 +250,7 @@ Check the result:
     Claude Code's isolation: worktree is not working. Falling back to manual worktree creation.
     Subagent mode will still run with full isolation — worktrees are created via git CLI instead.
   ```
-  Clean up the probe worktree. **Set `manual_worktrees = true` for the rest of this sprint.** This flag changes how subagent mode spawns agents — see "Subagent Mode" below. The user sees this during plan approval and can confirm before execution begins.
+  Clean up the probe worktree. **Set `manual_worktrees = true` for the rest of this sprint.** This flag changes how subagent mode spawns agents — see "Subagent Mode" below.
 
 **WAVE 1** — what runs first:
 - [task IDs + titles + effort]
@@ -269,10 +265,10 @@ Check the result:
 
 **HOW TO PAUSE**: Type "pause" at any time to save progress and stop cleanly. If the session ends abruptly (crash, quota, closed terminal), run `/ship-execute` again — it will recover automatically and salvage any in-flight work.
 
-**Exit plan mode** (`ExitPlanMode`) — triggers built-in approval flow:
-- **Approve** → begin Wave 1 execution
-- **Adjust** → user changes execution mode, reorders tasks, or fixes pre-conditions
-- **Abort** → don't start, user fixes issues first
+Then use `AskUserQuestion` with options (2-4 options, use multi-select where choices aren't mutually exclusive):
+- **Begin execution (Recommended)** — start Wave 1
+- **Adjust** — change execution mode, reorder tasks, or fix pre-conditions
+- **Abort** — don't start, fix issues first
 
 ### Step 2: Execute Waves
 
@@ -290,7 +286,7 @@ For each wave (starting from current):
 Spawn subagents **sequentially** — one task at a time, same branch (no worktree isolation needed since tasks run one after another).
 
 #### Subagent Mode (4-10 tasks per wave)
-Spawn subagents **in parallel** — one per task, each in an isolated worktree.
+Spawn subagents **in parallel** — up to `execution.max_parallel_agents` from config at a time (default 3, hard ceiling 4). If a wave has more tasks than the cap, **batch them**: spawn the first N, wait for all N to return and run post-subagent checks, then spawn the next batch from the updated HEAD. This prevents the quality degradation observed when 6-7 agents run simultaneously (Sprint 001/002 anti-pattern: agents hit context limits or return early without committing).
 
 **If `manual_worktrees = true`** (probe failed — `isolation: worktree` is broken):
 
@@ -303,7 +299,7 @@ git worktree add -b shipyard/wt-TASK_ID .claude/worktrees/TASK_ID "$CURRENT_SHA"
 Then spawn agents **without** `isolation: worktree` and pass the worktree path in the prompt. See the modified subagent prompt below.
 
 #### Team Mode (10+ tasks)
-Spawn persistent teammates per feature track using Agent Teams. Each teammate works through all tasks in its feature — more efficient than per-task subagents for features with 3+ tasks. **Max 4 concurrent teammates** — additional feature tracks are queued and spawned as earlier ones complete.
+Spawn persistent teammates per feature track using Agent Teams. Each teammate works through all tasks in its feature — more efficient than per-task subagents for features with 3+ tasks. **Max `execution.max_parallel_agents` concurrent teammates** (default 3, hard ceiling 4) — additional feature tracks are queued and spawned as earlier ones complete.
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/team-mode.md`
 
 #### Pre-spawn Branch Check (subagent AND team mode)
@@ -353,7 +349,13 @@ For each task in the wave, spawn Agent with:
 
     Read Technical Notes in task and feature files first — they contain research findings (URLs, patterns, gotchas) from sprint planning. WebFetch listed URLs for details. WebSearch unknowns.
 
-    Test scoping: only task-tier tests (unit + the tests you write for this task). Integration and full-suite runs happen at wave boundaries, not during task work.
+    Test scoping: only task-tier tests (unit + the tests you write for this task). Full-suite runs happen at sprint completion, not during task work.
+
+    Build scoping: if `build_commands.scoped` is configured, build only the module(s) your task touches. Do NOT run a full project build — that happens at wave boundaries and sprint completion.
+
+    COMMIT REQUIRED: You MUST `git add -A && git commit` before returning.
+    A SubagentStop hook will block your exit if uncommitted changes exist.
+    Include your commit hash in your final message.
 
     Everything else — branch verification, TDD cycle, rules, exit protocol — follows your agent body. Do not deviate.
 ```
@@ -371,9 +373,87 @@ Spot-check each subagent before merging. The check differs by task kind — read
 
 **For `kind: feature` tasks:**
 1. Verify key files exist (ls the implementation + test files)
-2. Verify git commits present (git log --grep="TASK_ID" in worktree)
+2. Verify git commits present (`git log --grep="TASK_ID"` in worktree)
 3. **Item completeness check**: if the task's Technical Notes lists discrete items (e.g., "migrate these 8 calls", "add these 5 endpoints"), grep the diff for each item. Count how many were actually addressed vs how many were listed. If <100% → flag as incomplete, don't merge, re-spawn builder with the missing items listed explicitly
-4. If no commits or missing files → flag as failed, don't merge
+4. **If no commits found — salvage and re-dispatch** (do NOT just flag as failed):
+   a. Check worktree for uncommitted changes: `git -C <worktree> status --porcelain`
+   b. **If dirty tree** (uncommitted work exists):
+      - Salvage with two sequential Bash calls (not `&&` — portability):
+        ```
+        git -C <worktree> add -A
+        ```
+        ```
+        git -C <worktree> commit -m "wip(TASK_ID): salvaged by orchestrator"
+        ```
+      - Emit event: `builder_salvaged` with `task=TASK_ID`
+      - Re-dispatch a NEW builder subagent into the SAME worktree:
+        ```
+        Agent(subagent_type: shipyard:shipyard-builder, prompt: |
+          Task: [TASK_ID]  (CONTINUATION — previous builder exited early)
+          Working branch: [branch from SPRINT.md]
+          Worktree path: [absolute path to existing worktree]
+          Data dir: [SHIPYARD_DATA]
+
+          A previous builder started this task but exited without completing.
+          Their partial work has been salvaged as a WIP commit on this branch.
+          Review what was done (git log, git diff HEAD~1), identify what
+          remains, complete the work, run tests, and commit properly.
+
+          COMMIT REQUIRED before returning.)
+        ```
+      - **Max 1 re-dispatch per task** (track in a local set). If the continuation
+        builder also fails → update task `status: needs-attention`, emit
+        `builder_redispatch_failed` event, log to PROGRESS.md deviations table,
+        and continue to next task. Do NOT AskUserQuestion mid-wave — that blocks
+        the entire wave. The `needs-attention` status surfaces in `/ship-status`
+        and the next `/ship-sprint` carry-over scan.
+   c. **If clean tree** (no commits AND no uncommitted work):
+      - The builder did nothing. Update task `status: approved` (reset to
+        pre-dispatch state) so it gets picked up by the next sprint or re-run.
+      - Emit event: `builder_no_work` with `task=TASK_ID`
+      - Clean up the empty worktree.
+      - Log deviation in PROGRESS.md.
+5. **If commits found but key files missing** (partial implementation):
+   - Same re-dispatch flow as 4b, but skip the salvage step (work is already
+     committed). Prompt the continuation builder with the specific missing
+     files from the spot-check.
+
+6. **Task completion verification** — after the mechanical checks above pass (commits exist, files exist, items complete), spawn a lightweight read-only spec-check before merging. This catches "builder said done but missed a scenario" — the #1 quality gap since the in-flight reviewer was removed.
+   ```
+   Agent(subagent_type: shipyard:shipyard-review-spec,
+         model: haiku,
+         prompt: |
+     Quick task-level spec check — NOT a full feature review.
+
+     Task file: [SHIPYARD_DATA]/spec/tasks/[TASK_ID]-*.md
+     Feature file: [SHIPYARD_DATA]/spec/features/[FEATURE_ID]-*.md
+     Task diff: git diff [merge-base]..[task-branch] (or git log --stat on worktree)
+
+     For each acceptance scenario in the TASK file (not the full feature):
+     1. Is there implementation code that satisfies it?
+     2. Is there a test that covers it?
+     3. Are artifacts connected? (imports exist, routes registered, etc.)
+
+     Return a short checklist:
+       ✓ Scenario X — implemented + tested
+       ✗ Scenario Y — implemented but no test
+       ✗ Scenario Z — not implemented
+
+     If all scenarios pass → "PASS: all [N] acceptance scenarios satisfied"
+     If any gaps → list them. Do NOT suggest fixes.)
+   ```
+   - **If PASS** → proceed to merge.
+   - **If gaps found** → re-dispatch the builder with the specific gaps listed:
+     "Task TASK_ID has [N] gaps found by spec check: [gap list]. Fix these
+     and commit." Then re-run the spec-check on the updated diff.
+   - **Max 3 iterations** of the spec-check → fix loop (3 spec-checks, up to 3
+     builder re-dispatches). Track iteration count per task. If still gaps after
+     iteration 3 → update task `status: needs-attention`, emit
+     `spec_check_not_converging` event with `task=TASK_ID iterations=3
+     remaining_gaps=N`, log to PROGRESS.md deviations, and proceed to merge
+     what exists. The remaining gaps surface in `/ship-review` Stage 1b
+     (full spec review) and the carry-over scan.
+   - **Cost guard:** This is Haiku + read-only + scoped to one task's diff. Takes seconds, not minutes. Skip for tasks with effort: S (trivial tasks don't need verification).
 
 **For `kind: operational` tasks:**
 5. Verify the task file now has a non-empty `verify_output:` field. If missing or empty → emit `operational_task_bogus_pass` with `reason=missing_verify_output` and do NOT mark done.
@@ -434,8 +514,22 @@ Between waves (each wave is a group of tasks that ran together):
 - After all branches merged, verify no stale worktree branches remain: `git worktree list` and `git branch --list shipyard/wt-*` — clean up any leftovers
 - **Clean branch check** — run `git status --porcelain` on the orchestrator's branch. The orchestrator's branch must be clean before starting the next wave. Legitimate changes (PROGRESS.md, task status updates) → commit as `chore(shipyard): wave [N] state update`. Unexpected changes (source files) → AskUserQuestion: "Unexpected uncommitted changes after Wave [N] merge: [file list]. Commit as-is, stash, or investigate? Recommended: investigate."
 - **Update PROGRESS.md** — set frontmatter `current_wave` to the next wave number. This is the resume checkpoint after auto-compaction. If a write could race with another writer (recovery flows, parallel review fixers), wrap it in `shipyard-data with-lock sprint -- <command>`.
-- **Delegate INTEGRATION tests to a test subagent** — spawn `Agent` with `subagent_type: shipyard:shipyard-test-runner` (no worktree). Pass it `test_commands.integration` from config (or scope by sprint feature paths). Use the returned summary; do not run tests directly in this session.
-- **If integration tests FAIL** → do NOT fix directly. Spawn a `shipyard:shipyard-builder` subagent (no worktree) with the failure summary and prompt (substitute literal SHIPYARD_DATA): "Fix the failing tests. Read `git.main_branch` from `<SHIPYARD_DATA>/config.md`. Run `git diff $(git merge-base HEAD [main_branch])...HEAD --name-only` to identify in-scope files — only fix errors in files in that diff." Rerun integration tests after the fixer returns. If still failing → Write a bug file at `<SHIPYARD_DATA>/spec/bugs/B-INT-[slug].md` with failure details and AskUserQuestion to escalate.
+- **Delegate WAVE-SCOPED build to a test subagent** — if `build_commands.scoped` is configured, run a scoped build for the modules touched by this wave's tasks before running tests. If `build_commands.scoped` is not configured but `build_commands.full` is, run the full build (some projects don't support scoped builds). If neither is configured, skip — the project either doesn't need a build step or tests handle compilation implicitly.
+  ```
+  Build wave [N] modules.
+  Command: shipyard-logcap run wave-[N]-build -- <BUILD_SCOPED_COMMAND> [module paths]
+  Return: PASS or FAIL with first error.
+  ```
+  If the scoped build fails → do NOT proceed to tests. Spawn a `shipyard:shipyard-builder` subagent to fix build errors first.
+- **Delegate WAVE-SCOPED tests to a test subagent** — collect the source and test files touched by this wave's tasks (from each task's Technical Notes `files-to-modify` + the test files written by builders). Spawn `Agent` with `subagent_type: shipyard:shipyard-test-runner` (no worktree). Pass it `test_commands.scoped` from config with the file/module paths to scope the run. This runs only the tests relevant to this wave's work — not the full suite. Full build + full test suite runs once at sprint completion (Step 5a).
+  ```
+  Run scoped tests for wave [N] tasks.
+  Scope: [file/module paths from wave tasks' Technical Notes]
+  Command: shipyard-logcap run wave-[N] -- <SCOPED_COMMAND> [paths]
+  Return the structured summary.
+  ```
+  If `test_commands.scoped` is not configured, fall back to `test_commands.unit` (still cheaper than integration). Only fall back to `test_commands.integration` if neither scoped nor unit commands exist.
+- **If wave-scoped tests FAIL** → do NOT fix directly. Spawn a `shipyard:shipyard-builder` subagent (no worktree) with the failure summary and prompt (substitute literal SHIPYARD_DATA): "Fix the failing tests. Read `git.main_branch` from `<SHIPYARD_DATA>/config.md`. Run `git diff $(git merge-base HEAD [main_branch])...HEAD --name-only` to identify in-scope files — only fix errors in files in that diff." Rerun the scoped tests after the fixer returns. If still failing → Write a bug file at `<SHIPYARD_DATA>/spec/bugs/B-INT-[slug].md` with failure details and AskUserQuestion to escalate.
 - Verify all tasks in completed wave satisfy their acceptance criteria
 - Check for gaps (acceptance scenario without implementation)
 - If gaps found → create patch tasks, add to next wave
@@ -445,7 +539,7 @@ Between waves (each wave is a group of tasks that ran together):
   ```
   Wave [N]/[M] ✓  [████████░░░░░░░░] [done]/[total] tasks  •  tests [pass/fail]  •  → Wave [N+1]
   ```
-  Progress bar: 16 chars wide, `█` filled, `░` empty, `done_pct = total_done / total_sprint * 100`. If gaps were found this wave, append ` • [N] gaps → patch tasks`. If pace is slowing relative to earlier waves, append ` • pace slowing`. If integration tests failed and a fixer was spawned, append ` • int tests fixed`. (Type "pause" to stop.)
+  Progress bar: 16 chars wide, `█` filled, `░` empty, `done_pct = total_done / total_sprint * 100`. If gaps were found this wave, append ` • [N] gaps → patch tasks`. If pace is slowing relative to earlier waves, append ` • pace slowing`. If wave-scoped tests failed and a fixer was spawned, append ` • tests fixed`. (Type "pause" to stop.)
 
   **Auto-continue to the next wave without pausing.** The orchestrator stays lean (~10-15% context) by delegating to subagents. Do not suggest `/clear`, do not suggest re-invoking `/ship-execute`, do not ask "do you want to continue?" — just proceed to the next wave.
 
@@ -479,8 +573,15 @@ This takes ~5 tool calls and recovers full state from files. Do not rely on conv
 
 When all waves done:
 
-**5a. Full test suite**
-- **Delegate the full test suite to a test subagent** — spawn a single `Agent` with `subagent_type: shipyard:shipyard-test-runner` (no `isolation: worktree`) following the multi-tier pattern in `references/test-delegation.md`. Pass it `test_commands.unit`, `test_commands.integration`, and `test_commands.e2e` from config. It runs all three sequentially and returns a combined summary (one line per tier). This is the only time the entire suite runs. Act on the summary — do NOT run tests directly in this session.
+**5a. Full build + full test suite**
+- **Full build first** — if `build_commands.full` is configured, delegate a full project build to a `shipyard:shipyard-test-runner` subagent. This is the first time the entire project builds together after all waves merged — catches cross-module compilation errors that scoped wave builds missed.
+  ```
+  Run the full project build.
+  Command: shipyard-logcap run sprint-build -- <BUILD_FULL_COMMAND>
+  Return: PASS or FAIL with first error.
+  ```
+  If the full build fails → spawn a `shipyard:shipyard-builder` subagent to fix build errors before running tests. If `build_commands.full` is not configured, skip to tests.
+- **Full test suite** — spawn a single `Agent` with `subagent_type: shipyard:shipyard-test-runner` (no `isolation: worktree`) following the multi-tier pattern in `references/test-delegation.md`. Pass it `test_commands.unit`, `test_commands.integration`, and `test_commands.e2e` from config. It runs all three sequentially and returns a combined summary (one line per tier). This is the only time the entire test suite runs. Act on the summary — do NOT run tests directly in this session.
 - If regression failures: do NOT fix code or lint errors directly. Spawn a `shipyard:shipyard-builder` subagent (no worktree) with the failure summary and instructions to fix all failures. At sprint level the branch owns all errors — do not scope to the diff. Verify a new commit exists after it returns. Re-run the test subagent to confirm clean before proceeding.
 
 **5b. Finalize**

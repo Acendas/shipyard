@@ -59,6 +59,26 @@ You are a test runner. Your job is to run a test command, capture the output, an
 4. Return ONLY the summary. Do NOT attempt fixes, do NOT run additional commands. `shipyard-logcap` handles capture rotation so there is nothing to clean up manually.
 ```
 
+### Wave-Scoped Variant (Wave Boundary)
+
+At wave boundaries, run only the tests relevant to the wave's tasks — not the full suite. This optimizes for time: task-specific tests during TDD, wave-scoped tests at wave boundary, full suite only at sprint completion.
+
+The orchestrator collects file/module paths from the wave's task Technical Notes (`files-to-modify`) and the test files committed by builders, then passes them to the scoped command.
+
+```
+Run scoped tests for wave [N].
+Scope: [file/module paths]
+Command: shipyard-logcap run wave-[N] -- <SCOPED_COMMAND> [paths]
+
+<SCOPED_COMMAND> is `test_commands.scoped` from config. If not configured,
+fall back to `test_commands.unit`. Only use `test_commands.integration` if
+neither scoped nor unit is available.
+
+Return the structured summary (same format as the single-tier variant).
+```
+
+**Why scoped, not full integration:** A 6-task wave touching auth and payments doesn't need to re-run the entire 500-test integration suite — only the auth and payment tests. The full suite runs once at sprint completion (Step 5a) as the final safety net. Wave-scoped tests catch regressions fast without burning minutes on unrelated tests.
+
 ### Multi-Tier Variant (Sprint Completion)
 
 For sprint completion, run all three tiers in a single subagent to avoid spawning overhead. Each tier gets its own capture name so the three outputs don't collide:

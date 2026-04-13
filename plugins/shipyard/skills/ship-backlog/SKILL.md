@@ -1,7 +1,7 @@
 ---
 name: ship-backlog
 description: "View, groom, and manage the prioritized backlog sorted by RICE score. Use when the user wants to see the backlog, reprioritize features, run a grooming session, clean up stale items, declare backlog bankruptcy, or decide what to work on next."
-allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, EnterPlanMode, ExitPlanMode, "Bash(shipyard-context:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 model: sonnet
 effort: medium
 argument-hint: "[groom|rank|approve|bankruptcy]"
@@ -159,11 +159,9 @@ Also run health checks:
   - Epics with only 1 feature → "E003 has only 1 feature. Does it need to be an epic, or just a standalone feature?"
   - Features without an epic → "3 ungrouped features. Assign to an existing epic or create a new one? (assign / leave ungrouped)"
 
-### Grooming Summary — Plan Mode
+### Grooming Summary
 
-After walking through all items, **enter plan mode** (`EnterPlanMode`) to present the grooming results before committing changes. Grooming can reprioritize, split, archive, or kill features — the user should see the full picture before changes are finalized.
-
-The plan should include:
+After walking through all items, present the grooming results as text before committing changes. Grooming can reprioritize, split, archive, or kill features — the user should see the full picture before changes are finalized.
 
 **CHANGES MADE**
 - Reprioritized: [IDs with old → new RICE]
@@ -181,10 +179,10 @@ The plan should include:
 **STALE ITEMS RESOLVED**: [count]
 **ZOMBIES RESOLVED**: [count]
 
-**Exit plan mode** (`ExitPlanMode`) — triggers built-in approval flow:
-- **Approve** → write all changes to feature files and BACKLOG.md
-- **Adjust** → user modifies specific decisions, iterate
-- **Cancel** → discard all grooming changes, BACKLOG.md unchanged
+Then use `AskUserQuestion` for approval:
+- **Apply changes (Recommended)** — write all changes to feature files and BACKLOG.md
+- **Adjust** — modify specific decisions, iterate
+- **Cancel** — discard all grooming changes, BACKLOG.md unchanged
 
 **Important:** Feature file changes (RICE updates, status changes, splits) are staged during the grooming walkthrough but only written to disk after approval. If the user cancels, nothing changes.
 

@@ -116,7 +116,7 @@ Between waves, the orchestrator:
 1. Rebases and merges completed task/feature branches onto the user's branch
 2. Resolves merge conflicts — flag non-trivial conflicts to user via AskUserQuestion
 3. Deletes merged task branches, cleans up worktrees
-4. Delegates **integration tests** to a test subagent
+4. Delegates **wave-scoped build + tests** to a test subagent
 5. Creates worktrees for next wave from updated user branch HEAD
 
 ## Hotfix Flow
@@ -174,7 +174,7 @@ Shipyard implements workarounds for several Claude Code bugs that affect worktre
 
 | Bug | Impact | Workaround |
 |-----|--------|------------|
-| **#39973** — `ExitPlanMode` resets permission mode to `acceptEdits` | Every wave boundary downgrades permissions | PreToolUse hook with `permissionDecision: allow` for Shipyard data paths |
+| **#39973** — Approval prompts may reset permission mode to `acceptEdits` | Wave boundary approvals can downgrade permissions | PreToolUse hook with `permissionDecision: allow` for Shipyard data paths |
 | **#41763** — Writes outside project root downgrade bypass mode | Plugin data writes trigger prompts | Same PreToolUse hook — fires before permission evaluator |
 | **#37442** — Subagents don't inherit `bypassPermissions` | Builder agents prompted for every write | Hooks inherited via plugin hooks.json (not session state) |
 

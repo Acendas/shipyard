@@ -167,9 +167,9 @@
     "pattern": "Final Review Pass|blind spot|false positive"
   },
   {
-    "name": "has_plan_mode",
+    "name": "approval_uses_ask_user",
     "type": "contains",
-    "pattern": "EnterPlanMode"
+    "pattern": "AskUserQuestion"
   },
   {
     "name": "has_retro_data_file",
@@ -307,5 +307,20 @@
     "type": "contains",
     "pattern": "Out-of-scope findings in Stage 0|code-review-stage-0",
     "dotall": true
+  },
+  {
+    "name": "simplification_stage_exists",
+    "type": "contains",
+    "pattern": "Stage 0\\.5.*[Ss]implif"
+  },
+  {
+    "name": "simplification_uses_code_simplifier",
+    "type": "contains",
+    "pattern": "code-simplifier"
+  },
+  {
+    "name": "simplification_scope_guard",
+    "type": "contains",
+    "pattern": "scope guard|only touches files in the sprint diff"
   }
 ]

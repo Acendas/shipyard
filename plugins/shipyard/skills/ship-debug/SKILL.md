@@ -1,7 +1,7 @@
 ---
 name: ship-debug
 description: "Systematic debugging with persistent state that survives session breaks and /clear. Use when the user reports a bug, something isn't working, tests are failing, they're stuck on an error, or they want to investigate unexpected behavior. Also use when the user says 'debug', 'investigate', 'why is this broken', or 'help me fix this'."
-allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, AskUserQuestion, EnterPlanMode, ExitPlanMode, "Bash(shipyard-context:*)", "Bash(shipyard-logcap:*)", "Bash(shipyard-data:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, AskUserQuestion, "Bash(shipyard-context:*)", "Bash(shipyard-logcap:*)", "Bash(shipyard-data:*)"]
 model: sonnet
 effort: high
 argument-hint: "[description of the problem] [--resume]"
@@ -148,11 +148,11 @@ Update the debug file after EVERY step. This is critical — if context compacts
    Recommended: 1 — repeated fix failures usually mean the pattern is wrong"
 4. Record the escalation in `## Evidence`: "Escalated after 3 failed fixes: [summary of what each attempt revealed]"
 
-### Step 3.5: Present Fix Plan — Plan Mode
+### Step 3.5: Present Fix Plan
 
 Once root cause is identified, present the diagnosis and proposed fix for approval before changing any code. Debug fixes can touch production-critical code — the user should see the plan first.
 
-**Enter plan mode** (`EnterPlanMode`) and present:
+Output the diagnosis as text:
 
 **DIAGNOSIS**
 - Root cause: [what's actually wrong]
@@ -169,10 +169,10 @@ Once root cause is identified, present the diagnosis and proposed fix for approv
 - Confidence: [HIGH/MEDIUM/LOW that this is the correct root cause]
 - If wrong: [what happens, how we'd know, what to try next]
 
-**Exit plan mode** (`ExitPlanMode`) — triggers built-in approval flow:
-- **Approve** → proceed to Step 4 (apply the fix)
-- **Adjust** → user modifies the approach, iterate
-- **Investigate more** → return to Step 3 with a new hypothesis
+Then use `AskUserQuestion` for approval:
+- **Apply fix (Recommended)** — proceed to Step 4
+- **Adjust** — modify the approach, iterate
+- **Investigate more** — return to Step 3 with a new hypothesis
 
 ### Step 4: Fix
 

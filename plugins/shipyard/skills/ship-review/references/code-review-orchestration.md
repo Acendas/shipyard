@@ -52,13 +52,22 @@ The skill stays on whatever model the user selected (recommend opus[1m] for code
 
 ---
 
-## Phase 2 — Wave 1: Parallel Scanners
+## Phase 2 — Wave 1: Batched Parallel Scanners
 
-**Critical: spawn ALL 6 in a single message** with multiple `Agent` tool calls. They run in parallel and return in any order.
+Scanners have a hard 32k token output cap. Large diffs can exceed this, causing silent truncation — lowest-severity findings get dropped and the orchestrator has no way to detect it. To prevent this, file lists are **batched** into fixed-size chunks.
+
+### Batching logic
+
+1. **Batch size:** `MAX_FILES_PER_BATCH = 8` files per scanner per round. This keeps scanner output well under 32k even for verbose diffs.
+2. **Chunk each scanner's file list** into batches of 8. Example: 24 code files → 3 rounds for the bugs scanner.
+3. **Per round:** Spawn up to 6 scanners in parallel (single message, multiple `Agent` tool calls) — same pattern as before, just with a subset of files. Skip a scanner for that round if its file list is already exhausted.
+4. **Accumulate findings** across all rounds into one master list. Findings from round 2 are appended to round 1's findings (no dedup until Phase 3).
+5. **Spillover:** If a scanner reports `TRUNCATED: true` in any round, move its `FILES_NOT_REVIEWED` into a spillover queue and include them in the next round. Max 2 spillover attempts per scanner — if it's still truncating after 2 spillovers, reduce that scanner's batch size to 4 for remaining rounds.
+6. **Stop condition:** All scanners have reviewed all their files (or been spillover-capped).
 
 ### Per-scanner prompts
 
-Each scanner gets a TARGETED prompt with only the files relevant to its concern. Don't send the full file list to every scanner — that defeats the purpose of specialization.
+Each scanner gets a TARGETED prompt with only the files relevant to its concern for **this batch**. Don't send the full file list — that defeats both specialization and batching.
 
 **Security scanner** — `shipyard:shipyard-review-security`
 ```
@@ -127,6 +136,7 @@ Every scanner returns:
 ```
 SCANNER: <name>
 FILES_REVIEWED: <count>
+TRUNCATED: false
 FINDINGS:
 - file: path/to/file.py
   line: 42
@@ -138,15 +148,20 @@ FINDINGS:
 - file: ...
 ```
 
-Empty findings (`FINDINGS: []`) are normal. Don't treat empty as an error.
+**Truncation fields** (required — scanner agents MUST report these):
+- `TRUNCATED: true|false` — whether any findings were dropped due to the 32k output cap
+- `DROPPED_COUNT: <N>` — number of findings dropped (0 if not truncated). Only present when `TRUNCATED: true`.
+- `FILES_NOT_REVIEWED: [file1.py, file2.py]` — files that could not be reviewed due to output pressure. Only present when `TRUNCATED: true`. The orchestrator spills these into the next batch round.
+
+Empty findings (`FINDINGS: []`) are normal. Don't treat empty as an error. `TRUNCATED: false` with empty findings means the scanner reviewed everything and found nothing — that's a clean pass.
 
 ---
 
 ## Phase 3 — Aggregation & Deduplication
 
-After all wave-1 scanners return:
+After all batch rounds complete (all scanners have reviewed all their files or hit the spillover cap):
 
-1. **Collect all findings** from all 6 scanners into a single list
+1. **Collect all findings** from all scanners across all rounds into a single list
 2. **Normalize** to `{file, line, category, severity, confidence, summary, evidence, source_scanner}`
 3. **Dedupe** — group by `(file, line)`. If multiple scanners flagged the same line:
    - Keep the highest-confidence one

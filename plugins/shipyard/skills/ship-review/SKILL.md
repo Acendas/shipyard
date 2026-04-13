@@ -1,7 +1,7 @@
 ---
 name: ship-review
 description: "Run multi-agent code review (security, bugs, silent failures, patterns, tests, spec) plus spec verification, retrospective, and release. Auto-fixes findings until clean. Use when the user wants to review completed work, verify a feature, see a demo, check if tests pass, approve sprint results, run a retro, analyze velocity, or wrap up a sprint."
-allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, EnterPlanMode, ExitPlanMode]
+allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion]
 model: opus
 effort: high
 argument-hint: "[feature ID] [--demo] [--hotfix ID] [--retro-only] [--skip-code-review]"
@@ -102,6 +102,34 @@ Log each iteration in PROGRESS.md:
 | 2         | 0        | 1          | 2        | Fixer addressed 1 finding |
 | 3         | 0        | 0          | 2        | Clean — proceeding |
 ```
+
+### Stage 0.5: Code Simplification
+
+Skip if `--skip-code-review` is passed (same gate as Stage 0).
+
+After the code review loop exits clean, run a simplification pass on the sprint's changed code. The code review fixer may have introduced quick patches; this pass cleans them up for clarity, consistency, and reuse before tests and demo.
+
+1. Get the sprint diff file list:
+   ```bash
+   git diff --name-only $(git merge-base HEAD <main_branch>)...HEAD
+   ```
+2. Spawn the simplifier agent:
+   ```
+   Agent(subagent_type: code-simplifier:code-simplifier, prompt: |
+     Review and simplify the following files that were changed in this sprint.
+     Focus on: reducing unnecessary complexity, eliminating redundant code,
+     improving naming, consolidating related logic, and applying project
+     conventions from CLAUDE.md. Preserve all functionality.
+
+     Changed files:
+     [list from step 1]
+
+     Commit your changes as: refactor: simplify sprint code)
+   ```
+3. Verify a commit exists after the agent returns. If no commit → the simplifier found nothing to improve (clean pass).
+4. Log in PROGRESS.md: `Simplification: [N files touched | no changes needed]`
+
+**Scope guard:** The simplifier only touches files in the sprint diff. It must not modify files outside the diff scope. If the agent's commit touches unexpected files, revert with `git reset --hard HEAD~1` and proceed without simplification.
 
 ### Stage 1: Run Tests & Spec Verification
 
@@ -331,11 +359,9 @@ recommendation: approve|issues|changes
 
 Body: test summary, goal verification results (observable truths, artifacts, wiring), and gap list. After Stage 5 (Demo) completes, update the verdict: set `complete: true`. This file persists as a review artifact — no cleanup needed. Incomplete verdicts (from interrupted sessions) are re-entered at the review pipeline.
 
-### Stage 5: Demo to User — Plan Mode
+### Stage 5: Demo to User
 
-After all features are reviewed and verdicts written, **enter plan mode** (`EnterPlanMode`) to present the complete review results for approval.
-
-The plan should include:
+After all features are reviewed and verdicts written, present the complete review results as text.
 
 **Per-feature summary** — for each feature:
 - Tests: pass/fail counts (unit, integration, E2E)
@@ -358,14 +384,14 @@ The plan should include:
 - ⚠️ Issues — minor gaps, suggest patch tasks
 - ❌ Needs changes — significant gaps, needs rework
 
-**Exit plan mode** (`ExitPlanMode`) — triggers built-in approval flow:
-- **Approve** → update feature statuses to `done`, proceed to Sprint Retrospective
-- **Refine** → user gives feedback on specific features, iterate
-- **Fix first** → create patch tasks, show: "/ship-execute --task [patch task ID]"
+Then use `AskUserQuestion` for approval:
+- **Approve (Recommended)** — update feature statuses to `done`, proceed to Sprint Retrospective
+- **Refine** — give feedback on specific features, iterate
+- **Fix first** — create patch tasks, show: "/ship-execute --task [patch task ID]"
 
 ### Stage 6: Process Decision
 
-Based on the plan mode approval:
+Based on the approval:
 - **Approved** → Update feature statuses to `done` in feature frontmatter. Proceed to Sprint Retrospective (below).
 - **Issues found** → Create bug entries via /ship-bug logic. Feature status → `approved` (not `in-progress` — it needs re-planning). Add feature ID back to BACKLOG.md so the next `/ship-sprint` picks it up.
 - **Needs changes** → Update spec with new criteria. Create patch tasks. Feature status → `approved`, add ID back to BACKLOG.md. Show:
@@ -483,19 +509,41 @@ During retro, flag:
 
 Present as observations, not judgments.
 
+### Shipyard Plugin Issue Detection
+
+Some retro findings are **Shipyard plugin problems**, not user project problems — worktree isolation failures, agent early returns, SubagentStop hook misfires, salvage loops, broken hooks, silent-pass regressions, context pressure false positives, etc. These should be reported upstream so the Shipyard maintainers can fix them for everyone.
+
+**How to detect:** If a deviation, anti-pattern, or "what didn't go well" item references any of these:
+- Claude Code bug numbers (`#29110`, `#37549`, `#39973`, etc.)
+- Shipyard hook names (`subagent-stop`, `auto-approve-data`, `session-guard`, `worktree-branch`, etc.)
+- Shipyard internal state (`.active-execution.json`, `.compaction-count`, `.shipyard-events.jsonl`)
+- Agent dispatch failures (builder early return, builder salvaged, spec-check not converging)
+- Worktree branch issues (CWD drift, wrong branch, worktree probe failures)
+
+Then it's a Shipyard issue, not a project issue. **Do NOT create an IDEA file** — the user's project backlog is not the place for plugin bugs. Instead, surface it directly:
+
+```
+This looks like a Shipyard plugin issue, not a problem with your code.
+Please report it so the maintainers can fix it:
+  https://github.com/acendas/shipyard/issues
+Include the output of: shipyard-context diagnose
+```
+
+Use `AskUserQuestion` to offer:
+- **Report issue (Recommended)** — user will file at github.com/acendas/shipyard/issues
+- **Skip** — acknowledged, move on
+
 ---
 
 ## Release
 
 After retro completes, generate the release record. This is a changelog + status tracker — Shipyard does not create git tags, push, or create GitHub releases.
 
-### Release Step 1: Present Release Plan — Plan Mode
+### Release Step 1: Present Release Plan
 
-Read all feature files with `status: done` from this sprint. Generate the full release picture.
+Read all feature files with `status: done` from this sprint. Generate the full release picture. The release is the most irreversible action in the workflow — status changes, archiving, and changelog are hard to undo.
 
-**Enter plan mode** (`EnterPlanMode`) to present the release plan for approval. The release is the most irreversible action in the workflow — status changes, archiving, and changelog are hard to undo.
-
-The plan should include:
+Output the release plan as text:
 
 **CHANGELOG** — what ships:
 ```
@@ -520,10 +568,10 @@ The plan should include:
 - Feature file frontmatter updates
 - Sprint directory archived
 
-**Exit plan mode** (`ExitPlanMode`) — triggers built-in approval flow:
-- **Approve** → proceed to Release Step 2 (write everything)
-- **Edit** → user adjusts changelog text, then re-approve
-- **Skip** → skip release record, still archive sprint
+Then use `AskUserQuestion` for approval:
+- **Release (Recommended)** — proceed to Release Step 2 (write everything)
+- **Edit changelog** — adjust changelog text, then re-approve
+- **Skip release** — skip release record, still archive sprint
 
 ### Release Step 2: Write Release Record
 

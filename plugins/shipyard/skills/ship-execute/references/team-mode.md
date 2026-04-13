@@ -4,13 +4,13 @@ Team Mode uses Claude Code Agent Teams (shared task list + mailbox) for sprints 
 
 ## Concurrency Cap
 
-**Maximum 4 concurrent teammates.** If a sprint has more than 4 feature tracks, spawn the first 4 and queue the rest. When a teammate finishes all tasks in its feature track and shuts down, spawn the next queued feature track's teammate in its place. This prevents resource exhaustion from too many parallel agents.
+**Maximum `execution.max_parallel_agents` concurrent teammates** (read from config, default 3, hard ceiling 4). If a sprint has more feature tracks than the cap, spawn the first N and queue the rest. When a teammate finishes all tasks in its feature track and shuts down, spawn the next queued feature track's teammate in its place. This prevents resource exhaustion and quality degradation from too many parallel agents (Sprint 001/002 showed 6-7 agents degrading — agents return early or hit context limits).
 
 The lead maintains a simple queue:
 1. Sort feature tracks by wave priority (features with earlier wave tasks first)
-2. Spawn the first 4 as the initial batch
+2. Spawn the first `max_parallel_agents` as the initial batch
 3. As each teammate completes (shutdown_response received + worktree merged), spawn the next queued track
-4. If fewer than 4 feature tracks exist, spawn them all — no queuing needed
+4. If fewer feature tracks than the cap exist, spawn them all — no queuing needed
 
 ## Feature Track Mapping
 

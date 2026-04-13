@@ -10,6 +10,9 @@ test_commands:
   integration: ""       # e.g., "vitest run --config vitest.integration.config.ts"
   e2e: ""               # e.g., "playwright test", "cypress run"
   scoped: ""            # e.g., "vitest run --testPathPattern", "pytest -k"
+build_commands:
+  scoped: ""              # e.g., "gradle :module:assemble", "npm run build -- --filter=module"
+  full: ""                # e.g., "gradle assemble", "npm run build", "cargo build"
 ci_platform: ""
 repo_type: single
 team_size: solo
@@ -31,6 +34,8 @@ staleness:
 operational_tasks:
   max_iterations: 3           # fix-findings loop budget for kind:operational tasks
   max_patch_tasks: 5          # scope-creep guard — escalate if cumulative patch tasks > this
+execution:
+  max_parallel_agents: 3      # max concurrent builder subagents per wave (1-4, hard ceiling 4)
 ---
 
 # Project Configuration

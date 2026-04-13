@@ -8,9 +8,9 @@ Shipyard uses scoped testing to avoid burning tokens running the full suite on e
 
 | Tier | When | What Runs | Why |
 |------|------|-----------|-----|
-| **Task** | During TDD (Red/Green/Refactor/Mutate) | Only tests related to the current task | Fast feedback, save tokens |
-| **Integration** | Wave boundary (after merging task branches) | Tests for all features in the current sprint | Catch cross-feature breakage |
-| **Regression** | Sprint completion / before release | Full test suite (unit + integration + E2E) | Nothing is broken anywhere |
+| **Task** | During TDD (Red/Green/Refactor/Mutate) | Scoped build (if configured) + only tests related to the current task | Fast feedback, save tokens |
+| **Wave** | Wave boundary (after merging task branches) | Scoped build + scoped tests for the wave's tasks (files/modules from Technical Notes) | Catch cross-task breakage without full build/suite overhead |
+| **Regression** | Sprint completion / before release | Full build + full test suite (unit + integration + E2E) | Nothing is broken anywhere |
 
 ### How to scope tests for your task
 

@@ -42,9 +42,9 @@
     "pattern": "archive"
   },
   {
-    "name": "has_plan_mode",
+    "name": "approval_uses_ask_user",
     "type": "contains",
-    "pattern": "EnterPlanMode"
+    "pattern": "AskUserQuestion"
   },
   {
     "name": "has_compaction_recovery",

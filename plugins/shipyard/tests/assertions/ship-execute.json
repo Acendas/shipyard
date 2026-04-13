@@ -324,18 +324,18 @@
   {
     "name": "team_mode_has_concurrency_cap",
     "type": "contains",
-    "pattern": "[Mm]ax 4 concurrent teammate"
+    "pattern": "max_parallel_agents.* concurrent teammate"
   },
   {
     "name": "team_mode_cap_in_ref",
     "type": "contains",
-    "pattern": "max 4|[Mm]aximum 4",
+    "pattern": "max_parallel_agents|hard ceiling 4",
     "target": "ref:team-mode.md"
   },
   {
     "name": "readiness_shows_teammate_count",
     "type": "contains",
-    "pattern": "Teammates:.*concurrent.*max 4",
+    "pattern": "Teammates:.*concurrent.*max",
     "dotall": true
   },
   {
@@ -1273,5 +1273,92 @@
     "name": "ship_execute_live_capture_covers_backgrounding_trap",
     "type": "contains",
     "pattern": "0-byte|exit\\s*14[347]|Backgrounded .run. killed|apparent-wrapper-failure"
+  },
+  {
+    "name": "uses_max_parallel_agents_from_config",
+    "type": "contains",
+    "pattern": "max_parallel_agents"
+  },
+  {
+    "name": "dispatch_prompt_includes_commit_required",
+    "type": "contains",
+    "pattern": "COMMIT REQUIRED"
+  },
+  {
+    "name": "failed_builder_salvages_before_redispatch",
+    "type": "contains",
+    "pattern": "builder_salvaged"
+  },
+  {
+    "name": "re_dispatch_has_max_retries",
+    "type": "contains",
+    "pattern": "Max 1 re-dispatch"
+  },
+  {
+    "name": "failed_builder_no_work_resets_status",
+    "type": "contains",
+    "pattern": "builder_no_work"
+  },
+  {
+    "name": "no_ask_user_mid_wave_on_builder_failure",
+    "type": "contains",
+    "pattern": "Do NOT AskUserQuestion mid-wave"
+  },
+  {
+    "name": "wave_boundary_uses_scoped_tests",
+    "type": "contains",
+    "pattern": "WAVE-SCOPED tests|wave-scoped tests|scoped tests for wave"
+  },
+  {
+    "name": "wave_boundary_no_full_integration",
+    "type": "not_contains",
+    "pattern": "Delegate INTEGRATION tests to a test subagent"
+  },
+  {
+    "name": "full_suite_only_at_sprint_completion",
+    "type": "contains",
+    "pattern": "Full test suite|full test suite.*sprint completion|only time the entire suite runs"
+  },
+  {
+    "name": "post_subagent_has_spec_check",
+    "type": "contains",
+    "pattern": "Task completion verification|task-level spec check"
+  },
+  {
+    "name": "spec_check_uses_review_spec_agent",
+    "type": "contains",
+    "pattern": "shipyard-review-spec"
+  },
+  {
+    "name": "spec_check_redispatches_on_gaps",
+    "type": "contains",
+    "pattern": "gaps found.*re-dispatch|gaps.*Fix these"
+  },
+  {
+    "name": "spec_check_max_3_iterations",
+    "type": "contains",
+    "pattern": "Max 3 iterations"
+  },
+  {
+    "name": "spec_check_skips_trivial_tasks",
+    "type": "contains",
+    "pattern": "Skip for tasks with effort: S"
+  },
+  {
+    "name": "subagent_stop_in_hooks_json",
+    "type": "contains",
+    "pattern": "subagent-stop",
+    "target": "hooks:hooks.json"
+  },
+  {
+    "name": "subagent_stop_event_registered",
+    "type": "contains",
+    "pattern": "SubagentStop",
+    "target": "hooks:hooks.json"
+  },
+  {
+    "name": "dispatch_prompt_mentions_subagent_stop",
+    "type": "contains",
+    "pattern": "SubagentStop hook will block"
   }
 ]

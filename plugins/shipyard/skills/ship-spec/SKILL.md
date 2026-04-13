@@ -1,7 +1,7 @@
 ---
 name: ship-spec
 description: "View, browse, search, and manage the product specification. Use when the user wants to see the spec, look up a feature or epic by ID, search for something in the spec, change a feature status, move features between epics, archive spec items, or absorb an external document into the spec."
-allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, EnterPlanMode, ExitPlanMode, "Bash(shipyard-context:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 model: sonnet
 effort: medium
 argument-hint: "[feature/epic ID] or [search term] or [subcommand]"
@@ -274,8 +274,8 @@ IDEAS — [N] pending discussion
 
   **Re-sync** (feature changed since last sync): diff the feature file against the last-synced version. Only update sections that changed — don't rewrite the entire entry. If acceptance criteria changed, note `Updated [date] — [what changed]`.
 
-  **Step 5: Present in plan mode**
-  Enter plan mode (`EnterPlanMode`) and present all sync patches:
+  **Step 5: Present sync patches**
+  Output all sync patches as text:
 
   ```
   SPEC SYNC — [N] features to sync
@@ -301,10 +301,10 @@ IDEAS — [N] pending discussion
   Features synced: F003, F005, F007, F012
   ```
 
-  Exit plan mode (`ExitPlanMode`):
-  - **Approve** → apply patches to the user's spec files, set `synced_at: [date]` in each feature's frontmatter
-  - **Edit** → user adjusts specific patches, then re-approve
-  - **Skip** → don't sync, features remain unsynced for next time
+  Then use `AskUserQuestion` for approval:
+  - **Apply sync (Recommended)** — apply patches to the user's spec files, set `synced_at: [date]` in each feature's frontmatter
+  - **Edit** — adjust specific patches, then re-approve
+  - **Skip** — don't sync, features remain unsynced for next time
 
 `/ship-spec sync F001` — Sync a specific feature only.
 

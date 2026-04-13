@@ -1,7 +1,7 @@
 ---
 name: ship-sprint
 description: "Plan a new sprint — break features into tasks, find the critical path, and group tasks into waves for parallel execution. Or cancel an active sprint. Use when the user wants to start a sprint, plan work, pull features from backlog into a sprint, cancel a running sprint, or organize tasks into execution waves."
-allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, EnterPlanMode, ExitPlanMode, WebSearch, WebFetch, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 model: opus
 effort: high
 argument-hint: "[--cancel]"
@@ -604,11 +604,9 @@ Prompt the critic with:
 
 **Do NOT re-run the critic after fixes.** One round only. Address what you can, ask the user about the rest, and proceed.
 
-### Step 10: Present Plan in Plan Mode
+### Step 10: Present Sprint Plan
 
-**Enter plan mode** (`EnterPlanMode`) to present the complete sprint plan. SPRINT-DRAFT.md and task files are already written as compaction checkpoints — no statuses change and no features move from backlog until the user approves.
-
-The plan should include:
+Output the complete sprint plan as text. SPRINT-DRAFT.md and task files are already written as compaction checkpoints — no statuses change and no features move from backlog until the user approves.
 
 **SPRINT [NNN] — [Goal]**
 - Features: list with IDs and titles
@@ -645,10 +643,10 @@ Then for each wave: task IDs + titles, execution (sequential/parallel), dependen
 **QUALITY GATE RESULTS** — from Step 9.5:
 - All checks passed, or flagged gaps
 
-**Exit plan mode** (`ExitPlanMode`) — triggers the built-in approval flow:
-- **Approve** → proceed to Step 11 (create sprint)
-- **Refine** → user gives feedback, iterate on specific tasks/waves
-- **Cancel** → use Edit to set `status: cancelled` in SPRINT-DRAFT.md frontmatter; for each task file created in Step 4, use Edit to set `status: cancelled`; use Edit to clear `tasks:` arrays in feature frontmatter. The `reap-obsolete` housekeeping subcommand reaps these later. No physical file deletion needed.
+Then use `AskUserQuestion` for approval:
+- **Approve (Recommended)** — create the sprint and proceed to Step 11
+- **Refine** — give feedback on specific tasks/waves, iterate
+- **Cancel** — cancel the sprint draft (sets `status: cancelled` in SPRINT-DRAFT.md and task files, clears `tasks:` arrays in feature frontmatter; `reap-obsolete` housekeeping reaps later)
 
 ### Step 11: Create Sprint (after approval)
 
