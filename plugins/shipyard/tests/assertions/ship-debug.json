@@ -155,5 +155,10 @@
     "name": "debug_evidence_references_captures",
     "type": "contains",
     "pattern": "capture: <debug-slug|capture name"
+  },
+  {
+    "name": "prohibits_bash_redirect_for_state",
+    "type": "contains",
+    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
   }
 ]

@@ -1,5 +1,15 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" plugin-data-breadcrumb"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Edit|Write|NotebookEdit|MultiEdit",
@@ -16,6 +26,15 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" tdd-check"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" block-bash-state-write"
           }
         ]
       },
@@ -67,6 +86,16 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" cwd-restore"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" agent-heartbeat"
           }
         ]
       }

@@ -159,8 +159,22 @@ while tasks remain incomplete:
          summary: "Spot-check failed for [TASK_ID]")
   3. For each blocked task (in_progress + lead received BLOCKED message):
      - Apply standard blocker handling from SKILL.md (reassign → swap-in → escalate → park)
-  4. Check for stuck tasks (in_progress, no BLOCKED message, no new commits)
-     — likely teammate crash (see recovery below)
+  4. Check teammate heartbeats for liveness:
+     For each active teammate with tasks in_progress:
+       Read <SHIPYARD_DATA>/agents/<FEATURE_ID>.heartbeat
+       Age = now - heartbeat.ts
+
+       if age > 5 minutes (heartbeat_stale_threshold):
+         SendMessage(type: "message", recipient: "teammate-FEATURE_ID",
+           content: "HEALTH CHECK: No activity for [N] minutes (last: [tool] on [target]). If stuck, report blocker. If working on a long operation, acknowledge.",
+           summary: "Health check for teammate-FEATURE_ID")
+
+       if age > 15 minutes (heartbeat_dead_threshold):
+         Log "Teammate FEATURE_ID appears dead — no tool call in [N] min"
+         Initiate crash recovery (see below)
+
+       if no heartbeat file exists:
+         Teammate may have failed before any tool call — initiate crash recovery
   5. Brief pause, then repeat
 ```
 
@@ -168,7 +182,7 @@ Exit the loop when all tasks show completed and spot-checks pass.
 
 ## Teammate Failure / Crash Recovery
 
-Detect: a task stays `in_progress` with no new commits in the worktree and no BLOCKED message received from the teammate.
+Detect: a teammate's heartbeat file at `<SHIPYARD_DATA>/agents/<FEATURE_ID>.heartbeat` is stale (>15 min since last tool call), absent, or the teammate has a task `in_progress` with no BLOCKED message and no new commits. The heartbeat is the primary signal — it fires on every tool call, so staleness means the agent is truly idle or dead, not just between commits.
 
 Recovery steps:
 1. **Salvage uncommitted work first** — `git -C <worktree-path> status --porcelain` to check for changes

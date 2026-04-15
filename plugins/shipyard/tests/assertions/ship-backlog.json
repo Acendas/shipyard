@@ -133,5 +133,10 @@
     "name": "backlog_ideas_section_omitted_when_empty",
     "type": "contains",
     "pattern": "omit the IDEAS section|no ideas.*omit"
+  },
+  {
+    "name": "prohibits_bash_redirect_for_state",
+    "type": "contains",
+    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
   }
 ]

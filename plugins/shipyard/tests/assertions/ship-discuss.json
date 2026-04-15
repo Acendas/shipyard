@@ -322,5 +322,10 @@
     "name": "triage_trigger_any_ideas",
     "type": "contains",
     "pattern": "any ideas"
+  },
+  {
+    "name": "prohibits_bash_redirect_for_state",
+    "type": "contains",
+    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
   }
 ]

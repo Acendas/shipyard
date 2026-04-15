@@ -140,12 +140,17 @@
   {
     "name": "status_indicator_for_needs_attention",
     "type": "contains",
-    "pattern": "⚠️ needs-attention|⚠ needs-attention|needs-attention.*⚠"
+    "pattern": "\u26a0\ufe0f needs-attention|\u26a0 needs-attention|needs-attention.*\u26a0"
   },
   {
     "name": "needs_attention_distinct_from_blocked",
     "type": "contains",
     "pattern": "needs-attention.*blocked|distinct from.*blocked|tried and failed",
     "dotall": true
+  },
+  {
+    "name": "prohibits_bash_redirect_for_state",
+    "type": "contains",
+    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
   }
 ]

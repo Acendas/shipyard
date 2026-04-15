@@ -21,6 +21,8 @@ You are setting up (or updating) Shipyard for this project.
 !`shipyard-data find-orphans`
 !`shipyard-context project-claude-md`
 
+**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
+
 ## Detect Mode
 
 **If context shows `LEGACY_SHIPYARD_DETECTED`** → MUST run legacy migration FIRST, before anything else. Do not skip this. Do not go to quick check. The `.shipyard/` directory in the project contains user data that needs to move to plugin data.

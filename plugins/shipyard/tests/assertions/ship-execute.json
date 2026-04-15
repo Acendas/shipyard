@@ -198,7 +198,7 @@
   {
     "name": "auto_pause_at_5",
     "type": "contains",
-    "pattern": "count [>=≥]+ ?5|count = 5|5 times this sprint|reconstructed 5 times"
+    "pattern": "count [>=\u2265]+ ?5|count = 5|5 times this sprint|reconstructed 5 times"
   },
   {
     "name": "warns_at_4",
@@ -1360,5 +1360,168 @@
     "name": "dispatch_prompt_mentions_subagent_stop",
     "type": "contains",
     "pattern": "SubagentStop hook will block"
+  },
+  {
+    "name": "fast_mode_in_detect_mode",
+    "type": "contains",
+    "pattern": "--fast.*[Ff]ast mode"
+  },
+  {
+    "name": "fast_mode_passed_to_builder",
+    "type": "contains",
+    "pattern": "Fast mode:.*yes.*--fast"
+  },
+  {
+    "name": "fast_mode_in_readiness_check",
+    "type": "contains",
+    "pattern": "fast mode"
+  },
+  {
+    "name": "fast_mode_in_step3",
+    "type": "contains",
+    "pattern": "fast mode.*builders write tests but skip all test execution",
+    "dotall": true
+  },
+  {
+    "name": "fast_mode_hotfix_ignored",
+    "type": "contains",
+    "pattern": "--fast.*ignored.*hotfix"
+  },
+  {
+    "name": "fast_mode_wave_boundary_skip_tests",
+    "type": "contains",
+    "pattern": "[Ff]ast mode.*skip wave.*scoped tests.*entirely",
+    "dotall": true
+  },
+  {
+    "name": "fast_mode_tdd_not_skipped_rule",
+    "type": "contains",
+    "pattern": "NEVER skip TDD.*fast mode.*deferred.*not skipped",
+    "dotall": true
+  },
+  {
+    "name": "builder_has_fast_mode_path",
+    "type": "contains",
+    "pattern": "Fast Mode Path.*4F.*5F.*6F.*7F",
+    "target": "agent:shipyard-builder",
+    "dotall": true
+  },
+  {
+    "name": "builder_fast_mode_no_test_execution",
+    "type": "contains",
+    "pattern": "Do NOT run",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "builder_fast_mode_writes_tests_first",
+    "type": "contains",
+    "pattern": "write tests before implementation.*4F before 5F",
+    "target": "agent:shipyard-builder",
+    "dotall": true
+  },
+  {
+    "name": "builder_fast_mode_gate",
+    "type": "contains",
+    "pattern": "Fast mode: yes",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "builder_fast_mode_skips_mutate",
+    "type": "contains",
+    "pattern": "Skip MUTATE entirely",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "tdd_cycle_ref_mentions_fast_mode",
+    "type": "contains",
+    "pattern": "Fast mode.*--fast",
+    "target": "ref:tdd-cycle.md"
+  },
+  {
+    "name": "has_heartbeat_check",
+    "type": "contains",
+    "pattern": "\\.heartbeat"
+  },
+  {
+    "name": "heartbeat_cleanup_on_sprint_end",
+    "type": "contains",
+    "pattern": "agents/.*heartbeat cleanup"
+  },
+  {
+    "name": "heartbeat_stale_detection",
+    "type": "contains",
+    "pattern": "idle.*minutes.*last tool|stale.*heartbeat"
+  },
+  {
+    "name": "heartbeat_context_to_fixer",
+    "type": "contains",
+    "pattern": "last activity.*fixer|heartbeat context.*fixer",
+    "dotall": true
+  },
+  {
+    "name": "heartbeat_crash_forensics_step0",
+    "type": "contains",
+    "pattern": "Stale heartbeats.*crashed session",
+    "dotall": true
+  },
+  {
+    "name": "builder_agents_named",
+    "type": "contains",
+    "pattern": "name:.*builder-"
+  },
+  {
+    "name": "heartbeat_hook_registered",
+    "type": "contains",
+    "pattern": "agent-heartbeat",
+    "target": "hooks:hooks.json"
+  },
+  {
+    "name": "heartbeat_hook_async",
+    "type": "contains",
+    "pattern": "\"async\":\\s*true",
+    "target": "hooks:hooks.json"
+  },
+  {
+    "name": "heartbeat_hook_no_stdout",
+    "type": "not_contains",
+    "pattern": "process\\.stdout",
+    "target": "script:agent-heartbeat.mjs"
+  },
+  {
+    "name": "heartbeat_hook_swallows_errors",
+    "type": "contains",
+    "pattern": "catch.*\\{[\\s]*//|catch.*\\{[\\s]*\\}",
+    "target": "script:agent-heartbeat.mjs",
+    "dotall": true
+  },
+  {
+    "name": "heartbeat_hook_worktree_detection",
+    "type": "contains",
+    "pattern": "worktrees.*[/\\\\]",
+    "target": "script:agent-heartbeat.mjs"
+  },
+  {
+    "name": "team_heartbeat_health_check",
+    "type": "contains",
+    "pattern": "HEALTH CHECK",
+    "target": "ref:team-mode.md"
+  },
+  {
+    "name": "team_heartbeat_dead_detection",
+    "type": "contains",
+    "pattern": "appears dead.*no tool call",
+    "target": "ref:team-mode.md",
+    "dotall": true
+  },
+  {
+    "name": "prohibits_bash_redirect_for_state",
+    "type": "contains",
+    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+  },
+  {
+    "name": "block_bash_state_write_hook_registered",
+    "type": "contains",
+    "pattern": "block-bash-state-write",
+    "target": "hooks:hooks.json"
   }
 ]

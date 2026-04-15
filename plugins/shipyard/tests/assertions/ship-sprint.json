@@ -381,5 +381,10 @@
     "name": "carryover_display_has_carried_over_ideas_section",
     "type": "contains",
     "pattern": "CARRIED-OVER IDEAS"
+  },
+  {
+    "name": "prohibits_bash_redirect_for_state",
+    "type": "contains",
+    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
   }
 ]

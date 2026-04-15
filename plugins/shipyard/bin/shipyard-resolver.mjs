@@ -19,8 +19,8 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
 /**
@@ -228,7 +228,7 @@ export function getDataDir(opts = {}) {
     }
   }
 
-  // 3. Legacy probe — only USE if it has a populated projects/ subdir.
+  // 3. Legacy probe — prefer if it has a populated projects/ subdir.
   // F10: On Windows with multi-drive setups, the auto-approve hook's
   // commonpath check fails when SHIPYARD_DATA and the project are on
   // different drives. Construct the legacy candidate on the project's
@@ -253,13 +253,33 @@ export function getDataDir(opts = {}) {
     }
   }
 
-  // 4. Fail loud if nothing resolved.
+  // 4. Read breadcrumb written by SessionStart hook.
+  // Claude Code exports CLAUDE_PLUGIN_DATA to hook subprocesses but NOT to
+  // skill `!` backtick subprocesses. The plugin-data-breadcrumb SessionStart
+  // hook writes the value to $TMPDIR/shipyard-<hash>.plugindata so that
+  // backtick-spawned resolver calls can find it. The breadcrumb is per-project
+  // (keyed by project hash) and survives across skill invocations within a
+  // session. It's written with mode 0600 and lives in the user's tmpdir.
+  if (!pluginData) {
+    const breadcrumb = join(tmpdir(), `shipyard-${projectHash}.plugindata`);
+    try {
+      const value = readFileSync(breadcrumb, "utf8").trim();
+      if (value && existsSync(value)) {
+        pluginData = value;
+      }
+    } catch {
+      // Breadcrumb doesn't exist or is unreadable — fall through.
+    }
+  }
+
+  // 5. Fail loud if nothing resolved.
   if (!pluginData) {
     const message =
       `shipyard-resolver: cannot resolve plugin data directory.\n` +
       `  CLAUDE_PLUGIN_DATA env var is not set.\n` +
       `  No plugin-data dir found relative to CLAUDE_PLUGIN_ROOT (=${pluginRoot ?? "(unset)"}).\n` +
       `  No legacy data dir at ${legacy}/projects/.\n` +
+      `  No breadcrumb at ${join(tmpdir(), `shipyard-${projectHash}.plugindata`)}.\n` +
       `Set CLAUDE_PLUGIN_DATA or upgrade Claude Code to a version that sets it automatically.\n`;
     if (opts.silent) {
       // In-process callers (hook-runner.mjs, shipyard-data.mjs CLI helpers)

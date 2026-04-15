@@ -20,7 +20,7 @@ You are facilitating a feature discovery conversation. This is fluid — not a q
 !`shipyard-context list epics`
 !`shipyard-context list features`
 
-**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. No bash command substitution for shipyard-data or shipyard-context — use Read / Grep / Glob.
+**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. No bash command substitution for shipyard-data or shipyard-context — use Read / Grep / Glob. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
 
 ## Input
 

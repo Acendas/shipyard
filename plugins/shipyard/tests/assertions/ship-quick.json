@@ -235,5 +235,10 @@
     "name": "bashoutput_not_in_allowed_tools",
     "type": "not_contains",
     "pattern": "allowed-tools:[^\\n]*BashOutput"
+  },
+  {
+    "name": "prohibits_bash_redirect_for_state",
+    "type": "contains",
+    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
   }
 ]

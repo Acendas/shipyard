@@ -2,6 +2,8 @@
 
 The complete TDD cycle for every task, regardless of execution mode.
 
+> **Fast mode (`--fast`):** When the orchestrator passes `Fast mode: yes` to the builder, steps 4–7 below are replaced by the fast mode path (4F–7F) defined in the builder agent body. Tests are written but not executed — validation defers to the full test suite at sprint completion (Step 5a of ship-execute). The rest of this document (ownership tracking, steps 1–3, steps 8–10, rules) still applies.
+
 ## Three-Tier Test Strategy
 
 Shipyard uses scoped testing to avoid burning tokens running the full suite on every change:

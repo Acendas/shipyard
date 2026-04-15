@@ -322,5 +322,10 @@
     "name": "simplification_scope_guard",
     "type": "contains",
     "pattern": "scope guard|only touches files in the sprint diff"
+  },
+  {
+    "name": "prohibits_bash_redirect_for_state",
+    "type": "contains",
+    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
   }
 ]

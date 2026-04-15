@@ -111,10 +111,29 @@ If you're on a `shipyard/wt-*` branch but the name doesn't match your assigned t
 1. **Read task spec** — understand the acceptance scenarios in the task/feature file. Read `## Technical Notes` in both the task file and parent feature file — they contain research findings (URLs, patterns, gotchas, confidence levels) from sprint planning. Follow them.
 2. **Read codebase** — check existing patterns, conventions, dependencies (past learnings auto-load via `.claude/rules/learnings/` when you touch relevant files). If a URL is listed in Technical Notes, WebFetch it for implementation details. If you hit an unknown not covered by the research, WebSearch it.
 3. **Plan** — decide approach, identify test boundaries
+
+**Check your prompt for `Fast mode: yes`.** If present, follow the **Fast Mode** path below instead of steps 4–7. If absent or `Fast mode: no`, follow the standard TDD path (steps 4–7).
+
+#### Standard TDD Path (steps 4–7)
+
 4. **RED** — write failing tests that match acceptance scenarios. **Run them via `shipyard-logcap run <TASK_ID>-red -- <scoped-test-command>`** — do NOT invoke the test runner directly. The logcap wrapper captures the failure output to a named file so a future compaction or re-read (step 9 VERIFY, post-subagent spot check, debug session) can `grep`/`tail` the same failure without re-running the whole suite. Re-running is the single most expensive thing you do; logcap is the "run once, read forever" primitive that makes it cheap.
 5. **GREEN** — write minimum code to pass tests. **Run them via `shipyard-logcap run <TASK_ID>-green -- <scoped-test-command>`**. Use a different capture name than RED so both failure and success are preserved side-by-side for comparison. If the green run fails, iterate on the implementation (not the test) and use capture names `<TASK_ID>-green-iter2`, `-iter3`, etc. — never overwrite a prior capture, always append an iteration suffix, so the full attempt history stays inspectable.
 6. **REFACTOR** — clean up, extract helpers, reduce duplication (tests still pass). **Run the verification via `shipyard-logcap run <TASK_ID>-refactor -- <scoped-test-command>`** — refactor regressions are a real risk and the capture gives you a pre/post diff target.
 7. **MUTATE** — flip a key conditional or value. At least one test must catch it. Run the mutation verification via `shipyard-logcap run <TASK_ID>-mutate -- <scoped-test-command>` — the capture proves (and remains as evidence) that the mutation was actually caught rather than silently passing.
+
+#### Fast Mode Path (replaces steps 4–7)
+
+**Why:** Fast mode optimises for throughput on large sprints. Tests are written but not executed during the task — all test validation defers to the full test suite at sprint completion. If sprint-end tests fail, a fixer subagent diagnoses and repairs. This eliminates 4+ subprocess invocations per task at the cost of delayed feedback.
+
+4F. **WRITE TESTS** — write tests that match acceptance scenarios, exactly as you would in the RED step. Place them in the correct test files with proper imports and assertions. **Do NOT run them.** You are writing tests that the sprint-completion test runner will execute later.
+5F. **IMPLEMENT** — write the minimum code to satisfy acceptance scenarios. Use the tests you just wrote as your specification — if the test asserts X, implement X. **Do NOT run tests.** Trust your implementation against the test contract you wrote.
+6F. **REFACTOR** — clean up, extract helpers, reduce duplication. Keep it brief — without a test runner confirming no regressions, limit refactoring to obvious improvements (dead code removal, extract obvious helper). Skip aggressive restructuring.
+7F. **Skip MUTATE entirely** — mutation testing requires running tests, which fast mode defers.
+
+**Fast mode does NOT change steps 8–12.** VISUAL VERIFY, VERIFY (spec re-read), CAPTURE DEFERRED UNKNOWNS, COMMIT, and LEARN all run as normal. The VERIFY step is especially important in fast mode — without test feedback, the spec re-read is your only pre-commit quality check.
+
+---
+
 8. **VISUAL VERIFY** — for UI tasks: screenshots at mobile/tablet/desktop
 9. **VERIFY** — re-read the task spec in full. Two checks:
    - **Acceptance scenarios**: for each scenario, confirm the implementation genuinely satisfies it — not just "tests pass" but the feature actually works. Check artifacts are connected: imports exist, routes registered, components rendered, API endpoints wired.
@@ -126,7 +145,9 @@ If you're on a `shipyard/wt-*` branch but the name doesn't match your assigned t
 
 ## Test Scoping
 
-During TDD (steps 4–7), run **only the tests for your task** — tests you wrote or that directly test the feature you're working on. Never run the full test suite during development. This saves tokens and keeps feedback loops fast.
+**In fast mode (steps 4F–7F):** you do not run tests at all — write them, but execution is deferred to the wave boundary. Skip the rest of this section.
+
+**In standard mode (steps 4–7):** run **only the tests for your task** — tests you wrote or that directly test the feature you're working on. Never run the full test suite during development. This saves tokens and keeps feedback loops fast.
 
 Scope tests by:
 - Running specific test files by path
@@ -227,7 +248,7 @@ The capture rule is: *would a future engineer regret not knowing this?* If yes, 
 
 ## Rules
 
-- **Never skip TDD.** Tests first, always.
+- **Never skip TDD.** Tests first, always. In fast mode you still write tests before implementation (step 4F before 5F) — you just don't run them.
 - **Never modify test assertions to make them pass.** Fix the implementation.
 - **Never build beyond acceptance criteria.** If it's not in the acceptance criteria, don't build it.
 - **Never dismiss a failing test without checking git ownership first.**

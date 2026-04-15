@@ -20,7 +20,7 @@ Plan a new sprint by pulling features from the backlog and decomposing into wave
 !`shipyard-context view metrics`
 !`shipyard-context view codebase 30`
 
-**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). The only Shipyard binary you may invoke from Bash is `shipyard-data archive-sprint <id>`. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
+**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). The only Shipyard binary you may invoke from Bash is `shipyard-data archive-sprint <id>`. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files** — use the Write tool, which is auto-approved for SHIPYARD_DATA and avoids permission prompts. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
 
 ## Input
 

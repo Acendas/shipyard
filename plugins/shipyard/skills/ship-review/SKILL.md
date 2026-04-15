@@ -20,7 +20,7 @@ Verify completed work against spec. Auto-test, screenshot, demo to user, get app
 !`shipyard-context view sprint-progress`
 !`shipyard-context view metrics 50`
 
-**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Bash is for project tests, git, and `shipyard-data archive-sprint <id>` (Release stage) only — never for reading Shipyard state. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
+**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Bash is for project tests, git, and `shipyard-data archive-sprint <id>` (Release stage) only — never for reading or writing Shipyard state. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files** — use the Write tool, which is auto-approved for SHIPYARD_DATA and avoids permission prompts. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
 
 ## Input
 

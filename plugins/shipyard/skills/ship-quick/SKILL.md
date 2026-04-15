@@ -21,7 +21,7 @@ Execute a one-off task outside of sprint planning but with Shipyard's guarantees
 
 ## Path Rules
 
-All file ops use the absolute SHIPYARD_DATA prefix from the context block. **No `~`, `$HOME`, or shell variables in `file_path`** — the hooks resolve paths via a shared resolver, and a tilde in `file_path` lands state in the wrong data dir on worktrees. **No bash invocation of `shipyard-data` or `shipyard-context`** in this skill body — use Read / Grep / Glob. The `!`-prefixed context block at the top is the only sanctioned place to shell out to the plugin CLIs.
+All file ops use the absolute SHIPYARD_DATA prefix from the context block. **No `~`, `$HOME`, or shell variables in `file_path`** — the hooks resolve paths via a shared resolver, and a tilde in `file_path` lands state in the wrong data dir on worktrees. **No bash invocation of `shipyard-data` or `shipyard-context`** in this skill body — use Read / Grep / Glob. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA). The `!`-prefixed context block at the top is the only sanctioned place to shell out to the plugin CLIs.
 
 ## Input
 

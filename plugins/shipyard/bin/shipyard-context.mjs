@@ -279,7 +279,16 @@ const SKILL_SLUG_RE = /^ship-[a-z0-9][a-z0-9-]{0,63}$/;
 const REF_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 function main() {
-  const sd = getDataDir({ silent: true });
+  let sd;
+  try {
+    sd = getDataDir({ silent: true });
+  } catch (e) {
+    if (e instanceof ShipyardResolverError) {
+      process.stderr.write(e.message);
+      process.exit(1);
+    }
+    throw e;
+  }
   if (!sd) {
     process.stderr.write("ERROR: Could not resolve Shipyard data directory\n");
     process.exit(1);

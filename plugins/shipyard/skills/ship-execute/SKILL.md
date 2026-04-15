@@ -4,7 +4,7 @@ description: "Execute the current sprint by running tasks in waves with strict t
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, TeamCreate, TeamDelete, TaskCreate, TaskUpdate, TaskGet, TaskList, SendMessage]
 model: sonnet
 effort: medium
-argument-hint: "[--task ID] [--hotfix ID] [--mode solo|subagent|team]"
+argument-hint: "[--task ID] [--hotfix ID] [--mode solo|subagent|team] [--fast]"
 ---
 
 # Shipyard: Sprint Execution
@@ -20,7 +20,7 @@ Execute sprint tasks following the wave plan. Every task follows Red → Green �
 !`shipyard-context view sprint-progress`
 !`shipyard-context view codebase`
 
-**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Bash is for project test commands, git, and `shipyard-data with-lock sprint -- <cmd>` only — never for reading Shipyard state. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
+**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Bash is for project test commands, git, and `shipyard-data with-lock sprint -- <cmd>` only — never for reading or writing Shipyard state. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files** — use the Write tool, which is auto-approved for SHIPYARD_DATA and avoids permission prompts. A PreToolUse hook will block Bash redirects to SHIPYARD_DATA paths. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
 
 ## Input
 
@@ -85,6 +85,7 @@ This prevents the failure mode where a discussion is in progress in one terminal
 - `--task T001` → Execute single task only
 - `--hotfix B-HOT-001` → Hotfix mode (branch from main, bypass sprint)
 - `--mode solo|subagent|team` → Override execution mode
+- `--fast` → **Fast mode.** Builders write tests alongside implementation but skip all test execution during tasks (no RED/GREEN/REFACTOR/MUTATE runs). Wave boundaries run only the scoped build (no wave-scoped tests). All test validation defers to the full test suite at sprint completion (Step 5a). If sprint-end tests fail, a fixer subagent is spawned as normal. Trades per-task and per-wave feedback for speed on large sprints where tasks are straightforward.
 - No args → Execute full sprint from current wave
 
 ---
@@ -147,6 +148,14 @@ git worktree list
 ```
 
 If the listing shows no `shipyard/wt-*` paths, **skip to Step 1**. Otherwise, salvage each one as described below.
+
+**Check for stale heartbeat files** before salvaging worktrees. Read all files in `<SHIPYARD_DATA>/agents/`. For each `.heartbeat` file found, parse and report:
+```
+Stale heartbeats from crashed session:
+  T003: last activity Edit on src/auth.ts at 2026-04-14T10:23:00+00:00
+  T004: last activity Bash at 2026-04-14T10:24:12+00:00
+```
+This tells you what the crashed agents were doing when the session died — useful context for understanding whether salvaged work is complete or mid-edit. Delete all heartbeat files after reporting.
 
 If worktrees exist, salvage all of them before proceeding:
 
@@ -224,7 +233,7 @@ Output the readiness check as text:
 **READINESS CHECK**
 - Branch: `[current branch]` — [matches SPRINT.md / mismatch warning / ⚠️ ON WORKTREE BRANCH]
 - Uncommitted changes: [none / list of changed files]
-- Execution mode: [solo / subagent / team]
+- Execution mode: [solo / subagent / team] [+ fast mode if --fast]
 - Worktree probe: [pass / fail / skipped (solo mode)]
 - Total: [N] tasks across [M] waves
 - Teammates: [N feature tracks, M concurrent (max `max_parallel_agents`), K queued] (team mode only)
@@ -334,6 +343,7 @@ The `shipyard-builder` agent body is the canonical contract — branch verificat
 
 ```
 For each task in the wave, spawn Agent with:
+  name: "builder-[TASK_ID]"
   subagent_type: shipyard:shipyard-builder
   isolation: worktree  (subagent mode, probe passed) or omit (solo mode or manual_worktrees)
   prompt: |
@@ -348,6 +358,8 @@ For each task in the wave, spawn Agent with:
     - .claude/rules/*.md (ALL project rules, not just shipyard-*)
 
     Read Technical Notes in task and feature files first — they contain research findings (URLs, patterns, gotchas) from sprint planning. WebFetch listed URLs for details. WebSearch unknowns.
+
+    Fast mode: [yes/no — set to "yes" if --fast flag was passed, "no" otherwise]
 
     Test scoping: only task-tier tests (unit + the tests you write for this task). Full-suite runs happen at sprint completion, not during task work.
 
@@ -470,15 +482,24 @@ Spot-check each subagent before merging. The check differs by task kind — read
 
 **This is the last line of defense** against silent-pass regression across all three kinds. Even if the router drifts, the builder guard drifts, and the operational/research dispatchers drift, these checks catch the exact failure modes: operational tasks marked done without captured command output, research tasks marked done without a substantive findings doc.
 
+**Heartbeat check (subagent and team modes only)** — after the kind-specific checks above, read the agent's heartbeat file at `<SHIPYARD_DATA>/agents/<TASK_ID>.heartbeat` (or `<FEATURE_ID>.heartbeat` in team mode). **Skip in solo mode** — solo agents run without worktree isolation, so no heartbeat file is written (the hook infers agent identity from the worktree CWD path).
+- **File exists:** parse the `ts` and `tool` fields.
+  - If the last heartbeat was >5 minutes before the agent returned → log warning to PROGRESS.md deviations: "Agent <TASK_ID> was idle for N minutes before returning (last tool: `<tool>` on `<target>`)"
+  - If re-dispatching a fixer, pass heartbeat context in the prompt: "Previous builder's last activity was `<tool>` on `<target>` at `<ts>` — it may have been stuck there."
+- **No file** → the agent may have failed before making any tool call (API error on first turn, hook failure, etc.). Proceed to the existing salvage flow — the absence itself is diagnostic.
+- **Delete the heartbeat file** after processing (prevents stale data from confusing the next wave).
+
 Rebase and merge verified worktree branches back to the working branch (subagent/team mode — feature tasks only; operational tasks run on the working branch without worktrees).
 
 ### Step 3: Per-Task Execution (THE TDD CYCLE)
 
-For every task, regardless of mode, follow the TDD cycle — write the test first, then the code to make it pass:
+For every task, regardless of mode, follow the TDD cycle — write the test first, then the code to make it pass.
+
+**In fast mode (`--fast`):** builders write tests but skip all test execution during tasks (no RED/GREEN/REFACTOR/MUTATE runs). Wave boundaries skip tests too — only the scoped build runs. All test validation defers to the full test suite at sprint completion (Step 5a). The builder agent body defines the fast mode path (steps 4F–7F). Everything else (spec reading, planning, verify, commit) is unchanged.
 
 **Read the full cycle details:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/tdd-cycle.md`
 
-Summary:
+Summary (standard mode):
 1. **READ SPEC** → understand what to build
 2. **READ CODEBASE** → check existing patterns
 3. **PLAN** → decide approach
@@ -491,8 +512,8 @@ Summary:
 
 Key rules:
 - Tests MUST be written before implementation (Red first)
-- Tests MUST fail before implementation exists
-- Mutation: flip a key line — at least one test must catch it
+- Tests MUST fail before implementation exists (skipped in fast mode — tests are written but not run)
+- Mutation: flip a key line — at least one test must catch it (skipped in fast mode)
 - Commit format: `feat(TASK_ID): [description]`
 - Update task file status to `done` after each task (single source of truth for task status)
 - Log session progress in PROGRESS.md (session notes, blockers, deviations — NOT task completion status)
@@ -521,7 +542,7 @@ Between waves (each wave is a group of tasks that ran together):
   Return: PASS or FAIL with first error.
   ```
   If the scoped build fails → do NOT proceed to tests. Spawn a `shipyard:shipyard-builder` subagent to fix build errors first.
-- **Delegate WAVE-SCOPED tests to a test subagent** — collect the source and test files touched by this wave's tasks (from each task's Technical Notes `files-to-modify` + the test files written by builders). Spawn `Agent` with `subagent_type: shipyard:shipyard-test-runner` (no worktree). Pass it `test_commands.scoped` from config with the file/module paths to scope the run. This runs only the tests relevant to this wave's work — not the full suite. Full build + full test suite runs once at sprint completion (Step 5a).
+- **Delegate WAVE-SCOPED tests to a test subagent (skip in fast mode)** — collect the source and test files touched by this wave's tasks (from each task's Technical Notes `files-to-modify` + the test files written by builders). Spawn `Agent` with `subagent_type: shipyard:shipyard-test-runner` (no worktree). Pass it `test_commands.scoped` from config with the file/module paths to scope the run. This runs only the tests relevant to this wave's work — not the full suite. Full build + full test suite runs once at sprint completion (Step 5a).
   ```
   Run scoped tests for wave [N] tasks.
   Scope: [file/module paths from wave tasks' Technical Notes]
@@ -529,7 +550,8 @@ Between waves (each wave is a group of tasks that ran together):
   Return the structured summary.
   ```
   If `test_commands.scoped` is not configured, fall back to `test_commands.unit` (still cheaper than integration). Only fall back to `test_commands.integration` if neither scoped nor unit commands exist.
-- **If wave-scoped tests FAIL** → do NOT fix directly. Spawn a `shipyard:shipyard-builder` subagent (no worktree) with the failure summary and prompt (substitute literal SHIPYARD_DATA): "Fix the failing tests. Read `git.main_branch` from `<SHIPYARD_DATA>/config.md`. Run `git diff $(git merge-base HEAD [main_branch])...HEAD --name-only` to identify in-scope files — only fix errors in files in that diff." Rerun the scoped tests after the fixer returns. If still failing → Write a bug file at `<SHIPYARD_DATA>/spec/bugs/B-INT-[slug].md` with failure details and AskUserQuestion to escalate.
+  **In fast mode:** skip wave-scoped tests entirely. All test validation defers to the full test suite at sprint completion (Step 5a). Continue directly to the next wave after the build passes.
+- **If wave-scoped tests FAIL** (standard mode only) → do NOT fix directly. Spawn a `shipyard:shipyard-builder` subagent (no worktree) with the failure summary and prompt (substitute literal SHIPYARD_DATA): "Fix the failing tests. Read `git.main_branch` from `<SHIPYARD_DATA>/config.md`. Run `git diff $(git merge-base HEAD [main_branch])...HEAD --name-only` to identify in-scope files — only fix errors in files in that diff." Rerun the scoped tests after the fixer returns. If still failing → Write a bug file at `<SHIPYARD_DATA>/spec/bugs/B-INT-[slug].md` with failure details and AskUserQuestion to escalate.
 - Verify all tasks in completed wave satisfy their acceptance criteria
 - Check for gaps (acceptance scenario without implementation)
 - If gaps found → create patch tasks, add to next wave
@@ -585,6 +607,7 @@ When all waves done:
 - If regression failures: do NOT fix code or lint errors directly. Spawn a `shipyard:shipyard-builder` subagent (no worktree) with the failure summary and instructions to fix all failures. At sprint level the branch owns all errors — do not scope to the diff. Verify a new commit exists after it returns. Re-run the test subagent to confirm clean before proceeding.
 
 **5b. Finalize**
+- Delete `<SHIPYARD_DATA>/agents/` directory if it exists (heartbeat cleanup — clean slate for next sprint)
 - Update SPRINT.md frontmatter: `status: completed` and `completed_at: <current ISO 8601 timestamp>` (write both in the same edit)
 - Features remain `in-progress` — only `/ship-review` transitions features to `done` after user approval
 - Report:
@@ -606,6 +629,8 @@ Execute just one task following the TDD cycle above. Useful for:
 - Re-executing a failed task
 - Running a patch task
 
+`--fast` applies normally in single-task mode — the builder writes tests but doesn't run them. Only the scoped build runs after the task completes (no wave-scoped tests). Full test suite runs at sprint completion.
+
 ---
 
 ## HOTFIX Mode (--hotfix)
@@ -617,6 +642,8 @@ Execute just one task following the TDD cycle above. Useful for:
 5. Report: "Hotfix ready. Review with /ship-review --hotfix B-HOT-NNN"
 
 Shipyard does not create branches, merge, or push for hotfixes — the user handles their own git workflow. Hotfix does NOT affect sprint state or velocity.
+
+**`--fast` is ignored in hotfix mode.** Hotfixes always run the full TDD cycle including test execution — the regression test is the whole point.
 
 ---
 
@@ -734,7 +761,7 @@ When auto-fixing, log in PROGRESS.md:
 
 ## Rules
 
-- NEVER skip TDD. No exceptions.
+- NEVER skip TDD. No exceptions. (In fast mode, TDD is deferred to sprint completion, not skipped — builders still write tests before implementation.)
 - NEVER modify test assertions to pass. Fix the implementation.
 - NEVER build beyond acceptance criteria.
 - ALWAYS commit atomically per task.

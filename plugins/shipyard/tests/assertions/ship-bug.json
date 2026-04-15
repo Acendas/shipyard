@@ -100,5 +100,10 @@
     "name": "no_sd_shell_var_assignment",
     "type": "not_contains",
     "pattern": "SD=\\$\\(shipyard-data"
+  },
+  {
+    "name": "prohibits_bash_redirect_for_state",
+    "type": "contains",
+    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
   }
 ]
