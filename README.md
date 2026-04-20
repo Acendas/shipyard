@@ -100,19 +100,23 @@ The result: **the intent you expressed in a conversation becomes a machine-verif
 
 ## Install
 
+Shipyard is distributed through the [Acendas marketplace](https://github.com/Acendas/acendas-marketplace).
+
 **Add the marketplace and install the plugin:**
 
 ```bash
-/plugin marketplace add acendas/shipyard
+/plugin marketplace add Acendas/acendas-marketplace
 /plugin install shipyard@acendas
 ```
 
 Or from the CLI outside a session:
 
 ```bash
-claude plugin marketplace add acendas/shipyard
+claude plugin marketplace add Acendas/acendas-marketplace
 claude plugin install shipyard@acendas
 ```
+
+The marketplace pins Shipyard to a released version tag (not `main`) — so every install is deterministic. To pick up a new release, run `/plugin marketplace update` then `/plugin install shipyard@acendas` again.
 
 Then initialize any project:
 
