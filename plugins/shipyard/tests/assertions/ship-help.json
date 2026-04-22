@@ -6,12 +6,6 @@
     "value": "ship-help"
   },
   {
-    "name": "uses_sonnet",
-    "type": "frontmatter_field",
-    "field": "model",
-    "value": "sonnet"
-  },
-  {
     "name": "has_question_mode",
     "type": "contains",
     "pattern": "question|Mode 1"

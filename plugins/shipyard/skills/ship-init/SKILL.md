@@ -2,7 +2,6 @@
 name: ship-init
 description: "Initialize or update a Shipyard project — configure settings, create directory structure, and analyze codebase. Use this when the user wants to set up Shipyard in a new project, reconfigure an existing project, re-analyze the codebase after changes, or update Shipyard tool files."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, Agent, AskUserQuestion, WebSearch, WebFetch]
-model: sonnet
 effort: medium
 argument-hint: ""
 ---

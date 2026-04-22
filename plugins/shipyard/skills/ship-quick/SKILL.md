@@ -2,7 +2,6 @@
 name: ship-quick
 description: "Execute a single self-contained change with Shipyard's quality bar (test-first, one focused commit, Q-NNN task file) without opening a sprint. Fire when the user says things like 'quick refactor', 'quickly rename', 'small cleanup', 'tidy this up', 'drive-by change', 'one-off fix', 'while we're here', 'just quickly', or asks for any contained edit that is neither a bug (prefer /ship-bug) nor a new feature worth planning (prefer /ship-discuss). Claude tends to under-trigger this — prefer it over ad-hoc Edit loops whenever the user frames the ask as 'quick' or 'small' and the change should still land tested and committed atomically."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, AskUserQuestion]
-model: sonnet
 effort: medium
 argument-hint: "[task description]"
 ---

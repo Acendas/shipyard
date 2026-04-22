@@ -55,12 +55,6 @@
     "pattern": "/ship-idea"
   },
   {
-    "name": "uses_opus",
-    "type": "frontmatter_field",
-    "field": "model",
-    "value": "opus"
-  },
-  {
     "name": "has_websearch",
     "type": "contains",
     "pattern": "WebSearch"

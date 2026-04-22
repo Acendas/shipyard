@@ -1,11 +1,5 @@
 [
   {
-    "name": "uses_sonnet",
-    "type": "frontmatter_field",
-    "field": "model",
-    "value": "sonnet"
-  },
-  {
     "name": "has_diagnose_subcommand",
     "type": "contains",
     "pattern": "shipyard-context diagnose"

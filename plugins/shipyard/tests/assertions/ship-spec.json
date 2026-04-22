@@ -10,12 +10,6 @@
     "pattern": "status|[Aa]rchive"
   },
   {
-    "name": "uses_sonnet",
-    "type": "frontmatter_field",
-    "field": "model",
-    "value": "sonnet"
-  },
-  {
     "name": "has_frontmatter_name",
     "type": "frontmatter_field",
     "field": "name",

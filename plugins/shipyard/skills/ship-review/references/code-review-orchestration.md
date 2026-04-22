@@ -30,7 +30,9 @@ You (the orchestrating skill, in user's session — opus[1m] recommended)
       └─ shipyard:shipyard-investigator × N (one per high-stakes finding)
 ```
 
-The skill stays on whatever model the user selected (recommend opus[1m] for code review). Wave-1 scanners run on sonnet (parallel cost matters; they're focused pattern matchers). The investigator runs on opus (reasoning matters; one finding at a time).
+The skill stays on whatever model the user selected (recommend Opus, which is GA at 1M, for code review on large diffs). Wave-1 scanners run on Sonnet (parallel cost matters; they're focused pattern matchers). Sonnet GA is 200K context — fine for narrow scanners since each one only sees its slice of the diff plus the files it grep-walks. The investigator runs on Opus (reasoning matters; one finding at a time).
+
+> **Heads-up on the 1M billing gate.** Anthropic's Claude Code currently has a known bug where a skill with `model: sonnet` invoked from an Opus-1M session can resolve to `sonnet[1m]` and trip the "Extra usage required for 1M context" gate (Sonnet 1M requires extra-usage even on Max). Tracking: github.com/anthropics/claude-code/issues/45847. If you hit it, switch to a standard-context Sonnet via `/model` or enable `/extra-usage`. Our scanners do not need 1M.
 
 ---
 

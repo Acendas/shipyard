@@ -2,7 +2,6 @@
 name: ship-sprint
 description: "Plan a new sprint — break features into tasks, find the critical path, and group tasks into waves for parallel execution. Or cancel an active sprint. Use when the user wants to start a sprint, plan work, pull features from backlog into a sprint, cancel a running sprint, or organize tasks into execution waves."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
-model: opus
 effort: high
 argument-hint: "[--cancel]"
 ---

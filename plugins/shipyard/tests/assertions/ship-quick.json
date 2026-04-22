@@ -21,12 +21,6 @@
     "value": "ship-quick"
   },
   {
-    "name": "uses_sonnet",
-    "type": "frontmatter_field",
-    "field": "model",
-    "value": "sonnet"
-  },
-  {
     "name": "has_execution_lock",
     "type": "contains",
     "pattern": "\\.active-execution\\.json"

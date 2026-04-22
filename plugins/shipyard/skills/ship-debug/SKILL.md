@@ -2,7 +2,6 @@
 name: ship-debug
 description: "Systematic debugging with persistent state that survives session breaks and /clear. Use when the user reports a bug, something isn't working, tests are failing, they're stuck on an error, or they want to investigate unexpected behavior. Also use when the user says 'debug', 'investigate', 'why is this broken', or 'help me fix this'."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, AskUserQuestion, "Bash(shipyard-context:*)", "Bash(shipyard-logcap:*)", "Bash(shipyard-data:*)"]
-model: sonnet
 effort: high
 argument-hint: "[description of the problem] [--resume]"
 ---

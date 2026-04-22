@@ -2,7 +2,6 @@
 name: ship-review
 description: "Run multi-agent code review (security, bugs, silent failures, patterns, tests, spec) plus spec verification, retrospective, and release. Auto-fixes findings until clean. Use when the user wants to review completed work, verify a feature, see a demo, check if tests pass, approve sprint results, run a retro, analyze velocity, or wrap up a sprint."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion]
-model: opus
 effort: high
 argument-hint: "[feature ID] [--demo] [--hotfix ID] [--retro-only] [--skip-code-review]"
 ---

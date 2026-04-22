@@ -6,7 +6,7 @@ This is the single source of truth for how Shipyard tracks auto-compaction durin
 
 Claude Code auto-compacts the conversation when its context window fills. Each compaction is a **lossy summarisation**: fine-grained tool-call history, intermediate reasoning, and partial file reads are collapsed into a few summary paragraphs. After several compactions in the same session, Claude is operating on a summary of a summary of a summary and the loss accumulates — you start to see forgotten file paths, wrong variable names, and confident hallucinations about code that does not exist.
 
-The counter exists to detect this quality degradation and recommend a fresh session **before** Claude starts making things up mid-sprint. It is a **quality hygiene** signal, not a quota signal. On 1M-context models rate limits hit long before compaction does — this counter is about working-memory fidelity, not about running out of tokens.
+The counter exists to detect this quality degradation and recommend a fresh session **before** Claude starts making things up mid-sprint. It is a **quality hygiene** signal, not a quota signal. On 1M-context models (currently Opus only) rate limits hit long before compaction does — this counter is about working-memory fidelity, not about running out of tokens. On 200K-context models (Sonnet GA, since the 1M Sonnet beta retired April 30, 2026) compaction fires meaningfully sooner, so the same counter doubles as an earlier warning that the session is filling.
 
 ## The previous design (and why it was broken)
 
@@ -73,13 +73,17 @@ Current values (see `post-compact.mjs` constants and `ship-execute/SKILL.md` wav
 | 4 | Warn in wave report | Working memory is measurably degraded — the summary now contains summaries of summaries. Give the user a heads-up. |
 | 5+ | Auto-pause at the next wave boundary | Beyond this, hallucination risk is high enough that continuing is strictly worse than a fresh resume. Paused work is recoverable; corrupted work is not. |
 
-Shipyard targets 1M-context Claude models — both Opus and Sonnet are generally available with 1M windows, and there is no 200k fallback to support. The thresholds are hardcoded as module constants in `post-compact.mjs` (`COMPACTION_WARN_AT`, `COMPACTION_PAUSE_AT`) and should stay hardcoded unless a future model changes compaction semantics enough to warrant re-tuning.
+Shipyard targets the current GA Claude lineup. **Opus** (4.6 / 4.7) is GA with a 1M context window at standard pricing. **Sonnet** (4.6) is GA at 200K only — the `context-1m-2025-08-07` beta header for Sonnet 4.5 / 4 was retired April 30, 2026, and Sonnet 4.6 never carried 1M to GA. There is no longer a "1M everywhere" assumption to lean on.
+
+The thresholds are hardcoded as module constants in `post-compact.mjs` (`COMPACTION_WARN_AT`, `COMPACTION_PAUSE_AT`). They were tuned for the prior world where ship-execute typically ran in a 1M window. With Sonnet now at 200K, a long sprint on Sonnet will compact more often per unit of wall-clock work — the warn (4) and pause (5) thresholds may fire sooner than they used to. That is a feature, not a bug: the counter still measures the same thing (working-memory fidelity), the user just gets the same auto-pause earlier on shorter-context models.
 
 The thresholds deliberately sit well above where they used to (warn 2 / pause 3) because:
 
-- 1M context plus Shipyard's lean orchestrator design (delegation to subagents, file-backed state) means far fewer compactions per hour of wall-clock work than the old 200k era.
-- The old thresholds were calibrated for a world where compaction pressure correlated with quota exhaustion. That conflation is no longer true on 1M plans — rate limits hit first, and compaction is purely a working-memory fidelity signal.
+- Shipyard's lean orchestrator design (delegation to subagents, file-backed state) means far fewer compactions per hour of wall-clock work than naive long-running flows.
 - Auto-pausing a sprint mid-flow is disruptive — the cost of a false positive is high. Raising the bar trades slightly later fidelity warnings for far fewer spurious pauses.
+- On a 1M-context Opus session, rate limits hit long before compaction does anyway, so the counter is purely a working-memory fidelity signal there. On a 200K-context Sonnet session the counter is *also* a fidelity signal, just with less runway between warn and pause in wall-clock terms.
+
+If a future change makes ship-execute run reliably on Opus (1M) only — or if pause-at-5 turns out to be too late on Sonnet 200K — re-tune the constants here, not in skill bodies.
 
 ## Wording
 

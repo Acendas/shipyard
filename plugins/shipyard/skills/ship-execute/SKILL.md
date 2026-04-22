@@ -2,7 +2,6 @@
 name: ship-execute
 description: "Execute the current sprint by running tasks in waves with strict test-driven development (write tests first, then code). Supports solo, subagent, and team execution modes. Use when the user wants to start building, execute sprint tasks, run a specific task, apply a hotfix, or resume execution after a break."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, TeamCreate, TeamDelete, TaskCreate, TaskUpdate, TaskGet, TaskList, SendMessage]
-model: sonnet
 effort: medium
 argument-hint: "[--task ID] [--hotfix ID] [--mode solo|subagent|team] [--fast]"
 ---
@@ -565,7 +564,7 @@ Between waves (each wave is a group of tasks that ran together):
 
   **Auto-continue to the next wave without pausing.** The orchestrator stays lean (~10-15% context) by delegating to subagents. Do not suggest `/clear`, do not suggest re-invoking `/ship-execute`, do not ask "do you want to continue?" — just proceed to the next wave.
 
-  **Context pressure detection:** At each wave boundary, use the Read tool on `<SHIPYARD_DATA>/.active-execution.json` (substitute SHIPYARD_DATA from the context block). Parse the JSON and read the `compaction_count` field. Treat a missing field as `0`. Thresholds (tuned for 1M-context models):
+  **Context pressure detection:** At each wave boundary, use the Read tool on `<SHIPYARD_DATA>/.active-execution.json` (substitute SHIPYARD_DATA from the context block). Parse the JSON and read the `compaction_count` field. Treat a missing field as `0`. Thresholds (calibrated for long-running execution; see `references/context-pressure.md` for current model-context assumptions — Opus is 1M GA, Sonnet is 200K GA):
   - **count ≤ 3** → note it in passing, continue normally
   - **count = 4** → warn in wave report: "⚠ Context summarised 4 times — working memory is degrading. One more compaction will trigger an auto-pause recommendation."
   - **count ≥ 5** → **auto-pause at this wave boundary.** Use the Write tool to write HANDOFF.md, then use Write to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel — clears the lock AND the counter in one write), and tell the user:
@@ -574,7 +573,7 @@ Between waves (each wave is a group of tasks that ran together):
     Working memory is degrading. Progress saved.
     Run: /clear then /ship-execute (resumes from Wave [N+1] with a fresh window)
     ```
-    The pause is a quality decision, not a quota decision. On 1M-context models you have plenty of runway left — but each auto-compaction is a lossy summarisation, and by count 5 Claude is operating on a summary-of-a-summary-of-a-summary and starting to make things up. A fresh window restores full working memory.
+    The pause is a quality decision, not a quota decision. Each auto-compaction is a lossy summarisation; by count 5 Claude is operating on a summary-of-a-summary-of-a-summary and starting to make things up. A fresh window restores full working memory. (On Opus 1M sessions you also have plenty of token runway left at this point; on Sonnet 200K sessions the runway is shorter, but the fidelity argument is the same.)
 
   The counter is a field on the execution lock itself, managed by the PostCompact hook and gated by the lock's `tracks_compaction_pressure` flag. No separate reset step — the counter lives and dies with the lock. Full contract in `references/context-pressure.md`.
 

@@ -81,12 +81,6 @@
     "value": "ship-init"
   },
   {
-    "name": "uses_sonnet",
-    "type": "frontmatter_field",
-    "field": "model",
-    "value": "sonnet"
-  },
-  {
     "name": "has_fresh_install_mode",
     "type": "contains",
     "pattern": "FRESH|fresh install"

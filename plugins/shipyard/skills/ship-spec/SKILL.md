@@ -2,8 +2,6 @@
 name: ship-spec
 description: "View, browse, search, and manage the product specification. Use when the user wants to see the spec, look up a feature or epic by ID, search for something in the spec, change a feature status, move features between epics, archive spec items, or absorb an external document into the spec."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
-model: sonnet
-effort: medium
 argument-hint: "[feature/epic ID] or [search term] or [subcommand]"
 ---
 

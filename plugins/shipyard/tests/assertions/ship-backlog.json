@@ -21,12 +21,6 @@
     "value": "ship-backlog"
   },
   {
-    "name": "uses_sonnet",
-    "type": "frontmatter_field",
-    "field": "model",
-    "value": "sonnet"
-  },
-  {
     "name": "has_rank_mode",
     "type": "contains",
     "pattern": "rank"

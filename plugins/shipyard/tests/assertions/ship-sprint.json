@@ -76,12 +76,6 @@
     "value": "ship-sprint"
   },
   {
-    "name": "uses_opus",
-    "type": "frontmatter_field",
-    "field": "model",
-    "value": "opus"
-  },
-  {
     "name": "has_simplification_scan_step",
     "type": "contains",
     "pattern": "Step 3\\.75.*[Ss]implification"
