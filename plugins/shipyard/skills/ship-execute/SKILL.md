@@ -84,6 +84,7 @@ This prevents the failure mode where a discussion is in progress in one terminal
 - `--task T001` → Execute single task only
 - `--hotfix B-HOT-001` → Hotfix mode (branch from main, bypass sprint)
 - `--mode solo|subagent|team` → Override execution mode
+- `--fast` → Fast mode: sets `Fast mode: yes` in builder prompts when `--fast` is used; builders write tests but skip all test execution (deferred to wave boundary). REFACTOR loop and wave-scoped tests are skipped.
 - No args → Execute full sprint from current wave
 
 ---
@@ -358,7 +359,9 @@ For each task in the wave, spawn Agent with:
 
     Read Technical Notes in task and feature files first — they contain research findings (URLs, patterns, gotchas) from sprint planning. WebFetch listed URLs for details. WebSearch unknowns.
 
-    Your job: write tests (RED) + write implementation (GREEN) + commit. Do NOT run tests or builds. REFACTOR, MUTATE, and VERIFY run at the wave boundary.
+    Fast mode: [yes if --fast was passed, else no]
+
+    Your job: write tests (RED) + write implementation (GREEN) + commit. In normal mode: run logcap at RED and GREEN phases. In fast mode: skip test execution. REFACTOR, MUTATE, and VERIFY run at the wave boundary.
 
     COMMIT REQUIRED: You MUST `git add -A && git commit` before returning.
     A SubagentStop hook will block your exit if uncommitted changes exist.
@@ -425,7 +428,9 @@ Spot-check each subagent before merging. The check differs by task kind — read
      committed). Prompt the continuation builder with the specific missing
      files from the spot-check.
 
-6. **Merge** — once mechanical checks pass (commits, files, item completeness), proceed to merge the worktree branch onto the working branch. Full acceptance-scenario verification happens at the wave boundary in the VERIFY pass (Step 4), not here. Merging early lets the wave-level REFACTOR+MUTATE+VERIFY builder see all tasks together.
+6. **Task completion verification** (task-level spec check) — spawn `shipyard-review-spec` for this single task to catch obvious acceptance-scenario gaps before the wave-level VERIFY. Skip for tasks with effort: S (trivial tasks don't warrant the overhead). Max 3 iterations: if gaps found, re-dispatch the builder with the specific gap list; if gaps persist after the cap, log as `needs-attention` and proceed to merge.
+
+7. **Merge** — once mechanical checks pass (commits, files, item completeness, spec check), proceed to merge the worktree branch onto the working branch. Full wave-wide acceptance-scenario verification happens in the VERIFY pass (Step 4). Merging early lets the wave-level REFACTOR+MUTATE+VERIFY builder see all tasks together.
 
 **For `kind: operational` tasks:**
 5. Verify the task file now has a non-empty `verify_output:` field. If missing or empty → emit `operational_task_bogus_pass` with `reason=missing_verify_output` and do NOT mark done.
@@ -453,7 +458,7 @@ Rebase and merge verified worktree branches back to the working branch (subagent
 
 ### Step 3: Per-Task Execution (RED → GREEN)
 
-Each task is a small, focused unit of work: **write tests → write implementation → commit**. No test execution at task level — that is the wave boundary's job. REFACTOR, MUTATE, and VERIFY all happen in Step 4.
+Each task is a small, focused unit of work: **write tests → write implementation → commit**. In fast mode (`--fast`), builders write tests but skip all test execution — tests are deferred to the wave boundary. In normal mode, builders run logcap captures at RED (`<TASK_ID>-red`) and GREEN (`<TASK_ID>-green`) phases. REFACTOR, MUTATE, and VERIFY all happen in Step 4.
 
 **Read the full cycle details:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/tdd-cycle.md`
 
@@ -461,14 +466,14 @@ Per-task summary:
 1. **READ SPEC** → understand what to build
 2. **READ CODEBASE** → check existing patterns
 3. **PLAN** → decide approach
-4. **RED** → write tests that would fail (do not run them)
-5. **GREEN** → write the minimum code that satisfies the test contract (do not run tests)
+4. **RED** → write tests that would fail; run via logcap (normal mode) or skip run (fast mode)
+5. **GREEN** → implement; run tests via logcap (normal mode) or skip run (fast mode)
 6. **COMPLETENESS CHECK** → if Technical Notes lists discrete items, grep to confirm every one was addressed
 7. **COMMIT** → `feat(TASK_ID): [description]`, update task status to `done`
 
 Key rules:
 - Tests MUST be written before implementation
-- Do NOT run tests at task level
+- Fast mode defers test execution; normal mode runs tests at task level via logcap
 - Commit format: `feat(TASK_ID): [description]`
 - Update task file status to `done` after each task
 - Log session progress in PROGRESS.md (blockers, deviations — NOT task completion status)
@@ -514,6 +519,14 @@ Between waves (each wave is a group of tasks that ran together):
 
   If the wave-refactor builder fails or returns without a commit → log the gap in PROGRESS.md deviations and proceed. REFACTOR/MUTATE failure is not a wave blocker; the code is correct (GREEN passed), just unpolished.
 
+- **REFACTOR LOOP** (standard mode only) — after the wave-refactor builder returns, measure test state and fix any failures with up to 2 additional builder iterations. Full algorithm: `references/refactor-loop.md`.
+
+  Summary: spawn the extended `shipyard-test-runner` (returns a `## Structured Result` block with a `failing_tests` list). If all pass, proceed. If any fail, spawn up to 2 more fix-focused wave-refactor builders (iterations 2–3), re-measuring after each via the test-runner. Stuck = same failing test names as the previous iteration. Cap = 3 total iterations. On loop exhaustion or stuck, write iteration history to PROGRESS.md deviations and proceed — REFACTOR loop failure is not a wave blocker.
+
+  Logcap session names: `wave-[N]-refactor` (iteration 1), `wave-[N]-refactor-iter-2`, `wave-[N]-refactor-iter-3`.
+
+  **Fast mode:** skip wave-scoped tests entirely and the REFACTOR loop — proceed directly to VERIFY.
+
 - **Wave VERIFY** — spawn `shipyard-review-spec` to check all wave tasks' acceptance scenarios against the now-merged and refactored implementation:
   ```
   Agent(subagent_type: shipyard:shipyard-review-spec,
@@ -533,18 +546,8 @@ Between waves (each wave is a group of tasks that ran together):
     If gaps → list them. Do NOT suggest fixes.
   )
   ```
-  - **If PASS** → proceed to integration tests.
+  - **If PASS** → proceed.
   - **If gaps found** → re-dispatch the relevant task builders to fill the gaps (max 1 re-dispatch per task). Pass the specific gap list in the prompt. If gaps persist after 1 re-dispatch → update affected tasks to `needs-attention`, emit `wave_verify_gap` event, log to PROGRESS.md deviations, and proceed. Gaps surface in `/ship-review`.
-
-- **Delegate WAVE-SCOPED tests to a test subagent** — collect the source and test files touched by this wave's tasks (from each task's Technical Notes `files-to-modify` + the test files written by builders). Spawn `Agent` with `subagent_type: shipyard:shipyard-test-runner` (no worktree). Pass it `test_commands.scoped` from config with the file/module paths to scope the run. This runs only the tests relevant to this wave's work — not the full suite. Full build + full test suite runs once at sprint completion (Step 5a).
-  ```
-  Run scoped tests for wave [N] tasks.
-  Scope: [file/module paths from wave tasks' Technical Notes]
-  Command: shipyard-logcap run wave-[N] -- <SCOPED_COMMAND> [paths]
-  Return the structured summary.
-  ```
-  If `test_commands.scoped` is not configured, fall back to `test_commands.unit` (still cheaper than integration). Only fall back to `test_commands.integration` if neither scoped nor unit commands exist.
-- **If wave-scoped tests FAIL** (standard mode only) → do NOT fix directly. Spawn a `shipyard:shipyard-builder` subagent (no worktree) with the failure summary and prompt (substitute literal SHIPYARD_DATA): "Fix the failing tests. Read `git.main_branch` from `<SHIPYARD_DATA>/config.md`. Run `git diff $(git merge-base HEAD [main_branch])...HEAD --name-only` to identify in-scope files — only fix errors in files in that diff." Rerun the scoped tests after the fixer returns. If still failing → Write a bug file at `<SHIPYARD_DATA>/spec/bugs/B-INT-[slug].md` with failure details and AskUserQuestion to escalate.
 - Check for structural gaps (acceptance scenario with no implementation path at all)
 - If gaps found → create patch tasks, add to next wave
 - If blockers → report and attempt swap-in
@@ -635,7 +638,7 @@ Single-task mode follows the same structure: builder writes tests + implementati
 
 Shipyard does not create branches, merge, or push for hotfixes — the user handles their own git workflow. Hotfix does NOT affect sprint state or velocity.
 
-Hotfix mode always runs tests at task level — the regression test is the whole point of a hotfix. This is the one exception to the "no task-level test execution" rule.
+Hotfix mode always runs tests at task level — the regression test is the whole point of a hotfix. The `--fast` flag is ignored in hotfix mode — tests always run to verify the regression is caught.
 
 ---
 
@@ -692,6 +695,15 @@ branch: [current git branch]
 team_name: sprint-NNN        # (team mode only)
 teammates: [teammate-F001, teammate-F005]  # (team mode only) active teammates at pause
 queued_tracks: [F003, F007]  # (team mode only) feature tracks waiting to be spawned
+refactor_loop:               # only present if paused mid-REFACTOR loop
+  wave: [wave number]
+  current_iteration: [1|2|3]
+  failing_tests: ["TestName", ...]
+  iteration_history:
+    - iteration: 1
+      failing_tests: ["TestA", "TestB", "TestC"]
+    - iteration: 2
+      failing_tests: ["TestA", "TestB"]
 ---
 # Execution Handoff
 
@@ -722,9 +734,10 @@ When `/ship-execute` runs and `<SHIPYARD_DATA>/sprints/current/HANDOFF.md` exist
 2. **Accumulate paused time:** If HANDOFF.md frontmatter has a `paused_at` value (non-null), compute `paused_minutes = round((now - paused_at) / 60)` where `now` is the current time and `paused_at` is the ISO 8601 timestamp from HANDOFF.md. Add `paused_minutes` to `total_paused_minutes` in SPRINT.md frontmatter (if `total_paused_minutes` is absent or null, treat it as 0 before adding). Then clear `paused_at` from HANDOFF.md (set it to null).
 3. Read PROGRESS.md — verify completed tasks match
 4. Check git branch — ensure we're on the right branch
-5. If team mode: `TeamCreate(team_name)` (previous session's team is gone). Create new worktrees from the working branch HEAD (which now includes all salvaged work from Step 0). Re-spawn teammates using the session resume prompt from team-mode.md. Use `teammates` field from HANDOFF.md for which feature tracks need re-spawning (max 4 concurrent — restore the queue from `queued_tracks` field). Previous teammate sessions are always dead after a session break — always re-spawn.
-6. Delete HANDOFF.md (it's consumed)
-7. Continue from the next step documented in handoff
+5. **REFACTOR loop resume:** If HANDOFF.md frontmatter contains `refactor_loop` (non-null), the session was paused mid-REFACTOR loop. Reconstruct loop state from it: `current_iteration` is where the loop stopped, `failing_tests` is the last known failure set, `iteration_history` has the per-iteration record. Continue the loop from `current_iteration + 1` — do NOT restart from iteration 1. See `references/refactor-loop.md` for the algorithm. If `current_iteration` is already 3 (cap reached but pause happened before PROGRESS.md write): write the deviation entry and proceed to VERIFY.
+6. If team mode: `TeamCreate(team_name)` (previous session's team is gone). Create new worktrees from the working branch HEAD (which now includes all salvaged work from Step 0). Re-spawn teammates using the session resume prompt from team-mode.md. Use `teammates` field from HANDOFF.md for which feature tracks need re-spawning (max 4 concurrent — restore the queue from `queued_tracks` field). Previous teammate sessions are always dead after a session break — always re-spawn.
+7. Delete HANDOFF.md (it's consumed)
+8. Continue from the next step documented in handoff
 
 This works alongside `claude --continue` — the session history gives conversation context, HANDOFF.md gives project state context.
 
@@ -753,7 +766,7 @@ When auto-fixing, log in PROGRESS.md:
 
 ## Rules
 
-- NEVER skip TDD. No exceptions. Per-task builders write tests before implementation; REFACTOR/MUTATE/VERIFY run at the wave boundary.
+- NEVER skip TDD — fast mode defers test execution to the wave boundary; TDD is not skipped, execution is deferred, not skipped. Per-task builders write tests before implementation; REFACTOR/MUTATE/VERIFY run at the wave boundary.
 - NEVER modify test assertions to pass. Fix the implementation.
 - NEVER build beyond acceptance criteria.
 - ALWAYS commit atomically per task.

@@ -1523,5 +1523,138 @@
     "type": "contains",
     "pattern": "block-bash-state-write",
     "target": "hooks:hooks.json"
+  },
+  {
+    "name": "refactor_loop_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-execute/references/refactor-loop.md"
+  },
+  {
+    "name": "refactor_loop_skill_points_to_ref",
+    "type": "contains",
+    "pattern": "references/refactor-loop\\.md"
+  },
+  {
+    "name": "refactor_loop_standard_mode_only",
+    "type": "contains",
+    "pattern": "REFACTOR LOOP.*standard mode only|standard mode only.*REFACTOR LOOP",
+    "dotall": true
+  },
+  {
+    "name": "refactor_loop_runs_up_to_3_iterations",
+    "type": "contains",
+    "pattern": "up to 3 total|For iteration in \\[2, 3\\]|fix-focused iterations.*2 and 3",
+    "target": "ref:refactor-loop.md"
+  },
+  {
+    "name": "refactor_loop_stuck_detection_uses_test_names",
+    "type": "contains",
+    "pattern": "same.*test name|failing_curr.*failing_prev|test names are stable",
+    "target": "ref:refactor-loop.md",
+    "dotall": true
+  },
+  {
+    "name": "refactor_loop_iter_2_3_skip_mutate",
+    "type": "contains",
+    "pattern": "Skip MUTATE.*already ran|skip.*MUTATE.*iteration 1",
+    "target": "agent:shipyard-builder",
+    "dotall": true
+  },
+  {
+    "name": "refactor_loop_iter_2_3_reads_failing_tests",
+    "type": "contains",
+    "pattern": "Failing tests:.*from prompt|Read.*Failing tests",
+    "target": "agent:shipyard-builder",
+    "dotall": true
+  },
+  {
+    "name": "refactor_loop_iter_2_3_logcap_naming",
+    "type": "contains",
+    "pattern": "wave-N-refactor-iter-\\{iteration\\}|wave-N-refactor-iter-2",
+    "target": "agent:shipyard-builder"
+  },
+  {
+    "name": "refactor_loop_accumulates_commits",
+    "type": "contains",
+    "pattern": "progress accumulates|inherits commits|Each iteration inherits",
+    "target": "agent:shipyard-builder",
+    "dotall": true
+  },
+  {
+    "name": "refactor_loop_progress_md_on_exhaustion",
+    "type": "contains",
+    "pattern": "iteration history.*PROGRESS|PROGRESS\\.md.*iteration history|Write.*deviation.*iteration",
+    "target": "ref:refactor-loop.md",
+    "dotall": true
+  },
+  {
+    "name": "refactor_loop_handoff_captures_state",
+    "type": "contains",
+    "pattern": "refactor_loop:.*wave:.*current_iteration",
+    "dotall": true
+  },
+  {
+    "name": "refactor_loop_resume_continues_not_restarts",
+    "type": "contains",
+    "pattern": "current_iteration \\+ 1|continue.*from.*current_iteration|do NOT restart.*iteration 1",
+    "dotall": true
+  },
+  {
+    "name": "refactor_loop_no_test_run_measurement_only",
+    "type": "contains",
+    "pattern": "measurement.only|measurement-only|Do NOT count.*iteration",
+    "target": "ref:refactor-loop.md",
+    "dotall": true
+  },
+  {
+    "name": "refactor_loop_build_error_counts_as_iteration",
+    "type": "contains",
+    "pattern": "build_error.*loop|loop.*build.error|build.*failure.*iteration",
+    "target": "ref:refactor-loop.md",
+    "dotall": true
+  },
+  {
+    "name": "refactor_loop_replaces_old_fixer_flow",
+    "type": "not_contains",
+    "pattern": "If wave-scoped tests FAIL.*Spawn.*builder.*AskUserQuestion|AskUserQuestion.*B-INT-.*bug file"
+  },
+  {
+    "name": "refactor_loop_fast_mode_skip",
+    "type": "contains",
+    "pattern": "[Ff]ast mode.*skip.*REFACTOR loop|REFACTOR loop.*[Ff]ast mode.*skip",
+    "dotall": true
+  },
+  {
+    "name": "test_runner_structured_result_contract",
+    "type": "contains",
+    "pattern": "## Structured Result",
+    "target": "agent:shipyard-test-runner"
+  },
+  {
+    "name": "test_runner_failing_tests_field",
+    "type": "contains",
+    "pattern": "failing_tests:",
+    "target": "agent:shipyard-test-runner"
+  },
+  {
+    "name": "test_runner_status_field",
+    "type": "contains",
+    "pattern": "status: pass.*fail.*build_error|status:.*pass|fail|build_error",
+    "target": "agent:shipyard-test-runner",
+    "dotall": true
+  },
+  {
+    "name": "test_runner_failing_tests_names_only",
+    "type": "contains",
+    "pattern": "test name only.*no.*file path|no line numbers|no error messages",
+    "target": "agent:shipyard-test-runner",
+    "dotall": true
+  },
+  {
+    "name": "test_runner_parse_failure_fallback",
+    "type": "contains",
+    "pattern": "could not parse.*logcap|cannot parse.*logcap",
+    "target": "agent:shipyard-test-runner",
+    "dotall": true
   }
 ]

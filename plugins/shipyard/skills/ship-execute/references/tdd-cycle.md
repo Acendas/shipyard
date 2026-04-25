@@ -1,6 +1,6 @@
 # TDD Cycle Reference
 
-The complete TDD cycle for every task, regardless of execution mode.
+The complete TDD cycle for every task. Fast mode (`--fast`) defers Phase 1 test execution to the wave boundary — TDD structure is preserved, only the timing of test runs changes.
 
 ## Two-Phase TDD Structure
 
@@ -91,13 +91,15 @@ Git history lives on disk. It doesn't care about context windows. Even after 10 
 - Integration tests for boundaries
 - E2E test stubs from acceptance scenarios
 - Write tests that would fail if run against an empty implementation
-- **Do NOT run them** — tests execute at the wave boundary, not here
+- **Normal mode:** run `shipyard-logcap run <TASK_ID>-red -- <scoped command>` to confirm they fail. If they pass when they should fail → tests aren't exercising the right code; fix before continuing.
+- **Fast mode (`--fast`):** Do NOT run them — tests are deferred to the wave boundary.
 
 ### 5. GREEN — Implement
 - Write minimum code to satisfy the acceptance scenarios
 - Use the tests you just wrote as your specification
 - Build bottom-up: data → domain → presentation
-- **Do NOT run tests** — trust your implementation against the test contract you wrote
+- **Normal mode:** run `shipyard-logcap run <TASK_ID>-green -- <scoped command>` to confirm they pass. If they fail → fix the implementation, not the tests.
+- **Fast mode (`--fast`):** Do NOT run tests — trust your implementation against the test contract you wrote.
 
 ### 6. COMPLETENESS CHECK
 - If Technical Notes lists discrete items (migrations, endpoints, config entries), grep for each and count how many were addressed

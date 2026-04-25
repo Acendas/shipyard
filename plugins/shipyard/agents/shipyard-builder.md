@@ -121,10 +121,32 @@ Check your prompt for `Mode:`. Two modes exist:
 2. **Read codebase** — check existing patterns, conventions, dependencies (past learnings auto-load via `.claude/rules/learnings/` when you touch relevant files). If a URL is listed in Technical Notes, WebFetch it for implementation details. If you hit an unknown not covered by the research, WebSearch it.
 3. **Plan** — decide approach, identify test boundaries
 
-Each task is a small, focused unit of work. Do not run tests here — that is the wave boundary's job.
+Each task is a small, focused unit of work. Check `Fast mode:` in your prompt (see below) to determine whether to run tests.
 
-4. **RED** — write tests that match the acceptance scenarios. Place them in the correct test files with proper imports and assertions. **Do NOT run them.** The wave-refactor builder will execute these tests at the wave boundary.
-5. **GREEN** — write minimum code to satisfy the acceptance scenarios. Use the tests you just wrote as your specification — if the test asserts X, implement X. **Do NOT run tests.** Trust your implementation against the test contract you wrote.
+**Fast Mode Gate** — read `Fast mode:` from your prompt before step 4.
+
+- **`Fast mode: yes`** → follow the **Fast Mode Path** (4F, 5F, 6F, 7F below). Write tests before implementation — 4F before 5F. Skip all test execution. Do NOT run tests or builds.
+- **`Fast mode: no`** or field absent → follow the standard path (steps 4–5 below).
+
+### Fast Mode Path (4F → 5F → 6F → 7F)
+
+4F. **RED** — write tests that match the acceptance scenarios. Do NOT run them. Fast mode defers all test execution to the wave boundary.
+5F. **GREEN** — write minimum code to satisfy the acceptance scenarios. Do NOT run tests. Trust your implementation against the test contract you wrote.
+6F. **COMPLETENESS CHECK** — same as step 7 below.
+7F. **COMMIT** — same as step 9 below. Skip to step 8 (Capture Deferred Unknowns) before committing.
+
+### Standard Path (steps 4–5)
+
+4. **RED** — write tests that match the acceptance scenarios. Place them in the correct test files with proper imports and assertions. Then run them to confirm they fail (confirms the tests actually exercise the right code):
+   ```
+   shipyard-logcap run <TASK_ID>-red -- <test_commands.scoped for this task's files>
+   ```
+   If tests pass when they should fail → the tests aren't testing the right thing. Fix before proceeding.
+5. **GREEN** — write minimum code to satisfy the acceptance scenarios. Use the tests you just wrote as your specification — if the test asserts X, implement X. Then run tests to confirm they pass:
+   ```
+   shipyard-logcap run <TASK_ID>-green -- <test_commands.scoped for this task's files>
+   ```
+   If tests fail → fix the implementation (not the tests). Repeat until green.
 
 ---
 
@@ -237,9 +259,26 @@ The capture rule is: *would a future engineer regret not knowing this?* If yes, 
 
 ## Wave Refactor Mode (`Mode: wave-refactor`)
 
-Activated when the orchestrator spawns you with `Mode: wave-refactor`. This runs at the wave boundary, AFTER all tasks in the wave have been merged to the working branch. You are a **separate builder invocation** — not a continuation of any per-task builder. Your unit of work is the combined REFACTOR+MUTATE pass across the entire wave's changes.
+Activated when the orchestrator spawns you with `Mode: wave-refactor`. This runs at the wave boundary, AFTER all tasks in the wave have been merged to the working branch. You are a **separate builder invocation** — not a continuation of any per-task builder.
 
 Skip Step 0 (task kind check) and the numbered per-task steps. Your process is:
+
+### Iteration-Aware Startup
+
+Read `Iteration:` from your prompt before doing anything else.
+
+**If absent or `Iteration: 1`** — full REFACTOR + tests + MUTATE cycle (standard behavior, documented below). Logcap session: `wave-N-refactor`.
+
+**If `Iteration: 2` or `Iteration: 3`** — fix-focused mode:
+- Read `Failing tests:` from prompt — these are the specific tests to fix, extracted from the test-runner's `## Structured Result` block
+- Read `Previous attempts git log:` — understand what the earlier iterations already changed; avoid repeating the same approach
+- Run REFACTOR pass targeted at fixing the listed failing tests only — do NOT do a full cross-task sweep
+- **Skip MUTATE entirely** — it already ran in iteration 1; re-running MUTATE on the same code produces the same result and wastes tokens
+- Logcap: `wave-N-refactor-iter-{iteration}`
+- COMMIT any changes: `fix(wave-N-refactor-iter-{iteration}): fix failing tests`
+- Before returning: report which tests you fixed and what changed
+
+**Why iterations exist:** The orchestrator runs the extended test-runner after each builder to measure progress. If tests still fail, it re-spawns you with the failure context. Each iteration inherits commits from the previous one — progress accumulates. See `skills/ship-execute/references/refactor-loop.md` for the full orchestrator-side algorithm.
 
 ### Wave Refactor Startup
 
@@ -282,7 +321,7 @@ Verify test coverage across the wave's implementations. For each task's key cond
 
 1. Identify the key decision point (a conditional, a boundary value, a return path)
 2. Temporarily flip it (negate the condition, change the boundary, invert the return)
-3. Run: `shipyard-logcap run wave-<N>-mutate-<TASK_ID> -- <scoped-test-command>`
+3. Run: `shipyard-logcap run <TASK_ID>-mutate -- <scoped-test-command>`
 4. At least one test MUST fail. If none fail → note the gap (do NOT write new tests in this mode — gap is flagged for `/ship-review`)
 5. Restore the original code before mutating the next task
 
