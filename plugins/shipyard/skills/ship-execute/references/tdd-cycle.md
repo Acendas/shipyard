@@ -2,16 +2,20 @@
 
 The complete TDD cycle for every task, regardless of execution mode.
 
-> **Fast mode (`--fast`):** When the orchestrator passes `Fast mode: yes` to the builder, steps 4–7 below are replaced by the fast mode path (4F–7F) defined in the builder agent body. Tests are written but not executed — validation defers to the full test suite at sprint completion (Step 5a of ship-execute). The rest of this document (ownership tracking, steps 1–3, steps 8–10, rules) still applies.
+## Two-Phase TDD Structure
 
-## Three-Tier Test Strategy
+Shipyard splits the TDD cycle across two execution phases. Each phase is a distinct builder invocation.
 
-Shipyard uses scoped testing to avoid burning tokens running the full suite on every change:
+**Phase 1 — Per-task (RED → GREEN):** Each task builder's unit of work. Goal: get to a committed, test-passing implementation. Fast, focused, runs in parallel across tasks.
+
+**Phase 2 — Wave-level (REFACTOR → MUTATE → VERIFY):** One builder invocation per wave, runs after all tasks are merged. Sees the full combined implementation. Handles cross-task concerns that individual builders can't see.
+
+### Three-Tier Test Execution Strategy
 
 | Tier | When | What Runs | Why |
 |------|------|-----------|-----|
-| **Task** | During TDD (Red/Green/Refactor/Mutate) | Scoped build (if configured) + only tests related to the current task | Fast feedback, save tokens |
-| **Wave** | Wave boundary (after merging task branches) | Scoped build + scoped tests for the wave's tasks (files/modules from Technical Notes) | Catch cross-task breakage without full build/suite overhead |
+| **Task** | Phase 1 (RED/GREEN per task) | Only tests for the current task | Fast feedback, save tokens |
+| **Wave** | Phase 2 (REFACTOR+MUTATE+VERIFY) + wave-scoped test runner | Scoped tests for wave files + cross-task mutation verification | Catch cross-task breakage; verify test quality across the combined implementation |
 | **Regression** | Sprint completion / before release | Full build + full test suite (unit + integration + E2E) | Nothing is broken anywhere |
 
 ### How to scope tests for your task
@@ -67,7 +71,7 @@ When a test fails during execution:
 
 Git history lives on disk. It doesn't care about context windows. Even after 10 compactions, `git diff` gives you the same answer. The conversation may forget, but git never forgets.
 
-## The TDD Cycle
+## Phase 1: Per-Task Cycle (RED → GREEN)
 
 ### 1. READ SPEC
 - Read task file: `<SHIPYARD_DATA>/spec/tasks/[TASK_ID]-*.md`
@@ -82,40 +86,60 @@ Git history lives on disk. It doesn't care about context windows. Even after 10 
 - Decide approach
 - Identify test boundaries (unit, integration, E2E)
 
-### 4. RED — Write Failing Tests
+### 4. RED — Write Tests
 - Unit tests for pure logic
 - Integration tests for boundaries
 - E2E test stubs from acceptance scenarios
-- Run **tests for your task only** — they MUST fail
-- If tests pass without implementation → something is wrong, investigate
+- Write tests that would fail if run against an empty implementation
+- **Do NOT run them** — tests execute at the wave boundary, not here
 
 ### 5. GREEN — Implement
-- Write minimum code to pass tests
+- Write minimum code to satisfy the acceptance scenarios
+- Use the tests you just wrote as your specification
 - Build bottom-up: data → domain → presentation
-- Run **tests for your task** after each layer — not the full suite
+- **Do NOT run tests** — trust your implementation against the test contract you wrote
 
-### 6. REFACTOR
-- Clean up without changing behavior
-- Extract helpers, reduce duplication
-- **Your tests** must still pass
+### 6. COMPLETENESS CHECK
+- If Technical Notes lists discrete items (migrations, endpoints, config entries), grep for each and count how many were addressed
+- If any are missing → fix before committing
+- This is NOT a full scenario review — that happens in Phase 2 VERIFY
 
-### 7. MUTATE — Verify Test Quality
-- Pick a key line of implementation
-- Mutate it (flip conditional, change value, remove line)
-- Run **tests for your task** — at least one MUST fail
-- If none fail → tests are insufficient → add edge case tests
-- Restore original implementation
+### 7. COMMIT
+- Stage test files AND implementation files
+- One atomic commit per task: `feat(TASK_ID): description`
+- Update task status to `done`
 
-### 8. VISUAL VERIFY (UI tasks only)
+---
+
+## Phase 2: Wave-Level Cycle (REFACTOR → MUTATE → VERIFY)
+
+Runs at the wave boundary, AFTER all tasks are merged to the working branch. One builder invocation per wave. The builder sees all tasks' combined code and runs as `Mode: wave-refactor`.
+
+### REFACTOR (wave-level)
+- Identify cross-task duplication — two tasks may have independently written the same helper
+- Extract shared utilities, improve naming, remove dead code
+- Run wave-scoped tests after: `shipyard-logcap run wave-N-refactor -- <scoped-test-command>`
+- Tests MUST pass. If they fail → fix the refactoring.
+
+### MUTATE (wave-level)
+- For each task's key conditional or boundary check:
+  1. Temporarily flip it
+  2. Run: `shipyard-logcap run wave-N-mutate-TASK_ID -- <scoped-test-command>`
+  3. At least one test MUST catch the mutation
+  4. If none catch it → flag the gap (reported back to orchestrator — test coverage gap surfaced in `/ship-review`)
+  5. Restore before moving to next task
+- Commit refactor changes: `refactor(wave-N): cross-task refactor and mutation verified`
+
+### VERIFY (wave-level)
+- Separate `shipyard-review-spec` agent, runs after the wave-refactor builder returns
+- Checks all wave tasks' acceptance scenarios against the now-merged + refactored implementation
+- Returns pass/fail per scenario
+- Gaps trigger a builder re-dispatch (max 1 per task); persistent gaps become `needs-attention`
+
+### VISUAL VERIFY (UI tasks only — part of Phase 1, per task)
 - Screenshot at mobile (375px), tablet (768px), desktop (1024px)
 - Check layout, content, interactive states
 - Save to `<SHIPYARD_DATA>/verify/`
-
-### 9. COMMIT
-- Stage test files AND implementation files
-- **Solo mode** (working on user's branch): one atomic commit per task following project commit convention
-- **Subagent/Team mode** (working on worktree task/feature branch): commit freely during TDD — intermediate commits are fine (Red commit, Green commit, Refactor commit). These are rebased onto the working branch at wave end.
-- Update PROGRESS.md: mark task done
 
 ### 10. LEARN (after struggle only)
 
@@ -149,12 +173,13 @@ paths: ["src/auth/**/*", "lib/auth/**/*", "app/**/login/**/*"]
 
 ## Non-Negotiable Rules
 
-- NEVER skip TDD. No exceptions.
+- NEVER skip TDD. No exceptions. RED before GREEN, every task.
 - NEVER modify test assertions to pass. Fix the implementation.
 - NEVER build beyond acceptance criteria.
 - NEVER dismiss a test failure as "pre-existing" without checking git first. Run `git diff --name-only $(git merge-base HEAD main)...HEAD` — if the file is on this branch, it's yours.
-- ALWAYS commit atomically per task.
-- ALWAYS update PROGRESS.md after each task.
+- ALWAYS commit atomically per task (Phase 1 commit: `feat(TASK_ID): description`).
+- NEVER do REFACTOR or MUTATE inside a per-task builder. Those are Phase 2 wave-boundary operations.
+- ALWAYS update task status to `done` after committing.
 - If in doubt → AskUserQuestion.
 
 ## Test Naming Convention

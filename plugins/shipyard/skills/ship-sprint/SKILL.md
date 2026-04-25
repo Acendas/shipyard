@@ -457,16 +457,80 @@ Present findings using the protocol's format and AskUserQuestion: "Apply these s
 - **pick** → user selects
 - **skip** → note in sprint draft: "Simplification scan ran, opportunities deferred"
 
-### Step 4: Decompose Tasks (informed by research)
+### Step 4: Decompose Tasks (5-stage protocol)
 
-During decomposition, always include cleanup as explicit tasks — not afterthoughts. If the architecture analysis found dead code, deprecated patterns, stale config, temporary scaffolding, or migration shims that need removing, create dedicated cleanup tasks. These go in the final wave (after implementation is verified) so they don't block feature work but don't get forgotten either.
+**Read first:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-decomposition-patterns.md` — contains the 9 splitting patterns, walking skeleton rules, Red step examples, and effort anchors. Read it before decomposing any feature; decomposing without it produces bundled tasks.
 
-For each selected feature, read its spec file and:
-1. Check the feature's `tasks:` array in frontmatter ��� are tasks already defined?
-2. If not, break into atomic tasks and use the Write tool to create task files at `<SHIPYARD_DATA>/spec/tasks/TNNN-[slug].md` with frontmatter: `id`, `title`, `feature` (parent ID), `status`, `effort` (S/M/L), `dependencies`, **`kind`** (see Task Kinds below), **`verify_command`** (required when `kind: operational`)
-3. Update the feature's `tasks:` array with the new task IDs
-4. Task files are the **single source of truth** for task data — title, effort, status, dependencies all live there
-5. **Populate `## Technical Notes` in each task file** using findings from Steps 3–3.5: architecture impact, files to modify, implementation strategy, decisions from the Decision Log, patterns to follow, gotchas, cleanup items. Use the template format defined above. Every task must have Technical Notes — the builder reads these before writing any code.
+Always include cleanup as explicit tasks — not afterthoughts. If architecture analysis found dead code, deprecated patterns, stale config, or migration shims, create dedicated cleanup tasks in the final wave so they don't block feature work.
+
+**Do not write task files until Stage 4.** Follow these stages in order for each selected feature.
+
+#### Stage 1: Map acceptance criteria to task drafts
+
+Check the feature's `tasks:` frontmatter array first — if tasks already exist from a prior session, verify each has a `First failing test:` entry in its Technical Notes (sign that the protocol was followed). If yes, skip to Stage 3 for any remaining `approved`-status tasks. If no Red step is present, re-decompose from here.
+
+Read the feature spec's acceptance criteria (written by `/ship-discuss` in Gherkin form). List one draft entry per criterion — no task files yet, just a named mapping:
+
+```
+Criterion: "User can refresh an expired access token"  → draft: "Add JWT refresh endpoint"
+Criterion: "Refresh token is invalidated after use"    → draft: "Invalidate refresh token on use"
+Criterion: "Expired refresh token returns 401"         → draft: "Return 401 for expired refresh token"
+```
+
+Every final task must trace back to exactly one acceptance criterion, or carry an explicit label: `[infrastructure]`, `[cleanup]`, or `[spike]`. This traceability is the test that decomposition is complete — no criterion left uncovered, no task invented without a spec anchor.
+
+#### Stage 2: Extract the walking skeleton (Wave 1 foundation)
+
+Before any behavior task, identify what must exist across all layers for any behavior to be testable: schema migrations, new route registrations, type/interface/enum definitions, service stubs, dependency injection wiring. Extract these into a single foundation task (see the patterns reference for the task template).
+
+**Rule:** Wave 1 = foundation only. No behavior task can sit in Wave 1. Every behavior task depends on the foundation. This enforces vertical slicing — each behavior task is a thin, independently testable end-to-end slice through the foundation.
+
+If the feature has no cross-layer infrastructure needs (e.g., a pure UI wording change or isolated function fix), skip this stage and place behavior tasks in Wave 1 directly.
+
+#### Stage 3: Run each behavior draft through the 9 splitting patterns
+
+Apply the **"and" test first**: if the draft title or description contains "and" connecting two independent behaviors — mandatory split before continuing.
+
+Then run through the 9 patterns from `task-decomposition-patterns.md`. If any pattern fires — split the draft into two before proceeding. Re-evaluate each resulting draft; a single draft may need multiple passes. Do not proceed to Stage 4 until no pattern fires on any remaining draft.
+
+Patterns that fire most often in software sprints (run these first):
+- **Workflow steps** — sequential process steps bundled into one draft
+- **CRUD operations** — "manage X" or multiple data verbs on the same entity
+- **Happy path vs. edge cases** — "implement X and handle errors / validate / edge cases"
+- **Make-it-work vs. make-it-fast** — any mention of caching, performance, or optimization
+
+#### Stage 4: Write the Red step, then write the task file
+
+For each draft that survived Stage 3, complete this sentence before creating the file:
+
+> "The first failing test for this task is: `[specific assertion]`"
+
+If the sentence requires "and" — Stage 3 applies again, split.
+If the sentence is vague ("tests for the auth flow") — scope is unresolved; do not write the file. Clarify the acceptance criterion before proceeding.
+
+Once the Red step is clear, use the Write tool to create `<SHIPYARD_DATA>/spec/tasks/TNNN-[slug].md` with frontmatter: `id`, `title`, `feature` (parent ID), `status`, `effort` (S/M/L), `dependencies`, **`kind`** (see Task Kinds below), **`verify_command`** (required when `kind: operational`). Write the Red step into `## Technical Notes` under the heading `First failing test:`.
+
+Task files are the **single source of truth** — title, effort, status, dependencies, kind all live there.
+
+#### Stage 5: Assign effort using the adapted 8/80 rule
+
+| Effort | Range | When to use |
+|--------|-------|-------------|
+| **S** | 1-4 hrs | One clear Red step, obvious implementation, pattern exists in codebase |
+| **M** | 4-8 hrs | Some exploration needed, bounded scope |
+| **L** | 1-2 days | Significant implementation, one coherent area, no splitting pattern fired |
+
+For any task assigned `effort: L`: confirm all 9 patterns were checked and none fired, and the Red step covers exactly one behavior. If uncertain — AskUserQuestion: *"This task is estimated L (1-2 days). Could it split into [specific suggestions]? (split / no, it's cohesive)"*. Write the justification in Technical Notes: "L effort because: [reason]."
+
+**No task exceeds L.** A task requiring more than 1-2 days is a feature, not a task — return it to the backlog.
+
+---
+
+After all stages: populate `## Technical Notes` in each task file using findings from Steps 3-3.5: architecture impact, files to modify, implementation strategy, Decision Log choices, patterns to follow, gotchas, cleanup items. Use the template in `references/task-tech-notes-template.md`. Every task must have Technical Notes — the builder reads these before writing any code. Update the feature's `tasks:` array with all final task IDs.
+
+**INVEST output check.** After all tasks are written for a feature:
+- **I (Independent):** No task in the same wave depends on another task in the same wave. Same-wave dependencies indicate a missed foundation task — revisit Stage 2.
+- **T (Testable):** Every task has exactly one specific done-condition (one Red step). Multiple or ambiguous conditions — split.
 
 **Task Kinds.** Every task has a `kind:` field that tells the executor *which agent runs it* and *what "done" means*. See `references/task-kinds.md` for the full taxonomy. Summary:
 - **`kind: feature`** (default) — task writes new code or modifies existing code. Follows the TDD cycle (Red → Green → Refactor). Dispatched to `shipyard-builder`. Done = atomic commit containing impl + tests. This is the implicit default if `kind:` is absent.
@@ -563,6 +627,8 @@ Before presenting the plan, review your own output. Re-read each task file and t
 | 16 | **Every `kind: operational` task has a non-empty `verify_command`** | Operational task missing `verify_command` → rejected at DoR. Without this the executor has no command to run and will either crash or (worse) fall back to marking the task done. See `references/task-kinds.md`. |
 | 17 | **No `kind: operational` task is nested inside another operational loop** | Patch tasks created by the fix-findings loop MUST be `kind: feature`. Operational → operational recursion is forbidden. |
 | 18 | **Every `kind: research` task has a non-empty `research_scope`** | Research task missing `research_scope` → rejected at DoR. Without it the researcher has no question to investigate and will fail loud at dispatch (`research_scope_missing` event). See `references/task-kinds.md`. |
+| 19 | **Every `kind: feature` task has a `First failing test:` in Technical Notes** | Technical Notes missing this section means the Stage 4 Red step protocol was skipped — the builder has no TDD starting point and may silently invent scope. Re-derive the Red step and add it before approval. |
+| 20 | **No `kind: feature` task title contains "and" joining two independent behaviors** | "Implement X and add Y", "Update X and fix Y" patterns indicate Stage 3 splitting was missed. Split the task; two behaviors means two tasks. |
 
 Iterate the checklist against task files and the sprint draft, fixing failures (update task files, recompute waves) and re-running. Max 3 iterations. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag any remaining gaps in the sprint plan summary as "Planning gaps — review during execution". Then proceed to Step 9.7.
 

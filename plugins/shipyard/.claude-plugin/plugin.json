@@ -1,6 +1,6 @@
 {
   "name": "shipyard",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "description": "Turn your idea into working code — Shipyard runs Claude Code through a spec-driven agile sprint lifecycle: discuss features, plan sprints, build with TDD, review, and ship.",
   "author": {
     "name": "Acendas",

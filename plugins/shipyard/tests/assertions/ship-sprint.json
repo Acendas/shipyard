@@ -380,5 +380,83 @@
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
     "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+  },
+  {
+    "name": "step4_reads_decomposition_patterns_ref",
+    "type": "contains",
+    "pattern": "task-decomposition-patterns\\.md"
+  },
+  {
+    "name": "decomposition_patterns_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-sprint/references/task-decomposition-patterns.md"
+  },
+  {
+    "name": "step4_has_5stage_protocol",
+    "type": "contains",
+    "pattern": "Stage 1.*Stage 2|5-stage protocol",
+    "dotall": true
+  },
+  {
+    "name": "step4_maps_acceptance_criteria",
+    "type": "contains",
+    "pattern": "acceptance criteria.*task draft|Map acceptance criteria",
+    "dotall": true
+  },
+  {
+    "name": "step4_has_walking_skeleton",
+    "type": "contains",
+    "pattern": "[Ww]alking skeleton|Wave 1.*foundation only|foundation.*Wave 1",
+    "dotall": true
+  },
+  {
+    "name": "step4_has_and_test",
+    "type": "contains",
+    "pattern": "\"and\" test|and.*connecting two independent|independent behaviors"
+  },
+  {
+    "name": "step4_has_red_step_forcing",
+    "type": "contains",
+    "pattern": "First failing test|Red step.*task file|task file.*Red step",
+    "dotall": true
+  },
+  {
+    "name": "step4_has_adapted_8_80_rule",
+    "type": "contains",
+    "pattern": "1.4 hrs|1-4 hrs|4.8 hrs|4-8 hrs|1.2 days|1-2 days"
+  },
+  {
+    "name": "step4_no_task_exceeds_L",
+    "type": "contains",
+    "pattern": "No task exceeds L|task.*more than.*days.*feature"
+  },
+  {
+    "name": "step4_has_invest_output_check",
+    "type": "contains",
+    "pattern": "INVEST output check|I.*Independent.*T.*Testable|Independent.*same wave",
+    "dotall": true
+  },
+  {
+    "name": "quality_gate_has_red_step_check",
+    "type": "contains",
+    "pattern": "First failing test.*Technical Notes|Technical Notes.*First failing test",
+    "dotall": true
+  },
+  {
+    "name": "quality_gate_has_and_bundling_check",
+    "type": "contains",
+    "pattern": "\"and\" joining two independent|and.*independent behaviors.*split",
+    "dotall": true
+  },
+  {
+    "name": "step4_vertical_slicing_enforced",
+    "type": "contains",
+    "pattern": "vertical slicing|thin.*end-to-end slice|independently testable"
+  },
+  {
+    "name": "step4_traceability_requirement",
+    "type": "contains",
+    "pattern": "trace back.*acceptance criterion|infrastructure.*cleanup.*spike",
+    "dotall": true
   }
 ]
