@@ -631,11 +631,26 @@ The two principles that matter most in practice for Shipyard: **SRP** (cures the
 
 ### Action items for skill decomposition
 
-- [ ] **S-1.** Build the **14 capability skills** listed above. Each gets:
+- [~] **S-1.** Build the **14 capability skills** listed above. Each gets:
   - YAML frontmatter with `disable-model-invocation: true` so it never appears in the slash-command picker.
   - Tightly scoped `description` (≤2 lines, says exactly when to use it).
   - Imperative-form body (~100–250 lines).
   - Optional `references/` dir for very long methodology refs (rare; keep body self-contained where possible).
+  - Per-skill progress (each commits independently):
+    - [x] verifying-completion
+    - [ ] tdd-cycle
+    - [ ] running-acceptance-probe
+    - [ ] anti-stub-scan
+    - [ ] dispatching-task-loop
+    - [ ] dispatching-spec-review
+    - [ ] dispatching-code-review
+    - [ ] dispatching-research-task
+    - [ ] dispatching-operational-task
+    - [ ] using-worktrees
+    - [ ] acquiring-skill-lock
+    - [ ] discovering-edge-cases
+    - [ ] extracting-acceptance-criteria
+    - [ ] authoring-acceptance-probe
 - [ ] **S-2.** **Decomposition order matters.** Build the most-reused skills first — they unblock the most command-skill simplification:
   - **Wave 1:** `verifying-completion`, `tdd-cycle`, `dispatching-task-loop`, `acquiring-skill-lock`. Unblocks ship-execute slim and ship-quick/ship-bug rewires.
   - **Wave 2:** `using-worktrees`, `running-acceptance-probe`, `anti-stub-scan`, `authoring-acceptance-probe`. Unblocks ship-review and ship-sprint.
