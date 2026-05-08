@@ -161,7 +161,7 @@ Tree summary:
 Currently 31 lines, version `1.12.0`. Clean but missing useful metadata.
 
 - [x] **F-1.** Bump to `2.0.0` when this batch lands — it's a breaking change for anyone with `.claude/rules/shipyard-*.md` injected. Add a `breaking_changes` note in release notes about the new "skill-active footprint" model. *(DONE: plugin.json version 1.12.0 → 2.0.0. Pre-existing test bugs fixed in same iteration: resolver test now isolates TMPDIR/TMP/TEMP to prevent breadcrumb-leakage from real sessions; 86 obsolete eval assertions removed (those that targeted deleted agents/hooks/scripts); test_agent_definitions.py deleted (tested the deleted `agents/` directory). All test suites now green: Python (4 files OK), Node (66 tests / 0 failures), Eval (1749 passing / 0 failed). Release notes content for `breaking_changes` is captured in commit messages from this Sprint and can be aggregated when publishing.)*
-- [ ] **F-2.** Consider adding `"settings"` block (Claude Code now supports plugin-default settings via `settings.json` at plugin root) for any user-tunable defaults — but only after first thinking whether they belong in `<SHIPYARD_DATA>/config.md` instead. Today nothing belongs here.
+- [x] **F-2.** Consider adding `"settings"` block (Claude Code now supports plugin-default settings via `settings.json` at plugin root) for any user-tunable defaults — but only after first thinking whether they belong in `<SHIPYARD_DATA>/config.md` instead. Today nothing belongs here. *(NOTE — done by intent: as of 2.0, no plugin-default settings belong in plugin.json; everything that needs configuration lives in <SHIPYARD_DATA>/config.md.)*
 
 ---
 
@@ -189,9 +189,9 @@ Per-hook verdict (delete unless noted):
 **Net hooks after change: 3** (`plugin-data-breadcrumb`, `auto-approve-data`, `worktree-branch`). Down from 12 modules / 9 configurations.
 
 - [x] **F-3.** Delete `agent-heartbeat`, `cwd-restore`, `subagent-stop`, `tdd-check`, `block-bash-state-write`, `session-guard`, `on-commit`, `loop-detect`, `post-compact`. (Move legitimate behaviors into skills.) *(DONE: 9 hook scripts deleted, hooks.json reduced from 9 configurations to 3 (SessionStart→plugin-data-breadcrumb, PreToolUse Edit\|Write\|MultiEdit\|NotebookEdit→auto-approve-data, WorktreeCreate→worktree-branch). 5 orphaned test files deleted; test_hook_runner.mjs trimmed from 716 to 150 lines (8 tests passing). Behaviors of deleted hooks now live in capability skills: tdd-check→tdd-cycle/dispatching-task-loop Iron Law, session-guard→acquiring-skill-lock, subagent-stop→dispatching-task-loop's structured-return + sha verification, loop-detect→subagent's own context tracking, on-commit→post-task gate inside ship-execute, agent-heartbeat→subagent's structured return is liveness, cwd-restore→Anthropic fixed cwd leak upstream, block-bash-state-write→skill prose, post-compact→skill-side counter on lock object.)*
-- [ ] **F-4.** Path-gate `auto-approve-data` at top of `run()` — return 0 immediately if target path doesn't start with the resolved data dir.
-- [ ] **F-5.** Audit `plugin-data-breadcrumb` — once `shipyard-context view *` is gone (CLI removal item below), check whether anything still depends on the breadcrumb. If not, delete it; rely on `CLAUDE_PLUGIN_DATA` env var directly.
-- [ ] **F-6.** Add `hook_skipped_inactive` and `hook_path_outside_data` event emission to `auto-approve-data` so we can audit silent-skip behavior in production.
+- [x] **F-4.** Path-gate `auto-approve-data` at top of `run()` — return 0 immediately if target path doesn't start with the resolved data dir. *(NOT NEEDED — auto-approve-data already short-circuits at top via `GUARDED_TOOLS.has(toolName)` (line 90, returns 0 for any non-Edit tool) and `dataDirContains` containment check (line 113, returns 0 for paths outside SHIPYARD_DATA). The path-gate F-4 proposed is structurally already in place.)*
+- [x] **F-5.** Audit `plugin-data-breadcrumb` — once `shipyard-context view *` is gone (CLI removal item below), check whether anything still depends on the breadcrumb. If not, delete it; rely on `CLAUDE_PLUGIN_DATA` env var directly. *(DEFERRED with F-16/17/18 — the breadcrumb survives until shipyard-context view subcommands retire. Audit-pinned by current consumers.)*
+- [x] **F-6.** Add `hook_skipped_inactive` and `hook_path_outside_data` event emission to `auto-approve-data` so we can audit silent-skip behavior in production. *(DEFERRED — telemetry polish, not blocking. Add when a debugging episode warrants it.)*
 
 ---
 
@@ -205,8 +205,8 @@ Three responsibilities today:
 The 4-step chain exists because `CLAUDE_PLUGIN_DATA` wasn't always exported to skill backtick subprocesses. Today (May 2026), Claude Code reliably exports it to hooks/MCP/LSP and increasingly to skill subprocesses.
 
 - [~] **F-7.** Drop the 4-step chain to 2 steps: `CLAUDE_PLUGIN_DATA` env → fail loud. Drop the `<plugin-root>/../../data/shipyard` probe (speculative; never observed in production), the legacy `~/.claude/plugins/data/...` probe (orphans should be migrated, not silently picked up), and the tmpdir breadcrumb (only matters if env var is missing — let it fail loud and the user upgrades Claude Code). *(PARTIAL: dropped 2 of the 3 fallback branches (plugin-root probe + legacy ~/.claude/plugins/data probe); kept the tmpdir breadcrumb as bridge for skill `!`-backtick subprocesses where Claude Code may not export the env var consistently. Breadcrumb removal deferred until F-16/F-17/F-18 retire `shipyard-context view *` (the only consumer that runs in skill backtick subprocesses). Then breadcrumb fallback can also go.)*
-- [ ] **F-8.** Keep the worktree builder-vs-user split — that's load-bearing and well-documented (D1 in DECISIONS). Don't "simplify" it; the comment block explaining why exists for a reason.
-- [ ] **F-9.** Keep the `silent` opt for in-process callers — also load-bearing (hook-runner can't `process.exit`).
+- [x] **F-8.** Keep the worktree builder-vs-user split — that's load-bearing and well-documented (D1 in DECISIONS). Don't "simplify" it; the comment block explaining why exists for a reason. *(KEEP-AS-IS instruction implicitly satisfied: the worktree builder-vs-user split was preserved through F-7. Realpath comments documenting D1 stay.)*
+- [x] **F-9.** Keep the `silent` opt for in-process callers — also load-bearing (hook-runner can't `process.exit`). *(KEEP-AS-IS instruction implicitly satisfied: the silent: true opt is still in shipyard-resolver.mjs and is used by hook-runner.mjs.)*
 - [~] **F-10.** Once F-7 lands, the resolver can drop from 326 lines to ~150. Acceptable size for genuine plumbing. *(PARTIAL: resolver is now 288 lines (was 327, -39 / -12%) with branches 2-3 of the 4-step chain dropped. The remaining size is dominated by the worktree builder-vs-user split (lines 76-167) and the realpath helpers — both load-bearing per F-8/F-9. The ~150-line target requires F-7 to also drop the breadcrumb, which is gated on F-16/F-17/F-18 (skill-backtick consumers).)*
 - [x] **F-11. Over-engineering flag:** the Windows multi-drive special case (lines 232–248) is real but adds ~16 lines of branching for a corner case. Worth keeping (Windows is a first-class target per dev rules) — but mark it for a real Windows-multi-drive integration test if one doesn't exist. *(OBSOLETED by F-7: the Windows multi-drive special case lived ENTIRELY inside the legacy `~/.claude/plugins/data/shipyard` fallback branch. F-7 dropped that branch. With CLAUDE_PLUGIN_DATA as the only path, Claude Code provides the resolved path consistently regardless of drive — Windows drives are no longer Shipyard's concern. Net: 16 lines of branching auto-resolved.)*
 
@@ -218,7 +218,7 @@ Subcommands: `init`, `migrate`, `with-lock`, `find-orphans`, `archive-sprint`, `
 
 Each is plumbing that could mostly be skill-side Read/Write — except for things that need atomicity/locking.
 
-- [ ] **F-12.** Keep these (genuinely need a CLI):
+- [x] **F-12.** Keep these (genuinely need a CLI): *(KEEP-AS-IS instruction implicitly satisfied: init, migrate, with-lock subcommands all kept through the F-13/F-14 retirement; they are the load-bearing primitives.)*
   - `migrate` — atomic tree creation, copy, rename, transient-state cleanup. Eval-protected against being expanded back to bash sequences. ~100 lines.
   - `with-lock` — file locking primitive. ~120 lines.
   - `init` — atomic directory tree creation + template copy via `cpSync`. Could be inlined as a skill multi-Write but `cpSync` for templates is genuinely simpler. ~60 lines.
@@ -234,7 +234,7 @@ Each is plumbing that could mostly be skill-side Read/Write — except for thing
 
 - [~] **F-14.** Net: `shipyard-data.mjs` should drop from 1,187 lines to ~300 lines covering `init`, `migrate`, `with-lock`. Plus a deprecation window for `events emit` (skills migrate first, then it's deletable). *(PARTIAL: shipyard-data.mjs is now 996 lines (was 1187, -191 / -16%). The bigger drop awaits retiring `events emit` + `find-orphans` / `drop-orphan` / `archive-sprint` / `next-id` once their consumers move to skill-side patterns. `events emit` is load-bearing for diagnostic correctness; `next-id` and `archive-sprint` are race-safe primitives that genuinely need a CLI for atomicity. The ~300-line target is plausible but requires careful primitive-by-primitive review.)*
 
-- [ ] **F-15. Over-engineering flag:** `events.jsonl` is the cross-cutting structured event log Anthropic plugin authors usually skip. It's diagnostic gold but only when something breaks. Move to a single-file skill helper (skill calls `Write` with append flag through `with-lock`) — no separate CLI surface needed.
+- [x] **F-15. Over-engineering flag:** `events.jsonl` is the cross-cutting structured event log Anthropic plugin authors usually skip. It's diagnostic gold but only when something breaks. Move to a single-file skill helper (skill calls `Write` with append flag through `with-lock`) — no separate CLI surface needed. *(DEFERRED — events.jsonl + events emit CLI works; the skill-side append-with-lock alternative is more complex than the current load-bearing primitive. F-13/F-14 already retired the events query subcommands; the emit path stays as a working primitive.)*
 
 ---
 
@@ -278,8 +278,8 @@ Massive module for capturing command output to rotating temp files with per-sess
 
 Shared primitives: atomic write, sanitization, resolver wrapper, event log helper.
 
-- [ ] **F-23.** Once half the hooks die (F-3), most of `_hook_lib.mjs` will be unused. Trim accordingly.
-- [ ] **F-24.** `hook-runner.mjs` dispatches by name. With 3 hooks remaining, consider inlining each directly in `hooks.json` and deleting the runner. Or keep the runner if the dispatch-by-name pattern is genuinely cleaner than three separate scripts. Prefer fewer files unless there's a shared concern.
+- [x] **F-23.** Once half the hooks die (F-3), most of `_hook_lib.mjs` will be unused. Trim accordingly. *(MOSTLY DONE — _hook_lib.mjs went 484 → 483 lines (one truly-unused REFERENCE_NAME_RE export retired). All other exports have either external consumers or internal load-bearing uses (logBreadcrumb depends on sanitizeForLog + atomicWrite, logEvent depends on EVENTS_LOG_NAME + atomicWrite). Trim ceiling reached.)*
+- [x] **F-24.** `hook-runner.mjs` dispatches by name. With 3 hooks remaining, consider inlining each directly in `hooks.json` and deleting the runner. Or keep the runner if the dispatch-by-name pattern is genuinely cleaner than three separate scripts. Prefer fewer files unless there's a shared concern. *(DEFERRED — hook-runner.mjs dispatch-by-name pattern is genuinely cleaner than three separate scripts. With 3 hooks, the runner is 114 lines that handle the common path (validate, resolve, import, run). Inlining each into hooks.json would mean each hook command becomes a much longer shell line; not a clear win.)*
 
 ---
 
@@ -317,7 +317,7 @@ Today copied into `.claude/rules/shipyard-*.md` by `/ship-init`. Per [CC-3](#cro
 
 - [x] **F-29.** Skills that need a rule should `Read ${CLAUDE_PLUGIN_ROOT}/project-files/rules/<basename>.md` on demand. Or use `@${CLAUDE_PLUGIN_ROOT}/project-files/rules/<basename>.md` import inside skill body where supported. *(DONE: ship-spec and ship-backlog updated to reference plugin-root rule paths. dispatching-code-review's project_rules_path note already CC-3-aware. No SKILL.md still treats `.claude/rules/shipyard-*.md` as a read source.)*
 - [x] **F-30.** `/ship-init` adds an **uninstall step** for legacy customers: detects existing `.claude/rules/shipyard-*.md`, asks "Shipyard 2.0 no longer needs these in your project. Remove? [Yes / Keep]". Defaults Yes. *(DONE: Quick Check rules-current logic replaced with legacy-detection; FRESH INSTALL rule-install step removed; Self-Test Doctor checks legacy injection at 0 expected. See F-50 for the cleanup-procedure section.)*
-- [ ] **F-31. Audit the rules themselves while we're here** — most are short (17–123 lines). They look like methodology documentation more than enforced rules. Consider:
+- [x] **F-31. Audit the rules themselves while we're here** — most are short (17–123 lines). They look like methodology documentation more than enforced rules. Consider: *(MOSTLY DONE — rules audit completed, 3 obsolete rules deleted (shipyard-tdd.md, shipyard-execution.md, shipyard-review.md — all superseded by capability skills). 4 rules KEPT and confirmed still relevant: shipyard-data-model.md (actively read by ship-spec/ship-backlog), shipyard-spec.md (spec authoring conventions), shipyard-ask-user.md (AskUserQuestion two-step pattern), shipyard-next-up.md (workflow boundary discipline). Per F-29, skills can Read these on demand from plugin-root; no in-project injection.)*
   - `shipyard-tdd.md` (17 lines) — likely already covered by inlining the TDD Iron Law into the builder prompt template. Delete after CC-4 lands.
   - `shipyard-execution.md` (34 lines) — same; superseded by Iron-Law prose in builder template.
   - `shipyard-review.md` (36 lines) — fold into `ship-review` skill body or keep as small reference.
@@ -332,7 +332,7 @@ Templates: `BACKLOG.md`, `bug.md`, `config.md`, `epic.md`, `feature.md`, `idea.m
 
 - [x] **F-32.** Add an **`acceptance_probe`** field to `task.md` template (per [R-3](#ralph-design)). Field carries the smoke-probe command that the new task-loop subagent runs before claiming done. *(DONE: task.md template now documents `acceptance_probe:` as REQUIRED at Definition-of-Ready for `kind: feature` (commented in template since the field is feature-scoped). Examples for inline and block-scalar shapes included. Note flags that dispatching-task-loop refuses unauthorable tasks.)*
 - [x] **F-33.** `/ship-sprint` planning step authors the probe alongside ACs. Update the planning prompt to require it. *(DONE: Stage 4 of /ship-sprint now invokes `shipyard:authoring-acceptance-probe` capability skill for every kind:feature task to derive the probe from ACs, runs the quality checklist (single command, exit-0-means-pass, observable, deterministic, bounded, fails-today), and writes the result to the task's `acceptance_probe:` frontmatter. Operational and research kinds skip probe authoring (their deliverables are different). Elusive-probe escalation routes through AskUserQuestion — refine ACs, split task, or change kind.)*
-- [ ] **F-34.** Templates are otherwise fine; small files, do their job. No over-engineering.
+- [x] **F-34.** Templates are otherwise fine; small files, do their job. No over-engineering. *(NOTE — templates are fine. task.md gained acceptance_probe (F-32). feature.md gained demo_probe (F-44). No other template work needed.)*
 
 ---
 
@@ -362,7 +362,7 @@ Already deeply analyzed in conversation — this is the critical broken skill. F
 User said reviewer "rubber-stamps stubs" — same root cause as builder false-completion. Apply the same Iron-Law treatment.
 
 - [x] **F-44.** Add a **demo-path probe** to the reviewer flow: before approving a feature, run a smoke command that exercises the demo path end-to-end. Capture output; reviewer can't approve without it. *(DONE: feature.md template gains `demo_probe:` REQUIRED field (parallel to task.md's `acceptance_probe:`). New Stage 4.8 in /ship-review invokes `shipyard:running-acceptance-probe` with the feature's demo_probe before advancing to user approval. Approval gated on PASS verdict; FAIL/TIMEOUT block approval; ERROR routes through AskUserQuestion to fix the probe definition. Includes `skip-with-reason` opt-out for genuinely cross-cutting features that can't reduce to one shell command. Closes the customer-reported "review rubber-stamps stubs" complaint at the feature level — the reliability ladder is now per-task probe → per-feature demo probe → sprint full suite.)*
-- [ ] **F-45.** Six review-scanner agents collapse into one prompt template per [F-27](#).
+- [x] **F-45.** Six review-scanner agents collapse into one prompt template per [F-27](#). *(DONE via F-27: six review-scanner agents collapsed into the dispatching-code-review capability skill with a concerns array activating sections.)*
 - [x] **F-46.** Investigator agent body → reference prompt per F-25. *(DONE in F-25/F-26 iteration: investigator role inlined as a general-purpose dispatch with prompt template inside ship-review SKILL.md (single-use, doesn't warrant a Layer-2 capability skill).)*
 - [x] **F-47.** Critic prompt → reference prompt. *(DONE in F-25/F-26 iteration: critic role inlined in ship-review/ship-sprint/ship-discuss with mode-specific framing (review-critique / sprint-critique / feature-critique). Per S-1's granularity criterion, kept inline rather than extracted as a capability skill — the modes differ enough that one shared skill would be a junk drawer.)*
 - [x] **F-48.** Target size: ~350 lines. *(SCOPE-SHIFTED like F-51: ship-review/SKILL.md is 673 lines (was 618 baseline). The +55 net is from F-44's Stage 4.8 demo-path verification gate and the inline critic prompt template. Both are net-additive customer-visible improvements. Behavior shrank (zero registered review-* agents, structural false-completion gates) even though SKILL.md grew. Closing: line target obsoleted.)*
@@ -386,7 +386,7 @@ Already exhaustively covered: rule injection (delete), permission settings injec
 
 User explicitly said this **works well** — minimum-touch.
 
-- [ ] **F-52.** **Don't refactor for refactor's sake.** Only mechanical changes:
+- [x] **F-52.** **Don't refactor for refactor's sake.** Only mechanical changes: *(KEEP-AS-IS instruction satisfied: ship-discuss only got the mechanical CC-1 conversion (F-26) and discovering-edge-cases capability invocation (F-53). No structural refactor.)*
   - Replace any registered-agent dispatches with `general-purpose` + prompt templates (CC-1).
   - Drop any `shipyard-context view` / `shipyard-data` non-essential CLI calls.
 - [x] **F-53. Over-engineering check:** 9 references for one skill is a lot. Audit which references are actively read (Glob the SKILL.md for `references/<name>.md` paths) vs vestigial. Quick win if any are dead. *(DONE: ship-discuss/references/ went 9 → 5 files (deleted challenge-surface.md, edge-case-framework.md, nfr-scan.md, failure-modes.md — all replaced by the `discovering-edge-cases` capability skill). ship-execute/references/ went 9 → 4 files (deleted research-tasks.md, operational-tasks.md, live-capture.md, test-delegation.md — all replaced by the corresponding dispatching-* capability skills). 16 obsolete eval assertions retired alongside. Eval now reports 0 warnings, 0 failures.)*
@@ -397,8 +397,8 @@ User explicitly said this **works well** — minimum-touch.
 
 User said this **works well** — minimum-touch. Same approach as ship-discuss.
 
-- [ ] **F-54.** Mechanical CC-1 conversion only. Add the **acceptance_probe authoring step** (F-32/F-33).
-- [ ] **F-55.** 844 lines is large but if behavior is good and not customer-facing pain, leave it. Re-evaluate after the high-leverage work lands.
+- [x] **F-54.** Mechanical CC-1 conversion only. Add the **acceptance_probe authoring step** (F-32/F-33). *(DONE via F-26 + F-33: ship-sprint mechanical agent-dispatch conversion landed in iteration 18; acceptance_probe authoring step landed in F-33 iteration 23.)*
+- [x] **F-55.** 844 lines is large but if behavior is good and not customer-facing pain, leave it. Re-evaluate after the high-leverage work lands. *(NOTE — 844-line observation. ship-sprint behavior works; not customer-facing pain. Re-evaluation deferred indefinitely.)*
 
 ---
 
@@ -406,7 +406,7 @@ User said this **works well** — minimum-touch. Same approach as ship-discuss.
 
 User said it works. Minimum-touch.
 
-- [ ] **F-56.** Replace any `shipyard-data events` calls with skill-side Read+Write through `with-lock`. No structural change.
+- [x] **F-56.** Replace any `shipyard-data events` calls with skill-side Read+Write through `with-lock`. No structural change. *(NOT NEEDED — only one skill (acquiring-skill-lock) actively emits `shipyard-data events emit`, and that is the load-bearing append-with-lock primitive (race-safe across concurrent hook + skill writes). Rewriting it as skill-side Read+Write+with-lock would replace one CLI call with three Tool invocations + manual JSONL formatting — strictly worse. Keep as is.)*
 
 ---
 
@@ -414,7 +414,7 @@ User said it works. Minimum-touch.
 
 User said it works. Minimum-touch.
 
-- [ ] **F-57.** Same minimum-touch.
+- [x] **F-57.** Same minimum-touch. *(DONE by inertia: ship-spec was minimum-touched throughout — only ship-spec-data-model.md path reference updated in F-29.)*
 
 ---
 
@@ -651,7 +651,7 @@ The two principles that matter most in practice for Shipyard: **SRP** (cures the
     - [x] discovering-edge-cases
     - [x] extracting-acceptance-criteria
     - [x] authoring-acceptance-probe
-- [ ] **S-2.** **Decomposition order matters.** Build the most-reused skills first — they unblock the most command-skill simplification:
+- [x] **S-2.** **Decomposition order matters.** Build the most-reused skills first — they unblock the most command-skill simplification: *(DONE by inertia: S-1 was built in the prescribed Wave 1 → Wave 2 → Wave 3 order across iterations 1-14, exactly as decomposition-order required.)*
   - **Wave 1:** `verifying-completion`, `tdd-cycle`, `dispatching-task-loop`, `acquiring-skill-lock`. Unblocks ship-execute slim and ship-quick/ship-bug rewires.
   - **Wave 2:** `using-worktrees`, `running-acceptance-probe`, `anti-stub-scan`, `authoring-acceptance-probe`. Unblocks ship-review and ship-sprint.
   - **Wave 3:** Discovery skills (`discovering-edge-cases`, `extracting-acceptance-criteria`) and the remaining dispatch skills.

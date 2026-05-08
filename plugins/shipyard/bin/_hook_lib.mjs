@@ -68,9 +68,8 @@ export const WORKTREE_NAME_RE = Object.freeze(
   /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/,
 );
 export const SKILL_SLUG_RE = Object.freeze(/^ship-[a-z0-9][a-z0-9-]{0,63}$/);
-export const REFERENCE_NAME_RE = Object.freeze(
-  /^[a-z0-9][a-z0-9._-]{0,63}$/,
-);
+// REFERENCE_NAME_RE retired in 2.0 (F-23 audit) — never consumed externally;
+// internal regex shape lived only in this declaration.
 
 /**
  * Best-effort plugin-root discovery when CLAUDE_PLUGIN_ROOT is unset.
