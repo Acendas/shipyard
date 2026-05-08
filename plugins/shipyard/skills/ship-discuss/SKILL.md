@@ -384,23 +384,18 @@ Fold findings into the conversation naturally before challenging: "I looked into
 
 ### Phase 1.5b: Challenge & Surface
 
-Once you have a reasonable understanding of the feature, **proactively challenge it** before moving to spec. Delegate the heavy methodology pass to a `shipyard-discovery-scout` subagent so you keep the user dialogue context clean.
+Once you have a reasonable understanding of the feature, **proactively challenge it** before moving to spec. Invoke the **`shipyard:discovering-edge-cases` capability skill** to walk the seven discovery categories (boundary inputs, concurrency, failure modes, adversarial input, observability gaps, NFRs, domain-specific) and return structured findings.
 
-**Spawn the scout** (single Agent call):
+Pass to the capability skill:
 
-```
-subagent_type: shipyard:shipyard-discovery-scout
-prompt: |
-  Feature draft: <inline summary of the user's feature so far, OR path to .research-draft.md if it exists>
-  Codebase context: <SHIPYARD_DATA>/codebase-context.md
-  Project rules: .claude/rules/project-*.md
+| Parameter | Value |
+|---|---|
+| `feature_text` | Inline summary of the user's feature so far, OR contents of `.research-draft.md` if it exists |
+| `parent_context` | Path to the parent epic/feature if applicable, else null |
+| `domain_hints` | Inferred from the feature draft (`["auth"]`, `["payments"]`, `["external-api"]`, `["multi-tenant"]`, `["AI/LLM"]`, `["cache"]` — pick relevant ones) |
+| `data_dir` | Literal SHIPYARD_DATA path |
 
-  Apply the four methodology references — references/challenge-surface.md,
-  references/edge-case-framework.md, references/nfr-scan.md,
-  references/failure-modes.md — and return your structured findings list.
-```
-
-The scout reads the methodology files and returns a `DISCOVERY SCOUT REPORT` with grouped findings (challenges / edge cases / NFRs / failure modes). You hold the report; the methodology files never enter your context. Also run a quick pre-mortem (from `discovery-techniques.md`) — that one is short enough to do inline.
+The capability skill returns a structured findings list with per-finding `category`, `case`, `currently_handled` (true/false/ambiguous), and `spec_response_needed`. You hold the structured list (~3-5k tokens), not the seven methodology references. Also run a quick pre-mortem (from `discovery-techniques.md`) — that one is short enough to do inline.
 
 **Presentation:** Follow `references/communication-design.md`. Max 3–4 items per AskUserQuestion; batch into themed groups of 3 if more. For each item: what I found → why it matters → what I recommend. Use the 3-layer pattern for anything genuinely surprising. Compact visual summary before the AskUserQuestion:
 
@@ -599,17 +594,47 @@ After the self-review quality gate passes, spawn the critic agent to challenge t
 - `high` if: feature is part of an epic, story_points >= 8, touches auth/payments/data, or has 6+ acceptance scenarios
 - `standard` otherwise
 
-**Spawn the critic:**
-```
-subagent_type: shipyard:shipyard-critic
-```
+**Spawn the critic:** dispatch a `general-purpose` subagent with the inline critic prompt below. The critic role is reused across ship-review, ship-sprint, and ship-discuss with mode-specific framing; per S-1's granularity criterion, the prompt stays inline.
 
-Prompt the critic with:
-- Mode: `feature-critique`
-- Stakes: `[standard|high]`
-- Artifact paths: all feature files written in Phase 3 (full paths)
-- Codebase context path: `<SHIPYARD_DATA>/codebase-context.md`
-- Project rules: `.claude/rules/project-*.md`
+Substitute the literal SHIPYARD_DATA path before spawning:
+
+```
+Agent(subagent_type: "general-purpose", prompt: |
+
+You are an adversarial critic of a feature spec. Your job is to find what
+the spec misses: implicit assumptions, feasibility risks, ambiguous
+acceptance criteria, design decisions that locked in a constraint without
+acknowledging it, and missing error states.
+
+Apply anti-sycophancy: do not agree with the spec just because it sounds
+reasonable. Pre-mortem the feature: imagine it shipped and broke in
+production — what was the failure mode the spec didn't catch?
+
+Mode: feature-critique
+Stakes: [standard | high]   (high if part of an epic, ≥8 story points,
+                             touches auth/payments/data, or 6+ acceptance
+                             scenarios)
+
+Read these files:
+  - All feature files written in Phase 3 (full paths inlined here)
+  - Codebase context: <SHIPYARD_DATA>/codebase-context.md
+  - Project rules: .claude/rules/project-*.md
+
+Return:
+  STATUS: CHALLENGES
+  PRIORITY_ACTIONS: <ordered list — mandatory fixes>
+  IMPLICIT_ASSUMPTIONS: <baked-in assumptions the spec didn't surface>
+  FEASIBILITY_RISKS: <design choices that may not survive contact with reality>
+  AMBIGUITIES: <ACs that are too vague to test against>
+  MISSING_ERROR_STATES: <happy-path-only paths that should specify failure>
+
+If you genuinely have no challenges:
+  STATUS: NO_CHALLENGES
+  REASON: <one paragraph confirming you considered each adversarial angle>
+
+You are READ-ONLY: no edits, no commits, no spawning subagents.
+)
+```
 
 **Process the critic's findings:**
 
