@@ -276,17 +276,6 @@
     "pattern": "If neither.*git checkout.*working branch"
   },
   {
-    "name": "has_worktree_probe",
-    "type": "contains",
-    "pattern": "[Ww]orktree probe"
-  },
-  {
-    "name": "worktree_probe_in_readiness",
-    "type": "contains",
-    "pattern": "READINESS CHECK.*[Ww]orktree probe",
-    "dotall": true
-  },
-  {
     "name": "team_mode_has_concurrency_cap",
     "type": "contains",
     "pattern": "max_parallel_agents.* concurrent teammate"

@@ -233,7 +233,6 @@ Output the readiness check as text:
 - Branch: `[current branch]` — [matches SPRINT.md / mismatch warning / ⚠️ ON WORKTREE BRANCH]
 - Uncommitted changes: [none / list of changed files]
 - Execution mode: [solo / subagent / team]
-- Worktree probe: [pass / fail / skipped (solo mode)]
 - Total: [N] tasks across [M] waves
 - Teammates: [N feature tracks, M concurrent (max `max_parallel_agents`), K queued] (team mode only)
 
@@ -244,21 +243,7 @@ If current branch starts with `shipyard/wt-`, add a prominent warning:
     If this is intentional, confirm to proceed.
 ```
 
-**Worktree probe** (subagent/team mode only — skip for solo):
-
-Before asking the user, verify worktree creation works end-to-end. This catches hook failures while user interaction is expected, instead of mid-execution when it would block autonomous flow.
-
-Spawn a minimal Agent with `isolation: worktree` and prompt: "Run `git branch --show-current` and report the branch name. Do nothing else."
-
-Check the result:
-- Branch starts with `shipyard/wt-` → **pass**. Clean up: `git worktree remove <path> && git branch -D shipyard/wt-probe` from the repo root.
-- Branch is `main` or doesn't start with `shipyard/wt-` → **fail**. The `isolation: worktree` mechanism is broken (Claude Code bug — the platform sometimes silently ignores the isolation flag). Report in the readiness check:
-  ```
-  Worktree probe: FAIL — worktree created on [branch] instead of shipyard/wt-*
-    Claude Code's isolation: worktree is not working. Falling back to manual worktree creation.
-    Subagent mode will still run with full isolation — worktrees are created via git CLI instead.
-  ```
-  Clean up the probe worktree. **Set `manual_worktrees = true` for the rest of this sprint.** This flag changes how subagent mode spawns agents — see "Subagent Mode" below.
+The worktree-creation probe and `manual_worktrees=true` fallback path that lived here in pre-2.0 are gone (F-35). Anthropic shipped the isolation: worktree fixes (stale-reuse, Read/Edit denial, cwd-leak, WorktreeCreate hook); the `using-worktrees` capability skill encodes the trust-the-platform model. If isolation: worktree is genuinely broken on a user's Claude Code version, the `dispatching-task-loop` capability skill's HARD STOP catches it (subagent reports the wrong branch and refuses to proceed).
 
 **WAVE 1** — what runs first:
 - [task IDs + titles + effort]
@@ -295,16 +280,6 @@ Spawn subagents **sequentially** — one task at a time, same branch (no worktre
 
 #### Subagent Mode (4-10 tasks per wave)
 Spawn subagents **in parallel** — up to `execution.max_parallel_agents` from config at a time (default 3, hard ceiling 4). If a wave has more tasks than the cap, **batch them**: spawn the first N, wait for all N to return and run post-subagent checks, then spawn the next batch from the updated HEAD. This prevents the quality degradation observed when 6-7 agents run simultaneously (Sprint 001/002 anti-pattern: agents hit context limits or return early without committing).
-
-**If `manual_worktrees = true`** (probe failed — `isolation: worktree` is broken):
-
-Create worktrees manually before spawning, same pattern as team-mode (bug #37549 workaround). Serialize creation to avoid git lock contention:
-```bash
-# For each task in the wave, create a worktree from the working branch:
-CURRENT_SHA=$(git rev-parse HEAD)
-git worktree add -b shipyard/wt-TASK_ID .claude/worktrees/TASK_ID "$CURRENT_SHA"
-```
-Then spawn agents **without** `isolation: worktree` and pass the worktree path in the prompt. See the modified subagent prompt below.
 
 #### Team Mode (10+ tasks)
 Spawn persistent teammates per feature track using Agent Teams. Each teammate works through all tasks in its feature — more efficient than per-task subagents for features with 3+ tasks. **Max `execution.max_parallel_agents` concurrent teammates** (default 3, hard ceiling 4) — additional feature tracks are queued and spawned as earlier ones complete.
