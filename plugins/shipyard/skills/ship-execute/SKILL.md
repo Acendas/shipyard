@@ -377,21 +377,7 @@ Spot-check each subagent before merging. The check differs by task kind — read
         git -C <worktree> commit -m "wip(TASK_ID): salvaged by orchestrator"
         ```
       - Emit event: `builder_salvaged` with `task=TASK_ID`
-      - Re-dispatch a NEW builder subagent into the SAME worktree:
-        ```
-        Agent(subagent_type: shipyard:shipyard-builder, prompt: |
-          Task: [TASK_ID]  (CONTINUATION — previous builder exited early)
-          Working branch: [branch from SPRINT.md]
-          Worktree path: [absolute path to existing worktree]
-          Data dir: [SHIPYARD_DATA]
-
-          A previous builder started this task but exited without completing.
-          Their partial work has been salvaged as a WIP commit on this branch.
-          Review what was done (git log, git diff HEAD~1), identify what
-          remains, complete the work, run tests, and commit properly.
-
-          COMMIT REQUIRED before returning.)
-        ```
+      - Re-dispatch via the **`shipyard:dispatching-task-loop` capability skill** with a continuation note in the parameters: pass the same `task_id`, `task_file_path`, `feature_file_path`, `working_branch`, `worktree_path`, `acceptance_probe`, and `data_dir` as the original dispatch, plus a `continuation_note` parameter set to *"Previous attempt exited without completing; partial work is on this worktree as a WIP commit. Review git log + diff, identify what remains, complete the task, re-probe."* The capability skill's prompt template includes this note as additional context for the new subagent.
       - **Max 1 re-dispatch per task** (track in a local set). If the continuation
         builder also fails → update task `status: needs-attention`, emit
         `builder_redispatch_failed` event, log to PROGRESS.md deviations table,
@@ -482,53 +468,44 @@ Between waves (each wave is a group of tasks that ran together):
   Command: shipyard-logcap run wave-[N]-build -- <BUILD_SCOPED_COMMAND> [module paths]
   Return: PASS or FAIL with first error.
   ```
-  If the scoped build fails → do NOT proceed. Spawn a `shipyard:shipyard-builder` subagent to fix build errors first.
-- **Wave REFACTOR + MUTATE** — spawn a single `shipyard-builder` in wave-refactor mode. This is the first time tests run this wave — the builder sees ALL tasks' combined code, runs the REFACTOR pass (cross-task deduplication, naming, helpers), and runs the MUTATE pass (verify tests catch key mutations):
+  If the scoped build fails → do NOT proceed. Invoke `shipyard:dispatching-operational-task` with the build command to drive a bounded fix loop until the build is green.
+- **Wave REFACTOR + MUTATE** — spawn a `general-purpose` Agent for the wave-level refactor pass. This is the first time tests run this wave; the subagent sees ALL tasks' combined code, runs the REFACTOR pass (cross-task deduplication, naming, helpers), and runs the MUTATE pass (verify tests catch key mutations).
+
+  Dispatch shape:
   ```
-  Agent(subagent_type: shipyard:shipyard-builder,
-        prompt: |
-    Mode: wave-refactor
-    Wave: [N]
-    Working branch: [branch from SPRINT.md]
-    Wave files: [combined list of source + test files from ALL wave tasks' Technical Notes]
-    Data dir: [literal SHIPYARD_DATA path]
-
-    COMMIT REQUIRED if any changes were made. Include commit hash in your reply.
-  )
+  Agent(subagent_type: "general-purpose", prompt: <a self-contained
+  wave-refactor prompt that covers: read the wave's combined diff,
+  identify cross-task duplication and naming inconsistencies, refactor
+  while keeping all tests green, run a small mutation check on critical
+  paths, COMMIT REQUIRED if any changes were made, return commit sha or
+  STATUS: NO_CHANGES if nothing to refactor>)
   ```
-  Collect the wave files by reading each task's Technical Notes `files-to-modify` list plus the test files committed by builders (from `git log --name-only --pretty=""` on task commits).
+  No registered agent type — `general-purpose` with the inline contract above. Collect the wave files by reading each task's Technical Notes `files-to-modify` list plus the test files committed (from `git log --name-only --pretty=""` on task commits).
 
-  If the wave-refactor builder fails or returns without a commit → log the gap in PROGRESS.md deviations and proceed. REFACTOR/MUTATE failure is not a wave blocker; the code is correct (GREEN passed), just unpolished.
+  If the wave-refactor subagent fails or returns without a commit → log the gap in PROGRESS.md deviations and proceed. REFACTOR/MUTATE failure is not a wave blocker; the code is correct (GREEN passed), just unpolished.
 
-- **REFACTOR LOOP** (standard mode only) — after the wave-refactor builder returns, measure test state and fix any failures with up to 2 additional builder iterations. Full algorithm: `references/refactor-loop.md`.
+  *(F-39 in tmp/shipyard-2.0-action-items.md flags this whole section as over-engineered; in Sprint 4 the iteration counter and 3-cap REFACTOR loop are scheduled to be dropped or capped at 1. For now, the dispatch is rewired off the registered builder; semantic simplification follows.)*
 
-  Summary: spawn the extended `shipyard-test-runner` (returns a `## Structured Result` block with a `failing_tests` list). If all pass, proceed. If any fail, spawn up to 2 more fix-focused wave-refactor builders (iterations 2–3), re-measuring after each via the test-runner. Stuck = same failing test names as the previous iteration. Cap = 3 total iterations. On loop exhaustion or stuck, write iteration history to PROGRESS.md deviations and proceed — REFACTOR loop failure is not a wave blocker.
+- **REFACTOR LOOP** (standard mode only) — after the wave-refactor subagent returns, measure test state and fix any failures with up to 2 additional iterations. Full algorithm: `references/refactor-loop.md`.
 
-  Logcap session names: `wave-[N]-refactor` (iteration 1), `wave-[N]-refactor-iter-2`, `wave-[N]-refactor-iter-3`.
+  Summary: invoke the **`shipyard:dispatching-operational-task` capability skill** with a wave-scoped operational task that runs the test command and parses failures. If all pass, proceed. If any fail, dispatch up to 2 more fix-focused subagents via `shipyard:dispatching-task-loop` (iterations 2–3), re-measuring after each. Stuck = same failing test names as the previous iteration. Cap = 3 total iterations. On loop exhaustion or stuck, write iteration history to PROGRESS.md deviations and proceed — REFACTOR loop failure is not a wave blocker.
 
   **Fast mode:** skip wave-scoped tests entirely and the REFACTOR loop — proceed directly to VERIFY.
 
-- **Wave VERIFY** — spawn `shipyard-review-spec` to check all wave tasks' acceptance scenarios against the now-merged and refactored implementation:
-  ```
-  Agent(subagent_type: shipyard:shipyard-review-spec,
-        model: haiku,
-        prompt: |
-    Wave [N] acceptance check — all tasks together.
+- **Wave VERIFY** — invoke the **`shipyard:dispatching-spec-review` capability skill** with `scope: "wave"` and the list of `target_ids` (task IDs in the wave). The capability skill owns the prompt template (read-only role, MET/PARTIAL/MISSING/OVER-BUILT classification, per-finding output shape) and the read-only contract enforcement (post-return `git status --porcelain` check).
 
-    For each task below, verify every acceptance scenario is implemented and tested:
-    [list each TASK_ID with its task file path and feature file path]
+  Pass to the capability skill:
 
-    Diff: git diff $(git merge-base HEAD [main-branch])...HEAD
+  | Parameter | Value |
+  |---|---|
+  | `scope` | `"wave"` |
+  | `target_ids` | List of task IDs in this wave |
+  | `base_ref` | The working branch HEAD before wave kickoff |
+  | `head_ref` | Current HEAD (post-merge of all wave tasks) |
+  | `data_dir` | Literal SHIPYARD_DATA path |
 
-    Return a consolidated checklist:
-      TASK_ID ✓/✗ scenario — pass or specific gap
-
-    If all pass → "PASS: Wave [N] — [N] scenarios across [M] tasks all satisfied"
-    If gaps → list them. Do NOT suggest fixes.
-  )
-  ```
-  - **If PASS** → proceed.
-  - **If gaps found** → re-dispatch the relevant task builders to fill the gaps (max 1 re-dispatch per task). Pass the specific gap list in the prompt. If gaps persist after 1 re-dispatch → update affected tasks to `needs-attention`, emit `wave_verify_gap` event, log to PROGRESS.md deviations, and proceed. Gaps surface in `/ship-review`.
+  - **If `STATUS: PASS`** → proceed.
+  - **If `STATUS: FINDINGS`** → re-dispatch the relevant task loops via `shipyard:dispatching-task-loop` to fill the gaps (max 1 re-dispatch per task; the capability skill enforces this). Pass the specific gap list as the `continuation_note`. If gaps persist after 1 re-dispatch → update affected tasks to `needs-attention`, emit `wave_verify_gap` event, log to PROGRESS.md deviations, and proceed. Gaps surface in `/ship-review`.
 - Check for structural gaps (acceptance scenario with no implementation path at all)
 - If gaps found → create patch tasks, add to next wave
 - If blockers → report and attempt swap-in
@@ -572,15 +549,9 @@ This takes ~5 tool calls and recovers full state from files. Do not rely on conv
 When all waves done:
 
 **5a. Full build + full test suite**
-- **Full build first** — if `build_commands.full` is configured, delegate a full project build to a `shipyard:shipyard-test-runner` subagent. This is the first time the entire project builds together after all waves merged — catches cross-module compilation errors that scoped wave builds missed.
-  ```
-  Run the full project build.
-  Command: shipyard-logcap run sprint-build -- <BUILD_FULL_COMMAND>
-  Return: PASS or FAIL with first error.
-  ```
-  If the full build fails → spawn a `shipyard:shipyard-builder` subagent to fix build errors before running tests. If `build_commands.full` is not configured, skip to tests.
-- **Full test suite** — spawn a single `Agent` with `subagent_type: shipyard:shipyard-test-runner` (no `isolation: worktree`) following the multi-tier pattern in `references/test-delegation.md`. Pass it `test_commands.unit`, `test_commands.integration`, and `test_commands.e2e` from config. It runs all three sequentially and returns a combined summary (one line per tier). This is the only time the entire test suite runs. Act on the summary — do NOT run tests directly in this session.
-- If regression failures: do NOT fix code or lint errors directly. Spawn a `shipyard:shipyard-builder` subagent (no worktree) with the failure summary and instructions to fix all failures. At sprint level the branch owns all errors — do not scope to the diff. Verify a new commit exists after it returns. Re-run the test subagent to confirm clean before proceeding.
+- **Full build first** — if `build_commands.full` is configured, invoke the **`shipyard:dispatching-operational-task` capability skill** with `verify_command: build_commands.full` (resolved from config). This is the first time the entire project builds together after all waves merged — catches cross-module compilation errors that scoped wave builds missed. The capability skill captures output, enforces the exit-0 contract, and returns a structured verdict. If the build fails after the operational task's bounded fix-loop (default 3 iterations), surface to user via AskUserQuestion. If `build_commands.full` is not configured, skip to tests.
+- **Full test suite** — invoke the **`shipyard:dispatching-operational-task` capability skill** with `verify_command` resolved to `test_commands.unit`, `test_commands.integration`, and `test_commands.e2e` (one operational dispatch per tier, or one combined dispatch if your project supports a single command). The capability skill runs the command, captures output, parses failures into the fix-findings loop, and gates on exit 0. This is the only time the entire test suite runs. Act on the structured verdict — do NOT run tests directly in this session.
+- If the operational dispatch returns `STATUS: BLOCKED` after its iteration cap, the orchestrator re-dispatches via `shipyard:dispatching-task-loop` for the still-failing tests, treating each cluster of related failures as a continuation task. At sprint level the branch owns all errors — do not scope to the diff. The capability skills enforce the post-return verification (sha existence, capture file present, exit 0).
 
 **5b. Finalize**
 - Delete `<SHIPYARD_DATA>/agents/` directory if it exists (heartbeat cleanup — clean slate for next sprint)
@@ -733,7 +704,7 @@ When execution diverges from the plan, apply these rules to decide whether to au
 | **Blocker** | Missing dependency, broken import, missing env var | Delegate to builder subagent, note in PROGRESS.md |
 | **Structural** | New database table, new service, different design pattern | AskUserQuestion before proceeding |
 
-The key distinction: if the fix is obvious and contained (a bug, a missing null check, a lint error), spawn a `shipyard:shipyard-builder` subagent to fix it. If the fix changes the shape of the system (new table, different API design), the user needs to decide.
+The key distinction: if the fix is obvious and contained (a bug, a missing null check, a lint error), invoke `shipyard:dispatching-task-loop` with a small patch task to fix it. If the fix changes the shape of the system (new table, different API design), the user needs to decide.
 
 **The orchestrator never writes, edits, or fixes code directly — not for bugs, not for test failures, not for lint errors.** Always spawn a builder subagent.
 
@@ -753,6 +724,6 @@ When auto-fixing, log in PROGRESS.md:
 - ALWAYS commit atomically per task.
 - ALWAYS update task file status to `done` after completing each task.
 - Log session activity in PROGRESS.md (blockers, deviations, session notes).
-- NEVER fix test failures, lint errors, or code bugs directly in this session. Always spawn a `shipyard:shipyard-builder` subagent to fix them.
+- NEVER fix test failures, lint errors, or code bugs directly in this session. Always invoke `shipyard:dispatching-task-loop` (for code-shaped fixes) or `shipyard:dispatching-operational-task` (for command/test-suite-shaped fixes) to delegate.
 - Delegate bugs, missing criticals, and blockers to a builder subagent. Ask for architectural changes.
 - If in doubt → AskUserQuestion.
