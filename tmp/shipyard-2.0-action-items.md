@@ -315,8 +315,8 @@ All going away per [CC-1](#cross-cutting). Conversion notes:
 
 Today copied into `.claude/rules/shipyard-*.md` by `/ship-init`. Per [CC-3](#cross-cutting), stop the injection.
 
-- [ ] **F-29.** Skills that need a rule should `Read ${CLAUDE_PLUGIN_ROOT}/project-files/rules/<basename>.md` on demand. Or use `@${CLAUDE_PLUGIN_ROOT}/project-files/rules/<basename>.md` import inside skill body where supported.
-- [ ] **F-30.** `/ship-init` adds an **uninstall step** for legacy customers: detects existing `.claude/rules/shipyard-*.md`, asks "Shipyard 2.0 no longer needs these in your project. Remove? [Yes / Keep]". Defaults Yes.
+- [x] **F-29.** Skills that need a rule should `Read ${CLAUDE_PLUGIN_ROOT}/project-files/rules/<basename>.md` on demand. Or use `@${CLAUDE_PLUGIN_ROOT}/project-files/rules/<basename>.md` import inside skill body where supported. *(DONE: ship-spec and ship-backlog updated to reference plugin-root rule paths. dispatching-code-review's project_rules_path note already CC-3-aware. No SKILL.md still treats `.claude/rules/shipyard-*.md` as a read source.)*
+- [x] **F-30.** `/ship-init` adds an **uninstall step** for legacy customers: detects existing `.claude/rules/shipyard-*.md`, asks "Shipyard 2.0 no longer needs these in your project. Remove? [Yes / Keep]". Defaults Yes. *(DONE: Quick Check rules-current logic replaced with legacy-detection; FRESH INSTALL rule-install step removed; Self-Test Doctor checks legacy injection at 0 expected. See F-50 for the cleanup-procedure section.)*
 - [ ] **F-31. Audit the rules themselves while we're here** — most are short (17–123 lines). They look like methodology documentation more than enforced rules. Consider:
   - `shipyard-tdd.md` (17 lines) — likely already covered by inlining the TDD Iron Law into the builder prompt template. Delete after CC-4 lands.
   - `shipyard-execution.md` (34 lines) — same; superseded by Iron-Law prose in builder template.
@@ -377,7 +377,7 @@ Already exhaustively covered: rule injection (delete), permission settings injec
   - Step 5.5 (Configure Permissions, lines 478–514) — make opt-in. Default skip with explicit explainer.
   - "Install rules into the project" subsection (lines 233–238) — delete entirely.
   - Step 4 (Initialize Memory, line 418) — review whether the memory contents are doing real work; the `<SHIPYARD_DATA>/memory/project-context.md` is a good idea, keep but simplify.
-- [ ] **F-50.** Add Step: **Migration of legacy footprint** — detect existing `.claude/rules/shipyard-*.md` and offer to remove. One Read + one prompt + AskUserQuestion + N Writes (deletes).
+- [x] **F-50.** Add Step: **Migration of legacy footprint** — detect existing `.claude/rules/shipyard-*.md` and offer to remove. One Read + one prompt + AskUserQuestion + N Writes (deletes). *(DONE: New "Legacy 2.0 Rule-Injection Cleanup (F-50)" section in ship-init/SKILL.md (between Detect Mode and FRESH INSTALL, runs in both flows). Detection via Glob, AskUserQuestion presents the file list and recommends Yes/Keep, deletion via Bash rm with portability note (no `&&` chains). Once-per-session decline-honor; explicit consent required. Reflected in Quick Check (line 170) and Self-Test Doctor (line 510) as ongoing checks.)*
 - [ ] **F-51.** Target: ~400 lines. Down from 671.
 
 ---

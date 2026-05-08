@@ -329,7 +329,7 @@ deferred → proposed (revisit)
 - **deployed** → released (feature flag removed)
 - **deferred** → proposed (revisit later)
 
-Any transition not listed here is invalid — explain why and suggest the correct path. This matches the canonical state machine in `.claude/rules/shipyard-data-model.md`.
+Any transition not listed here is invalid — explain why and suggest the correct path. This matches the canonical state machine in `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-data-model.md` (rules live in the plugin in 2.0, no longer copied into `.claude/rules/`).
 
 When changing status, update it **in the feature file frontmatter** (single source of truth). Do NOT update status in BACKLOG.md or SPRINT.md — those are generated views.
 

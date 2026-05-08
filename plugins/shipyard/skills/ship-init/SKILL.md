@@ -117,6 +117,48 @@ If the user picks "none" or "fresh install", continue with the FRESH install flo
 
 ---
 
+### Legacy 2.0 Rule-Injection Cleanup (F-50)
+
+**This runs whenever `.claude/rules/shipyard-*.md` files are present in the project.** Pre-2.0 Shipyard installations copied seven rule files (`shipyard-tdd.md`, `shipyard-spec.md`, `shipyard-data-model.md`, `shipyard-execution.md`, `shipyard-review.md`, `shipyard-next-up.md`, `shipyard-ask-user.md`) into `.claude/rules/`. Claude Code loads everything in `.claude/rules/` into every session's system prompt — so these files leaked Shipyard's discipline into non-Shipyard work, the customer's reported pain.
+
+In Shipyard 2.0, rules live in the plugin (`${CLAUDE_PLUGIN_ROOT}/project-files/rules/`); skills `Read` them on demand. The legacy injected files are stale by definition.
+
+**Detection:** Use Glob `.claude/rules/shipyard-*.md` and count results. If zero → skip this section, continue. If non-zero → continue.
+
+**Cleanup procedure:**
+
+1. List the legacy files found.
+2. Use AskUserQuestion:
+
+   ```
+   Shipyard 2.0 no longer copies rule files into .claude/rules/. The plugin
+   serves them on demand instead. The following legacy files are stale and
+   load into every Claude Code session in this project:
+
+     [list of N legacy file basenames]
+
+   Remove them?
+     1. Yes — delete (recommended; rules now live in the plugin and load
+        only when /ship-* skills are running)
+     2. Keep — leave the files in place (they will continue to load into
+        every session; you can remove later)
+   ```
+
+3. **If user picks "Yes":** for each legacy file, use the Bash tool to `rm <project>/.claude/rules/<basename>` (one Bash call per file is fine; do NOT chain with `&&` — portability). Report:
+
+   ```
+   Removed N legacy rule files from .claude/rules/. Shipyard rules now
+   load only inside /ship-* skill invocations.
+   ```
+
+4. **If user picks "Keep":** record the decision and move on. Do not re-prompt on subsequent `/ship-init` runs in the same session — once declined, leave it alone for the rest of the run. The next-session re-prompt is acceptable because the situation may have changed.
+
+5. Do NOT auto-delete without consent. The legacy files may have been customized by the user; explicit consent is required.
+
+After cleanup (or skip), proceed to the normal flow below.
+
+---
+
 Check if `<SHIPYARD_DATA>/config.md` exists:
 - **If NO** → FRESH INSTALL mode
 - **If YES** → QUICK CHECK first, then UPDATE if needed
@@ -125,12 +167,7 @@ Check if `<SHIPYARD_DATA>/config.md` exists:
 
 If `<SHIPYARD_DATA>/config.md` exists, run these checks before doing anything else:
 
-1. **Rules present and current?** Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` to enumerate the canonical rules. For each enumerated file, derive the basename (e.g., `shipyard-data-model.md`) and use the Read tool on `.claude/rules/<basename>`. Classify each:
-   - Read fails (file missing) → MISSING
-   - Read succeeds but content differs from the plugin source (compare full text) → OUTDATED
-   - Read succeeds and content matches → CURRENT
-   
-   If any rules are MISSING or OUTDATED → re-copy them. To copy: Read the source file from `${CLAUDE_PLUGIN_ROOT}/project-files/rules/<basename>` and use Write to write it to `.claude/rules/<basename>`. Repeat per file. This avoids any shell `cp`/`diff`/`for` loops, which are not portable to plain Windows cmd.exe.
+1. **Legacy rule injection cleanup?** In Shipyard 2.0, rules are NO LONGER copied into `.claude/rules/`. Skills `Read` them on demand from `${CLAUDE_PLUGIN_ROOT}/project-files/rules/`. If the project has legacy `.claude/rules/shipyard-*.md` files from older Shipyard installations, they're stale and pollute every Claude Code session in the project. Use Glob `.claude/rules/shipyard-*.md` to detect them; if any exist, route through the F-50 cleanup step below. CURRENT-rules check needed in 2.0: NONE — there's nothing to keep current in-project.
 2. **Config version current?** Read `config_version` from `<SHIPYARD_DATA>/config.md` — if matches latest (3), no migration needed
 3. **Codebase context exists?** Use the Read tool on `<SHIPYARD_DATA>/codebase-context.md` (substitute the literal SHIPYARD_DATA path) — if it exists, no re-analysis needed
 
@@ -230,11 +267,11 @@ shipyard-data init
 ```
 This creates all directories in the plugin data area (outside the project — no git noise).
 
-**Install rules into the project:**
-Rules live in the project's `.claude/rules/` (plugins can't ship rules directly). Install them using Claude's native tools — no shell `cp` or `mkdir`, which are not portable to Windows cmd.exe:
+**Do NOT install rules into the project.** In Shipyard 2.0 (per CC-3 / F-29 / F-30), rules are NOT copied into `.claude/rules/shipyard-*.md`. The injection caused customer-reported "Shipyard rules trigger when I'm not using Shipyard" — every project-level `.claude/rules/` file gets loaded into every session's system prompt regardless of whether Shipyard is in use.
 
-1. Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` to enumerate the source rule files.
-2. For each enumerated file, Read the source and Write the same content to `.claude/rules/<basename>`. The Write tool creates the parent directory automatically.
+Skills that need a rule now `Read` it directly from `${CLAUDE_PLUGIN_ROOT}/project-files/rules/<rule-name>.md` at the moment they need it (or `@`-import in the skill body where supported). Plugin updates ship rule changes automatically; no re-`/ship-init` required. The rules are scoped to active `/ship-*` skill invocations only.
+
+Legacy detection: if the project has legacy `.claude/rules/shipyard-*.md` files from a pre-2.0 Shipyard installation, the F-50 legacy cleanup step (later in this skill) detects and offers to remove them.
 
 Templates are copied into plugin data by `shipyard-data init` above — no separate shell step. The init command copies everything under `$CLAUDE_PLUGIN_ROOT/project-files/templates/` into `<SHIPYARD_DATA>/templates/` via Node's `cpSync`, which stays inside the allowlisted `shipyard-data` CLI and never prompts for permission on the plugin data dir. Do NOT synthesize a raw template-copy bash line — the plugin data dir lives outside the project root and every such line would trigger a "suspicious path" prompt.
 
@@ -469,12 +506,12 @@ Run a quick diagnostic to verify the installation works. Check each item silentl
 
 Run each check using Claude's native tools (substitute the literal SHIPYARD_DATA path from the context block for `<SHIPYARD_DATA>`):
 
-1. **Rules installed?** Use Glob `.claude/rules/shipyard-*.md` and count results. Expected: 7.
-2. **Templates installed?** Use Glob `<SHIPYARD_DATA>/templates/*.md` and count results. Expected: 9.
-3. **Config valid?** Use Read on `<SHIPYARD_DATA>/config.md` (limit 3) and confirm `config_version` appears. Expected: yes.
-4. **Git ready?** Bash: `git rev-parse --git-dir 2>/dev/null && git log -1 --format=%H 2>/dev/null`. Expected: both succeed.
-5. **Worktree capability?** Bash: `git rev-parse --git-common-dir 2>/dev/null`. If it differs from `--git-dir`, the project is a worktree and parallel execution falls back to the parent.
-6. **Plugin agents reachable?** Use Glob `${CLAUDE_PLUGIN_ROOT}/agents/shipyard-*.md` and count results. Expected: 4.
+1. **Plugin rules reachable?** Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` and count results. Expected: 7. (Rules live in the plugin in 2.0 — they are NOT installed into the project's `.claude/rules/`. Skills Read them on demand.)
+2. **Legacy rule injection?** Use Glob `.claude/rules/shipyard-*.md`. Expected: 0. If non-zero → F-50 cleanup step pending; route the user through it.
+3. **Templates installed?** Use Glob `<SHIPYARD_DATA>/templates/*.md` and count results. Expected: 9.
+4. **Config valid?** Use Read on `<SHIPYARD_DATA>/config.md` (limit 3) and confirm `config_version` appears. Expected: yes.
+5. **Git ready?** Bash: `git rev-parse --git-dir 2>/dev/null && git log -1 --format=%H 2>/dev/null`. Expected: both succeed.
+6. **Worktree capability?** Bash: `git rev-parse --git-common-dir 2>/dev/null`. If it differs from `--git-dir`, the project is a worktree and parallel execution falls back to the parent.
 7. **Test commands configured?** Use Read on `<SHIPYARD_DATA>/config.md` and confirm a `unit:` field appears under `test_commands`. Expected: yes.
 
 Report:
@@ -482,21 +519,21 @@ Report:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  SELF-TEST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ✅ Rules: 7/7 installed
+  ✅ Plugin rules: 7/7 reachable in plugin
+  ✅ Legacy injection: clean (0 .claude/rules/shipyard-*.md)
   ✅ Templates: 9/9 installed
   ✅ Config: valid (v3)
   ✅ Git: ready (has commits)
   ✅ Worktree: supported (or: ⚠️ project is a worktree — parallel uses parent repo)
-  ✅ Agents: 4/4 reachable
   ✅ Test commands: configured (vitest)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 If any check fails, fix it before reporting. For example:
-- Scripts are served from the plugin directly (no project copy needed)
-- Missing rules → re-copy from plugin's `project-files/rules/`
+- Plugin rules unreachable → reinstall the Shipyard plugin (the plugin install is broken)
+- Legacy injection found → run F-50 cleanup step (offer to remove `.claude/rules/shipyard-*.md`)
 - No git → run `git init && git add -A && git commit -m "chore: initial commit"`
-- No test commands → note in report: "⚠️ Test commands not configured — TDD hooks may not work correctly. Run /ship-init again after setting up your test framework."
+- No test commands → note in report: "⚠️ Test commands not configured. Run /ship-init again after setting up your test framework."
 
 ### Step 5.5: Configure Permissions
 
