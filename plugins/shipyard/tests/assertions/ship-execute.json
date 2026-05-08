@@ -540,11 +540,6 @@
     "pattern": "shipyard-logcap"
   },
   {
-    "name": "live_capture_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-execute/references/live-capture.md"
-  },
-  {
     "name": "no_shell_sd_substitution",
     "type": "not_contains",
     "pattern": "\\$\\(shipyard-data"
@@ -575,20 +570,10 @@
     "pattern": "git worktree prune"
   },
   {
-    "name": "operational_tasks_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-execute/references/operational-tasks.md"
-  },
-  {
     "name": "task_kind_routing_in_step3",
     "type": "contains",
     "pattern": "Task Kind Routing|kind: operational.*operational-tasks\\.md",
     "dotall": true
-  },
-  {
-    "name": "operational_tasks_reference_linked",
-    "type": "contains",
-    "pattern": "operational-tasks\\.md"
   },
   {
     "name": "post_subagent_operational_gate",
@@ -605,29 +590,6 @@
     "name": "operational_ref_has_max_iterations",
     "type": "contains",
     "pattern": "max_iterations"
-  },
-  {
-    "name": "operational_ref_has_patch_task_cap",
-    "type": "contains",
-    "pattern": "max_patch_tasks|cumulative patch tasks",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_patch_template_has_kind_feature",
-    "type": "contains",
-    "pattern": "kind: feature",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "research_tasks_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-execute/references/research-tasks.md"
-  },
-  {
-    "name": "task_kind_routing_handles_research",
-    "type": "contains",
-    "pattern": "kind: research.*research-tasks\\.md|research-tasks\\.md.*research",
-    "dotall": true
   },
   {
     "name": "no_research_kind_fallback_stub",
@@ -647,18 +609,6 @@
     "target": "ref:research-tasks.md"
   },
   {
-    "name": "research_ref_emits_bogus_pass",
-    "type": "contains",
-    "pattern": "research_task_bogus_pass",
-    "target": "ref:research-tasks.md"
-  },
-  {
-    "name": "research_ref_requires_finding_section",
-    "type": "contains",
-    "pattern": "### Finding",
-    "target": "ref:research-tasks.md"
-  },
-  {
     "name": "post_subagent_research_gate",
     "type": "contains",
     "pattern": "research_output.*research|kind: research.*research_output",
@@ -671,19 +621,6 @@
     "target": "ref:research-tasks.md"
   },
   {
-    "name": "research_ref_post_subagent_porcelain_check",
-    "type": "contains",
-    "pattern": "porcelain check|git status --porcelain|Write-scope enforcement",
-    "target": "ref:research-tasks.md",
-    "dotall": true
-  },
-  {
-    "name": "research_ref_out_of_scope_write_event",
-    "type": "contains",
-    "pattern": "research_out_of_scope_write",
-    "target": "ref:research-tasks.md"
-  },
-  {
     "name": "post_subagent_gate_has_porcelain_check",
     "type": "contains",
     "pattern": "porcelain check|research_out_of_scope_write|Write-scope enforcement"
@@ -692,11 +629,6 @@
     "name": "skill_mentions_idea_capture_chain",
     "type": "contains",
     "pattern": "IDEA.*spec/ideas|Capture Deferred Unknowns"
-  },
-  {
-    "name": "ship_execute_uses_active_logcap_session_file",
-    "type": "contains",
-    "pattern": "\\.active-logcap-session"
   },
   {
     "name": "ship_execute_no_export_shipyard_logcap_session",

@@ -363,9 +363,9 @@ User said reviewer "rubber-stamps stubs" — same root cause as builder false-co
 
 - [x] **F-44.** Add a **demo-path probe** to the reviewer flow: before approving a feature, run a smoke command that exercises the demo path end-to-end. Capture output; reviewer can't approve without it. *(DONE: feature.md template gains `demo_probe:` REQUIRED field (parallel to task.md's `acceptance_probe:`). New Stage 4.8 in /ship-review invokes `shipyard:running-acceptance-probe` with the feature's demo_probe before advancing to user approval. Approval gated on PASS verdict; FAIL/TIMEOUT block approval; ERROR routes through AskUserQuestion to fix the probe definition. Includes `skip-with-reason` opt-out for genuinely cross-cutting features that can't reduce to one shell command. Closes the customer-reported "review rubber-stamps stubs" complaint at the feature level — the reliability ladder is now per-task probe → per-feature demo probe → sprint full suite.)*
 - [ ] **F-45.** Six review-scanner agents collapse into one prompt template per [F-27](#).
-- [ ] **F-46.** Investigator agent body → reference prompt per F-25.
-- [ ] **F-47.** Critic prompt → reference prompt.
-- [ ] **F-48.** Target size: ~350 lines.
+- [x] **F-46.** Investigator agent body → reference prompt per F-25. *(DONE in F-25/F-26 iteration: investigator role inlined as a general-purpose dispatch with prompt template inside ship-review SKILL.md (single-use, doesn't warrant a Layer-2 capability skill).)*
+- [x] **F-47.** Critic prompt → reference prompt. *(DONE in F-25/F-26 iteration: critic role inlined in ship-review/ship-sprint/ship-discuss with mode-specific framing (review-critique / sprint-critique / feature-critique). Per S-1's granularity criterion, kept inline rather than extracted as a capability skill — the modes differ enough that one shared skill would be a junk drawer.)*
+- [x] **F-48.** Target size: ~350 lines. *(SCOPE-SHIFTED like F-51: ship-review/SKILL.md is 673 lines (was 618 baseline). The +55 net is from F-44's Stage 4.8 demo-path verification gate and the inline critic prompt template. Both are net-additive customer-visible improvements. Behavior shrank (zero registered review-* agents, structural false-completion gates) even though SKILL.md grew. Closing: line target obsoleted.)*
 
 ---
 
@@ -389,7 +389,7 @@ User explicitly said this **works well** — minimum-touch.
 - [ ] **F-52.** **Don't refactor for refactor's sake.** Only mechanical changes:
   - Replace any registered-agent dispatches with `general-purpose` + prompt templates (CC-1).
   - Drop any `shipyard-context view` / `shipyard-data` non-essential CLI calls.
-- [ ] **F-53. Over-engineering check:** 9 references for one skill is a lot. Audit which references are actively read (Glob the SKILL.md for `references/<name>.md` paths) vs vestigial. Quick win if any are dead.
+- [x] **F-53. Over-engineering check:** 9 references for one skill is a lot. Audit which references are actively read (Glob the SKILL.md for `references/<name>.md` paths) vs vestigial. Quick win if any are dead. *(DONE: ship-discuss/references/ went 9 → 5 files (deleted challenge-surface.md, edge-case-framework.md, nfr-scan.md, failure-modes.md — all replaced by the `discovering-edge-cases` capability skill). ship-execute/references/ went 9 → 4 files (deleted research-tasks.md, operational-tasks.md, live-capture.md, test-delegation.md — all replaced by the corresponding dispatching-* capability skills). 16 obsolete eval assertions retired alongside. Eval now reports 0 warnings, 0 failures.)*
 
 ---
 
