@@ -129,10 +129,10 @@ This is Ralph's Iron Law applied at the subagent boundary, not the session bound
 
 ### Action items for Ralph-design
 
-- [ ] **R-1.** Define the subagent prompt template at `skills/ship-execute/references/task-loop-prompt.md`. Include the Iron-Law verification skill inline and the acceptance probe contract above.
-- [ ] **R-2.** `ship-execute` skill body: per-task dispatch via `general-purpose` agent type with the template. Parse the structured return.
+- [x] **R-1.** Define the subagent prompt template at `skills/ship-execute/references/task-loop-prompt.md`. Include the Iron-Law verification skill inline and the acceptance probe contract above. *(Path moved to `skills/dispatching-task-loop/SKILL.md` per S-1 capability-skill architecture; supersedes the original location.)*
+- [~] **R-2.** `ship-execute` skill body: per-task dispatch via `general-purpose` agent type with the template. Parse the structured return. *(Template + parsing contract defined in `dispatching-task-loop`. ship-execute wiring is Sprint 4 work — F-37.)*
 - [ ] **R-3.** Acceptance probe field added to task spec template (`project-files/templates/task.md`). `/ship-sprint` planning step authors probes alongside ACs (Opus is doing that work anyway).
-- [ ] **R-4.** No registered builder agent. The "builder" exists only as the prompt template loaded from inside the skill.
+- [x] **R-4.** No registered builder agent. The "builder" exists only as the prompt template loaded from inside the skill. *(Realized in `dispatching-task-loop`: dispatch via `general-purpose`; no `subagent_type` references a registered Shipyard agent.)*
 - [ ] **R-5.** Anti-stub scanner: small, run after the subagent returns, second-line defense. If it flags something, the orchestrator re-dispatches the subagent with the finding.
 
 ---
@@ -307,7 +307,7 @@ All going away per [CC-1](#cross-cutting). Conversion notes:
 - [ ] **F-25.** Delete `plugins/shipyard/agents/` entirely after conversion. Each conversion is mechanical: take the body, drop the YAML frontmatter (description/model/tools — those become Agent dispatch params), wrap in a "Subagent: <role>" header and parameterize what the orchestrator passes.
 - [ ] **F-26.** Update every `Agent(subagent_type: shipyard:shipyard-X, …)` call across all skills to `Agent(subagent_type: general-purpose, prompt: <load template> + <task params>)`. Skill body shows the `Read ${CLAUDE_PLUGIN_ROOT}/skills/<owner>/references/<role>-prompt.md` step explicitly.
 - [ ] **F-27.** Six review-* agents collapse into one **scanner-prompts.md** file with sections per scanner (security, bugs, silent-failures, patterns, spec, tests). The `ship-review` skill picks which section to load based on what's being reviewed.
-- [ ] **F-28.** When converting `shipyard-builder` (the highest-leverage agent), inline the **Iron-Law verification** prose at the top of the prompt template (per [CC-4](#cross-cutting)). The prompt template is the only place where `verification-before-completion` and `test-driven-development` Iron Law content lands in the subagent's context — so it must be there explicitly, not behind a Skill tool call inside the subagent (the subagent has no `using-superpowers` bootstrap).
+- [x] **F-28.** When converting `shipyard-builder` (the highest-leverage agent), inline the **Iron-Law verification** prose at the top of the prompt template (per [CC-4](#cross-cutting)). The prompt template is the only place where `verification-before-completion` and `test-driven-development` Iron Law content lands in the subagent's context — so it must be there explicitly, not behind a Skill tool call inside the subagent (the subagent has no `using-superpowers` bootstrap). *(Iron Laws inlined at top of `dispatching-task-loop`'s prompt template: NO PRODUCTION CODE WITHOUT FAILING TEST FIRST + NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION + NO STUBS.)*
 
 ---
 
@@ -641,7 +641,7 @@ The two principles that matter most in practice for Shipyard: **SRP** (cures the
     - [x] tdd-cycle
     - [ ] running-acceptance-probe
     - [ ] anti-stub-scan
-    - [ ] dispatching-task-loop
+    - [x] dispatching-task-loop
     - [ ] dispatching-spec-review
     - [ ] dispatching-code-review
     - [ ] dispatching-research-task
