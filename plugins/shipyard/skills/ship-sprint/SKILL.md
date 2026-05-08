@@ -541,18 +541,40 @@ Patterns that fire most often in software sprints (run these first):
 - **Happy path vs. edge cases** — "implement X and handle errors / validate / edge cases"
 - **Make-it-work vs. make-it-fast** — any mention of caching, performance, or optimization
 
-#### Stage 4: Write the Red step, then write the task file
+#### Stage 4: Write the Red step, author the acceptance probe, then write the task file
 
-For each draft that survived Stage 3, complete this sentence before creating the file:
+For each draft that survived Stage 3:
 
-> "The first failing test for this task is: `[specific assertion]`"
+1. **Red step.** Complete this sentence before creating the file:
 
-If the sentence requires "and" — Stage 3 applies again, split.
-If the sentence is vague ("tests for the auth flow") — scope is unresolved; do not write the file. Clarify the acceptance criterion before proceeding.
+   > "The first failing test for this task is: `[specific assertion]`"
 
-Once the Red step is clear, use the Write tool to create `<SHIPYARD_DATA>/spec/tasks/TNNN-[slug].md` with frontmatter: `id`, `title`, `feature` (parent ID), `status`, `effort` (S/M/L), `dependencies`, **`kind`** (see Task Kinds below), **`verify_command`** (required when `kind: operational`). Write the Red step into `## Technical Notes` under the heading `First failing test:`.
+   If the sentence requires "and" — Stage 3 applies again, split.
+   If the sentence is vague ("tests for the auth flow") — scope is unresolved; do not write the file. Clarify the acceptance criterion before proceeding.
 
-Task files are the **single source of truth** — title, effort, status, dependencies, kind all live there.
+2. **Acceptance probe.** For `kind: feature` tasks, invoke the **`shipyard:authoring-acceptance-probe` capability skill** to derive the smoke command from the task's acceptance criteria. Pass `feature_text` (the AC text), `parent_context` (parent feature path), and `domain_hints` (inferred from the feature's tech stack and frontmatter). The capability skill:
+
+   - Asks the canonical "what one shell command, run from a clean state, prints observable evidence the wiring works" question.
+   - Walks the probe-pattern catalogue (HTTP, CLI, library, migration, refactor, frontend, background job, config) plus the anti-patterns table.
+   - Runs the quality checklist: one command, self-contained, exit-0-means-pass, observable output, deterministic, bounded ≤60s, AND fails today against the unimplemented state.
+   - Returns the probe command as a YAML-ready string.
+
+   Write the returned probe to the task's frontmatter `acceptance_probe:` field (use a YAML block scalar `|` for multi-line probes). **Without a probe, dispatching-task-loop refuses to dispatch — task is unauthorable.** If the probe is genuinely elusive after the patterns are tried, surface to the user:
+
+   > *"This task's acceptance criteria don't reduce to a single observable command. Should we (a) refine the criteria, (b) split into smaller tasks, or (c) mark this task `kind: research` and produce a findings doc instead? Recommended: (a)."*
+
+   Skip probe authoring for `kind: operational` (the verify_command IS the probe — see operational task guidance) and `kind: research` (no code commit, no probe — research_output is the deliverable).
+
+3. **Write the task file.** Use the Write tool to create `<SHIPYARD_DATA>/spec/tasks/TNNN-[slug].md` from `${CLAUDE_PLUGIN_ROOT}/project-files/templates/task.md`. Required frontmatter:
+   - `id`, `title`, `feature` (parent ID), `status`, `effort` (S/M/L), `dependencies`
+   - **`kind`** (see Task Kinds below)
+   - **`acceptance_probe`** for `kind: feature` (the probe authored in step 2)
+   - **`verify_command`** for `kind: operational`
+   - **`research_scope`** for `kind: research`
+
+   Write the Red step into `## Technical Notes` under the heading `First failing test:`.
+
+Task files are the **single source of truth** — title, effort, status, dependencies, kind, and probe all live there.
 
 #### Stage 5: Assign effort using the adapted 8/80 rule
 
