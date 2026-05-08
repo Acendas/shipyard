@@ -133,7 +133,7 @@ This is Ralph's Iron Law applied at the subagent boundary, not the session bound
 - [~] **R-2.** `ship-execute` skill body: per-task dispatch via `general-purpose` agent type with the template. Parse the structured return. *(Template + parsing contract defined in `dispatching-task-loop`. ship-execute wiring is Sprint 4 work — F-37.)*
 - [ ] **R-3.** Acceptance probe field added to task spec template (`project-files/templates/task.md`). `/ship-sprint` planning step authors probes alongside ACs (Opus is doing that work anyway).
 - [x] **R-4.** No registered builder agent. The "builder" exists only as the prompt template loaded from inside the skill. *(Realized in `dispatching-task-loop`: dispatch via `general-purpose`; no `subagent_type` references a registered Shipyard agent.)*
-- [ ] **R-5.** Anti-stub scanner: small, run after the subagent returns, second-line defense. If it flags something, the orchestrator re-dispatches the subagent with the finding.
+- [x] **R-5.** Anti-stub scanner: small, run after the subagent returns, second-line defense. If it flags something, the orchestrator re-dispatches the subagent with the finding. *(Realized as `skills/anti-stub-scan/`. HIGH/MEDIUM/LOW confidence levels, `shipyard:placeholder reason=` opt-out marker, single-redispatch rule.)*
 
 ---
 
@@ -640,7 +640,7 @@ The two principles that matter most in practice for Shipyard: **SRP** (cures the
     - [x] verifying-completion
     - [x] tdd-cycle
     - [ ] running-acceptance-probe
-    - [ ] anti-stub-scan
+    - [x] anti-stub-scan
     - [x] dispatching-task-loop
     - [ ] dispatching-spec-review
     - [ ] dispatching-code-review
