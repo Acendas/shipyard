@@ -646,7 +646,7 @@ The two principles that matter most in practice for Shipyard: **SRP** (cures the
     - [ ] dispatching-code-review
     - [ ] dispatching-research-task
     - [ ] dispatching-operational-task
-    - [ ] using-worktrees
+    - [x] using-worktrees
     - [x] acquiring-skill-lock
     - [ ] discovering-edge-cases
     - [ ] extracting-acceptance-criteria
