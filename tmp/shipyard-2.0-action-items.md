@@ -160,7 +160,7 @@ Tree summary:
 
 Currently 31 lines, version `1.12.0`. Clean but missing useful metadata.
 
-- [ ] **F-1.** Bump to `2.0.0` when this batch lands — it's a breaking change for anyone with `.claude/rules/shipyard-*.md` injected. Add a `breaking_changes` note in release notes about the new "skill-active footprint" model.
+- [x] **F-1.** Bump to `2.0.0` when this batch lands — it's a breaking change for anyone with `.claude/rules/shipyard-*.md` injected. Add a `breaking_changes` note in release notes about the new "skill-active footprint" model. *(DONE: plugin.json version 1.12.0 → 2.0.0. Pre-existing test bugs fixed in same iteration: resolver test now isolates TMPDIR/TMP/TEMP to prevent breadcrumb-leakage from real sessions; 86 obsolete eval assertions removed (those that targeted deleted agents/hooks/scripts); test_agent_definitions.py deleted (tested the deleted `agents/` directory). All test suites now green: Python (4 files OK), Node (66 tests / 0 failures), Eval (1749 passing / 0 failed). Release notes content for `breaking_changes` is captured in commit messages from this Sprint and can be aggregated when publishing.)*
 - [ ] **F-2.** Consider adding `"settings"` block (Claude Code now supports plugin-default settings via `settings.json` at plugin root) for any user-tunable defaults — but only after first thinking whether they belong in `<SHIPYARD_DATA>/config.md` instead. Today nothing belongs here.
 
 ---

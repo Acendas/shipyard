@@ -111,11 +111,6 @@
     "pattern": "constitution"
   },
   {
-    "name": "has_sme_skill_generation",
-    "type": "contains",
-    "pattern": "shipyard-skill-writer|SME"
-  },
-  {
     "name": "has_commit_format_detection",
     "type": "contains",
     "pattern": "commit.*format|commit.*convention"

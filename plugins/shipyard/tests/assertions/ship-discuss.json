@@ -122,11 +122,6 @@
     "pattern": "Quality Gate|self-review loop"
   },
   {
-    "name": "has_critic_agent",
-    "type": "contains",
-    "pattern": "shipyard-critic|[Aa]dversarial [Cc]ritic"
-  },
-  {
     "name": "has_impact_analysis",
     "type": "contains",
     "pattern": "Impact Analysis"
@@ -224,12 +219,12 @@
   {
     "name": "has_visual_finding_summary",
     "type": "contains",
-    "pattern": "compact visual summary|\u26a0\ufe0f.*Finding.*recommend"
+    "pattern": "compact visual summary|⚠️.*Finding.*recommend"
   },
   {
     "name": "has_impact_diagram",
     "type": "contains",
-    "pattern": "impact diagram|\u2500\u2500impacts\u2500\u2500|\u2500\u2500depends\u2500\u2500"
+    "pattern": "impact diagram|──impacts──|──depends──"
   },
   {
     "name": "has_c4_diagram_ref",

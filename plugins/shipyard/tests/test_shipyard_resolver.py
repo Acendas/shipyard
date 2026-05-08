@@ -312,15 +312,30 @@ class TestShipyardResolver(unittest.TestCase):
 
 
     def test_resolver_fails_loud_when_no_data_dir(self):
-        """R10: With no CLAUDE_PLUGIN_DATA, no plugin-root probe, and no
-        legacy dir, the resolver must exit non-zero with an actionable message,
-        not silently fall back to a phantom path."""
-        with tempfile.TemporaryDirectory() as fake_home:
+        """R10: With no CLAUDE_PLUGIN_DATA, no plugin-root probe, no legacy
+        dir, and no breadcrumb, the resolver must exit non-zero with an
+        actionable message, not silently fall back to a phantom path.
+
+        Test-isolation note: the resolver also reads a breadcrumb file at
+        `tmpdir() + 'shipyard-<hash>.plugindata'` written by the SessionStart
+        hook. Without isolating TMPDIR, the test inherits any breadcrumb a
+        real Shipyard session left behind on this machine and the resolver
+        succeeds. We isolate TMPDIR/TMP/TEMP to a fresh tempdir so no
+        breadcrumb is reachable for this test process.
+        """
+        with tempfile.TemporaryDirectory() as fake_home, \
+             tempfile.TemporaryDirectory() as fake_tmpdir:
             env = os.environ.copy()
             for k in ('CLAUDE_PROJECT_DIR', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_PLUGIN_ROOT'):
                 env.pop(k, None)
             env['HOME'] = fake_home
             env['USERPROFILE'] = fake_home  # Windows
+            # Isolate Node's os.tmpdir() — covers POSIX (TMPDIR) and Windows
+            # (TMP/TEMP). Without this, breadcrumbs left behind by real
+            # sessions on this machine make the resolver succeed.
+            env['TMPDIR'] = fake_tmpdir
+            env['TMP'] = fake_tmpdir
+            env['TEMP'] = fake_tmpdir
             proc = subprocess.run(
                 ['node', RESOLVER, 'data-dir'],
                 capture_output=True, text=True, env=env,

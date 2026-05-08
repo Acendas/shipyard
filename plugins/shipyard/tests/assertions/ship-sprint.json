@@ -122,11 +122,6 @@
     "pattern": "Quality Gate|self-review loop"
   },
   {
-    "name": "has_critic_agent",
-    "type": "contains",
-    "pattern": "shipyard-critic|[Aa]dversarial [Cc]riti"
-  },
-  {
     "name": "has_carry_over_scan",
     "type": "contains",
     "pattern": "[Cc]arry.[Oo]ver [Ss]can"
@@ -155,11 +150,6 @@
     "name": "has_poc_spike",
     "type": "contains",
     "pattern": "POC.*spike|spike.*POC"
-  },
-  {
-    "name": "has_sme_skill_generation",
-    "type": "contains",
-    "pattern": "shipyard-skill-writer|SME"
   },
   {
     "name": "has_token_projection",
@@ -199,12 +189,12 @@
   {
     "name": "has_wave_timeline_visual",
     "type": "contains",
-    "pattern": "visual timeline|Wave.*\u2588\u2588\u2588\u2588"
+    "pattern": "visual timeline|Wave.*████"
   },
   {
     "name": "has_dependency_dag",
     "type": "contains",
-    "pattern": "DEPENDENCY GRAPH|DAG|\u2500\u252c\u2500\u25b6"
+    "pattern": "DEPENDENCY GRAPH|DAG|─┬─▶"
   },
   {
     "name": "has_lsp_in_tools",

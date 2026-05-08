@@ -40,16 +40,6 @@
     "pattern": "acceptance scenario|acceptance criteria"
   },
   {
-    "name": "has_test_delegation",
-    "type": "contains",
-    "pattern": "shipyard-test-runner"
-  },
-  {
-    "name": "has_spec_scanner",
-    "type": "contains",
-    "pattern": "shipyard-review-spec"
-  },
-  {
     "name": "has_code_review_orchestration",
     "type": "contains",
     "pattern": "code-review-orchestration\\.md"
@@ -59,11 +49,6 @@
     "type": "contains",
     "pattern": "Stage 0.*Code Review",
     "dotall": true
-  },
-  {
-    "name": "has_investigator_ref",
-    "type": "contains",
-    "pattern": "shipyard-investigator"
   },
   {
     "name": "no_legacy_reviewer",
@@ -157,11 +142,6 @@
     "pattern": "Quality Gate|self-review"
   },
   {
-    "name": "has_critic_challenge",
-    "type": "contains",
-    "pattern": "shipyard-critic|review-critique|Critic Challenge"
-  },
-  {
     "name": "has_final_review_pass",
     "type": "contains",
     "pattern": "Final Review Pass|blind spot|false positive"
@@ -251,12 +231,6 @@
     "name": "operational_review_checks_capture_bytes",
     "type": "contains",
     "pattern": "byte|bytes|shipyard-logcap"
-  },
-  {
-    "name": "silent_failures_reviewer_operational_awareness",
-    "type": "contains",
-    "pattern": "kind: operational|operational task",
-    "target": "agent:shipyard-review-silent-failures"
   },
   {
     "name": "retro_uses_atomic_idea_allocator",
