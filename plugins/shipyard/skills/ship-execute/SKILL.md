@@ -336,47 +336,28 @@ Before spawning any agent for a task, read the task file frontmatter and check `
 
 **Note — builders may write IDEA files during task execution.** As part of their process (step 10, CAPTURE DEFERRED UNKNOWNS), builders are allowed to write up to 3 `IDEA-*` files to `<SHIPYARD_DATA>/spec/ideas/` for deferred unknowns and scope-adjacent rot discovered while building. These are staged and committed atomically with the task's implementation, so they survive (or roll back) with it. IDEAs written during execution surface in `/ship-sprint`'s carry-over scan and `/ship-backlog`'s IDEAS section on subsequent planning cycles — this is the idea-capture chain that prevents observations from vanishing at session end. See `agents/shipyard-builder.md` → "Capture Deferred Unknowns" for the rules, caps, and frontmatter template.
 
-#### Subagent Prompt (solo + subagent modes — kind: feature only)
+#### Per-task dispatch (solo + subagent modes — kind: feature only)
 
-The `shipyard-builder` agent body is the canonical contract — branch verification, TDD cycle, Rules section, Deviation Rules, When Blocked, and Before Exiting are all defined there. The orchestrator only passes task-specific dispatch info; the agent body carries the rest.
+For each task in the wave, **invoke the `shipyard:dispatching-task-loop` capability skill** — do NOT construct an Agent dispatch inline. The capability skill owns the prompt template (with the three Iron Laws inlined), the structured-return contract, the orchestrator-side gate (sha verification + probe re-execution + anti-stub-scan), the iteration cap, and the single-redispatch rule.
 
-```
-For each task in the wave, spawn Agent with:
-  name: "builder-[TASK_ID]"
-  subagent_type: shipyard:shipyard-builder
-  isolation: worktree  (subagent mode, probe passed) or omit (solo mode or manual_worktrees)
-  prompt: |
-    Mode: task
-    Task: [TASK_ID]
-    Working branch: [branch from SPRINT.md frontmatter]
-    Data dir: [literal SHIPYARD_DATA path from context block]
+Pass these parameters to `dispatching-task-loop`:
 
-    Reading list:
-    - [SHIPYARD_DATA]/spec/tasks/[TASK_ID]-*.md (your task spec)
-    - [SHIPYARD_DATA]/spec/features/[FEATURE_ID]-*.md (parent feature; also read each path listed in its `references:` frontmatter)
-    - [SHIPYARD_DATA]/codebase-context.md
-    - .claude/rules/*.md (ALL project rules, not just shipyard-*)
+| Parameter | Value |
+|---|---|
+| `task_id` | The task ID, e.g., `T-042` |
+| `task_file_path` | `<SHIPYARD_DATA>/spec/tasks/[TASK_ID]-*.md` (use the absolute literal SHIPYARD_DATA path) |
+| `feature_file_path` | `<SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md` for the parent feature, or null for hotfix |
+| `working_branch` | `branch:` field from SPRINT.md frontmatter |
+| `acceptance_probe` | `acceptance_probe:` from the task's frontmatter (HALT and surface to user if missing — task is unauthorable without one) |
+| `data_dir` | Literal SHIPYARD_DATA path |
+| `worktree_path` | null in solo mode; absolute worktree path in subagent/team mode |
+| `fast_mode` | `true` if `--fast` was passed, else `false` |
 
-    Read Technical Notes in task and feature files first — they contain research findings (URLs, patterns, gotchas) from sprint planning. WebFetch listed URLs for details. WebSearch unknowns.
+In **subagent/team mode**, the capability skill internally dispatches with `isolation: "worktree"` (per `using-worktrees` — Anthropic's stable primitive). In **solo mode**, no isolation. The skill handles both transparently.
 
-    Fast mode: [yes if --fast was passed, else no]
+The skill returns a structured verdict (`STATUS: COMPLETE` + `COMMIT: <sha>` + `PROBE_OUTPUT_TAIL` after orchestrator-side verification, or `STATUS: BLOCKED` with reason). Use the verdict to mark the task done, log progress, or escalate. **Do not parse subagent output yourself** — the capability skill has already validated it.
 
-    Your job: write tests (RED) + write implementation (GREEN) + commit. In normal mode: run logcap at RED and GREEN phases. In fast mode: skip test execution. REFACTOR, MUTATE, and VERIFY run at the wave boundary.
-
-    COMMIT REQUIRED: You MUST `git add -A && git commit` before returning.
-    A SubagentStop hook will block your exit if uncommitted changes exist.
-    Include your commit hash in your final message.
-
-    Everything else — branch verification, TDD cycle, rules, exit protocol — follows your agent body. Do not deviate.
-```
-
-**If `manual_worktrees = true`**, add `Worktree path:` to the prompt header (the builder agent keys off this field to enter manual worktree mode — see its "Startup: Branch Verification" section):
-```
-    Task: [TASK_ID]
-    Working branch: [branch from SPRINT.md frontmatter]
-    Worktree path: [absolute path to .claude/worktrees/TASK_ID]
-    Data dir: [literal SHIPYARD_DATA path from context block]
-```
+Capabilities used per task: `shipyard:dispatching-task-loop` (which internally uses `shipyard:verifying-completion`, `shipyard:tdd-cycle`, `shipyard:running-acceptance-probe`, `shipyard:anti-stub-scan`, and `shipyard:using-worktrees`).
 
 #### Post-Subagent (all modes)
 Spot-check each subagent before merging. The check differs by task kind — read the task file's `kind:` field first.
