@@ -1026,10 +1026,6 @@ function cmdProbe() {
   process.stdout.write(`session:      ${session}\n`);
 }
 
-// F-19/F-22: cmdPrune removed in 2.0 — was never called from any Shipyard
-// skill (audit at iteration 35 found zero callers). Capture-session
-// housekeeping is a user-side cron concern, not a Shipyard CLI surface.
-
 // ─── CLI dispatch ───────────────────────────────────────────────────────────
 
 async function main() {
@@ -1062,7 +1058,6 @@ async function main() {
       case "probe":
         cmdProbe();
         return;
-      // F-19: `prune` subcommand removed in 2.0 — never called from skills.
       default:
         process.stderr.write(`shipyard-logcap: unknown subcommand "${subcommand}".\n`);
         printHelp();

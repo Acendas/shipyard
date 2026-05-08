@@ -64,25 +64,17 @@ function runGit(args, cwd) {
  * worktree iff its realpath'd toplevel is contained in
  * `<parentRepo>/.claude/worktrees/`. Everything else is a user worktree.
  *
- * Non-worktree repos continue to hash `git rev-parse --show-toplevel`, and
- * the fallback is cwd (or resolved CLAUDE_PROJECT_DIR). All returned paths
- * are realpath'd so symlinked checkouts hash consistently.
- *
- * NB: This changes hash semantics for anyone previously running Shipyard
- * inside a user-owned worktree (their data was under the parent-repo hash;
- * it's now under the worktree-specific hash). Pre-2.0 customers in this
- * situation may see an empty data dir on first 2.0 /ship-init; the prior
- * data still lives at the old hash and can be re-pointed via CLAUDE_PLUGIN_DATA
- * or copied manually. The 2.0 ship-init does NOT auto-discover/migrate it.
+ * Non-worktree repos hash `git rev-parse --show-toplevel`, and the fallback
+ * is cwd (or resolved CLAUDE_PROJECT_DIR). All returned paths are realpath'd
+ * so symlinked checkouts hash consistently.
  */
 export function getProjectRoot() {
   // CLAUDE_PROJECT_DIR (set by Claude Code) is used as the *starting cwd* for
   // git commands, not as the answer. Returning it directly would bypass the
-  // worktree-detection below: in production, Claude Code sets this to the
-  // session cwd, which for a builder subagent is the worktree path — exactly
-  // the case the F5 fix exists to handle. Always run worktree detection.
-  // Also resolves R9: relative CLAUDE_PROJECT_DIR is normalized to absolute
-  // so the answer doesn't depend on the resolver's own cwd.
+  // worktree detection below: Claude Code sets this to the session cwd, which
+  // for a builder subagent is the worktree path. Always run worktree
+  // detection. Relative CLAUDE_PROJECT_DIR is normalized to absolute so the
+  // answer doesn't depend on the resolver's own cwd.
   const claudeDir = process.env.CLAUDE_PROJECT_DIR;
   let startCwd;
   if (claudeDir) {
@@ -169,10 +161,9 @@ export function getProjectRoot() {
 
 /**
  * Deterministic per-project hash. 12-char sha256 prefix of the parent repo
- * path. Trailing newline matches the legacy bash `echo $path | shasum` format
- * so existing data dirs from prior versions remain valid for non-worktree
- * checkouts. (Worktree checkouts will rebind to the parent repo's hash —
- * intentional, see DECISIONS D1.)
+ * path. Trailing newline matters: the format `sha256(path + '\n')[:12]` is
+ * pinned and must not change — it determines where existing customer data
+ * lives. Worktree checkouts rebind to the parent repo's hash by design.
  */
 export function getProjectHash(projectRoot) {
   return createHash("sha256")
@@ -184,22 +175,13 @@ export function getProjectHash(projectRoot) {
 /**
  * Resolve the Shipyard data dir for the current project.
  *
- * Discovery order (Shipyard 2.0):
+ * Discovery order:
  *   1. CLAUDE_PLUGIN_DATA env var (Claude Code's official surface).
  *   2. Tmpdir breadcrumb written by the SessionStart hook (bridges skill
  *      `!` backtick subprocesses where the env var isn't exported).
  *
  * If neither produces a usable path, fail loud: exit non-zero with a message
- * naming the env var and recommending an upgrade. Silently picking a phantom
- * path was the original footgun.
- *
- * Pre-2.0 the resolver also probed `<plugin-root>/../../data/shipyard` and
- * `~/.claude/plugins/data/shipyard`. F-7 dropped both — the env var has been
- * stable in Claude Code for several months and the probes were either
- * speculative (never observed in production) or actively harmful (legacy
- * orphan picked up silently when it should have been migrated). Customers
- * who still had data under the legacy paths are migrated via /ship-init's
- * orphan-recovery prompt, not silent fallback.
+ * naming the env var. Never silently fall back to a phantom path.
  *
  * `silent: true` (used by in-process callers and structured-output CLIs)
  * throws a ShipyardResolverError instead of exiting, so the caller can

@@ -385,7 +385,7 @@ recommendation: approve|issues|changes
 
 Body: test summary, goal verification results (observable truths, artifacts, wiring), and gap list. After Stage 5 (Demo) completes, update the verdict: set `complete: true`. This file persists as a review artifact — no cleanup needed. Incomplete verdicts (from interrupted sessions) are re-entered at the review pipeline.
 
-### Stage 4.8: Demo-Path Verification (F-44)
+### Stage 4.8: Demo-Path Verification
 
 Before advancing to user approval, **run each feature's `demo_probe` end-to-end** to prove the cross-task wiring actually works. This catches the failure mode where every per-task probe passed in isolation but the feature's user-facing flow doesn't compose.
 
@@ -403,7 +403,7 @@ For each feature in scope:
 
 **Approval gate.** A feature with a FAIL or TIMEOUT verdict cannot be approved. The reviewer must either (a) re-dispatch task-loops to fix the cross-task wiring, or (b) flag the feature as `needs-attention` and defer approval to a future review pass. ERROR verdicts route through AskUserQuestion to fix the probe definition.
 
-This is the per-feature counterpart to per-task acceptance probes (F-32/F-33 / R-3). Together they form the reliability ladder:
+This is the per-feature counterpart to per-task acceptance probes. Together they form the reliability ladder:
 
 ```
 per-task acceptance_probe   →  unit-level wiring proof (dispatching-task-loop gate)

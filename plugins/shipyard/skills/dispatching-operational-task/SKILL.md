@@ -1,6 +1,6 @@
 ---
 name: dispatching-operational-task
-description: Use to execute one Shipyard task with kind:operational — run a verification command (E2E suite, lint sweep, security scan, build), capture output verbatim, then fix findings in a bounded sub-loop until the verify command exits 0. Different deliverable shape than feature or research tasks. Replaces references/operational-tasks.md logic and the shipyard-test-runner registered agent.
+description: Use to execute one Shipyard task with kind:operational — run a verification command (E2E suite, lint sweep, security scan, build), capture output verbatim, then fix findings in a bounded sub-loop until the verify command exits 0. Different deliverable shape than feature or research tasks.
 disable-model-invocation: true
 ---
 
@@ -180,13 +180,9 @@ The combination of (Iron Law in prompt) + (orchestrator-side gate) catches:
 2. **Subagent disables failing tests instead of fixing**: gate steps b/c don't catch this directly — `dispatching-code-review` (test concern) does, ideally invoked at sprint-completion. Operational tasks intrinsically can fall to this if not paired with code-review.
 3. **Subagent fabricates a green capture**: gate step d (`LAST_LINES:` vs file tail) catches divergence.
 
-## What This Replaces
+## Note on logcap
 
-- `references/operational-tasks.md` reference file in `ship-execute/` — its dispatch protocol moves here.
-- `shipyard-test-runner` registered agent (CC-1 / F-25 deletion). Its 46-line body is mostly tee+capture; that logic is in this skill's Phase 1.
-- Post-subagent gate steps 5–8 in `ship-execute/SKILL.md` (lines ~436–439) — those checks are now this skill's orchestrator-side gate.
-
-The `shipyard-logcap` CLI is no longer required for the basic capture path — plain `tee` to a deterministic path under `<SHIPYARD_DATA>/captures/` is enough. If the user wants rotation/grouping (rare for operational tasks), it can stay; otherwise this is part of why F-19/F-20 can shrink logcap dramatically.
+The `shipyard-logcap` CLI is not required for the basic capture path — plain `tee` to a deterministic path under `<SHIPYARD_DATA>/captures/` is enough for typical operational tasks. logcap is preferable when you need rotation, grouping, or line-boundary-safe streaming for long-running processes.
 
 ## Pairing With Other Skills
 

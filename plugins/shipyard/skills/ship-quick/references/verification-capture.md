@@ -1,6 +1,6 @@
 # Verification Capture — ship-quick
 
-> The 2.0 verification path is the **`shipyard:dispatching-operational-task`** capability skill (plain `tee` to `<SHIPYARD_DATA>/captures/...`). This file distills the subset a quick task needs and documents the specific failure modes that cost a customer their audit trail on Q-002. The legacy `shipyard-logcap` CLI is still available for long-running streams (dev servers, watch mode, log tails) where signal forwarding and line-boundary rotation matter — those use cases survive until F-19/F-20 retire logcap entirely.
+> The default verification path is the **`shipyard:dispatching-operational-task`** capability skill (plain `tee` to `<SHIPYARD_DATA>/captures/...`). This file distills the subset a quick task needs and documents the failure modes that destroy an audit trail. The `shipyard-logcap` CLI is available for long-running streams (dev servers, watch mode, log tails) where signal forwarding and line-boundary rotation matter.
 
 ## The principle, restated for quick tasks
 

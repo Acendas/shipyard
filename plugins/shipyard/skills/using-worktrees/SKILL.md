@@ -1,14 +1,12 @@
 ---
 name: using-worktrees
-description: Use whenever Shipyard needs filesystem isolation for parallel task execution or worktree-aware diff inspection — /ship-execute per-task isolation, /ship-review diff scoping. Wraps Claude Code's now-stable `isolation: worktree` Agent param + `WorktreeCreate` hook + `worktree.baseRef` setting. Replaces the legacy manual-worktree fallback path that existed when `isolation: worktree` was broken.
+description: Use whenever Shipyard needs filesystem isolation for parallel task execution or worktree-aware diff inspection — /ship-execute per-task isolation, /ship-review diff scoping. Wraps Claude Code's `isolation: worktree` Agent param + `WorktreeCreate` hook + `worktree.baseRef` setting.
 disable-model-invocation: true
 ---
 
 # Using Worktrees
 
-Shipyard isolates parallel task execution in git worktrees so concurrent subagents don't clobber each other's edits. As of Claude Code's recent worktree fixes (`isolation: worktree` reliability, Read/Edit access in own worktree, cwd no longer leaks back to parent, `WorktreeCreate` hook, `worktree.baseRef`), the right path is **trust the platform** — no more manual `git worktree add` + cd-prefix fallback.
-
-**This skill replaces** the legacy worktree handling in `ship-execute`'s Step 0 salvage protocol and the `manual_worktrees = true` fallback (F-35 in the action items).
+Shipyard isolates parallel task execution in git worktrees so concurrent subagents don't clobber each other's edits. **Trust the platform** — pass `isolation: worktree` on the Agent call and let Claude Code handle creation, cwd, and cleanup.
 
 ## When to Use Worktrees
 
@@ -132,17 +130,6 @@ Anthropic fixed this for `--worktree` and `isolation: worktree` (changelog: "Fix
 - Check `shipyard-context diagnose` (or its successor `doctor`) for hook installation status.
 - Verify `plugins/shipyard/hooks/hooks.json` has the `WorktreeCreate` entry.
 - Check the recent `claude --version` against the changelog requirement.
-
-## What's Gone vs the Old Worktree Handling
-
-| Old behavior (pre-2.0) | New behavior |
-|---|---|
-| Manual `git worktree add` in skill bash | `isolation: "worktree"` on Agent call |
-| Pass `Worktree path:` in prompt; subagent `cd`s in | Claude Code sets cwd; subagent doesn't know it's in a worktree |
-| `manual_worktrees = true` fallback when isolation broken | Delete fallback — upstream is fixed |
-| Step 0 worktree salvage protocol (~76 lines in ship-execute) | Trust Anthropic's stale-worktree cleanup; orchestrator-side handling shrinks dramatically |
-| `cwd-restore` PostToolUse hook | Delete — Anthropic fixed cwd leak |
-| Probe-then-fallback "is isolation working?" check | Delete — upstream stable |
 
 ## Pairing With Other Skills
 

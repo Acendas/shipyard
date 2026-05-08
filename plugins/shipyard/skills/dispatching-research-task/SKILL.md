@@ -1,6 +1,6 @@
 ---
 name: dispatching-research-task
-description: Use to execute one Shipyard task with kind:research — investigate a technical unknown, evaluate an external API, scan a codebase pattern, produce a structured findings doc under <SHIPYARD_DATA>/research/. Different deliverable shape than feature tasks (no code commit, no acceptance probe). Replaces the shipyard-researcher registered agent with a general-purpose dispatch and a tightly-scoped Write contract.
+description: Use to execute one Shipyard task with kind:research — investigate a technical unknown, evaluate an external API, scan a codebase pattern, produce a structured findings doc under <SHIPYARD_DATA>/research/. Different deliverable shape than feature tasks (no code commit, no acceptance probe). Dispatches `general-purpose` with a tightly-scoped Write contract.
 disable-model-invocation: true
 ---
 
@@ -177,12 +177,6 @@ After the Agent call returns, before flipping the task to `done`:
    e. **Update the task file's `research_output:` field** with the relative path to `OUTPUT_PATH` (relative to `findings_dir`). The task is now done.
 
 3. **If `STATUS: BLOCKED`:** read `REASON:`. If recoverable (transient — e.g., network error during WebFetch), single redispatch is allowed. If structural (e.g., "no public benchmarks for the library"), surface to user via AskUserQuestion — possibly the answer is to spawn a new task that includes a measurement step.
-
-## What This Replaces
-
-- `shipyard-researcher` registered agent (deletion per CC-1 / F-25). Its body becomes the prompt template above.
-- The `references/research-tasks.md` reference file in `ship-execute/` (much of its dispatch logic moves here; ship-execute keeps only the routing decision).
-- The post-subagent gate steps 9–11 in `ship-execute/SKILL.md` (lines ~441–446) — those checks are now this skill's orchestrator-side gate.
 
 ## Pairing With Other Skills
 

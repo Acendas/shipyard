@@ -19,7 +19,7 @@ children: []
 tasks: []
 created: null
 updated: null
-# REQUIRED at /ship-review approval-time (Shipyard 2.0 — F-44):
+# REQUIRED at /ship-review approval-time:
 # demo_probe: |
 #   <single shell command, exit 0 == feature works end-to-end, observable
 #    output, deterministic, bounded ≤120s. Distinct from per-task acceptance

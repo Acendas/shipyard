@@ -45,7 +45,7 @@ If a feature has only 1 task, it still gets its own teammate (simpler than speci
          prompt: [teammate spawn prompt with WORKTREE_PATH filled in — see below])
    ```
 
-**Why no `isolation: worktree`?** When `team_name` is set, Claude Code skips worktree creation entirely. The agent runs in the main repo. Multiple teammates editing the same directory causes race conditions and corrupted files. Manual worktree creation + prompt-based `cd` is the workaround until Anthropic ships team-mode worktree isolation natively (currently tracked in their changelog as experimental — see CC-9 and the "Worktrees" reference for status).
+**Why no `isolation: worktree`?** When `team_name` is set, Claude Code skips worktree creation entirely. The agent runs in the main repo. Multiple teammates editing the same directory causes race conditions and corrupted files. Manual worktree creation + prompt-based `cd` is the workaround until Claude Code supports team-mode worktree isolation natively. See the "Using Worktrees" reference for current status.
 
 ## Teammate Spawn Prompt
 

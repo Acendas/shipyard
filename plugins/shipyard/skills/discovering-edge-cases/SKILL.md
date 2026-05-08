@@ -1,6 +1,6 @@
 ---
 name: discovering-edge-cases
-description: Use during /ship-discuss Phase 1.5b and /ship-sprint planning to surface edge cases, failure modes, NFRs, and adversarial inputs that the happy-path spec missed. Returns a structured findings list the calling skill folds into the feature/task spec. Replaces the shipyard-discovery-scout registered agent. Read-only.
+description: Use during /ship-discuss Phase 1.5b and /ship-sprint planning to surface edge cases, failure modes, NFRs, and adversarial inputs that the happy-path spec missed. Returns a structured findings list the calling skill folds into the feature/task spec. Read-only.
 disable-model-invocation: true
 ---
 
@@ -145,13 +145,6 @@ The default is broad sweep; narrow only when the caller specifies.
 ## Read-Only Contract
 
 This skill produces findings; it does not edit the feature draft. The calling command skill folds findings into the spec after presenting to the user. Do not Write to the draft directly.
-
-## What This Replaces
-
-- `shipyard-discovery-scout` registered agent (78 lines, deletion per CC-1 / F-25). Its body becomes this skill's discovery taxonomy + output contract.
-- The inline edge-case prompts in `/ship-discuss` Phase 1.5b that previously dispatched the registered agent — now invoke this skill instead.
-
-The original agent's reference files (`challenge`, `edge-case`, `nfr`, `failure-mode` methodology references in `ship-discuss/references/`) collapse into the categories above. Per F-53's audit-9-references action, this skill removes the need for several of them.
 
 ## Pairing With Other Skills
 

@@ -24,7 +24,7 @@ You are setting up (or updating) Shipyard for this project.
 
 ### Legacy Shipyard Footprint Cleanup
 
-Pre-2.0 Shipyard leaked into the user's project: rule files copied into `.claude/rules/` (loaded into *every* Claude Code session, not just Shipyard ones) and permission entries silently merged into `.claude/settings.local.json` by the old `/ship-init` Step 5.5. Both are the customer-reported pain that drove the 2.0 redesign. In 2.0, rules live in the plugin and load on demand; permissions are opt-in with explicit consent (Step 5.5 below). Offer to clean up the leftover footprint on every `/ship-init`.
+Older Shipyard installs leaked into the user's project: rule files in `.claude/rules/` (loaded into *every* Claude Code session) and permission entries in `.claude/settings.local.json`. Current Shipyard keeps rules in the plugin and treats permissions as opt-in (Step 5.5 below). Offer to clean up any leftover footprint on every `/ship-init`.
 
 **Run before fresh-install / update detection. Two independent checks; either may fire.**
 
@@ -36,10 +36,10 @@ Use Glob `.claude/rules/shipyard-*.md`. If zero matches → skip to Check 2. Oth
 2. AskUserQuestion:
 
    ```
-   Pre-2.0 Shipyard copied rule files into .claude/rules/. Claude Code loads
+   Found legacy Shipyard rule files in .claude/rules/. Claude Code loads
    everything there into every session in this project, leaking Shipyard
-   discipline into non-Shipyard work. In 2.0, rules live in the plugin and
-   load only inside /ship-* skill invocations.
+   discipline into non-Shipyard work. Current Shipyard keeps rules inside
+   the plugin so they only load during /ship-* skills.
 
    Found N legacy rule files:
      [basenames]
@@ -54,9 +54,9 @@ Use Glob `.claude/rules/shipyard-*.md`. If zero matches → skip to Check 2. Oth
 
 #### Check 2 — Legacy permission entries in `.claude/settings.local.json`
 
-Read `<project>/.claude/settings.local.json` if it exists. Parse the JSON `permissions.allow` array. Pre-2.0 `/ship-init` Step 5.5 silently merged a known set of entries; in 2.0 those entries are opt-in (Step 5.5 below) and only with explicit consent.
+Read `<project>/.claude/settings.local.json` if it exists. Parse the JSON `permissions.allow` array. Older `/ship-init` versions merged a known set of entries silently; current Shipyard treats those as opt-in (Step 5.5 below) and only with explicit consent.
 
-**Known pre-2.0 footprint** (only what old Shipyard itself installed; do not touch the user's other entries):
+**Known legacy footprint** (only what older Shipyard itself installed; do not touch the user's other entries):
 
 - Shipyard-specific — `Bash(shipyard-data)`, `Bash(shipyard-data:*)`, `Bash(shipyard-context)`, `Bash(shipyard-context:*)`, `Bash(shipyard-logcap)`, `Bash(shipyard-logcap:*)`. Always safe to remove (only Shipyard skills use them).
 - General — `Bash(git:*)`, `Bash(ls:*)`, `Bash(wc:*)`, `Bash(head:*)`, `Bash(grep:*)`, `WebSearch`, `WebFetch`. Shipyard added these but they're useful for everyday work; offer separately so the user can keep them.
@@ -66,8 +66,9 @@ Intersect `permissions.allow` with the footprint above. If empty intersection �
 1. AskUserQuestion:
 
    ```
-   Pre-2.0 /ship-init silently added permission entries to
-   .claude/settings.local.json. In 2.0 these are opt-in with consent. Found:
+   Found legacy Shipyard-installed permission entries in
+   .claude/settings.local.json. Permissions are now opt-in with consent.
+   Found:
 
      Shipyard-specific (safe to remove — only Shipyard skills use them):
        [list]
@@ -77,7 +78,7 @@ Intersect `permissions.allow` with the footprint above. If empty intersection �
 
    What should I remove?
      1. Shipyard-specific only (recommended — keeps your everyday allowlist)
-     2. All of the above (full pre-2.0 cleanup)
+     2. All of the above (full cleanup)
      3. Show me the file and let me edit manually
      4. Keep everything (decline cleanup)
    ```
@@ -200,11 +201,11 @@ shipyard-data init
 ```
 This creates all directories in the plugin data area (outside the project — no git noise).
 
-**Do NOT install rules into the project.** In Shipyard 2.0 (per CC-3 / F-29 / F-30), rules are NOT copied into `.claude/rules/shipyard-*.md`. The injection caused customer-reported "Shipyard rules trigger when I'm not using Shipyard" — every project-level `.claude/rules/` file gets loaded into every session's system prompt regardless of whether Shipyard is in use.
+**Do NOT install rules into the project.** Rules are NOT copied into `.claude/rules/shipyard-*.md` — every project-level `.claude/rules/` file gets loaded into every session's system prompt regardless of whether Shipyard is in use, leaking discipline into non-Shipyard work.
 
-Skills that need a rule now `Read` it directly from `${CLAUDE_PLUGIN_ROOT}/project-files/rules/<rule-name>.md` at the moment they need it (or `@`-import in the skill body where supported). Plugin updates ship rule changes automatically; no re-`/ship-init` required. The rules are scoped to active `/ship-*` skill invocations only.
+Skills that need a rule `Read` it directly from `${CLAUDE_PLUGIN_ROOT}/project-files/rules/<rule-name>.md` at the moment they need it (or `@`-import in the skill body where supported). Plugin updates ship rule changes automatically; no re-`/ship-init` required. The rules are scoped to active `/ship-*` skill invocations only.
 
-Legacy detection: if the project has legacy `.claude/rules/shipyard-*.md` files from a pre-2.0 Shipyard installation, the F-50 legacy cleanup step (later in this skill) detects and offers to remove them.
+If a project still has `.claude/rules/shipyard-*.md` files from an older install, the legacy cleanup step (earlier in this skill) detects and offers to remove them.
 
 Templates are copied into plugin data by `shipyard-data init` above — no separate shell step. The init command copies everything under `$CLAUDE_PLUGIN_ROOT/project-files/templates/` into `<SHIPYARD_DATA>/templates/` via Node's `cpSync`, which stays inside the allowlisted `shipyard-data` CLI and never prompts for permission on the plugin data dir. Do NOT synthesize a raw template-copy bash line — the plugin data dir lives outside the project root and every such line would trigger a "suspicious path" prompt.
 
@@ -439,8 +440,8 @@ Run a quick diagnostic to verify the installation works. Check each item silentl
 
 Run each check using Claude's native tools (substitute the literal SHIPYARD_DATA path from the context block for `<SHIPYARD_DATA>`):
 
-1. **Plugin rules reachable?** Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` and count results. Expected: 7. (Rules live in the plugin in 2.0 — they are NOT installed into the project's `.claude/rules/`. Skills Read them on demand.)
-2. **Legacy rule injection?** Use Glob `.claude/rules/shipyard-*.md`. Expected: 0. If non-zero → F-50 cleanup step pending; route the user through it.
+1. **Plugin rules reachable?** Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` and count results. Expected: 7. (Rules live in the plugin and are NOT installed into the project's `.claude/rules/`. Skills Read them on demand.)
+2. **Legacy rule injection?** Use Glob `.claude/rules/shipyard-*.md`. Expected: 0. If non-zero → legacy cleanup step pending; route the user through it.
 3. **Templates installed?** Use Glob `<SHIPYARD_DATA>/templates/*.md` and count results. Expected: 9.
 4. **Config valid?** Use Read on `<SHIPYARD_DATA>/config.md` (limit 3) and confirm `config_version` appears. Expected: yes.
 5. **Git ready?** Bash: `git rev-parse --git-dir 2>/dev/null && git log -1 --format=%H 2>/dev/null`. Expected: both succeed.
@@ -464,15 +465,13 @@ Report:
 
 If any check fails, fix it before reporting. For example:
 - Plugin rules unreachable → reinstall the Shipyard plugin (the plugin install is broken)
-- Legacy injection found → run F-50 cleanup step (offer to remove `.claude/rules/shipyard-*.md`)
+- Legacy injection found → run the legacy cleanup step (offer to remove `.claude/rules/shipyard-*.md`)
 - No git → run `git init && git add -A && git commit -m "chore: initial commit"`
 - No test commands → note in report: "⚠️ Test commands not configured. Run /ship-init again after setting up your test framework."
 
-### Step 5.5: Configure Permissions (opt-in, F-49)
+### Step 5.5: Configure Permissions (opt-in)
 
-Shipyard 2.0 does NOT silently edit `.claude/settings.local.json`. The pre-2.0 behavior — auto-merging 6+ entries into the user's local Claude Code permissions file — was reported as presumptuous: customers expect their `.claude/` files to belong to them.
-
-Instead, present the permission set and ask the user explicitly. Use `AskUserQuestion`:
+Shipyard does NOT silently edit `.claude/settings.local.json` — those files belong to the user. Instead, present the permission set and ask explicitly. Use `AskUserQuestion`:
 
 > *"Shipyard skills run a few approved commands during execution. Adding these to `.claude/settings.local.json` makes them auto-allowed (no per-call prompts). Add now?*
 > *1. Add — silences ~6 approval prompts per sprint (Recommended)*
@@ -650,7 +649,7 @@ Quick consistency check:
 
 Report issues if found, suggest `/ship-status` to validate and auto-fix.
 
-### Step 5.5: Update Permissions (opt-in, F-49)
+### Step 5.5: Update Permissions (opt-in)
 
 Run the same opt-in permission flow as FRESH INSTALL Step 5.5: detect missing entries, present them via AskUserQuestion (Add / Skip / Show list), merge only with explicit consent. The same merge-not-replace logic applies — existing user entries are never touched, only new required ones are proposed for addition.
 

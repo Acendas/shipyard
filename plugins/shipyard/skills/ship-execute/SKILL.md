@@ -27,7 +27,7 @@ $ARGUMENTS
 
 ## Acquire Locks
 
-Invoke the **`shipyard:acquiring-skill-lock` capability skill** to (a) check the planning-session lock at `<SHIPYARD_DATA>/.active-session.json` and HARD-BLOCK if a discussion is in progress in another session, and (b) acquire `<SHIPYARD_DATA>/.active-execution.json` with the lock JSON shape including `session_id` (CC-7). The capability skill handles cleared-sentinel detection, 2h-stale recovery, and the cross-skill mutual exclusion.
+Invoke the **`shipyard:acquiring-skill-lock` capability skill** to (a) check the planning-session lock at `<SHIPYARD_DATA>/.active-session.json` and HARD-BLOCK if a discussion is in progress in another session, and (b) acquire `<SHIPYARD_DATA>/.active-execution.json` with the lock JSON shape including `session_id`. The capability skill handles cleared-sentinel detection, 2h-stale recovery, and the cross-skill mutual exclusion.
 
 If the planning lock is held by a live different session, print the HARD BLOCK message from the capability skill's contract and STOP — do not load any further context.
 
@@ -92,7 +92,7 @@ Otherwise, for each leftover `shipyard/wt-*` worktree:
 3. **Remove the worktree** (`git worktree remove`) and delete merged branches.
 4. **Update task status** — done if a real commit landed, in-progress for WIP-only salvages, approved (re-execute) if nothing to salvage, blocked for conflicts.
 
-Anthropic's stale-worktree cleanup (per `cleanupPeriodDays`) handles worktrees with NO uncommitted changes / NO untracked files / NO unpushed commits at session start automatically. Step 0 only handles the cases Anthropic's sweep skips. Heartbeat-file recovery (pre-2.0) is gone with the agent-heartbeat hook deletion.
+Anthropic's stale-worktree cleanup (per `cleanupPeriodDays`) handles worktrees with NO uncommitted changes / NO untracked files / NO unpushed commits at session start automatically. Step 0 only handles the cases Anthropic's sweep skips.
 
 The working branch now contains all recoverable work. New worktrees created in Step 2 branch from this consolidated state.
 
@@ -134,7 +134,7 @@ If the current branch starts with `shipyard/wt-*`, add: *"⚠️ Worktree branch
 
 Then `AskUserQuestion`: Begin execution (Recommended) / Adjust / Abort.
 
-The worktree-creation probe and `manual_worktrees=true` fallback are gone (F-35). `using-worktrees` capability skill encodes the trust-the-platform model; `dispatching-task-loop`'s HARD STOP catches genuinely-broken isolation.
+The `using-worktrees` capability skill encodes the trust-the-platform model; `dispatching-task-loop`'s HARD STOP catches genuinely-broken isolation.
 
 ### Step 2: Execute Waves
 
@@ -253,7 +253,7 @@ Between waves:
 6. **Wave-scoped tests + single fix iteration**: invoke `shipyard:dispatching-operational-task` with `test_commands.scoped` (or `test_commands.unit` if no scoped variant). This is the first time tests run for the wave's merged code. Failure → ONE re-dispatch via `shipyard:dispatching-task-loop` with the failing-test list as `continuation_note`. Persistent failure logs to PROGRESS.md and advances.
 7. **Wave VERIFY**: invoke `shipyard:dispatching-spec-review` with `scope: "wave"`, `target_ids: [task_ids]`, `base_ref` (pre-wave HEAD), `head_ref` (current HEAD). FINDINGS → single re-dispatch per task via `dispatching-task-loop`; persistent gaps → `needs-attention` and surface to `/ship-review`.
 8. **Report and continue** — emit a one-line wave status (`Wave [N]/[M] ✓ [████░░░░] [done]/[total] tasks • → Wave [N+1]`). **Do NOT pause, do NOT suggest `/clear`, do NOT ask "continue?"** — auto-advance.
-9. **Context pressure: warn-only.** If `<SHIPYARD_DATA>/.active-execution.json`'s `compaction_count` ≥ 4, append `⚠ Context summarised N times — consider /clear then /ship-execute`. The pre-2.0 auto-pause-at-5 logic is gone (F-40); the PostCompact hook is gone (F-3). Counter survives as informational only.
+9. **Context pressure: warn-only.** If `<SHIPYARD_DATA>/.active-execution.json`'s `compaction_count` ≥ 4, append `⚠ Context summarised N times — consider /clear then /ship-execute`. The counter is informational; never auto-pause.
 
 ### Compaction Recovery
 
@@ -328,7 +328,7 @@ Track in PROGRESS.md:
 
 ## Loop Detection & Debug Escalation
 
-The pre-2.0 orchestrator-side "5+ edits same file without commit" detection (loop-detect hook) is gone (F-42). Loop detection now lives inside `dispatching-task-loop`'s subagent context — the subagent's own iteration cap (5 internal iterations) plus the structured `STATUS: BLOCKED` return surface stuck tasks without per-Edit hook overhead.
+Loop detection lives inside `dispatching-task-loop`'s subagent context — the subagent's own iteration cap (5 internal iterations) plus the structured `STATUS: BLOCKED` return surface stuck tasks without per-Edit hook overhead.
 
 When the orchestrator sees `STATUS: BLOCKED` after the single re-dispatch budget (or recurring `BLOCKED` across waves on the same task), escalate to debug mode: write `<SHIPYARD_DATA>/debug/[task-id].md` with the BLOCKED reasons collected, then `AskUserQuestion`:
 

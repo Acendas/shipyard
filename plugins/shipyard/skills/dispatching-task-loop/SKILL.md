@@ -26,7 +26,7 @@ Invoke this capability skill from a command skill (`ship-execute`, `ship-quick`,
 
 ## The Subagent Prompt Template
 
-Dispatch via `Agent(subagent_type: "general-purpose", prompt: <the template below, parameterized>)`. **Do not** dispatch through any registered Shipyard agent — registered agents are gone in 2.0 (CC-1).
+Dispatch via `Agent(subagent_type: "general-purpose", prompt: <the template below, parameterized>)`. Shipyard does not use registered agents — the dispatch is always `general-purpose` with the template inlined.
 
 The orchestrator constructs the prompt from this template. Each `{{placeholder}}` is replaced literally. The template is intentionally written *as if it were the subagent's full instructions*, because it is.
 
@@ -155,13 +155,6 @@ After the Agent call returns, parse the reply:
 | User can interrupt | Yes (Esc) | Yes (Esc on parent) |
 
 The subagent's exit contract is the same Iron Law as Ralph's promise — but at the subagent boundary, not the session boundary.
-
-## What This Skill Replaces
-
-- The `shipyard-builder` registered agent (CC-1 / F-25) — its body becomes this prompt template.
-- The `subagent-stop` hook (F-3) — its job ("block exit if uncommitted changes") becomes the orchestrator-side `git cat-file -e <sha>` check.
-- The `agent-heartbeat` hook (F-3) — liveness signal becomes the structured return; if the subagent never returns the orchestrator times out and redispatches.
-- The `tdd-check` PreToolUse hook (F-3) — TDD discipline becomes the inlined Iron Law in the subagent prompt.
 
 ## Integration Notes
 

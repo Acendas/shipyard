@@ -95,7 +95,7 @@ By default, the probe's output is captured by the Bash tool's return value. For 
 <probe_command> 2>&1 | tee <SHIPYARD_DATA>/captures/{session_name}/{task_id}-probe.log
 ```
 
-This is optional. The structured return above is the primary contract; the file capture is for human review later. (The `shipyard-logcap` CLI exists for richer rotation/grouping, but a plain `tee` is sufficient for the probe-run case and avoids the over-engineered logcap surface — see F-19/F-20 in the action items.)
+This is optional. The structured return above is the primary contract; the file capture is for human review later. The `shipyard-logcap` CLI offers richer rotation/grouping, but a plain `tee` is sufficient for the probe-run case.
 
 ## Probe Failure Interpretation
 

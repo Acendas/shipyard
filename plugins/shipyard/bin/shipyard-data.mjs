@@ -2,30 +2,17 @@
 /**
  * shipyard-data — resolve and manage the per-project Shipyard data directory.
  *
- * Cross-platform Node implementation. Replaces the legacy extensionless Python
- * script which could not run on Windows (no shebang support, extensionless
- * files not in PATHEXT). Skills invoke this as a bare command — PATH lookup
- * finds `shipyard-data` (sh shim) on Unix and `shipyard-data.cmd` on Windows.
+ * Cross-platform Node implementation. Skills invoke this as a bare command —
+ * PATH lookup finds `shipyard-data` (sh shim) on Unix and `shipyard-data.cmd`
+ * on Windows.
  *
- * Usage (Shipyard 2.0):
+ * Usage:
  *   shipyard-data                              → prints data directory path
  *   shipyard-data init                         → creates the directory tree
  *   shipyard-data with-lock <key> -- <cmd>     → fcntl-style locking primitive
  *   shipyard-data archive-sprint <id> [--force]→ atomic sprint rename
  *   shipyard-data events emit <type> [k=v ...] → structured event log append
  *   shipyard-data next-id <kind>               → atomic ID allocator
- *
- * Retired in 2.0:
- *   project-id, project-root, reap-obsolete (F-13/F-14)
- *   events {tail,grep,since,json} (F-13/F-14) — Read .shipyard-events.jsonl
- *   migrate, find-orphans, drop-orphan — legacy-data migration paths;
- *     2.0 ship-init detects + offers cleanup of pre-2.0 footprint
- *     (.claude/rules/shipyard-*.md, .claude/settings.local.json entries)
- *     directly, no longer needs CLI helpers for cross-hash data movement.
- *
- * The init subcommand also handles the cp -r / rm -rf cleanup that
- * ship-init's SKILL.md used to inline as POSIX shell commands. Doing it
- * here keeps skill bodies portable.
  */
 
 import { execFileSync } from "node:child_process";
@@ -40,7 +27,7 @@ import { getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-re
 const SLEEP_VIEW = new Int32Array(new SharedArrayBuffer(4));
 
 /**
- * R13: Check whether a pid corresponds to a living process.
+ * Check whether a pid corresponds to a living process.
  * `process.kill(pid, 0)` does not actually signal the process — it just
  * probes for existence. Throws ESRCH if the process is gone, EPERM if it
  * exists but is owned by a different user (treat as alive — we shouldn't
@@ -90,8 +77,6 @@ function init() {
   writeFileSync(join(dataDir, ".project-root"), projectRoot + "\n");
 
   // Copy project-files/templates into the data dir's templates/.
-  // This replaces the `cp -r .shipyard/* "$(shipyard-data)/"` line in the
-  // legacy ship-init skill body, which was POSIX-shell-only.
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const pluginRoot = dirname(__dirname);
   const templatesSrc = join(pluginRoot, "project-files", "templates");
@@ -115,8 +100,8 @@ function init() {
 
 /**
  * Acquire an advisory lock keyed by name, run a child command, then release.
- * F12: building block for skills that need to serialize writes to shared
- * Shipyard data files (e.g. SPRINT.md updated by parallel waves).
+ * Building block for skills that serialize writes to shared Shipyard data
+ * files (e.g. SPRINT.md updated by parallel waves).
  *
  * Lock file lives at $SHIPYARD_DATA/.locks/<key>.lock. We use exclusive
  * file creation (O_EXCL) for the lock — atomic on POSIX and Windows. If
@@ -163,7 +148,7 @@ function withLock(args) {
       break;
     } catch (err) {
       if (err.code !== "EEXIST") throw err;
-      // Check for stale lock. R13: mtime alone is not enough — a long-
+      // Check for stale lock. mtime alone is not enough — a long-
       // running wave may legitimately hold the lock past STALE_MS. Read
       // the holder's pid out of the lock file and only steal it if the
       // process is gone. Unreadable lock files are treated as stale
@@ -228,12 +213,10 @@ function withLock(args) {
  *   b) out of scope for the auto-approve-data PreToolUse hook (which only
  *      matches Edit/Write/NotebookEdit/MultiEdit — NOT Bash), so every
  *      invocation triggered a permission prompt against the plugin data
- *      dir path ("suspicious path outside project root", issue #41763).
+ *      dir path ("suspicious path outside project root").
  *
  * Routing skills through this single entry point lets them use
  * `Bash(shipyard-data:*)` in allowed-tools and skip the prompt entirely.
- * Matches the same pattern enforced for migrations by the eval assertion
- * `uses_atomic_migrate_command`.
  *
  * Sprint ID is validated against a strict allowlist (sprint-NNN where NNN
  * is 3+ digits) to prevent path traversal via argv. refuse to overwrite
@@ -348,15 +331,13 @@ function eventsCmd(args) {
   const dataDir = getDataDir();
   const sub = args[0];
 
-  // F-13/F-14: Pre-2.0 supported `tail | grep | since | json` query
-  // subcommands. Retired in 2.0 — the events log is JSONL, query directly:
-  //   Read <SHIPYARD_DATA>/.shipyard-events.jsonl (last N lines / grep / etc.)
-  // The `emit` subcommand is the only one that stayed because it's the
-  // append-with-lock path used by hooks and skills to write structured
-  // events without racing.
+  // The events log is JSONL — query directly by reading
+  // <SHIPYARD_DATA>/.shipyard-events.jsonl. `emit` is the only subcommand
+  // because it's the append-with-lock path that hooks and skills need to
+  // write structured events without racing.
   if (!sub || sub !== "emit") {
     process.stderr.write(
-      `shipyard-data events: only 'emit' is supported in 2.0.\n` +
+      `shipyard-data events: only 'emit' is supported.\n` +
       `  Read events directly: <SHIPYARD_DATA>/.shipyard-events.jsonl\n`
     );
     process.exit(1);
@@ -555,10 +536,7 @@ function main() {
       nextIdCmd(process.argv.slice(3));
       break;
     }
-    // F-13/F-14: project-id, project-root, reap-obsolete retired in 2.0.
-    //   project-id  → use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash`
-    //   project-root→ use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-root`
-    //   reap-obsolete→ unused by skills; fold into a future cron or skill-side sweep if needed
+    // For project-id / project-root use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash|project-root`.
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +

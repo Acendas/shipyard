@@ -157,11 +157,6 @@ Begin.
 
 4. **Always invoke `verifying-completion` mentally** before flipping a task to done based on PASS — the Iron Law applies at the orchestrator boundary.
 
-## What This Replaces
-
-- The `shipyard-review-spec` registered agent (one of six review-* agents being deleted in CC-1 / F-25). Its body becomes the prompt template above. The dispatch path is `general-purpose` — no registered agent.
-- The post-task spec-compliance check that lived inline in `ship-execute`'s "Post-Subagent" gate (lines ~431 in current SKILL.md) — that inline 3-iteration loop becomes a single `dispatching-spec-review` call with a single redispatch rule, consistent with the other dispatch capabilities.
-
 ## Read-Only Contract Enforcement
 
 Even though the prompt forbids edits, the orchestrator should verify:

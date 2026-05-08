@@ -1,15 +1,10 @@
 /**
  * PreToolUse hook: auto-approve Edit/Write to Shipyard data files.
  *
- * Node port of project-files/scripts/auto-approve-data.py. Behavior must
- * stay byte-for-byte equivalent — this is the most security-critical hook
- * in the chain.
- *
- * Works around two Claude Code permission bugs (#39973, #41763) where
- * Edit/Write to plugin data dirs trigger permission prompts on every wave
- * boundary. The only reliable workaround is a PreToolUse hook returning
- * `permissionDecision: "allow"` — fires before the permission evaluator
- * and short-circuits the prompt.
+ * Works around Claude Code permission bugs (#39973, #41763) where Edit/Write
+ * to plugin data dirs trigger permission prompts at wave boundaries. A
+ * PreToolUse hook returning `permissionDecision: "allow"` runs before the
+ * permission evaluator and short-circuits the prompt.
  *
  * STDOUT CONTRACT: outputs JSON to stdout ONLY when approving. When not
  * approving, returns 0 silently. Never returns 2 (block) — this hook is

@@ -130,16 +130,6 @@ Before returning, run each AC through:
 
 This skill produces a structured list; it does NOT edit the feature draft. The calling command skill folds the ACs into the spec's `## Acceptance Criteria` section after presenting to the user for approval.
 
-## What This Replaces
-
-There's no single registered agent this skill replaces — AC extraction was previously inline prose inside `/ship-discuss` and `/ship-sprint` SKILL.md files. Lifting it into a capability skill (per S-1) means:
-
-- `/ship-discuss` and `/ship-sprint` can drop ~80–120 lines each of inline AC-extraction prose, replacing with a single `Skill: extracting-acceptance-criteria` invocation.
-- The extraction logic is consistent across callers (today, the prose drifts between skills).
-- Future improvements to AC quality apply everywhere at once.
-
-This is part of the Sprint 5 "polish" work where command skills slim by extracting capability content.
-
 ## Pairing With Other Skills
 
 - **`discovering-edge-cases`** runs after this — extracts ACs first, then surfaces what's missing. Edge cases become new ACs in a follow-up extraction pass.

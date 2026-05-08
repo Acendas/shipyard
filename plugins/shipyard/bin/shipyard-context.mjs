@@ -2,10 +2,10 @@
 /**
  * shipyard-context — read Shipyard data files for skill context blocks.
  *
- * Cross-platform Node implementation. Replaces the legacy extensionless
- * Python script. Skills invoke this in `!`backtick``` blocks to load context
- * snippets without using shell command substitution (which Claude Code blocks
- * in skill backtick commands and which is bash-only anyway).
+ * Cross-platform Node implementation. Skills invoke this in `!`backtick```
+ * blocks to load context snippets without using shell command substitution
+ * (which Claude Code blocks in skill backtick commands and which is bash-only
+ * anyway).
  *
  * Usage:
  *   shipyard-context path                              → SHIPYARD_DATA=/full/path
@@ -106,9 +106,6 @@ function readHead(filepath, lines) {
     }
   }
 }
-
-// readCat() removed in Phase 2 platform-independence refactor: the only
-// caller was the `cat` subcommand, which is gone. Skill bodies use Read.
 
 function listDir(dirpath, limit) {
   try {
@@ -331,8 +328,8 @@ function main() {
       break;
     }
     case "diagnose": {
-      // F15: dump resolver state for self-serve bug reports.
-      // Format is grep-friendly key=value lines plus the breadcrumb log tail.
+      // Dump resolver state for self-serve bug reports.
+      // Grep-friendly key=value lines plus the breadcrumb log tail.
       const projectRoot = getProjectRoot();
       const projectHash = getProjectHash(projectRoot);
       out(`SHIPYARD_DATA=${sd}`);

@@ -17,7 +17,7 @@ The companion to `dispatching-spec-review`. Spec review answers *"is what was as
 | `/ship-review` | Sprint or feature | **Required** before user approval |
 | `/ship-quick` | Single-change diff | Optional flag (`--review`) |
 
-Code review is more expensive than spec review (broader concern surface). Per the action items, F-44 makes `/ship-review`'s code review mandatory; the post-task path remains optional and gated on effort.
+Code review is more expensive than spec review (broader concern surface). `/ship-review` runs it mandatorily before approval; the post-task path remains optional and gated on effort.
 
 ## Inputs
 
@@ -26,7 +26,7 @@ Code review is more expensive than spec review (broader concern surface). Per th
 - `base_ref` / `head_ref` — diff range.
 - `concerns` — subset of `["security", "bugs", "silent-failures", "patterns", "tests", "observability"]`. Default: all six. Caller can narrow (e.g., `["security", "bugs"]` for a wave that didn't touch tests).
 - `data_dir` — literal `<SHIPYARD_DATA>` path.
-- `project_rules_path` — `.claude/rules/*.md` paths so the patterns scanner has the project's conventions. (Note: `.claude/rules/shipyard-*.md` injection is being removed in CC-3 / F-30; only project-authored rules pass through here.)
+- `project_rules_path` — `.claude/rules/*.md` paths so the patterns scanner has the project's conventions. Shipyard does not inject its own rules into `.claude/rules/`; only project-authored rules pass through here.
 
 ## The Subagent Prompt Template
 
@@ -181,18 +181,7 @@ Begin.
 
 4. **Read-only enforcement** — same as `dispatching-spec-review`: post-return `git status --porcelain` + HEAD ref check. Any drift is a contract violation.
 
-## What This Replaces
-
-Six registered agents are deleted (CC-1 / F-25):
-
-- `shipyard-review-bugs` → `concerns: ["bugs"]`
-- `shipyard-review-security` → `concerns: ["security"]`
-- `shipyard-review-silent-failures` → `concerns: ["silent-failures"]`
-- `shipyard-review-patterns` → `concerns: ["patterns"]`
-- `shipyard-review-tests` → `concerns: ["tests"]`
-- (Plus a future `shipyard-review-observability` if needed.)
-
-The caller picks the concern set; the prompt activates the matching sections; one dispatch covers what previously needed six. Saves token cost and registration footprint (F-27).
+## Parallel Dispatch For High-Stakes Reviews
 
 For high-stakes reviews (release-bound, large diff, payments/auth/data), `/ship-review` may dispatch this skill multiple times in parallel with non-overlapping `concerns` arrays — each subagent gets its own context window, scanning is genuinely parallel. The trade is more tokens for better depth on each concern.
 
@@ -207,6 +196,5 @@ For high-stakes reviews (release-bound, large diff, payments/auth/data), `/ship-
 
 - One dispatch, sectioned prompt, six concern domains.
 - Read-only; structured findings; confidence ≥ 80 to block.
-- Replaces six registered agents.
 - Security ≥ 90 auto-redispatches; everything else surfaces for orchestrator/user decision.
 - Post-return git-status check enforces the read-only contract.
