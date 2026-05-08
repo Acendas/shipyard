@@ -381,24 +381,12 @@ class TestShipyardResolver(unittest.TestCase):
                 f'stdout={proc.stdout!r}',
             )
 
-    def test_resolver_uses_legacy_dir_if_populated(self):
-        """R10: A legacy ~/.claude/plugins/data/shipyard with a populated
-        projects/ subdir must be detected as discovery (backcompat for
-        existing customers)."""
-        with tempfile.TemporaryDirectory() as fake_home:
-            legacy = os.path.join(fake_home, '.claude', 'plugins', 'data', 'shipyard', 'projects', 'fake-hash')
-            os.makedirs(legacy, exist_ok=True)
-            env = os.environ.copy()
-            for k in ('CLAUDE_PROJECT_DIR', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_PLUGIN_ROOT'):
-                env.pop(k, None)
-            env['HOME'] = fake_home
-            env['USERPROFILE'] = fake_home
-            proc = subprocess.run(
-                ['node', RESOLVER, 'data-dir'],
-                capture_output=True, text=True, env=env,
-            )
-            self.assertEqual(proc.returncode, 0, f'stderr={proc.stderr!r}')
-            self.assertIn(os.path.join('.claude', 'plugins', 'data', 'shipyard'), proc.stdout)
+    # test_resolver_uses_legacy_dir_if_populated REMOVED in 2.0 (F-7).
+    # The legacy ~/.claude/plugins/data/shipyard/projects probe was dropped:
+    # the env var has been stable in Claude Code for several months and the
+    # legacy probe was actively harmful (silent backcompat picked up orphans
+    # that should be migrated through /ship-init). Customers with legacy
+    # data are surfaced through orphan-recovery, not silent fallback.
 
 
 class TestShipyardResolverProductionScenarios(unittest.TestCase):

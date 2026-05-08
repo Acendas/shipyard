@@ -45,12 +45,19 @@ class LogcapTestBase(unittest.TestCase):
         self.tmp_root = tempfile.mkdtemp(prefix='shipyard-logcap-test-')
         self.tmpdir = os.path.join(self.tmp_root, 'tmp')
         self.project_dir = os.path.join(self.tmp_root, 'project')
+        # Plugin-data dir (Shipyard 2.0 — F-7: resolver no longer falls back
+        # to the legacy ~/.claude/plugins/data/shipyard probe; tests must
+        # supply CLAUDE_PLUGIN_DATA explicitly, matching how Claude Code
+        # provides it in production).
+        self.plugin_data = os.path.join(self.tmp_root, 'plugin-data')
         os.makedirs(self.tmpdir)
         os.makedirs(self.project_dir)
+        os.makedirs(self.plugin_data)
 
         self.env = {
             'TMPDIR': self.tmpdir,
             'CLAUDE_PROJECT_DIR': self.project_dir,
+            'CLAUDE_PLUGIN_DATA': self.plugin_data,
             'SHIPYARD_LOGCAP_SESSION': 'unit-test-session',
         }
 

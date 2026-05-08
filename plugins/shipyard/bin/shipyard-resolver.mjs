@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
 /**
@@ -183,23 +183,27 @@ export function getProjectHash(projectRoot) {
 /**
  * Resolve the Shipyard data dir for the current project.
  *
- * Discovery order:
- *   1. CLAUDE_PLUGIN_DATA env var (set by recent Claude Code)
- *   2. Probe relative to CLAUDE_PLUGIN_ROOT (.../data/shipyard sibling of plugins/)
- *   3. Probe legacy ~/.claude/plugins/data/shipyard, BUT only when its
- *      projects/ subdir actually exists — preserves backcompat for
- *      customers who have real data there from older Claude Code.
+ * Discovery order (Shipyard 2.0):
+ *   1. CLAUDE_PLUGIN_DATA env var (Claude Code's official surface).
+ *   2. Tmpdir breadcrumb written by the SessionStart hook (bridges skill
+ *      `!` backtick subprocesses where the env var isn't exported).
  *
- * If none of the above produces a usable path, fail loud per DECISIONS F11:
- * exit non-zero with a message naming the env var and recommending an
- * upgrade. Silently picking a phantom path was the previous footgun.
+ * If neither produces a usable path, fail loud: exit non-zero with a message
+ * naming the env var and recommending an upgrade. Silently picking a phantom
+ * path was the original footgun.
+ *
+ * Pre-2.0 the resolver also probed `<plugin-root>/../../data/shipyard` and
+ * `~/.claude/plugins/data/shipyard`. F-7 dropped both — the env var has been
+ * stable in Claude Code for several months and the probes were either
+ * speculative (never observed in production) or actively harmful (legacy
+ * orphan picked up silently when it should have been migrated). Customers
+ * who still had data under the legacy paths are migrated via /ship-init's
+ * orphan-recovery prompt, not silent fallback.
  *
  * `silent: true` (used by in-process callers and structured-output CLIs)
  * throws a ShipyardResolverError instead of exiting, so the caller can
  * decide how to surface the failure — important for hook-runner.mjs which
  * imports this module in-process and must not kill the parent on failure.
- * Skill backtick blocks that get an empty SHIPYARD_DATA can't function
- * anyway, so a hard fail is still the right contract.
  */
 export class ShipyardResolverError extends Error {
   constructor(message) {
@@ -212,58 +216,22 @@ export function getDataDir(opts = {}) {
   const projectRoot = opts.projectRoot ?? getProjectRoot();
   const projectHash = getProjectHash(projectRoot);
 
-  // 1. Explicit env var wins.
+  // 1. Explicit env var wins. Claude Code exports CLAUDE_PLUGIN_DATA to the
+  //    plugin's hooks, MCP/LSP subprocesses, and skill bodies. This is the
+  //    official surface and the only path we trust by default.
   let pluginData = process.env.CLAUDE_PLUGIN_DATA;
 
-  // 2. Probe relative to CLAUDE_PLUGIN_ROOT (recent Claude Code layout).
-  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
-  if (!pluginData && pluginRoot) {
-    const candidate = resolve(pluginRoot, "..", "..", "data", "shipyard");
-    // R16: Check the candidate itself, not its parent. Otherwise a sibling
-    // <root>/../../data/ created by another plugin would yield a phantom
-    // <phantom>/projects/<hash> path. Same class of bug R10 fixed for the
-    // legacy probe.
-    if (existsSync(candidate)) {
-      pluginData = candidate;
-    }
-  }
-
-  // 3. Legacy probe — prefer if it has a populated projects/ subdir.
-  // F10: On Windows with multi-drive setups, the auto-approve hook's
-  // commonpath check fails when SHIPYARD_DATA and the project are on
-  // different drives. Construct the legacy candidate on the project's
-  // drive when applicable, then probe THAT path for existence.
-  let legacy = join(homedir(), ".claude", "plugins", "data", "shipyard");
-  if (process.platform === "win32") {
-    const driveMatch = /^([A-Za-z]:)/.exec(projectRoot);
-    const homeDriveMatch = /^([A-Za-z]:)/.exec(homedir());
-    if (
-      driveMatch &&
-      homeDriveMatch &&
-      driveMatch[1].toLowerCase() !== homeDriveMatch[1].toLowerCase()
-    ) {
-      const homeRel = homedir().slice(homeDriveMatch[1].length);
-      legacy = driveMatch[1] + homeRel + "\\.claude\\plugins\\data\\shipyard";
-    }
-  }
+  // 2. Read breadcrumb written by SessionStart hook.
+  //    Claude Code exports CLAUDE_PLUGIN_DATA to hook subprocesses but NOT
+  //    consistently to skill `!` backtick subprocesses (varies by version).
+  //    The plugin-data-breadcrumb SessionStart hook writes the value to
+  //    $TMPDIR/shipyard-<hash>.plugindata so that backtick-spawned resolver
+  //    calls can find it. Per-project (keyed by project hash); survives
+  //    skill invocations within a session; mode 0600 in tmpdir.
+  const breadcrumbPath = join(tmpdir(), `shipyard-${projectHash}.plugindata`);
   if (!pluginData) {
-    const legacyProjects = join(legacy, "projects");
-    if (existsSync(legacyProjects)) {
-      pluginData = legacy;
-    }
-  }
-
-  // 4. Read breadcrumb written by SessionStart hook.
-  // Claude Code exports CLAUDE_PLUGIN_DATA to hook subprocesses but NOT to
-  // skill `!` backtick subprocesses. The plugin-data-breadcrumb SessionStart
-  // hook writes the value to $TMPDIR/shipyard-<hash>.plugindata so that
-  // backtick-spawned resolver calls can find it. The breadcrumb is per-project
-  // (keyed by project hash) and survives across skill invocations within a
-  // session. It's written with mode 0600 and lives in the user's tmpdir.
-  if (!pluginData) {
-    const breadcrumb = join(tmpdir(), `shipyard-${projectHash}.plugindata`);
     try {
-      const value = readFileSync(breadcrumb, "utf8").trim();
+      const value = readFileSync(breadcrumbPath, "utf8").trim();
       if (value && existsSync(value)) {
         pluginData = value;
       }
@@ -272,20 +240,14 @@ export function getDataDir(opts = {}) {
     }
   }
 
-  // 5. Fail loud if nothing resolved.
+  // 3. Fail loud if nothing resolved.
   if (!pluginData) {
     const message =
       `shipyard-resolver: cannot resolve plugin data directory.\n` +
       `  CLAUDE_PLUGIN_DATA env var is not set.\n` +
-      `  No plugin-data dir found relative to CLAUDE_PLUGIN_ROOT (=${pluginRoot ?? "(unset)"}).\n` +
-      `  No legacy data dir at ${legacy}/projects/.\n` +
-      `  No breadcrumb at ${join(tmpdir(), `shipyard-${projectHash}.plugindata`)}.\n` +
+      `  No breadcrumb at ${breadcrumbPath}.\n` +
       `Set CLAUDE_PLUGIN_DATA or upgrade Claude Code to a version that sets it automatically.\n`;
     if (opts.silent) {
-      // In-process callers (hook-runner.mjs, shipyard-data.mjs CLI helpers)
-      // catch this and decide how to surface it. Throwing instead of exiting
-      // is required because process.exit() in an imported module kills the
-      // host process — fatal for hook-runner which must continue dispatching.
       throw new ShipyardResolverError(message);
     }
     process.stderr.write(message);
