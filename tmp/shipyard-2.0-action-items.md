@@ -638,7 +638,7 @@ The two principles that matter most in practice for Shipyard: **SRP** (cures the
   - Optional `references/` dir for very long methodology refs (rare; keep body self-contained where possible).
   - Per-skill progress (each commits independently):
     - [x] verifying-completion
-    - [ ] tdd-cycle
+    - [x] tdd-cycle
     - [ ] running-acceptance-probe
     - [ ] anti-stub-scan
     - [ ] dispatching-task-loop
