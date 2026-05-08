@@ -129,80 +129,18 @@ If checks 1-2 fail → run `git init` (if needed), then `git add -A && git commi
 
 ### Step 0: Worktree Salvage (always runs first)
 
-**Before anything else**, check for leftover worktrees from a previous session. This applies to ALL modes (solo, subagent, team) — any mode can leave behind worktrees with uncommitted work after a crash, quota exhaustion, or killed session.
+Run `git worktree prune` (portable across macOS/Linux/Windows; only removes admin metadata for already-deleted directories), then `git worktree list`. If no `shipyard/wt-*` paths appear, skip to Step 1.
 
-**First, prune stale git worktree metadata** — if the user manually deleted a worktree directory (e.g., `rm -rf`), git's internal `.git/worktrees/<name>/` administrative dir lingers, and the next `git worktree add` for that name fails with "already exists". This is two lines to defend against and free:
+Otherwise, for each leftover `shipyard/wt-*` worktree:
 
-```bash
-git worktree prune
-```
+1. **Salvage uncommitted work** if present: `git -C <worktree> add -A` then `git -C <worktree> commit -m "wip(TASK_ID): salvage from interrupted session"`. Task ID is the branch suffix.
+2. **Rebase + ff-merge** the worktree branch onto the working branch. Conflicts → keep the branch; note `"shipyard/wt-X has conflicts — manual merge needed"` in PROGRESS.md and skip the merge.
+3. **Remove the worktree** (`git worktree remove`) and delete merged branches.
+4. **Update task status** — done if a real commit landed, in-progress for WIP-only salvages, approved (re-execute) if nothing to salvage, blocked for conflicts.
 
-`git worktree prune` is a portable git subcommand and works identically on macOS, Linux, and Windows. It only removes administrative metadata for worktree directories that no longer exist on disk — it never touches your actual worktrees, your branches, or your commits.
+Anthropic's stale-worktree cleanup (per `cleanupPeriodDays`) handles worktrees with NO uncommitted changes / NO untracked files / NO unpushed commits at session start automatically. Step 0 only handles the cases Anthropic's sweep skips. Heartbeat-file recovery (pre-2.0) is gone with the agent-heartbeat hook deletion.
 
-Then list current worktrees:
-
-```bash
-git worktree list
-```
-
-If the listing shows no `shipyard/wt-*` paths, **skip to Step 1**. Otherwise, salvage each one as described below.
-
-**Check for stale heartbeat files** before salvaging worktrees. Read all files in `<SHIPYARD_DATA>/agents/`. For each `.heartbeat` file found, parse and report:
-```
-Stale heartbeats from crashed session:
-  T003: last activity Edit on src/auth.ts at 2026-04-14T10:23:00+00:00
-  T004: last activity Bash at 2026-04-14T10:24:12+00:00
-```
-This tells you what the crashed agents were doing when the session died — useful context for understanding whether salvaged work is complete or mid-edit. Delete all heartbeat files after reporting.
-
-If worktrees exist, salvage all of them before proceeding:
-
-**A. Inventory worktrees**
-```bash
-git worktree list
-git branch --list 'shipyard/wt-*'
-```
-For each `shipyard/wt-*` worktree, check its state:
-```bash
-# Uncommitted changes?
-git -C <worktree-path> status --porcelain
-# Commits ahead of working branch?
-git log <working-branch>..<worktree-branch> --oneline
-```
-
-**B. Salvage uncommitted changes (do this FIRST for every worktree)**
-If the worktree has uncommitted changes (modified/new files):
-- Commit them as WIP: `git -C <worktree-path> add -A && git -C <worktree-path> commit -m "wip(TASK_ID): salvage from interrupted session"`
-- Identify the task ID from the branch name (`shipyard/wt-TASK_ID-slug` or `shipyard/wt-FEATURE_ID-slug`)
-
-**C. Merge salvaged work onto the working branch**
-For each worktree branch that has commits ahead of the working branch (including the WIP commit from step B):
-- Rebase onto the working branch: `git rebase <working-branch> <worktree-branch>`
-- If rebase succeeds → merge with `git merge --ff-only <worktree-branch>`
-- If rebase has conflicts → keep the branch, note it: "Branch `shipyard/wt-[name]` has conflicts — manual merge needed"
-
-**D. Clean up worktrees**
-After salvaging, remove all worktrees and delete merged branches:
-```bash
-git worktree remove <path>
-git branch -d <branch>  # only if merged
-```
-
-**E. Update task statuses**
-- Tasks with complete commits salvaged (non-WIP) → `status: done`
-- Tasks with WIP salvaged → `status: in-progress` (builder will re-run but finds salvaged code already in place)
-- Tasks with nothing to salvage → reset `status: approved` (re-execute from scratch)
-- Tasks with conflict branches → `status: blocked`, note the branch name in `blocked_reason`
-
-**F. Report**
-```
-Worktree salvage:
-  Salvaged: T003 (2 commits merged), T004 (WIP committed + merged)
-  Conflicts: T005 (branch kept — manual merge needed)
-  Lost: T006 (no commits, no changes — will re-execute)
-```
-
-**The working branch now contains all recoverable work. New worktrees created in Step 2 will branch from this consolidated state.**
+The working branch now contains all recoverable work. New worktrees created in Step 2 branch from this consolidated state.
 
 ### Step 1: Load Sprint Plan
 
@@ -579,21 +517,15 @@ Track in PROGRESS.md:
 
 ## Loop Detection & Debug Escalation
 
-If the same file is edited 5+ times without a commit:
-- Pause and reassess approach
-- Re-read the spec
-- Consider simplifying
-- If stuck after 7+ iterations → **escalate to debug mode**: use the Write tool to create a debug session file at `<SHIPYARD_DATA>/debug/[task-id].md` with the symptoms, what was tried, and what was eliminated. Then AskUserQuestion:
+The pre-2.0 orchestrator-side "5+ edits same file without commit" detection (loop-detect hook) is gone (F-42). Loop detection now lives inside `dispatching-task-loop`'s subagent context — the subagent's own iteration cap (5 internal iterations) plus the structured `STATUS: BLOCKED` return surface stuck tasks without per-Edit hook overhead.
 
-  "Builder is stuck on [task] after [N] attempts. I've started a debug session to investigate systematically.
+When the orchestrator sees `STATUS: BLOCKED` after the single re-dispatch budget (or recurring `BLOCKED` across waves on the same task), escalate to debug mode: write `<SHIPYARD_DATA>/debug/[task-id].md` with the BLOCKED reasons collected, then `AskUserQuestion`:
 
-  1. Debug now — investigate with /ship-debug --resume
-  2. Skip task — move to next unblocked task, come back later
-  3. Ask for help — describe the problem so I can assist
-
-  Recommended: 1 — systematic investigation beats repeated attempts"
-
-This also applies when the orchestrator spawns a builder to fix integration test failures and the fix doesn't work after 2 attempts — escalate to debug instead of spawning another builder.
+> *"Task [TASK_ID] hit its dispatch budget after [N] BLOCKED returns. I've started a debug session.*
+> *1. Debug now — `/ship-debug --resume`*
+> *2. Skip task — move to next unblocked task*
+> *3. Describe the problem — I'll help directly*
+> *Recommended: 1."*
 
 ## Pause / Resume
 

@@ -290,12 +290,6 @@
     "dotall": true
   },
   {
-    "name": "step0_salvages_uncommitted",
-    "type": "contains",
-    "pattern": "Salvage uncommitted changes.*do this FIRST",
-    "dotall": true
-  },
-  {
     "name": "step0_merges_onto_working_branch",
     "type": "contains",
     "pattern": "working branch now contains all recoverable work"
@@ -1046,12 +1040,6 @@
     "name": "heartbeat_context_to_fixer",
     "type": "contains",
     "pattern": "last activity.*fixer|heartbeat context.*fixer",
-    "dotall": true
-  },
-  {
-    "name": "heartbeat_crash_forensics_step0",
-    "type": "contains",
-    "pattern": "Stale heartbeats.*crashed session",
     "dotall": true
   },
   {
