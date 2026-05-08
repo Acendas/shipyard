@@ -45,12 +45,19 @@ class LogcapTestBase(unittest.TestCase):
         self.tmp_root = tempfile.mkdtemp(prefix='shipyard-logcap-test-')
         self.tmpdir = os.path.join(self.tmp_root, 'tmp')
         self.project_dir = os.path.join(self.tmp_root, 'project')
+        # Plugin-data dir (Shipyard 2.0 — F-7: resolver no longer falls back
+        # to the legacy ~/.claude/plugins/data/shipyard probe; tests must
+        # supply CLAUDE_PLUGIN_DATA explicitly, matching how Claude Code
+        # provides it in production).
+        self.plugin_data = os.path.join(self.tmp_root, 'plugin-data')
         os.makedirs(self.tmpdir)
         os.makedirs(self.project_dir)
+        os.makedirs(self.plugin_data)
 
         self.env = {
             'TMPDIR': self.tmpdir,
             'CLAUDE_PROJECT_DIR': self.project_dir,
+            'CLAUDE_PLUGIN_DATA': self.plugin_data,
             'SHIPYARD_LOGCAP_SESSION': 'unit-test-session',
         }
 
@@ -341,24 +348,10 @@ class TestProbeAndPrune(LogcapTestBase):
         # The probe's reported tmp_dir should be our sandbox tmp.
         self.assertIn(self.tmpdir, stdout)
 
-    def test_prune_removes_old_sessions(self):
-        # Seed a capture and then backdate the session dir so prune finds it.
-        run_cli(
-            ['run', 'oldcap', '--', 'sh', '-c', 'echo x'],
-            env_extra=self.env,
-        )
-        session_dir = os.path.join(self.capture_dir(), 'unit-test-session')
-        self.assertTrue(os.path.exists(session_dir))
-        # Push mtime back 48 hours.
-        old_time = os.path.getmtime(session_dir) - 48 * 3600
-        os.utime(session_dir, (old_time, old_time))
-
-        stdout, _, rc = run_cli(
-            ['prune', '--older-than', '24h'], env_extra=self.env,
-        )
-        self.assertEqual(rc, 0)
-        self.assertIn('pruned 1', stdout)
-        self.assertFalse(os.path.exists(session_dir))
+    # test_prune_removes_old_sessions REMOVED in 2.0 (F-19/F-22). The
+    # `prune` subcommand was deleted from shipyard-logcap because no skill
+    # ever called it — capture-session housekeeping is a user-side cron
+    # concern, not a Shipyard CLI surface.
 
 
 class TestProjectIsolation(LogcapTestBase):

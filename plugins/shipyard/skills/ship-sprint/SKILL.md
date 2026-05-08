@@ -140,7 +140,7 @@ Before selecting features, scan for unfinished work from previous cycles. These 
 2. **Blocked tasks** — Use Grep with `pattern: ^status: blocked`, `path: <SHIPYARD_DATA>/spec/tasks`, `glob: T*.md`, `output_mode: files_with_matches`. Read each match to get title, parent feature, blocked reason.
 3. **Carried-over ideas** (retro, execute, review-gap) — Use Grep with `pattern: ^source: (execute|review-gap|retro)[-/]`, `path: <SHIPYARD_DATA>/spec/ideas`, `glob: IDEA-*.md`, `output_mode: files_with_matches`. The pattern matches three idea origins:
    - **`source: retro/<sprint-id>`** — improvements the team committed to during retrospectives (new slash-separated form) OR `source: retro-sprint-<NNN>` (legacy hyphen-separated form, still recognized for backwards compatibility with IDEAs created before the source-tag convention change)
-   - **`source: execute/<sprint-id>`** — deferred unknowns captured by builders during task execution (step 10 of the builder's process — see `agents/shipyard-builder.md` → "Capture Deferred Unknowns")
+   - **`source: execute/<sprint-id>`** — deferred unknowns captured by builders during task execution (per `dispatching-task-loop`'s capture-deferred-unknowns prompt section)
    - **`source: review-gap/<sprint-id>`** — out-of-scope findings captured during `/ship-review` Stage 0 or Stage 4 (see `skills/ship-review/SKILL.md` → "Capture Out-of-Scope Gaps as IDEAs")
 
    **Recency filter (important — prevents flooding):** over 10+ sprints a project accumulates many ideas, and showing all of them in every planning session is unusable. For each match, Read the frontmatter and keep the idea ONLY if either:
@@ -268,18 +268,29 @@ Then AskUserQuestion: "Which features for this sprint? (list IDs, or 'suggested'
 
 Apply the planning checklists from `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/planning-checklists.md` throughout Steps 3-9 (Definition of Ready, cross-cutting concerns, risk register, MoSCoW, three-point estimation, test strategy).
 
-**Delegate per-feature research to `shipyard-sprint-analyst` subagents — one per selected feature, all spawned in parallel** (single message, N tool calls). Each analyst loads its feature file + references + relevant codebase context + project rules and returns a structured `SPRINT ANALYST REPORT`. You hold N reports (~2k each), not N feature trees + their references + all rules.
+**Delegate per-feature research to `general-purpose` subagents in sprint-analyst mode — one per selected feature, all spawned in parallel** (single message, N tool calls). Each analyst loads its feature file + references + relevant codebase context + project rules and returns a structured `SPRINT ANALYST REPORT`. You hold N reports (~2k each), not N feature trees + their references + all rules.
+
+The analyst role is single-use to ship-sprint, so the prompt template is inline rather than living in a Layer-2 capability skill. Substitute the literal SHIPYARD_DATA path before spawning:
 
 ```
-For each selected feature, spawn Agent with:
-  subagent_type: shipyard:shipyard-sprint-analyst
-  prompt: |
+For each selected feature, spawn:
+  Agent(subagent_type: "general-purpose", prompt: |
+    You are a sprint analyst. Investigate one feature in depth and return a
+    structured SPRINT ANALYST REPORT covering: architecture impact, files to
+    modify, patterns to follow, reuse opportunities, strategy (clean addition /
+    refactor / migration with named pattern), principles, anti-patterns,
+    risks/gotchas, and external doc URLs.
+
     Feature ID: F<NNN>
     Feature path: <SHIPYARD_DATA>/spec/features/F<NNN>-*.md
     Codebase context: <SHIPYARD_DATA>/codebase-context.md
     Project rules glob: .claude/rules/project-*.md and .claude/rules/learnings/*.md
 
-    Apply your full process and return your structured report.
+    Use LSP first for code navigation (documentSymbol, findReferences,
+    goToDefinition); fall back to Grep + WebSearch. Read the feature spec,
+    its references, the codebase areas it touches, and relevant rules. Then
+    return your structured report. READ-ONLY: no edits, no commits.
+  )
 ```
 
 The reports cover: architecture impact, files to modify, patterns to follow, reuse opportunities, strategy (clean addition / refactor / migration with named pattern), principles, anti-patterns, risks/gotchas, external docs. Use them directly in Step 4 task decomposition — the analyst's output drops into the task Technical Notes template with minimal rework.
@@ -367,7 +378,26 @@ Also run the **Cross-Cutting Concerns Audit** from the checklists — for each f
 
 Run the **Knowledge Gap Assessment** — flag tasks in unfamiliar domains, add research time to estimates.
 
-**Auto-generate SME skills for knowledge gaps:** If knowledge gaps cluster around a specific technology that has no existing skill in `.claude/skills/` (e.g., multiple tasks need OAuth patterns but no `/oauth-expert` skill exists), silently spawn `shipyard:shipyard-skill-writer` for that specific technology. The agent generates the skill without user interaction. Report in the sprint plan output: "Generated /[tech]-expert skill to fill knowledge gap."
+**Auto-generate SME skills for knowledge gaps:** If knowledge gaps cluster around a specific technology that has no existing skill in `.claude/skills/` (e.g., multiple tasks need OAuth patterns but no `/oauth-expert` skill exists), silently dispatch a `general-purpose` subagent in skill-writer mode for that specific technology. The skill is generated without user interaction. Report in the sprint plan output: "Generated /[tech]-expert skill to fill knowledge gap."
+
+The skill-writer prompt is single-use to ship-sprint and ship-init; for ship-sprint, the inline form is:
+
+```
+Agent(subagent_type: "general-purpose", prompt: |
+  You are generating a project-specific SME (Subject Matter Expert) skill for
+  the technology: <TECH>. Read the codebase to learn how it's actually used in
+  this project, then write a SKILL.md to .claude/skills/<TECH>-expert/ that
+  captures the project's specific conventions, patterns, anti-patterns, and
+  gotchas — NOT a generic tutorial.
+
+  Sources to read: relevant files from the codebase, .claude/rules/, package
+  manifests for version info, any existing usage patterns. Self-validate that
+  every example you write would actually compile in this project.
+
+  Output: write SKILL.md and any references/ files. No commits. Return the
+  skill path and a one-line summary of what's covered.
+)
+```
 
 ### Step 3.7: Surface Implementation Decisions
 
@@ -408,12 +438,24 @@ Recommended: 1 — the risk of picking wrong is high enough to justify a quick s
 ```
 
 **POC spike flow (if user chooses spike):**
-1. Spawn a `shipyard:shipyard-builder` subagent with `isolation: worktree`
-2. Prompt: "Build a minimal proof-of-concept to test [specific question]. No tests needed, no production quality. Just prove whether [approach] works. Report: what worked, what didn't, any gotchas, your recommendation."
-3. Builder works in a throwaway worktree — no commits to the user's branch
-4. Read the builder's findings
-5. Present findings to user with updated recommendation
-6. AskUserQuestion with the revised choices
+
+A POC spike does not fit `dispatching-task-loop`'s contract (no tests, no atomic commit, no acceptance probe — the deliverable is a recommendation, not production code). Dispatch directly via `general-purpose` with `isolation: "worktree"` so the spike runs in throwaway isolation:
+
+```
+Agent(subagent_type: "general-purpose", isolation: "worktree", prompt: |
+  Build a minimal proof-of-concept to test: <SPECIFIC QUESTION>.
+  No tests needed. No production quality. Just prove whether <APPROACH>
+  works in this project's context.
+
+  Work in your worktree freely — commits stay on the worktree branch and
+  will be discarded after this spike (the worktree is throwaway).
+
+  Return: what worked, what didn't, any gotchas you hit, and your
+  recommendation for the planning conversation.
+)
+```
+
+After the subagent returns, read its findings, present to the user with the updated recommendation, and AskUserQuestion with the revised choices. The worktree gets cleaned up automatically by Claude Code's stale-worktree cleanup since nothing merges back.
 7. Record decision in the feature's Decision Log: "POC spike: tested [approach], found [result], chose [decision]"
 8. Worktree is automatically cleaned up (throwaway)
 
@@ -499,18 +541,40 @@ Patterns that fire most often in software sprints (run these first):
 - **Happy path vs. edge cases** — "implement X and handle errors / validate / edge cases"
 - **Make-it-work vs. make-it-fast** — any mention of caching, performance, or optimization
 
-#### Stage 4: Write the Red step, then write the task file
+#### Stage 4: Write the Red step, author the acceptance probe, then write the task file
 
-For each draft that survived Stage 3, complete this sentence before creating the file:
+For each draft that survived Stage 3:
 
-> "The first failing test for this task is: `[specific assertion]`"
+1. **Red step.** Complete this sentence before creating the file:
 
-If the sentence requires "and" — Stage 3 applies again, split.
-If the sentence is vague ("tests for the auth flow") — scope is unresolved; do not write the file. Clarify the acceptance criterion before proceeding.
+   > "The first failing test for this task is: `[specific assertion]`"
 
-Once the Red step is clear, use the Write tool to create `<SHIPYARD_DATA>/spec/tasks/TNNN-[slug].md` with frontmatter: `id`, `title`, `feature` (parent ID), `status`, `effort` (S/M/L), `dependencies`, **`kind`** (see Task Kinds below), **`verify_command`** (required when `kind: operational`). Write the Red step into `## Technical Notes` under the heading `First failing test:`.
+   If the sentence requires "and" — Stage 3 applies again, split.
+   If the sentence is vague ("tests for the auth flow") — scope is unresolved; do not write the file. Clarify the acceptance criterion before proceeding.
 
-Task files are the **single source of truth** — title, effort, status, dependencies, kind all live there.
+2. **Acceptance probe.** For `kind: feature` tasks, invoke the **`shipyard:authoring-acceptance-probe` capability skill** to derive the smoke command from the task's acceptance criteria. Pass `feature_text` (the AC text), `parent_context` (parent feature path), and `domain_hints` (inferred from the feature's tech stack and frontmatter). The capability skill:
+
+   - Asks the canonical "what one shell command, run from a clean state, prints observable evidence the wiring works" question.
+   - Walks the probe-pattern catalogue (HTTP, CLI, library, migration, refactor, frontend, background job, config) plus the anti-patterns table.
+   - Runs the quality checklist: one command, self-contained, exit-0-means-pass, observable output, deterministic, bounded ≤60s, AND fails today against the unimplemented state.
+   - Returns the probe command as a YAML-ready string.
+
+   Write the returned probe to the task's frontmatter `acceptance_probe:` field (use a YAML block scalar `|` for multi-line probes). **Without a probe, dispatching-task-loop refuses to dispatch — task is unauthorable.** If the probe is genuinely elusive after the patterns are tried, surface to the user:
+
+   > *"This task's acceptance criteria don't reduce to a single observable command. Should we (a) refine the criteria, (b) split into smaller tasks, or (c) mark this task `kind: research` and produce a findings doc instead? Recommended: (a)."*
+
+   Skip probe authoring for `kind: operational` (the verify_command IS the probe — see operational task guidance) and `kind: research` (no code commit, no probe — research_output is the deliverable).
+
+3. **Write the task file.** Use the Write tool to create `<SHIPYARD_DATA>/spec/tasks/TNNN-[slug].md` from `${CLAUDE_PLUGIN_ROOT}/project-files/templates/task.md`. Required frontmatter:
+   - `id`, `title`, `feature` (parent ID), `status`, `effort` (S/M/L), `dependencies`
+   - **`kind`** (see Task Kinds below)
+   - **`acceptance_probe`** for `kind: feature` (the probe authored in step 2)
+   - **`verify_command`** for `kind: operational`
+   - **`research_scope`** for `kind: research`
+
+   Write the Red step into `## Technical Notes` under the heading `First failing test:`.
+
+Task files are the **single source of truth** — title, effort, status, dependencies, kind, and probe all live there.
 
 #### Stage 5: Assign effort using the adapted 8/80 rule
 
@@ -640,18 +704,47 @@ After the self-review quality gate passes, spawn the critic agent to challenge t
 - `high` if: sprint has 10+ tasks, total story_points >= 20, any feature touches auth/payments/data, or critical path has 4+ tasks
 - `standard` otherwise
 
-**Spawn the critic:**
-```
-subagent_type: shipyard:shipyard-critic
-```
+**Spawn the critic:** dispatch a `general-purpose` subagent with the inline critic prompt below. The critic role is reused across ship-review, ship-sprint, and ship-discuss with mode-specific framing; per the granularity criterion in S-1, the prompt stays inline (different inputs, different evaluation criteria — one combined critic capability skill would be a junk drawer).
 
-Prompt the critic with:
-- Mode: `sprint-critique`
-- Stakes: `[standard|high]`
-- Artifact paths: SPRINT-DRAFT.md path + all task file paths (full paths from `<SHIPYARD_DATA>/spec/tasks/`)
-- Also include feature spec paths (the critic needs to verify tasks cover all acceptance scenarios)
-- Codebase context path: `<SHIPYARD_DATA>/codebase-context.md`
-- Project rules: `.claude/rules/project-*.md`
+Substitute the literal SHIPYARD_DATA path before spawning:
+
+```
+Agent(subagent_type: "general-purpose", prompt: |
+
+You are an adversarial critic of a sprint plan. Your job is to find what
+the plan misses: blind spots, optimistic estimates, wave-conflict risks,
+acceptance-scenario coverage gaps, and feasibility issues.
+
+Apply anti-sycophancy: do not agree with the plan just because it sounds
+reasonable. Pre-mortem the sprint: imagine it shipped two weeks late or
+half-broken — what was the failure mode?
+
+Mode: sprint-critique
+Stakes: [standard | high]   (high if 10+ tasks, ≥20 story points,
+                             auth/payments/data, or critical path 4+ tasks)
+
+Read these files:
+  - SPRINT-DRAFT.md: <SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md
+  - All task files: <SHIPYARD_DATA>/spec/tasks/ (filter to sprint scope)
+  - Feature specs covered: <list of feature file paths>
+  - Codebase context: <SHIPYARD_DATA>/codebase-context.md
+  - Project rules: .claude/rules/project-*.md
+
+Return:
+  STATUS: CHALLENGES
+  PRIORITY_ACTIONS: <ordered list — mandatory fixes>
+  TASK_GAPS: <missing tasks needed to cover acceptance scenarios>
+  WAVE_CONFLICTS: <tasks that should not be in the same wave>
+  ESTIMATE_RISKS: <effort estimates that look optimistic — with reason>
+  ASSUMPTION_RISKS: <high-risk assumptions baked into the plan>
+
+If you genuinely have no challenges:
+  STATUS: NO_CHALLENGES
+  REASON: <one paragraph confirming you considered each adversarial angle>
+
+You are READ-ONLY: no edits, no commits, no spawning subagents.
+)
+```
 
 **Process the critic's findings:**
 

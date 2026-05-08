@@ -19,33 +19,6 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" auto-approve-data"
           }
         ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" tdd-check"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" block-bash-state-write"
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write|NotebookEdit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" session-guard"
-          }
-        ]
       }
     ],
     "WorktreeCreate": [
@@ -55,69 +28,6 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" worktree-branch"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "async": true,
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" loop-detect"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "async": true,
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" on-commit"
-          }
-        ]
-      },
-      {
-        "matcher": "Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" cwd-restore"
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "async": true,
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" agent-heartbeat"
-          }
-        ]
-      }
-    ],
-    "PostCompact": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" post-compact"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" subagent-stop"
           }
         ]
       }

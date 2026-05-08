@@ -1,0 +1,62 @@
+[
+  {
+    "name": "has_boundary_category",
+    "type": "contains",
+    "pattern": "### 1. Boundary"
+  },
+  {
+    "name": "has_concurrency_category",
+    "type": "contains",
+    "pattern": "### 2. Concurrency"
+  },
+  {
+    "name": "has_failure_modes_category",
+    "type": "contains",
+    "pattern": "### 3. Failure modes"
+  },
+  {
+    "name": "has_adversarial_category",
+    "type": "contains",
+    "pattern": "### 4. Adversarial"
+  },
+  {
+    "name": "has_observability_category",
+    "type": "contains",
+    "pattern": "### 5. Observability"
+  },
+  {
+    "name": "has_nfr_category",
+    "type": "contains",
+    "pattern": "### 6. NFRs"
+  },
+  {
+    "name": "has_domain_specific_category",
+    "type": "contains",
+    "pattern": "### 7. Domain-specific"
+  },
+  {
+    "name": "has_output_shape",
+    "type": "contains",
+    "pattern": "## Output Shape"
+  },
+  {
+    "name": "has_currently_handled_field",
+    "type": "contains",
+    "pattern": "currently_handled"
+  },
+  {
+    "name": "has_read_only_contract",
+    "type": "contains",
+    "pattern": "## Read-Only Contract"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]

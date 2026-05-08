@@ -1,0 +1,52 @@
+[
+  {
+    "name": "has_iron_law_section",
+    "type": "contains",
+    "pattern": "## The Iron Law"
+  },
+  {
+    "name": "states_no_production_code_rule",
+    "type": "contains",
+    "pattern": "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"
+  },
+  {
+    "name": "has_red_phase",
+    "type": "contains",
+    "pattern": "### RED"
+  },
+  {
+    "name": "has_green_phase",
+    "type": "contains",
+    "pattern": "### GREEN"
+  },
+  {
+    "name": "has_refactor_phase",
+    "type": "contains",
+    "pattern": "### REFACTOR"
+  },
+  {
+    "name": "has_forbidden_moves",
+    "type": "contains",
+    "pattern": "## Forbidden Moves"
+  },
+  {
+    "name": "references_verifying_completion",
+    "type": "contains",
+    "pattern": "verifying-completion"
+  },
+  {
+    "name": "no_registered_agent_dispatch",
+    "type": "not_contains",
+    "pattern": "shipyard:shipyard-"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]

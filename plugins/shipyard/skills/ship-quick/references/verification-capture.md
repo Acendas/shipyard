@@ -1,6 +1,6 @@
 # Verification Capture — ship-quick
 
-> Companion to `skills/ship-execute/references/live-capture.md`. That file teaches the capture primitive end-to-end; this file distills the subset a quick task needs and documents the specific failure modes that cost a customer their audit trail on Q-002. Read both if you have time; read this one first if you're executing a `/ship-quick`.
+> The default verification path is the **`shipyard:dispatching-operational-task`** capability skill (plain `tee` to `<SHIPYARD_DATA>/captures/...`). This file distills the subset a quick task needs and documents the failure modes that destroy an audit trail. The `shipyard-logcap` CLI is available for long-running streams (dev servers, watch mode, log tails) where signal forwarding and line-boundary rotation matter.
 
 ## The principle, restated for quick tasks
 
@@ -62,7 +62,7 @@ Do not do this. The capture file is the only thing preserving what happened on t
 
 ## When logcap appears to fail — diagnosis
 
-`shipyard-logcap` is dumb I/O plumbing. It does not spawn background tasks, it has no internal timeout on `run`, and its exit code is the wrapped command's exit code (see `live-capture.md` "The contract"). When a run *looks* broken, the failure is almost always one layer above (the harness that invoked logcap) or one layer below (the wrapped command). It is essentially never logcap itself.
+`shipyard-logcap` is dumb I/O plumbing. It does not spawn background tasks, it has no internal timeout on `run`, and its exit code is the wrapped command's exit code. When a run *looks* broken, the failure is almost always one layer above (the harness that invoked logcap) or one layer below (the wrapped command). It is essentially never logcap itself.
 
 ### Decoder: 0-byte capture file + non-zero exit
 

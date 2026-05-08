@@ -36,14 +36,16 @@ If a feature has only 1 task, it still gets its own teammate (simpler than speci
    CURRENT_SHA=$(git rev-parse HEAD)
    git worktree add -b shipyard/wt-FEATURE_ID-slug .claude/worktrees/FEATURE_ID "$CURRENT_SHA"
    ```
-4. Spawn teammates up to the concurrency cap (max 4), queue the rest. **Do NOT pass `isolation: worktree`** — it will be ignored and may cause confusing behavior:
+4. Spawn teammates up to the concurrency cap (max 4), queue the rest. Dispatch via `general-purpose` with `team_name` set; the `shipyard:dispatching-task-loop` capability skill is NOT used directly because team-mode teammates persist across multiple tasks (a teammate works through ALL tasks in its assigned feature track, not one-task-one-dispatch). The teammate spawn prompt is inlined below.
+
    ```
-   Agent(name: "teammate-FEATURE_ID", subagent_type: shipyard:shipyard-builder,
+   Agent(name: "teammate-FEATURE_ID",
+         subagent_type: "general-purpose",
          team_name: "sprint-NNN",
-         prompt: [teammate spawn prompt with WORKTREE_PATH filled in])
+         prompt: [teammate spawn prompt with WORKTREE_PATH filled in — see below])
    ```
 
-**Why no `isolation: worktree`?** When `team_name` is set, Claude Code skips worktree creation entirely. The agent runs in the main repo. Multiple teammates editing the same directory causes race conditions and corrupted files. Manual worktree creation + prompt-based `cd` is the only reliable workaround until the bug is fixed.
+**Why no `isolation: worktree`?** When `team_name` is set, Claude Code skips worktree creation entirely. The agent runs in the main repo. Multiple teammates editing the same directory causes race conditions and corrupted files. Manual worktree creation + prompt-based `cd` is the workaround until Claude Code supports team-mode worktree isolation natively. See the "Using Worktrees" reference for current status.
 
 ## Teammate Spawn Prompt
 

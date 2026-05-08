@@ -1,0 +1,47 @@
+[
+  {
+    "name": "has_session_id_field",
+    "type": "contains",
+    "pattern": "session_id"
+  },
+  {
+    "name": "has_acquire_procedure",
+    "type": "contains",
+    "pattern": "## Acquire Procedure"
+  },
+  {
+    "name": "has_release_procedure",
+    "type": "contains",
+    "pattern": "## Release Procedure"
+  },
+  {
+    "name": "has_reentry_section",
+    "type": "contains",
+    "pattern": "## Re-Entry Within the Same Session"
+  },
+  {
+    "name": "has_stale_recovery",
+    "type": "contains",
+    "pattern": "## Stale Lock Recovery"
+  },
+  {
+    "name": "references_two_lock_files",
+    "type": "contains",
+    "pattern": "active-session.json"
+  },
+  {
+    "name": "references_two_hour_stale",
+    "type": "contains",
+    "pattern": "2 hours|2h"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]

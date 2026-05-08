@@ -26,7 +26,6 @@ import {
   withLockfile,
   WORKTREE_NAME_RE,
   SKILL_SLUG_RE,
-  REFERENCE_NAME_RE,
 } from "../bin/_hook_lib.mjs";
 
 // ---- sanitizeForLog ----
@@ -343,16 +342,8 @@ test("SKILL_SLUG_RE rejects non-ship slugs", () => {
   assert.equal(SKILL_SLUG_RE.test("ship-EXECUTE"), false);
 });
 
-test("REFERENCE_NAME_RE accepts simple ref names", () => {
-  assert.ok(REFERENCE_NAME_RE.test("communication-design"));
-  assert.ok(REFERENCE_NAME_RE.test("backlog-reeval.md"));
-});
-
-test("REFERENCE_NAME_RE rejects path traversal", () => {
-  assert.equal(REFERENCE_NAME_RE.test("../etc"), false);
-  assert.equal(REFERENCE_NAME_RE.test("/abs"), false);
-  assert.equal(REFERENCE_NAME_RE.test(""), false);
-});
+// REFERENCE_NAME_RE tests removed in 2.0 (F-23): the regex export was
+// retired in iteration 35; it had no external consumers.
 
 // ---- logEvent ----
 //

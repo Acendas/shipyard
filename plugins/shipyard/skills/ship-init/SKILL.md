@@ -16,104 +16,80 @@ You are setting up (or updating) Shipyard for this project.
 
 !`shipyard-context view data-version`
 !`shipyard-context view config`
-!`shipyard-context legacy-check`
-!`shipyard-data find-orphans`
 !`shipyard-context project-claude-md`
 
 **Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
 
 ## Detect Mode
 
-**If context shows `LEGACY_SHIPYARD_DETECTED`** → MUST run legacy migration FIRST, before anything else. Do not skip this. Do not go to quick check. The `.shipyard/` directory in the project contains user data that needs to move to plugin data.
+### Legacy Shipyard Footprint Cleanup
 
-**If context shows `NO_LEGACY`** → skip migration, proceed to normal detect mode below.
+Older Shipyard installs leaked into the user's project: rule files in `.claude/rules/` (loaded into *every* Claude Code session) and permission entries in `.claude/settings.local.json`. Current Shipyard keeps rules in the plugin and treats permissions as opt-in (Step 5.5 below). Offer to clean up any leftover footprint on every `/ship-init`.
 
-### Legacy Migration (.shipyard/ → plugin data)
+**Run before fresh-install / update detection. Two independent checks; either may fire.**
 
-**This runs when `.shipyard/config.md` exists in the project directory.** This is a pre-v0.5.0 installation.
+#### Check 1 — Legacy rule files in `.claude/rules/`
 
-**⚠️ Branch check first:** The `.shipyard/` directory may contain data from a different branch (it was git-tracked, so it changes with branch switches). Before migrating, verify the data matches the current branch:
+Use Glob `.claude/rules/shipyard-*.md`. If zero matches → skip to Check 2. Otherwise:
 
-1. Check current branch: `git branch --show-current`
-2. Check if `.shipyard/` was recently modified on this branch: `git log -1 --format=%H -- .shipyard/ 2>/dev/null`
-3. If `.shipyard/` was last modified on a different branch, AskUserQuestion:
-
-   ```
-   The .shipyard/ directory may contain specs from a different branch.
-   Current branch: [branch]
-   Last .shipyard/ commit: [branch/hash]
-
-   1. Migrate anyway — I'll use this data as a starting point
-   2. Start fresh — ignore old data, initialize clean for this branch
-   3. Let me check — I'll switch branches first
-
-   Recommended: 2 — cleaner to start fresh on the current branch
-   ```
-
-**Migration steps (if proceeding):**
-
-1. Run the migration in one atomic step: `shipyard-data migrate .shipyard`
-
-   This handles all of: creating the data directory tree, copying contents
-   from `.shipyard/` (skipping the obsolete `scripts/` subdir which is now
-   served from the plugin), and removing transient state files. The command
-   prints the resolved data directory path on success.
-
-2. Report:
+1. List the matched basenames.
+2. AskUserQuestion:
 
    ```
-   Migrated Shipyard data from .shipyard/ to plugin data directory.
-   The .shipyard/ directory is no longer needed — you can safely delete it:
-     rm -rf .shipyard/
+   Found legacy Shipyard rule files in .claude/rules/. Claude Code loads
+   everything there into every session in this project, leaking Shipyard
+   discipline into non-Shipyard work. Current Shipyard keeps rules inside
+   the plugin so they only load during /ship-* skills.
+
+   Found N legacy rule files:
+     [basenames]
+
+   Remove?
+     1. Yes — delete (recommended)
+     2. Keep — leave in place (they keep loading into every session)
    ```
 
-   Do NOT auto-delete `.shipyard/`.
+3. If "Yes", `rm <project>/.claude/rules/<basename>` per file (one Bash call each, no `&&` chaining). Report N files removed.
+4. If "Keep", record and do not re-prompt this session.
 
-3. **Re-run codebase analysis** (Step 3) to ensure `codebase-context.md` matches the current branch.
-4. Continue to QUICK CHECK below.
+#### Check 2 — Legacy permission entries in `.claude/settings.local.json`
 
----
+Read `<project>/.claude/settings.local.json` if it exists. Parse the JSON `permissions.allow` array. Older `/ship-init` versions merged a known set of entries silently; current Shipyard treats those as opt-in (Step 5.5 below) and only with explicit consent.
 
-### Orphaned plugin-data detection
+**Known legacy footprint** (only what older Shipyard itself installed; do not touch the user's other entries):
 
-**If the `find-orphans` context output above is non-empty AND the current data dir has no `config.md`:**
+- Shipyard-specific — `Bash(shipyard-data)`, `Bash(shipyard-data:*)`, `Bash(shipyard-context)`, `Bash(shipyard-context:*)`, `Bash(shipyard-logcap)`, `Bash(shipyard-logcap:*)`. Always safe to remove (only Shipyard skills use them).
+- General — `Bash(git:*)`, `Bash(ls:*)`, `Bash(wc:*)`, `Bash(head:*)`, `Bash(grep:*)`, `WebSearch`, `WebFetch`. Shipyard added these but they're useful for everyday work; offer separately so the user can keep them.
 
-This means a previous Shipyard installation wrote data under a different project hash — most commonly because the worktree-detection fix (R1/F5) changed how worktree paths are resolved. The user's previous sprint state, backlog, codebase context, and memory are all at the orphaned path and would otherwise be silently abandoned.
+Intersect `permissions.allow` with the footprint above. If empty intersection → skip. Otherwise:
 
-Each line of `find-orphans` output is tab-separated: `<orphan-data-dir>\t<recorded-project-root>`.
+1. AskUserQuestion:
 
-DO NOT proceed with fresh-install or update flows until you have asked the user about each candidate. Use AskUserQuestion:
+   ```
+   Found legacy Shipyard-installed permission entries in
+   .claude/settings.local.json. Permissions are now opt-in with consent.
+   Found:
 
-For a single candidate:
-> "Found orphaned Shipyard data from a previous installation:
->   <orphaned-data-dir>
->   (recorded project root: <recorded-path>)
->
-> This was most likely created before the worktree-detection fix changed the project hash. Migrate this data to the current data directory?
->   1. Yes, migrate it
->   2. No, treat this project as a fresh install (orphaned data stays at the old path)"
+     Shipyard-specific (safe to remove — only Shipyard skills use them):
+       [list]
 
-For multiple candidates:
-> "Found N orphaned Shipyard data dirs from previous installations. Which would you like to migrate?
->   1. <dir-1> (recorded as <path-1>)
->   2. <dir-2> (recorded as <path-2>)
->   ...
->   N+1. None — treat this project as a fresh install"
+     General (Shipyard added these but useful for everyday work):
+       [list]
 
-If the user picks "migrate", run `shipyard-data migrate <orphaned-data-dir>`. The migrate command's R4 safety guards apply automatically (it refuses on populated dest, and `--force` creates a backup) — but in this scenario the current dir is fresh by definition, so plain `migrate` will succeed without `--force`. R19 ensures the dest's `.project-root` is rewritten to the current project root after the copy.
+   What should I remove?
+     1. Shipyard-specific only (recommended — keeps your everyday allowlist)
+     2. All of the above (full cleanup)
+     3. Show me the file and let me edit manually
+     4. Keep everything (decline cleanup)
+   ```
 
-**After successful migration, MUST report the orphan source path back to the user** so they can reclaim the disk space. The orphan dir is no longer scanned by `find-orphans` once the new dir is populated, so without this announcement the user has no way to discover the leftover data exists. Add to the final report (or as a follow-up message):
+2. **If 1 or 2:** Read the JSON file in full, filter `permissions.allow` to drop the chosen entries, Write the full file back. Preserve all other keys and any unrelated allow entries verbatim. Report the count removed.
+3. **If 3:** Print the absolute path and the matched entries; do not modify.
+4. **If 4:** Record and do not re-prompt this session.
 
-> Migration complete. The original orphaned data is at:
->   `<orphaned-data-dir>`
-> It has been copied to the current data directory and is no longer used by Shipyard. Verify your project state with `/ship-status`, then you can safely delete the orphaned directory:
->   `rm -rf <orphaned-data-dir>`
+Do NOT auto-edit without consent — permission files may be hand-tuned.
 
-Do NOT auto-delete the orphan source — match the legacy `.shipyard/` migration pattern of telling the user without acting.
-
-After successful migration, treat this as an UPDATE flow (the migrated dir has a config.md, so the update path applies).
-
-If the user picks "none" or "fresh install", continue with the FRESH install flow as normal. The orphaned data stays at the old path; mention it in the final report so they know it's still there.
+After both checks (or skip), continue to the normal flow below.
 
 ---
 
@@ -125,12 +101,7 @@ Check if `<SHIPYARD_DATA>/config.md` exists:
 
 If `<SHIPYARD_DATA>/config.md` exists, run these checks before doing anything else:
 
-1. **Rules present and current?** Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` to enumerate the canonical rules. For each enumerated file, derive the basename (e.g., `shipyard-data-model.md`) and use the Read tool on `.claude/rules/<basename>`. Classify each:
-   - Read fails (file missing) → MISSING
-   - Read succeeds but content differs from the plugin source (compare full text) → OUTDATED
-   - Read succeeds and content matches → CURRENT
-   
-   If any rules are MISSING or OUTDATED → re-copy them. To copy: Read the source file from `${CLAUDE_PLUGIN_ROOT}/project-files/rules/<basename>` and use Write to write it to `.claude/rules/<basename>`. Repeat per file. This avoids any shell `cp`/`diff`/`for` loops, which are not portable to plain Windows cmd.exe.
+1. **Legacy footprint clean?** The legacy cleanup section above runs first regardless. By the time you reach Quick Check, Check 1 (`.claude/rules/shipyard-*.md`) and Check 2 (`.claude/settings.local.json` legacy entries) have already been offered to the user. Nothing to re-check here.
 2. **Config version current?** Read `config_version` from `<SHIPYARD_DATA>/config.md` — if matches latest (3), no migration needed
 3. **Codebase context exists?** Use the Read tool on `<SHIPYARD_DATA>/codebase-context.md` (substitute the literal SHIPYARD_DATA path) — if it exists, no re-analysis needed
 
@@ -143,7 +114,7 @@ If `<SHIPYARD_DATA>/config.md` exists, run these checks before doing anything el
 **If any check fails** → continue to UPDATE mode to fix what's missing. Report what triggered the update:
 ```
 Shipyard needs updating:
-  [✗ missing rules | ✗ config migration needed | ✗ codebase context missing]
+  [✗ config migration needed | ✗ codebase context missing]
 ```
 
 ---
@@ -230,11 +201,11 @@ shipyard-data init
 ```
 This creates all directories in the plugin data area (outside the project — no git noise).
 
-**Install rules into the project:**
-Rules live in the project's `.claude/rules/` (plugins can't ship rules directly). Install them using Claude's native tools — no shell `cp` or `mkdir`, which are not portable to Windows cmd.exe:
+**Do NOT install rules into the project.** Rules are NOT copied into `.claude/rules/shipyard-*.md` — every project-level `.claude/rules/` file gets loaded into every session's system prompt regardless of whether Shipyard is in use, leaking discipline into non-Shipyard work.
 
-1. Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` to enumerate the source rule files.
-2. For each enumerated file, Read the source and Write the same content to `.claude/rules/<basename>`. The Write tool creates the parent directory automatically.
+Skills that need a rule `Read` it directly from `${CLAUDE_PLUGIN_ROOT}/project-files/rules/<rule-name>.md` at the moment they need it (or `@`-import in the skill body where supported). Plugin updates ship rule changes automatically; no re-`/ship-init` required. The rules are scoped to active `/ship-*` skill invocations only.
+
+If a project still has `.claude/rules/shipyard-*.md` files from an older install, the legacy cleanup step (earlier in this skill) detects and offers to remove them.
 
 Templates are copied into plugin data by `shipyard-data init` above — no separate shell step. The init command copies everything under `$CLAUDE_PLUGIN_ROOT/project-files/templates/` into `<SHIPYARD_DATA>/templates/` via Node's `cpSync`, which stays inside the allowlisted `shipyard-data` CLI and never prompts for permission on the plugin data dir. Do NOT synthesize a raw template-copy bash line — the plugin data dir lives outside the project root and every such line would trigger a "suspicious path" prompt.
 
@@ -390,17 +361,40 @@ After codebase analysis is complete, generate Subject Matter Expert skills for t
 - Infrastructure (from Dockerfile, docker-compose.yml, CI config, cloud provider files)
 - Major libraries with significant usage patterns (not every dependency — only ones with project-specific conventions)
 
-**Spawn the skill-writer:**
+**Dispatch the skill-writer** via `general-purpose` with the inline prompt below. The skill-writer role is reused across `/ship-init` (this site) and `/ship-sprint` (knowledge-gap-driven generation); per S-1's granularity criterion, the prompt stays inline rather than getting its own Layer-2 capability skill — both callers pass the same shape.
+
+Substitute the literal SHIPYARD_DATA path before spawning:
+
 ```
-subagent_type: shipyard:shipyard-skill-writer
+Agent(subagent_type: "general-purpose", prompt: |
+
+You are generating project-specific SME (Subject Matter Expert) skills for
+this codebase's technology stack. Each skill captures how THIS project uses
+the technology — project-specific patterns, paths, commands, and conventions.
+Do NOT write generic tutorials.
+
+Technologies: [the extracted list from above]
+Codebase context path: <SHIPYARD_DATA>/codebase-context.md
+Project skills path: .claude/skills/
+
+Process:
+  1. Read the codebase context and skim relevant project files for each
+     technology to learn its actual usage in this project.
+  2. Scan .claude/skills/ for existing coverage; skip technologies already
+     covered by an existing skill.
+  3. For each remaining technology, generate a SKILL.md at
+     .claude/skills/<tech>-expert/ with project-specific conventions,
+     anti-patterns, and gotchas.
+  4. Self-validate: every example you write must reference real files,
+     real package versions, real commands from this project.
+
+Run silently — do not prompt the user. Return a report listing skills
+generated, skills skipped (with reason), and any technologies you couldn't
+characterize confidently. No commits.
+)
 ```
 
-Prompt with:
-- Technologies: the extracted list from above
-- Codebase context path: `<SHIPYARD_DATA>/codebase-context.md`
-- Project skills path: `.claude/skills/`
-
-The agent runs silently — no user prompts. It scans `.claude/skills/` for existing coverage, skips technologies already covered, generates SME skills for the rest, self-validates all paths and commands, and returns a report.
+The subagent runs silently — no user prompts. It scans `.claude/skills/` for existing coverage, skips technologies already covered, generates SME skills for the rest, self-validates all paths and commands, and returns a report.
 
 **Display the results to the user:**
 ```
@@ -446,12 +440,12 @@ Run a quick diagnostic to verify the installation works. Check each item silentl
 
 Run each check using Claude's native tools (substitute the literal SHIPYARD_DATA path from the context block for `<SHIPYARD_DATA>`):
 
-1. **Rules installed?** Use Glob `.claude/rules/shipyard-*.md` and count results. Expected: 7.
-2. **Templates installed?** Use Glob `<SHIPYARD_DATA>/templates/*.md` and count results. Expected: 9.
-3. **Config valid?** Use Read on `<SHIPYARD_DATA>/config.md` (limit 3) and confirm `config_version` appears. Expected: yes.
-4. **Git ready?** Bash: `git rev-parse --git-dir 2>/dev/null && git log -1 --format=%H 2>/dev/null`. Expected: both succeed.
-5. **Worktree capability?** Bash: `git rev-parse --git-common-dir 2>/dev/null`. If it differs from `--git-dir`, the project is a worktree and parallel execution falls back to the parent.
-6. **Plugin agents reachable?** Use Glob `${CLAUDE_PLUGIN_ROOT}/agents/shipyard-*.md` and count results. Expected: 4.
+1. **Plugin rules reachable?** Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` and count results. Expected: 7. (Rules live in the plugin and are NOT installed into the project's `.claude/rules/`. Skills Read them on demand.)
+2. **Legacy rule injection?** Use Glob `.claude/rules/shipyard-*.md`. Expected: 0. If non-zero → legacy cleanup step pending; route the user through it.
+3. **Templates installed?** Use Glob `<SHIPYARD_DATA>/templates/*.md` and count results. Expected: 9.
+4. **Config valid?** Use Read on `<SHIPYARD_DATA>/config.md` (limit 3) and confirm `config_version` appears. Expected: yes.
+5. **Git ready?** Bash: `git rev-parse --git-dir 2>/dev/null && git log -1 --format=%H 2>/dev/null`. Expected: both succeed.
+6. **Worktree capability?** Bash: `git rev-parse --git-common-dir 2>/dev/null`. If it differs from `--git-dir`, the project is a worktree and parallel execution falls back to the parent.
 7. **Test commands configured?** Use Read on `<SHIPYARD_DATA>/config.md` and confirm a `unit:` field appears under `test_commands`. Expected: yes.
 
 Report:
@@ -459,58 +453,62 @@ Report:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  SELF-TEST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ✅ Rules: 7/7 installed
+  ✅ Plugin rules: 7/7 reachable in plugin
+  ✅ Legacy injection: clean (0 .claude/rules/shipyard-*.md)
   ✅ Templates: 9/9 installed
   ✅ Config: valid (v3)
   ✅ Git: ready (has commits)
   ✅ Worktree: supported (or: ⚠️ project is a worktree — parallel uses parent repo)
-  ✅ Agents: 4/4 reachable
   ✅ Test commands: configured (vitest)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 If any check fails, fix it before reporting. For example:
-- Scripts are served from the plugin directly (no project copy needed)
-- Missing rules → re-copy from plugin's `project-files/rules/`
+- Plugin rules unreachable → reinstall the Shipyard plugin (the plugin install is broken)
+- Legacy injection found → run the legacy cleanup step (offer to remove `.claude/rules/shipyard-*.md`)
 - No git → run `git init && git add -A && git commit -m "chore: initial commit"`
-- No test commands → note in report: "⚠️ Test commands not configured — TDD hooks may not work correctly. Run /ship-init again after setting up your test framework."
+- No test commands → note in report: "⚠️ Test commands not configured. Run /ship-init again after setting up your test framework."
 
-### Step 5.5: Configure Permissions
+### Step 5.5: Configure Permissions (opt-in)
 
-Shipyard skills and agents need specific tool permissions to run without interrupting the user mid-execution. Configure `.claude/settings.local.json` to allow these.
+Shipyard does NOT silently edit `.claude/settings.local.json` — those files belong to the user. Instead, present the permission set and ask explicitly. Use `AskUserQuestion`:
 
-**Read existing `.claude/settings.local.json`** (may not exist). Merge — never replace existing entries.
+> *"Shipyard skills run a few approved commands during execution. Adding these to `.claude/settings.local.json` makes them auto-allowed (no per-call prompts). Add now?*
+> *1. Add — silences ~6 approval prompts per sprint (Recommended)*
+> *2. Skip — I'll approve commands case-by-case as Shipyard runs them*
+> *3. Show me the list first*"
 
-**Required permissions:**
+**If user picks "Show me the list first"**, print the proposed `permissions.allow` entries:
 
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(git:*)",
-      "Bash(shipyard-data)",
-      "Bash(ls:*)",
-      "Bash(wc:*)",
-      "Bash(head:*)",
-      "Bash(grep:*)",
-      "WebSearch",
-      "WebFetch"
-    ]
-  }
-}
+```
+Bash(git:*)         — git commands during sprint execution
+Bash(shipyard-data) — shipyard-data CLI for atomic state ops
+Bash(ls:*), Bash(wc:*), Bash(head:*), Bash(grep:*)
+                    — read-only inspection during context loading
+WebSearch, WebFetch — research during /ship-discuss + /ship-sprint
 ```
 
-If test commands were detected in Step 3, also add one `Bash(<prefix>:*)` entry per detected command prefix (e.g., `Bash(npx vitest:*)`, `Bash(npm test:*)`, `Bash(pytest:*)`, `Bash(go test:*)`, `Bash(cargo test:*)`).
+Plus per-command-prefix entries for any test commands detected in Step 3 (e.g., `Bash(npx vitest:*)`, `Bash(pytest:*)`).
 
-Merge into the existing `.claude/settings.local.json`: Read the file (or start with `{}`), append missing entries to `permissions.allow` (exact string match, no duplicates), Write back. Leave all other keys untouched.
+Then re-prompt: Add / Skip.
 
-**Report what was added** (just new entries, not the full list):
+**If user picks "Add"** (or after the list-first follow-up):
+1. Read existing `.claude/settings.local.json` (or start from `{}`).
+2. Merge missing entries into `permissions.allow` (exact string match, no duplicates).
+3. Write back. Leave all other keys untouched.
+4. Report:
+   ```
+   Permissions: added N entries to .claude/settings.local.json
+     + Bash(git:*), Bash(shipyard-data), WebSearch, WebFetch, ...
+   ```
+
+**If user picks "Skip"**: do nothing to `.claude/settings.local.json`. Report:
 ```
-Permissions: added 6 entries to .claude/settings.local.json
-  + Bash(git:*), Bash(shipyard-data), WebSearch, WebFetch, ...
+Permissions: skipped (you'll see one approval prompt per command at first run).
+Re-run /ship-init later if you change your mind.
 ```
 
-If all required entries already exist: "Permissions: already configured ✓"
+If all required entries already exist when running update mode: report "Permissions: already configured ✓" and skip the prompt.
 
 ### Step 6: Report
 
@@ -651,9 +649,11 @@ Quick consistency check:
 
 Report issues if found, suggest `/ship-status` to validate and auto-fix.
 
-### Step 5.5: Update Permissions
+### Step 5.5: Update Permissions (opt-in)
 
-Run the same permission configuration as FRESH INSTALL Step 5.5. This ensures new permissions added in plugin updates are backfilled. The same merge-not-replace approach preserves existing user entries and only adds missing required ones.
+Run the same opt-in permission flow as FRESH INSTALL Step 5.5: detect missing entries, present them via AskUserQuestion (Add / Skip / Show list), merge only with explicit consent. The same merge-not-replace logic applies — existing user entries are never touched, only new required ones are proposed for addition.
+
+If the existing `.claude/settings.local.json` already has all entries Shipyard needs, skip the prompt and report "Permissions: already configured ✓".
 
 ### Step 6: Report
 

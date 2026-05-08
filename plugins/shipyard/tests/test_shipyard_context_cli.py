@@ -315,22 +315,6 @@ class TestProjectClaudeMdSubcommand(NamedSubcommandBase):
         self.assertNotIn('line10', out)
 
 
-class TestLegacyCheckSubcommand(NamedSubcommandBase):
-
-    def test_no_legacy(self):
-        out, _, rc = run_cli(['legacy-check'], env_extra=self.env, cwd=self.project_dir)
-        self.assertEqual(rc, 0)
-        self.assertEqual(out.strip(), 'NO_LEGACY')
-
-    def test_legacy_detected(self):
-        os.makedirs(os.path.join(self.project_dir, '.shipyard'))
-        with open(os.path.join(self.project_dir, '.shipyard', 'config.md'), 'w') as f:
-            f.write('old config\n')
-        out, _, rc = run_cli(['legacy-check'], env_extra=self.env, cwd=self.project_dir)
-        self.assertEqual(rc, 0)
-        self.assertEqual(out.strip(), 'LEGACY_SHIPYARD_DETECTED')
-
-
 class TestWindowsSafetySmoke(NamedSubcommandBase):
     """Meta-test: every pre-exec line across all skills must parse as single-token
     argv — no quoted args, no shell metacharacters. If this test fails, a skill

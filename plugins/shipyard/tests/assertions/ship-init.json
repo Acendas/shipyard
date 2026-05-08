@@ -5,11 +5,6 @@
     "pattern": "sprint.branch.*on|sprint_branch"
   },
   {
-    "name": "uses_atomic_migrate_command",
-    "type": "contains",
-    "pattern": "shipyard-data migrate \\.shipyard"
-  },
-  {
     "name": "gitignores_worktrees",
     "type": "contains",
     "pattern": "\\.claude/worktrees/"
@@ -111,11 +106,6 @@
     "pattern": "constitution"
   },
   {
-    "name": "has_sme_skill_generation",
-    "type": "contains",
-    "pattern": "shipyard-skill-writer|SME"
-  },
-  {
     "name": "has_commit_format_detection",
     "type": "contains",
     "pattern": "commit.*format|commit.*convention"
@@ -166,19 +156,14 @@
     "pattern": "Update Permissions|same permission.*FRESH"
   },
   {
-    "name": "detects_orphaned_plugin_data",
+    "name": "legacy_rules_cleanup_offered",
     "type": "contains",
-    "pattern": "find-orphans"
+    "pattern": "\\.claude/rules/shipyard-\\*\\.md"
   },
   {
-    "name": "prompts_for_orphan_migration",
+    "name": "legacy_permissions_cleanup_offered",
     "type": "contains",
-    "pattern": "orphaned Shipyard data"
-  },
-  {
-    "name": "announces_orphan_source_after_migration",
-    "type": "contains",
-    "pattern": "safely delete the orphaned"
+    "pattern": "settings\\.local\\.json"
   },
   {
     "name": "no_shell_sd_substitution",

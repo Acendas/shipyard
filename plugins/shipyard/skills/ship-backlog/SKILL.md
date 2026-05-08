@@ -9,7 +9,7 @@ argument-hint: "[groom|rank|approve|bankruptcy]"
 
 Manage the prioritized backlog. Default sort is by RICE score (Reach x Impact x Confidence / Effort — higher means more valuable).
 
-**Data model**: BACKLOG.md is an **ordered index of feature IDs**. All feature data (title, RICE, points, status, complexity) is read from feature files on display. Never duplicate feature data into BACKLOG.md. See `.claude/rules/shipyard-data-model.md`.
+**Data model**: BACKLOG.md is an **ordered index of feature IDs**. All feature data (title, RICE, points, status, complexity) is read from feature files on display. Never duplicate feature data into BACKLOG.md. See `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-data-model.md` (rules live in the plugin in 2.0).
 
 ## Context
 

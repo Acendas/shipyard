@@ -25,7 +25,7 @@ The orchestrator (the session running `/ship-execute`) should stay lean:
 
 ## Test Delegation
 
-Integration tests (wave boundary) and full regression tests (sprint completion) are delegated to `shipyard:shipyard-test-runner` subagents (haiku model — cheap and fast for grunt work). This keeps raw test output — which can be hundreds of lines — out of the orchestrator's context. The subagent captures output to a temp file, reads it, and returns a 1-30 line structured summary. See `references/test-delegation.md` for the full pattern and prompt template.
+Integration tests (wave boundary) and full regression tests (sprint completion) are delegated to the `shipyard:dispatching-operational-task` capability skill, which dispatches a `general-purpose` subagent that captures output to a stable path under `<SHIPYARD_DATA>/captures/`, parses failures, and returns a structured verdict. This keeps raw test output — which can be hundreds of lines — out of the orchestrator's context. See `skills/dispatching-operational-task/SKILL.md` for the full contract.
 
 ## Subagent Context Loading
 

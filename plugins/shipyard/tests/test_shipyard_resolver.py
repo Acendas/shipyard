@@ -312,15 +312,30 @@ class TestShipyardResolver(unittest.TestCase):
 
 
     def test_resolver_fails_loud_when_no_data_dir(self):
-        """R10: With no CLAUDE_PLUGIN_DATA, no plugin-root probe, and no
-        legacy dir, the resolver must exit non-zero with an actionable message,
-        not silently fall back to a phantom path."""
-        with tempfile.TemporaryDirectory() as fake_home:
+        """R10: With no CLAUDE_PLUGIN_DATA, no plugin-root probe, no legacy
+        dir, and no breadcrumb, the resolver must exit non-zero with an
+        actionable message, not silently fall back to a phantom path.
+
+        Test-isolation note: the resolver also reads a breadcrumb file at
+        `tmpdir() + 'shipyard-<hash>.plugindata'` written by the SessionStart
+        hook. Without isolating TMPDIR, the test inherits any breadcrumb a
+        real Shipyard session left behind on this machine and the resolver
+        succeeds. We isolate TMPDIR/TMP/TEMP to a fresh tempdir so no
+        breadcrumb is reachable for this test process.
+        """
+        with tempfile.TemporaryDirectory() as fake_home, \
+             tempfile.TemporaryDirectory() as fake_tmpdir:
             env = os.environ.copy()
             for k in ('CLAUDE_PROJECT_DIR', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_PLUGIN_ROOT'):
                 env.pop(k, None)
             env['HOME'] = fake_home
             env['USERPROFILE'] = fake_home  # Windows
+            # Isolate Node's os.tmpdir() — covers POSIX (TMPDIR) and Windows
+            # (TMP/TEMP). Without this, breadcrumbs left behind by real
+            # sessions on this machine make the resolver succeed.
+            env['TMPDIR'] = fake_tmpdir
+            env['TMP'] = fake_tmpdir
+            env['TEMP'] = fake_tmpdir
             proc = subprocess.run(
                 ['node', RESOLVER, 'data-dir'],
                 capture_output=True, text=True, env=env,
@@ -366,24 +381,12 @@ class TestShipyardResolver(unittest.TestCase):
                 f'stdout={proc.stdout!r}',
             )
 
-    def test_resolver_uses_legacy_dir_if_populated(self):
-        """R10: A legacy ~/.claude/plugins/data/shipyard with a populated
-        projects/ subdir must be detected as discovery (backcompat for
-        existing customers)."""
-        with tempfile.TemporaryDirectory() as fake_home:
-            legacy = os.path.join(fake_home, '.claude', 'plugins', 'data', 'shipyard', 'projects', 'fake-hash')
-            os.makedirs(legacy, exist_ok=True)
-            env = os.environ.copy()
-            for k in ('CLAUDE_PROJECT_DIR', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_PLUGIN_ROOT'):
-                env.pop(k, None)
-            env['HOME'] = fake_home
-            env['USERPROFILE'] = fake_home
-            proc = subprocess.run(
-                ['node', RESOLVER, 'data-dir'],
-                capture_output=True, text=True, env=env,
-            )
-            self.assertEqual(proc.returncode, 0, f'stderr={proc.stderr!r}')
-            self.assertIn(os.path.join('.claude', 'plugins', 'data', 'shipyard'), proc.stdout)
+    # test_resolver_uses_legacy_dir_if_populated REMOVED in 2.0 (F-7).
+    # The legacy ~/.claude/plugins/data/shipyard/projects probe was dropped:
+    # the env var has been stable in Claude Code for several months and the
+    # legacy probe was actively harmful (silent backcompat picked up orphans
+    # that should be migrated through /ship-init). Customers with legacy
+    # data are surfaced through orphan-recovery, not silent fallback.
 
 
 class TestShipyardResolverProductionScenarios(unittest.TestCase):

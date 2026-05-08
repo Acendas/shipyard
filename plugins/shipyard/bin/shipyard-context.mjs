@@ -2,10 +2,10 @@
 /**
  * shipyard-context — read Shipyard data files for skill context blocks.
  *
- * Cross-platform Node implementation. Replaces the legacy extensionless
- * Python script. Skills invoke this in `!`backtick``` blocks to load context
- * snippets without using shell command substitution (which Claude Code blocks
- * in skill backtick commands and which is bash-only anyway).
+ * Cross-platform Node implementation. Skills invoke this in `!`backtick```
+ * blocks to load context snippets without using shell command substitution
+ * (which Claude Code blocks in skill backtick commands and which is bash-only
+ * anyway).
  *
  * Usage:
  *   shipyard-context path                              → SHIPYARD_DATA=/full/path
@@ -21,7 +21,6 @@
  *   shipyard-context version                           → "Shipyard v<x.y.z>"
  *   shipyard-context diagnose                          → resolver state dump for bug reports
  *   shipyard-context project-claude-md [lines]         → head of <project>/CLAUDE.md
- *   shipyard-context legacy-check                      → LEGACY_SHIPYARD_DETECTED | NO_LEGACY
  *
  *   Generic primitives (`head`, `cat`, `ls`, `ls-glob`, `ls-sort`, `count`) were
  *   removed in the platform-independence refactor. Skill bodies use Claude's
@@ -107,9 +106,6 @@ function readHead(filepath, lines) {
     }
   }
 }
-
-// readCat() removed in Phase 2 platform-independence refactor: the only
-// caller was the `cat` subcommand, which is gone. Skill bodies use Read.
 
 function listDir(dirpath, limit) {
   try {
@@ -332,8 +328,8 @@ function main() {
       break;
     }
     case "diagnose": {
-      // F15: dump resolver state for self-serve bug reports.
-      // Format is grep-friendly key=value lines plus the breadcrumb log tail.
+      // Dump resolver state for self-serve bug reports.
+      // Grep-friendly key=value lines plus the breadcrumb log tail.
       const projectRoot = getProjectRoot();
       const projectHash = getProjectHash(projectRoot);
       out(`SHIPYARD_DATA=${sd}`);
@@ -529,25 +525,11 @@ function main() {
       out(result ?? "No CLAUDE.md");
       break;
     }
-    case "legacy-check": {
-      // Replaces the bash `[ -f .shipyard/config.md ] && echo LEGACY... || echo NO_LEGACY`
-      // one-liner in ship-init. Keeps the exact sentinel tokens — ship-init branches on them.
-      let projectRoot;
-      try {
-        projectRoot = getProjectRoot();
-      } catch {
-        out("NO_LEGACY");
-        return;
-      }
-      const legacyConfig = join(projectRoot, ".shipyard", "config.md");
-      out(existsSync(legacyConfig) ? "LEGACY_SHIPYARD_DETECTED" : "NO_LEGACY");
-      break;
-    }
     default:
       die(
         "Usage: shipyard-context {path|head|cat|ls|ls-glob|ls-sort|count|spec-counts|" +
           "status-counts|debug-count|view|list|count-of|reference|version|" +
-          "project-claude-md|legacy-check|diagnose}",
+          "project-claude-md|diagnose}",
       );
   }
 }

@@ -1,0 +1,47 @@
+[
+  {
+    "name": "has_when_to_invoke",
+    "type": "contains",
+    "pattern": "## When to Invoke"
+  },
+  {
+    "name": "has_pattern_catalog",
+    "type": "contains",
+    "pattern": "## Stub Patterns"
+  },
+  {
+    "name": "has_high_confidence",
+    "type": "contains",
+    "pattern": "HIGH"
+  },
+  {
+    "name": "has_medium_confidence",
+    "type": "contains",
+    "pattern": "MEDIUM"
+  },
+  {
+    "name": "has_low_confidence",
+    "type": "contains",
+    "pattern": "LOW"
+  },
+  {
+    "name": "has_placeholder_marker",
+    "type": "contains",
+    "pattern": "shipyard:placeholder reason="
+  },
+  {
+    "name": "has_redispatch_rules",
+    "type": "contains",
+    "pattern": "## Re-Dispatch Rules"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]
