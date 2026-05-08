@@ -63,25 +63,9 @@ Capture name: <TASK_ID>-verify-iter<N>   (N = current iteration, starting at 1)
 !`shipyard-data events emit operational_task_verify_started task=<TASK_ID> command=<resolved-command> iteration=<N>`
 ```
 
-**Spawn the agent:**
-```
-subagent_type: shipyard:shipyard-test-runner
-isolation: omit (operational tasks run on the current branch — they do not modify code)
-prompt: |
-  Task: <TASK_ID> (kind: operational)
-  Verify command: <resolved-command>
-  Capture name: <TASK_ID>-verify-iter<N>
-  Iteration: <N> of <max_iterations>
+**Dispatch via the `shipyard:dispatching-operational-task` capability skill.** Pass the resolved verify command, the task ID, and the iteration cap from `operational_tasks.max_iterations`. The capability skill captures output to `<SHIPYARD_DATA>/captures/<task_id>/run-<N>.log` via plain `tee` (no `shipyard-logcap` dependency in 2.0), updates the task's `verify_history:` frontmatter, and returns a structured verdict (`STATUS: COMPLETE` with `VERIFY_OUTPUT` + `LAST_LINES`, or `STATUS: BLOCKED` with the failure tail).
 
-  Run the verify command via shipyard-logcap so all output is captured:
-    shipyard-logcap run <TASK_ID>-verify-iter<N> -- <resolved-command>
-
-  On completion, return a structured summary:
-    - exit_code: <int>
-    - capture_name: <TASK_ID>-verify-iter<N>
-    - duration_seconds: <float>
-    - findings: [<list of specific failures, one per line, extracted from the capture>]
-    - findings_count: <int>
+The capability skill also owns the Phase 2 fix-findings loop (in-scope fixes commit atomically; out-of-scope findings file as bug/idea tasks capped at `operational_tasks.max_patch_tasks`). See `skills/dispatching-operational-task/SKILL.md` for the full contract:
 
   Do NOT modify any files. Do NOT create commits. Your job is to run the command
   and report what happened — nothing else. The orchestrator will decide what to do
@@ -237,14 +221,15 @@ Increment `cumulative_patch_count` for each patch task written. If it exceeds `o
 
 For each patch task written in step 3, spawn the builder **sequentially** (serial — not parallel). Parallel dispatch would race on the working branch and produce overlapping commits. Serial dispatch is the correct choice even if it's slower, because the operational dispatcher is itself running on the working branch without a worktree, and the wave graph in SPRINT.md is stable precisely because patch tasks are hidden from it.
 
-For each patch task:
-```
-Agent({
-  subagent_type: "shipyard:shipyard-builder",
-  description: "Patch <PATCH_ID> for operational task <PARENT_TASK_ID>",
-  prompt: "Task: <PATCH_ID>\nTask file: <SHIPYARD_DATA>/spec/tasks/<PATCH_ID>-<slug>.md\nWorking branch: <branch from SPRINT.md>\nData dir: <SHIPYARD_DATA>\n\nThis is a patch task created by the operational fix-findings loop for <PARENT_TASK_ID>. Follow your standard TDD cycle for the finding described in the task file.\n\nEverything else — branch verification, TDD cycle, rules, exit protocol — follows your agent body. Do not deviate."
-})
-```
+For each patch task, invoke `shipyard:dispatching-task-loop` with:
+
+- `task_id`: `<PATCH_ID>`
+- `task_file_path`: `<SHIPYARD_DATA>/spec/tasks/<PATCH_ID>-<slug>.md`
+- `working_branch`: branch from SPRINT.md
+- `worktree_path`: null (patch tasks commit directly to the working branch — see note below)
+- `acceptance_probe`: from the patch task's frontmatter
+- `data_dir`: `<SHIPYARD_DATA>`
+- `continuation_note`: *"This is a patch task created by the operational fix-findings loop for `<PARENT_TASK_ID>`. Follow standard TDD for the finding described in the task file."*
 
 **Important — no `isolation: worktree` parameter.** Omit it. Patch tasks commit directly to the working branch because the operational dispatcher lives on the working branch. Adding worktree isolation here would require cross-worktree merging and break the "operational runs on working branch" design.
 

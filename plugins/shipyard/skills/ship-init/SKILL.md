@@ -390,17 +390,40 @@ After codebase analysis is complete, generate Subject Matter Expert skills for t
 - Infrastructure (from Dockerfile, docker-compose.yml, CI config, cloud provider files)
 - Major libraries with significant usage patterns (not every dependency — only ones with project-specific conventions)
 
-**Spawn the skill-writer:**
+**Dispatch the skill-writer** via `general-purpose` with the inline prompt below. The skill-writer role is reused across `/ship-init` (this site) and `/ship-sprint` (knowledge-gap-driven generation); per S-1's granularity criterion, the prompt stays inline rather than getting its own Layer-2 capability skill — both callers pass the same shape.
+
+Substitute the literal SHIPYARD_DATA path before spawning:
+
 ```
-subagent_type: shipyard:shipyard-skill-writer
+Agent(subagent_type: "general-purpose", prompt: |
+
+You are generating project-specific SME (Subject Matter Expert) skills for
+this codebase's technology stack. Each skill captures how THIS project uses
+the technology — project-specific patterns, paths, commands, and conventions.
+Do NOT write generic tutorials.
+
+Technologies: [the extracted list from above]
+Codebase context path: <SHIPYARD_DATA>/codebase-context.md
+Project skills path: .claude/skills/
+
+Process:
+  1. Read the codebase context and skim relevant project files for each
+     technology to learn its actual usage in this project.
+  2. Scan .claude/skills/ for existing coverage; skip technologies already
+     covered by an existing skill.
+  3. For each remaining technology, generate a SKILL.md at
+     .claude/skills/<tech>-expert/ with project-specific conventions,
+     anti-patterns, and gotchas.
+  4. Self-validate: every example you write must reference real files,
+     real package versions, real commands from this project.
+
+Run silently — do not prompt the user. Return a report listing skills
+generated, skills skipped (with reason), and any technologies you couldn't
+characterize confidently. No commits.
+)
 ```
 
-Prompt with:
-- Technologies: the extracted list from above
-- Codebase context path: `<SHIPYARD_DATA>/codebase-context.md`
-- Project skills path: `.claude/skills/`
-
-The agent runs silently — no user prompts. It scans `.claude/skills/` for existing coverage, skips technologies already covered, generates SME skills for the rest, self-validates all paths and commands, and returns a report.
+The subagent runs silently — no user prompts. It scans `.claude/skills/` for existing coverage, skips technologies already covered, generates SME skills for the rest, self-validates all paths and commands, and returns a report.
 
 **Display the results to the user:**
 ```

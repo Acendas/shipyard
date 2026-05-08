@@ -61,22 +61,20 @@ For iteration in [2, 3]:
 
   git_log = run: git log --oneline $(git merge-base HEAD <main_branch>)..HEAD
 
-  Spawn shipyard-builder (fix-focused — NO isolation: worktree, runs on working branch):
-    subagent_type: shipyard:shipyard-builder
-    prompt: |
-      Mode: wave-refactor
-      Iteration: {iteration}
-      Wave: {N}
-      Working branch: {branch from SPRINT.md}
-      Failing tests:
+  Invoke shipyard:dispatching-task-loop with a synthetic continuation task
+  scoped to the wave-refactor fix:
+    task_id: WAVE-{N}-REFACTOR-ITER-{iteration}
+    working_branch: {branch from SPRINT.md}
+    worktree_path: null   (fix runs on working branch, no isolation)
+    acceptance_probe: a probe that re-runs the failing tests by name
+                      and exits 0 only when all pass
+    continuation_note: |
+      Wave-refactor fix iteration {iteration}. Failing tests:
         {bulleted list of failing_curr test names}
       Previous attempts git log:
         {git_log}
-      Data dir: {literal SHIPYARD_DATA path}
-
-      Fix the failing tests listed above. Focus REFACTOR on those tests only.
+      Fix the failing tests listed above only. Focus REFACTOR on those tests.
       Skip MUTATE — it already ran in iteration 1.
-      Run logcap: wave-{N}-refactor-iter-{iteration}
       COMMIT any changes before returning.
 
   Spawn the extended test-runner:

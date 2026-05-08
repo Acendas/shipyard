@@ -55,32 +55,18 @@ where `<slug>` is the exact slug already used in the task filename. Fall back to
 
 **Directory creation.** Do NOT shell out to create the parent directory: POSIX `mkdir` flags do not exist on Windows cmd.exe, where they are interpreted as literal directory names (e.g., a `-p` flag becomes a folder named `-p`). Instead, rely on the `Write` tool's auto-parent-directory behavior — `Write` creates missing parents on all platforms. The `<SHIPYARD_DATA>/research/` directory will be created the first time the researcher agent writes a findings doc, no explicit step needed.
 
-**Spawn the agent:**
-```
-subagent_type: shipyard:shipyard-researcher
-isolation: omit (research tasks are read-only with respect to the codebase and do not need worktree isolation)
-prompt: |
-  Task-driven mode — kind: research
+**Dispatch via the `shipyard:dispatching-research-task` capability skill.** Pass:
 
-  Task: <TASK_ID>
-  Task file: <SHIPYARD_DATA>/spec/tasks/<TASK_ID>-<slug>.md
-  Research scope: <verbatim research_scope from task frontmatter>
-  Research output path: <SHIPYARD_DATA>/research/<TASK_ID>-<slug>.md
+| Parameter | Value |
+|---|---|
+| `task_id` | `<TASK_ID>` |
+| `task_file_path` | `<SHIPYARD_DATA>/spec/tasks/<TASK_ID>-<slug>.md` |
+| `parent_feature_path` | parent feature path or null |
+| `data_dir` | literal `<SHIPYARD_DATA>` path |
+| `findings_dir` | `<SHIPYARD_DATA>/research/` |
+| `expected_findings_filename` | `<TASK_ID>-<slug>.md` |
 
-  Read your agent body for the full task-driven-mode contract. Summary:
-  1. Read the task file for context.
-  2. Investigate using your standard Process (codebase search, external docs,
-     cross-verify).
-  3. Write the findings doc at the exact Research output path above, using
-     the Findings Doc Template from your agent body.
-  4. Return a structured response with research_output pointing at the path
-     you wrote, a one-paragraph summary, and the findings count.
-
-  Rules:
-  - Write tool is scoped to the Research output path only. Never write elsewhere.
-  - Never Edit or Bash anything — those tools are disallowed.
-  - If the scope is unresolvable, return a failure message. Do NOT create a stub doc.
-```
+The capability skill owns the prompt template (Write scope HARD GATE limited to the single findings doc path), the Findings Doc Template (TL;DR / Context / Findings / Recommendation / Open Questions structure), the orchestrator-side gate (file exists + non-empty + ≥1 `### Finding` + porcelain check), and the `research_task_bogus_pass` / `research_out_of_scope_write` event emission paths. Refer to `skills/dispatching-research-task/SKILL.md` for the full contract.
 
 **Why no worktree isolation.** Research tasks only read the codebase and write to the SHIPYARD_DATA directory, which is outside the working tree. Isolation adds worktree setup/teardown overhead for no benefit.
 
