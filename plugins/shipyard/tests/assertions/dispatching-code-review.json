@@ -1,0 +1,57 @@
+[
+  {
+    "name": "uses_general_purpose",
+    "type": "contains",
+    "pattern": "general-purpose"
+  },
+  {
+    "name": "has_concern_security",
+    "type": "contains",
+    "pattern": "## security"
+  },
+  {
+    "name": "has_concern_bugs",
+    "type": "contains",
+    "pattern": "## bugs"
+  },
+  {
+    "name": "has_concern_silent_failures",
+    "type": "contains",
+    "pattern": "## silent-failures"
+  },
+  {
+    "name": "has_concern_patterns",
+    "type": "contains",
+    "pattern": "## patterns"
+  },
+  {
+    "name": "has_concern_tests",
+    "type": "contains",
+    "pattern": "## tests"
+  },
+  {
+    "name": "has_confidence_threshold",
+    "type": "contains",
+    "pattern": "confidence"
+  },
+  {
+    "name": "has_status_clean",
+    "type": "contains",
+    "pattern": "STATUS: CLEAN"
+  },
+  {
+    "name": "has_read_only_section",
+    "type": "contains",
+    "pattern": "READ-ONLY"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]

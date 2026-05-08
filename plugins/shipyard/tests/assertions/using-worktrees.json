@@ -1,0 +1,37 @@
+[
+  {
+    "name": "references_isolation_param",
+    "type": "contains",
+    "pattern": "isolation: \"worktree\"|isolation: worktree"
+  },
+  {
+    "name": "has_branch_naming",
+    "type": "contains",
+    "pattern": "shipyard/wt-"
+  },
+  {
+    "name": "has_base_ref_section",
+    "type": "contains",
+    "pattern": "worktree.baseRef"
+  },
+  {
+    "name": "has_cleanup_section",
+    "type": "contains",
+    "pattern": "## Cleanup at Wave Boundaries"
+  },
+  {
+    "name": "references_worktree_create_hook",
+    "type": "contains",
+    "pattern": "WorktreeCreate"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]

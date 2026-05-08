@@ -1,0 +1,62 @@
+[
+  {
+    "name": "uses_general_purpose",
+    "type": "contains",
+    "pattern": "general-purpose"
+  },
+  {
+    "name": "has_iron_laws_block",
+    "type": "contains",
+    "pattern": "Iron Laws"
+  },
+  {
+    "name": "states_no_production_code",
+    "type": "contains",
+    "pattern": "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"
+  },
+  {
+    "name": "states_no_completion_claims",
+    "type": "contains",
+    "pattern": "NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION"
+  },
+  {
+    "name": "states_no_stubs",
+    "type": "contains",
+    "pattern": "NO STUBS IN CODE YOU CLAIM IS COMPLETE"
+  },
+  {
+    "name": "has_status_complete_return",
+    "type": "contains",
+    "pattern": "STATUS: COMPLETE"
+  },
+  {
+    "name": "has_status_blocked_return",
+    "type": "contains",
+    "pattern": "STATUS: BLOCKED"
+  },
+  {
+    "name": "has_probe_output_tail",
+    "type": "contains",
+    "pattern": "PROBE_OUTPUT_TAIL"
+  },
+  {
+    "name": "has_iteration_cap",
+    "type": "contains",
+    "pattern": "5 internal iterations"
+  },
+  {
+    "name": "no_registered_agent_dispatch",
+    "type": "not_contains",
+    "pattern": "shipyard:shipyard-"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]

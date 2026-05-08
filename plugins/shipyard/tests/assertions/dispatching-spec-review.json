@@ -1,0 +1,57 @@
+[
+  {
+    "name": "uses_general_purpose",
+    "type": "contains",
+    "pattern": "general-purpose"
+  },
+  {
+    "name": "has_classification_met",
+    "type": "contains",
+    "pattern": "MET"
+  },
+  {
+    "name": "has_classification_partial",
+    "type": "contains",
+    "pattern": "PARTIAL"
+  },
+  {
+    "name": "has_classification_missing",
+    "type": "contains",
+    "pattern": "MISSING"
+  },
+  {
+    "name": "has_classification_overbuilt",
+    "type": "contains",
+    "pattern": "OVER-BUILT"
+  },
+  {
+    "name": "has_status_pass",
+    "type": "contains",
+    "pattern": "STATUS: PASS"
+  },
+  {
+    "name": "has_status_findings",
+    "type": "contains",
+    "pattern": "STATUS: FINDINGS"
+  },
+  {
+    "name": "has_read_only_section",
+    "type": "contains",
+    "pattern": "READ-ONLY"
+  },
+  {
+    "name": "has_porcelain_check",
+    "type": "contains",
+    "pattern": "git status --porcelain"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]

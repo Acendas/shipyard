@@ -1,0 +1,47 @@
+[
+  {
+    "name": "uses_general_purpose",
+    "type": "contains",
+    "pattern": "general-purpose"
+  },
+  {
+    "name": "has_write_scope_hard_gate",
+    "type": "contains",
+    "pattern": "Write Scope"
+  },
+  {
+    "name": "has_findings_template",
+    "type": "contains",
+    "pattern": "### Finding"
+  },
+  {
+    "name": "has_status_complete_return",
+    "type": "contains",
+    "pattern": "STATUS: COMPLETE"
+  },
+  {
+    "name": "has_output_path_field",
+    "type": "contains",
+    "pattern": "OUTPUT_PATH"
+  },
+  {
+    "name": "has_findings_count_field",
+    "type": "contains",
+    "pattern": "FINDINGS_COUNT"
+  },
+  {
+    "name": "has_bogus_pass_event",
+    "type": "contains",
+    "pattern": "research_task_bogus_pass"
+  },
+  {
+    "name": "has_out_of_scope_event",
+    "type": "contains",
+    "pattern": "research_out_of_scope_write"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  }
+]

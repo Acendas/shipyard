@@ -1,0 +1,52 @@
+[
+  {
+    "name": "has_what_counts_section",
+    "type": "contains",
+    "pattern": "## What Counts as an Acceptance Probe"
+  },
+  {
+    "name": "has_inputs_section",
+    "type": "contains",
+    "pattern": "## Inputs"
+  },
+  {
+    "name": "has_output_shape",
+    "type": "contains",
+    "pattern": "## Output Shape"
+  },
+  {
+    "name": "has_pass_verdict",
+    "type": "contains",
+    "pattern": "PASS"
+  },
+  {
+    "name": "has_fail_verdict",
+    "type": "contains",
+    "pattern": "FAIL"
+  },
+  {
+    "name": "has_timeout_verdict",
+    "type": "contains",
+    "pattern": "TIMEOUT"
+  },
+  {
+    "name": "has_error_verdict",
+    "type": "contains",
+    "pattern": "ERROR"
+  },
+  {
+    "name": "has_capture_once_rule",
+    "type": "contains",
+    "pattern": "Capture once, do not re-run"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]

@@ -1,0 +1,42 @@
+[
+  {
+    "name": "has_iron_law_section",
+    "type": "contains",
+    "pattern": "## The Iron Law"
+  },
+  {
+    "name": "states_no_completion_claims_rule",
+    "type": "contains",
+    "pattern": "NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION"
+  },
+  {
+    "name": "has_gate_function",
+    "type": "contains",
+    "pattern": "## The Gate Function"
+  },
+  {
+    "name": "has_red_flags_table",
+    "type": "contains",
+    "pattern": "## Red Flags"
+  },
+  {
+    "name": "has_when_to_apply",
+    "type": "contains",
+    "pattern": "## When to Apply"
+  },
+  {
+    "name": "no_registered_agent_dispatch",
+    "type": "not_contains",
+    "pattern": "shipyard:shipyard-"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]

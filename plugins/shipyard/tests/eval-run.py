@@ -97,33 +97,51 @@ def read_file(filepath):
 def check_frontmatter(result):
     """Validate YAML frontmatter on all skills, agents, rules."""
 
-    # Skills
+    # Skills — both Layer-1 command skills (ship-*) and Layer-2 capability skills.
+    # Capability skills additionally must declare `disable-model-invocation: true`
+    # so they never appear in the slash-command picker (S-1 contract).
     for skill_dir in sorted(SKILLS_DIR.iterdir()):
-        if not skill_dir.is_dir() or not skill_dir.name.startswith("ship-"):
+        if not skill_dir.is_dir():
             continue
         skill_file = skill_dir / "SKILL.md"
         if not skill_file.exists():
-            result.fail(f"skill:{skill_dir.name}", "SKILL.md missing")
+            # Skip non-skill directories (e.g., docs/, plans/) silently
             continue
+
+        is_command_skill = skill_dir.name.startswith("ship-")
+        is_capability_skill = not is_command_skill
 
         fm, err = parse_frontmatter(skill_file)
         if err:
             result.fail(f"skill:{skill_dir.name}:frontmatter", err)
             continue
 
-        # Required fields
+        # Required fields (both layers)
         for field in ["name", "description"]:
             if field in fm:
                 result.ok(f"skill:{skill_dir.name}:has_{field}")
             else:
                 result.fail(f"skill:{skill_dir.name}:has_{field}", f"missing '{field}' in frontmatter")
 
-        # Name matches directory
+        # Name matches directory (both layers)
         if fm.get("name") == skill_dir.name:
             result.ok(f"skill:{skill_dir.name}:name_matches_dir")
         else:
             result.fail(f"skill:{skill_dir.name}:name_matches_dir",
                         f"frontmatter name '{fm.get('name')}' != dir '{skill_dir.name}'")
+
+        # Capability skills MUST set disable-model-invocation: true (S-1 contract).
+        # The naive YAML parser returns string values, so compare to "true".
+        if is_capability_skill:
+            dmi = fm.get("disable-model-invocation")
+            if dmi == "true" or dmi is True:
+                result.ok(f"skill:{skill_dir.name}:disable_model_invocation_true")
+            else:
+                result.fail(
+                    f"skill:{skill_dir.name}:disable_model_invocation_true",
+                    f"capability skills must set 'disable-model-invocation: true' "
+                    f"(got: {dmi!r})",
+                )
 
     # Agents
     for agent_file in sorted(AGENTS_DIR.glob("shipyard-*.md")):

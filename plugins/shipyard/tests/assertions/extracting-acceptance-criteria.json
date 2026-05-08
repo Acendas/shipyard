@@ -1,0 +1,57 @@
+[
+  {
+    "name": "has_three_passes",
+    "type": "contains",
+    "pattern": "### Pass 1"
+  },
+  {
+    "name": "has_pass_2",
+    "type": "contains",
+    "pattern": "### Pass 2"
+  },
+  {
+    "name": "has_pass_3",
+    "type": "contains",
+    "pattern": "### Pass 3"
+  },
+  {
+    "name": "has_output_shape",
+    "type": "contains",
+    "pattern": "## Output Shape"
+  },
+  {
+    "name": "has_quality_checklist",
+    "type": "contains",
+    "pattern": "## Quality Checklist"
+  },
+  {
+    "name": "has_observable_field",
+    "type": "contains",
+    "pattern": "observable"
+  },
+  {
+    "name": "has_polarity_field",
+    "type": "contains",
+    "pattern": "polarity"
+  },
+  {
+    "name": "has_owner_layer_field",
+    "type": "contains",
+    "pattern": "owner_layer"
+  },
+  {
+    "name": "has_negative_companion_rule",
+    "type": "contains",
+    "pattern": "shall NOT"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]

@@ -1,0 +1,52 @@
+[
+  {
+    "name": "has_authoring_question",
+    "type": "contains",
+    "pattern": "## The Authoring Question"
+  },
+  {
+    "name": "has_pattern_catalog",
+    "type": "contains",
+    "pattern": "## Probe Patterns by Task Shape"
+  },
+  {
+    "name": "has_anti_patterns",
+    "type": "contains",
+    "pattern": "## Anti-Patterns to Reject"
+  },
+  {
+    "name": "has_quality_checklist",
+    "type": "contains",
+    "pattern": "## Quality Checklist"
+  },
+  {
+    "name": "has_fails_today_rule",
+    "type": "contains",
+    "pattern": "fails today|FAIL.*pre-implementation"
+  },
+  {
+    "name": "has_acceptance_probe_field",
+    "type": "contains",
+    "pattern": "acceptance_probe:"
+  },
+  {
+    "name": "references_running_acceptance_probe",
+    "type": "contains",
+    "pattern": "running-acceptance-probe"
+  },
+  {
+    "name": "references_dispatching_task_loop",
+    "type": "contains",
+    "pattern": "dispatching-task-loop"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "no_dead_reference_links",
+    "type": "not_contains",
+    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  }
+]

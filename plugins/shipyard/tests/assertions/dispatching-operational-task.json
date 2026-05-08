@@ -1,0 +1,57 @@
+[
+  {
+    "name": "uses_general_purpose",
+    "type": "contains",
+    "pattern": "general-purpose"
+  },
+  {
+    "name": "has_two_phase_flow",
+    "type": "contains",
+    "pattern": "## Two-Phase Flow"
+  },
+  {
+    "name": "has_iron_law_exit_zero",
+    "type": "contains",
+    "pattern": "NO COMPLETION CLAIM WITHOUT exit-0 CAPTURE"
+  },
+  {
+    "name": "has_iron_law_no_stub_fixes",
+    "type": "contains",
+    "pattern": "NO STUB FIXES"
+  },
+  {
+    "name": "has_iron_law_no_scope_creep",
+    "type": "contains",
+    "pattern": "NO SCOPE CREEP"
+  },
+  {
+    "name": "has_status_complete_return",
+    "type": "contains",
+    "pattern": "STATUS: COMPLETE"
+  },
+  {
+    "name": "has_verify_output_field",
+    "type": "contains",
+    "pattern": "VERIFY_OUTPUT"
+  },
+  {
+    "name": "has_last_lines_field",
+    "type": "contains",
+    "pattern": "LAST_LINES"
+  },
+  {
+    "name": "has_bogus_pass_event",
+    "type": "contains",
+    "pattern": "operational_task_bogus_pass"
+  },
+  {
+    "name": "has_max_iterations",
+    "type": "contains",
+    "pattern": "max_iterations"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  }
+]
