@@ -78,15 +78,16 @@ Per iteration (max 3):
 2. **Orchestrate.** Follow the reference end-to-end. Iteration 1 uses `git diff $(git merge-base HEAD <main_branch>)...HEAD`; iteration 2+ uses the cumulative delta `git diff <pre-code-review-tag>..HEAD`. Phase 5 writes `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md` with VERDICT / COUNTS / ---ACTIONABLE--- sections.
 3. **Evaluate.** Append counts to the Code Review table in PROGRESS.md. Zero must-fix + zero should-fix → clean pass, proceed to Stage 1. Only consider items → acceptable, proceed to Stage 1. Must-fix or should-fix → continue.
 4. **Diminishing returns** (iteration 2+). Read the previous count from PROGRESS.md. If unchanged or increased, AskUserQuestion: "Code review isn't converging — [N] must-fix issues remain after [iteration] fix attempts. Proceed to demo with current state, or investigate manually?"
-5. **Fix.** Spawn `Agent` with `subagent_type: shipyard:shipyard-builder` (no worktree, works on the working branch). Substitute the literal SHIPYARD_DATA path before spawning:
-   ```
-   Address code review findings.
-   Read <SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md — skip everything above ---ACTIONABLE---.
-   Fix all M (must-fix) and S (should-fix) items below the separator.
-   Each finding: [file:line] — [category] — [description]. Fix: [suggestion].
-   Follow TDD. Commit: refactor: address code review (iteration N)
-   ```
-   After the fixer returns, verify a new commit exists. If none → `git reset --hard $(git tag --list 'pre-code-review-*' --sort=-creatordate | head -1)` and flag the iteration as failed (don't count toward the cap).
+5. **Fix.** Invoke the **`shipyard:dispatching-task-loop` capability skill** with a synthetic continuation task that points at the CODE-REVIEW.md findings. Pass:
+   - `task_id`: a synthetic ID like `CR-FIX-iter-N`
+   - `task_file_path`: `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md` (the findings doc serves as the spec — the capability skill's prompt instructs the subagent to skip everything above `---ACTIONABLE---` and fix all M/S items below)
+   - `working_branch`: the sprint working branch
+   - `worktree_path`: null (works directly on the working branch — no isolation; this is a fix-up pass on already-merged code)
+   - `acceptance_probe`: `git log -1 --format='%s' | grep -q '^refactor: address code review'` (probe verifies a refactor commit landed)
+   - `continuation_note`: *"Fix all M and S items in CODE-REVIEW.md below the ---ACTIONABLE--- separator. Follow TDD. Commit: `refactor: address code review (iteration N)`."*
+   - `data_dir`: literal SHIPYARD_DATA path
+
+   The capability skill's structured-return + sha verification handle the "verify a new commit exists" check that previously lived inline. If it returns `STATUS: BLOCKED` (no fixes possible), `git reset --hard` to the most recent `pre-code-review-*` tag and flag the iteration as failed (don't count toward the cap).
 6. **Repeat** from step 2.
 
 **Exit:** clean pass → Stage 1. 3 iterations reached with remaining must-fix → use Write to create `<SHIPYARD_DATA>/spec/bugs/B-CR-[slug].md` per finding so they surface in the next sprint, then AskUserQuestion whether to proceed to demo. After exit, delete checkpoint tags: `git tag --list 'pre-code-review-*' | xargs -I {} git tag -d {}`.
@@ -132,27 +133,27 @@ After the code review loop exits clean, run a simplification pass on the sprint'
 
 ### Stage 1: Run Tests & Spec Verification
 
-**1a. Run all tests** — delegate to a `shipyard:shipyard-test-runner` subagent to avoid polluting the review context with raw test output:
-- Substitute the literal SHIPYARD_DATA path for `<SHIPYARD_DATA>` in the prompt below, then spawn `Agent` with `subagent_type: shipyard:shipyard-test-runner` and prompt: "Run the full test suite: unit (`test_commands.unit`), integration (`test_commands.integration`), and end-to-end (`test_commands.e2e`) read from `<SHIPYARD_DATA>/config.md`. If specific commands aren't configured, fall back to `testing_framework` field. Return the structured summary."
-- Use the returned summary (PASS/FAIL counts) for Stage 3-5 — do not re-run tests yourself.
+**1a. Run all tests** — invoke the **`shipyard:dispatching-operational-task` capability skill** to avoid polluting the review context with raw test output. Pass `verify_command` resolved to each tier from `<SHIPYARD_DATA>/config.md` (`test_commands.unit`, `test_commands.integration`, `test_commands.e2e`); the capability skill captures output to `<SHIPYARD_DATA>/captures/` and returns the structured verdict (PASS/FAIL counts in `LAST_LINES:`). One operational dispatch per tier, or one combined dispatch if your project supports a single command. Use the returned verdicts for Stages 3–5 — do not re-run tests yourself.
 
-**1b. Spec review via specialized scanner** — Before spawning, read the feature file's `references:` frontmatter array and collect any paths listed there. Then spawn `Agent` with `subagent_type: shipyard:shipyard-review-spec`:
+**1b. Spec review via specialized scanner** — invoke the **`shipyard:dispatching-spec-review` capability skill** with `scope: "feature"` and `target_ids: [FEATURE_ID]`. The capability skill:
 
-If there are reference files (substitute the literal SHIPYARD_DATA path for `<SHIPYARD_DATA>` before spawning):
-```
-Run a spec review on feature [FEATURE_ID].
-Mode: spec review
-Feature spec: <SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md
-Reference files: <SHIPYARD_DATA>/spec/references/F001-api.md, <SHIPYARD_DATA>/spec/references/F001-schema.md
-Task files: <SHIPYARD_DATA>/spec/tasks/ (filter by feature: [FEATURE_ID])
-Implementation files: <git diff --name-only $(git merge-base HEAD <main_branch>)...HEAD>
-```
+- Reads the feature spec at `<SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md` and each path listed in its `references:` frontmatter array (skill body handles the conditional inclusion automatically — no need to construct two prompt variants).
+- Reads the related task files filtered by feature.
+- Reads the diff (`base_ref` = sprint base, `head_ref` = current HEAD).
+- Maps every acceptance criterion to code, classifies as MET/PARTIAL/MISSING/OVER-BUILT, and returns structured findings.
+- Enforces read-only via post-return `git status --porcelain` check.
 
-If there are no reference files, omit the `Reference files:` line entirely.
+Pass to the capability skill:
 
-The spec scanner is single-responsibility (model: sonnet, fresh 200k context). It maps every acceptance scenario to code, flags gaps and over-building, and returns findings in the standard format. Security, bugs, silent failures, patterns, and tests are NOT its job — those were already covered in Stage 0's wave-1 scan.
+| Parameter | Value |
+|---|---|
+| `scope` | `"feature"` |
+| `target_ids` | `[FEATURE_ID]` |
+| `base_ref` | `git merge-base HEAD <main_branch>` |
+| `head_ref` | Current HEAD |
+| `data_dir` | Literal SHIPYARD_DATA path |
 
-Use the scanner's findings in Stages 3-5.
+Use the capability skill's structured findings (`STATUS: PASS` or `STATUS: FINDINGS` with classification) in Stages 3–5. Security, bugs, silent failures, patterns, and tests are NOT this skill's job — those went through `dispatching-code-review` in Stage 0.
 
 ### Stage 2: Visual Verification (UI tasks)
 
@@ -303,26 +304,52 @@ Iterate the checklist against your findings. If any check reveals a missed gap, 
 
 ### Stage 4.6: Critic Challenge
 
-After the self-review loop stabilizes, spawn the critic agent to challenge the review findings. The critic reads the feature spec, implementation, and the review's results to find what the reviewer missed.
-
-Spawn `Agent` with `subagent_type: shipyard:shipyard-critic`:
+After the self-review loop stabilizes, dispatch a **`general-purpose`** subagent in critic mode to challenge the review findings. The critic reads the feature spec, implementation, and the review's results to find what the reviewer missed. No registered Shipyard agent — this is an inline prompt template, since the critic role is specialized to ship-review and not reused elsewhere.
 
 Substitute the literal SHIPYARD_DATA path for `<SHIPYARD_DATA>` before spawning:
+
 ```
-Critique this review's findings for feature [FEATURE_ID].
+Agent(subagent_type: "general-purpose", prompt: |
+
+You are an adversarial critic reviewing the conclusions of a feature
+review. Your job is to find what the reviewer missed: blind spots, false
+positives (things marked ✅ that aren't actually working), and false
+negatives (gaps the reviewer didn't surface).
+
+Apply anti-sycophancy: do not agree with the review's conclusions just
+because they sound reasonable. Pre-mortem the feature: imagine it shipped
+and broke in production — what was the failure mode?
+
+Feature: [FEATURE_ID]
 Mode: review-critique
 Stakes: [standard or high — match the feature's complexity]
-Artifact paths:
+
+Read these files:
   - Feature spec: <SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md
   - Task files: <SHIPYARD_DATA>/spec/tasks/ (filter by feature: [FEATURE_ID])
-Codebase context path: <SHIPYARD_DATA>/codebase-context.md
-Project rules path: .claude/rules/**/*.md
+  - Codebase context: <SHIPYARD_DATA>/codebase-context.md
+  - Project rules: .claude/rules/**/*.md
 
 Review findings to challenge:
   - Observable truths: [list from Stage 3]
   - Wiring check: [results from Stage 3]
   - Gaps found: [gap list from Stage 4]
   - Self-review iterations: [N] (stabilized / hit max)
+
+Return:
+  STATUS: CHALLENGES
+  BLIND_SPOTS: <list with file:line citations where possible>
+  FALSE_POSITIVES: <items the reviewer marked ✅ that you have evidence are broken>
+  FALSE_NEGATIVES: <items the reviewer flagged as gaps that are actually fine>
+  PRIORITY_ACTIONS: <ordered list of what should be addressed before approval>
+
+If you genuinely have no challenges:
+  STATUS: NO_CHALLENGES
+  REASON: <one paragraph confirming you considered each adversarial angle>
+
+You are READ-ONLY: no edits, no commits, no spawning subagents. You may
+Read, Grep, Glob, run read-only git, and run static analysis as a check.
+)
 ```
 
 The critic returns a structured report with blind spots, false positives/negatives, and priority actions.
