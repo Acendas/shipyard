@@ -70,9 +70,10 @@ function runGit(args, cwd) {
  *
  * NB: This changes hash semantics for anyone previously running Shipyard
  * inside a user-owned worktree (their data was under the parent-repo hash;
- * it's now under the worktree-specific hash). `shipyard-data find-orphans`
- * + `/ship-init`'s migration prompt handle the recovery path — see the
- * `.project-root` breadcrumb logic in shipyard-data.mjs.
+ * it's now under the worktree-specific hash). Pre-2.0 customers in this
+ * situation may see an empty data dir on first 2.0 /ship-init; the prior
+ * data still lives at the old hash and can be re-pointed via CLAUDE_PLUGIN_DATA
+ * or copied manually. The 2.0 ship-init does NOT auto-discover/migrate it.
  */
 export function getProjectRoot() {
   // CLAUDE_PROJECT_DIR (set by Claude Code) is used as the *starting cwd* for

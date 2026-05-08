@@ -10,19 +10,18 @@
  * Usage (Shipyard 2.0):
  *   shipyard-data                              → prints data directory path
  *   shipyard-data init                         → creates the directory tree
- *   shipyard-data migrate <src> [--force]      → atomic migration from legacy path
  *   shipyard-data with-lock <key> -- <cmd>     → fcntl-style locking primitive
- *   shipyard-data find-orphans                 → orphan recovery scan
  *   shipyard-data archive-sprint <id> [--force]→ atomic sprint rename
- *   shipyard-data drop-orphan <hash>           → manual orphan cleanup
  *   shipyard-data events emit <type> [k=v ...] → structured event log append
  *   shipyard-data next-id <kind>               → atomic ID allocator
  *
- * Retired in 2.0 (F-13/F-14):
- *   shipyard-data project-id   → use shipyard-resolver.mjs project-hash
- *   shipyard-data project-root → use shipyard-resolver.mjs project-root
- *   shipyard-data reap-obsolete → unused; fold into cron if needed
- *   shipyard-data events {tail,grep,since,json} → Read .shipyard-events.jsonl
+ * Retired in 2.0:
+ *   project-id, project-root, reap-obsolete (F-13/F-14)
+ *   events {tail,grep,since,json} (F-13/F-14) — Read .shipyard-events.jsonl
+ *   migrate, find-orphans, drop-orphan — legacy-data migration paths;
+ *     2.0 ship-init detects + offers cleanup of pre-2.0 footprint
+ *     (.claude/rules/shipyard-*.md, .claude/settings.local.json entries)
+ *     directly, no longer needs CLI helpers for cross-hash data movement.
  *
  * The init subcommand also handles the cp -r / rm -rf cleanup that
  * ship-init's SKILL.md used to inline as POSIX shell commands. Doing it
@@ -30,8 +29,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve as pathResolve } from "node:path";
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
 import { getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
@@ -110,134 +109,6 @@ function init() {
   // Remove legacy scripts/ dir if a previous ship-init copied scripts in
   // (now served from the plugin, not the data dir)
   rmSync(join(dataDir, "scripts"), { recursive: true, force: true });
-
-  process.stdout.write(dataDir + "\n");
-}
-
-/**
- * Migrate from a legacy in-project .shipyard/ directory to the plugin data
- * dir. Replaces the cp -r / rm -rf / rm -f sequence that ship-init's SKILL.md
- * used to inline as POSIX shell commands. Idempotent.
- *
- * Steps:
- *  1. Ensure data dir tree exists
- *  2. Copy <src>/* into data dir (skipping ./scripts which is plugin-served now)
- *  3. Remove transient state files (.loop-state.json etc.)
- *  4. Print the data dir path
- */
-/**
- * Inspect a data dir for non-empty content. Returns a list of {name, count}
- * entries describing what's there. Ignores the .locks/ dir and the
- * .pre-migrate-backup-* dirs (those are bookkeeping, not user data).
- */
-function describeExistingData(dataDir) {
-  if (!existsSync(dataDir)) return [];
-  const entries = [];
-  for (const name of readdirSync(dataDir)) {
-    if (name === ".locks") continue;
-    if (name.startsWith(".pre-migrate-backup-")) continue;
-    const full = join(dataDir, name);
-    let st;
-    try { st = statSync(full); } catch { continue; }
-    if (st.isDirectory()) {
-      let inner;
-      try { inner = readdirSync(full); } catch { inner = []; }
-      if (inner.length > 0) entries.push({ name: name + "/", count: inner.length });
-    } else if (st.isFile() && st.size > 0) {
-      // .project-root with content counts as "this dir is populated"
-      entries.push({ name, count: 1 });
-    }
-  }
-  return entries;
-}
-
-function migrate(src, opts = {}) {
-  if (!src) {
-    process.stderr.write("shipyard-data migrate: missing source path\n");
-    process.exit(1);
-  }
-  if (!existsSync(src)) {
-    process.stderr.write(`shipyard-data migrate: source not found: ${src}\n`);
-    process.exit(1);
-  }
-  const projectRoot = getProjectRoot();
-  const dataDir = getDataDir({ projectRoot, silent: true });
-
-  // Safety guard: refuse to overwrite a populated destination unless --force.
-  // cpSync(force: true) silently overwrites — running migrate against the
-  // wrong source dir, or re-running after the user added work, would lose
-  // state. Inspect the dataDir for any non-empty subdirs or files first.
-  const existing = describeExistingData(dataDir);
-  if (existing.length > 0) {
-    if (!opts.force) {
-      process.stderr.write(
-        `shipyard-data migrate: refusing — destination not empty: ${dataDir}\n` +
-          `  Found existing data:\n` +
-          existing.map((e) => `    ${e.name} (${e.count} entries)`).join("\n") +
-          "\n" +
-          `  Re-run with --force to overwrite. Existing data will be backed up to\n` +
-          `  ${dataDir}/.pre-migrate-backup-<timestamp>/\n`,
-      );
-      process.exit(1);
-    }
-    // --force path: snapshot the existing data dir into a timestamped backup
-    // before we overwrite anything. Excludes .locks/ and any prior backup
-    // dirs so we don't recursively snapshot snapshots.
-    const ts = new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace(/Z$/, "");
-    const backupDir = join(dataDir, `.pre-migrate-backup-${ts}`);
-    mkdirSync(backupDir, { recursive: true });
-    for (const name of readdirSync(dataDir)) {
-      if (name === ".locks") continue;
-      if (name.startsWith(".pre-migrate-backup-")) continue;
-      cpSync(join(dataDir, name), join(backupDir, name), {
-        recursive: true,
-        force: true,
-      });
-    }
-    process.stderr.write(
-      `shipyard-data migrate: --force — backed up existing data to ${backupDir}\n`,
-    );
-
-    // R17: After backing up, remove the live data dir contents so the
-    // migration is a true REPLACEMENT, not a merge layered on top of
-    // leftover state. Without this, files in the dest that don't exist
-    // in src would silently persist after migration — breaking the
-    // user's "I just migrated, my dest is now src" mental model.
-    // Excludes .locks/ (in-use lock files) and the backup we just made.
-    for (const name of readdirSync(dataDir)) {
-      if (name === ".locks") continue;
-      if (name.startsWith(".pre-migrate-backup-")) continue;
-      rmSync(join(dataDir, name), { recursive: true, force: true });
-    }
-  }
-
-  ensureTree(dataDir);
-
-  // Copy src/* into dataDir, skipping the legacy scripts/ subdir
-  for (const entry of readdirSync(src)) {
-    if (entry === "scripts") continue;
-    const from = join(src, entry);
-    const to = join(dataDir, entry);
-    cpSync(from, to, { recursive: true, force: true });
-  }
-
-  // Remove transient state from prior sessions
-  for (const f of [".loop-state.json", ".active-session.json", ".test-output.tmp"]) {
-    rmSync(join(dataDir, f), { force: true });
-  }
-  // Remove any legacy scripts/ that snuck through
-  rmSync(join(dataDir, "scripts"), { recursive: true, force: true });
-
-  // R19: Overwrite .project-root with the CURRENT project root. The src may
-  // have copied a stale .project-root recording its own (now-irrelevant)
-  // path — common when migrating an orphaned plugin-data dir whose hash
-  // belonged to a worktree path. Future find-orphans calls scan this file
-  // to match data dirs to projects, so it must reflect the dest project,
-  // not the src.
-  writeFileSync(join(dataDir, ".project-root"), projectRoot + "\n");
 
   process.stdout.write(dataDir + "\n");
 }
@@ -346,154 +217,6 @@ function withLock(args) {
 }
 
 /**
- * R18: Detect orphaned plugin-data dirs whose recorded .project-root matches
- * the current parent repo or any of its worktrees. This surfaces data that
- * would otherwise be silently abandoned across resolver semantics changes:
- *
- *   - R1/F5 (builder worktrees share parent hash): users whose previous
- *     sessions ran inside a worktree had data under the worktree-hash;
- *     after the fix the resolver returns the parent-repo-hash and ship-init
- *     sees an empty dir. The orphan lives at the old worktree-hash.
- *
- *   - User-worktree isolation (user-owned worktrees outside
- *     `<parent>/.claude/worktrees/` now get their OWN isolated hash instead
- *     of sharing the parent's): users whose previous sessions ran inside
- *     one of these worktrees had data under the parent-repo-hash and the
- *     new resolver now hashes the worktree-toplevel. The orphan lives at
- *     the old parent-repo-hash — same detection mechanism, mirror direction.
- *     Heads up when migrating: if two user-worktree sessions of the same
- *     repo co-mingled state under the parent-repo-hash, only ONE worktree
- *     can claim that data via /ship-init's migration prompt; the other must
- *     start fresh. There's no automatic way to de-interleave a shared dir.
- *
- * Detection is identical for both cases: enumerate all worktree paths of
- * the current parent repo via `git worktree list`, build a set of "claimed
- * paths" (parent + worktrees, all realpath'd), and flag any sibling
- * `projects/<hash>/` dir whose `.project-root` breadcrumb resolves into
- * that set.
- *
- * Output: one line per orphan, tab-separated: <orphan-data-dir>\t<recorded-root>
- * Exits 0 with no output when there's nothing to migrate.
- */
-function hasUserData(dataDir) {
-  if (existsSync(join(dataDir, "config.md"))) return true;
-  const dirs = [
-    "spec/features",
-    "spec/epics",
-    "spec/tasks",
-    "spec/bugs",
-    "backlog",
-    "sprints/current",
-  ];
-  for (const d of dirs) {
-    const p = join(dataDir, d);
-    try {
-      if (
-        statSync(p).isDirectory() &&
-        readdirSync(p).filter((n) => !n.startsWith(".")).length > 0
-      ) {
-        return true;
-      }
-    } catch {
-      /* missing dir, skip */
-    }
-  }
-  return false;
-}
-
-function realpathOrResolve(p) {
-  try {
-    return realpathSync(p);
-  } catch {
-    return pathResolve(p);
-  }
-}
-
-function findOrphans() {
-  let currentProjectRoot;
-  let currentDataDir;
-  try {
-    currentProjectRoot = getProjectRoot();
-    currentDataDir = getDataDir({ projectRoot: currentProjectRoot, silent: true });
-  } catch {
-    // No resolvable data dir → nothing to do
-    return;
-  }
-
-  // Step 2: if the current data dir already has user data, don't suggest
-  // a migration — we don't migrate over a populated dest.
-  if (hasUserData(currentDataDir)) return;
-
-  // Step 3: <plugin-data>/projects/ is the parent of the current data dir.
-  const projectsDir = dirname(currentDataDir);
-  if (!existsSync(projectsDir)) return;
-
-  // Step 4: enumerate parent repo's worktrees via git worktree list --porcelain
-  const worktreePaths = [];
-  try {
-    const out = execFileSync("git", ["worktree", "list", "--porcelain"], {
-      cwd: currentProjectRoot,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5000,
-    });
-    for (const line of out.split("\n")) {
-      if (line.startsWith("worktree ")) {
-        worktreePaths.push(line.slice("worktree ".length).trim());
-      }
-    }
-  } catch {
-    // Not a git repo or git missing — still check the current project root
-    // against recorded paths below.
-  }
-
-  // Step 5: build claimedPaths set (realpath'd where possible)
-  const claimedPaths = new Set();
-  claimedPaths.add(realpathOrResolve(currentProjectRoot));
-  for (const wp of worktreePaths) {
-    claimedPaths.add(realpathOrResolve(wp));
-  }
-
-  // Step 6: scan sibling dirs under projectsDir
-  const orphans = [];
-  let entries;
-  try {
-    entries = readdirSync(projectsDir);
-  } catch {
-    return;
-  }
-  for (const candidate of entries) {
-    const candidatePath = join(projectsDir, candidate);
-    if (candidatePath === currentDataDir) continue;
-    let st;
-    try {
-      st = statSync(candidatePath);
-    } catch {
-      continue;
-    }
-    if (!st.isDirectory()) continue;
-    const projectRootFile = join(candidatePath, ".project-root");
-    if (!existsSync(projectRootFile)) continue;
-    let recorded;
-    try {
-      recorded = readFileSync(projectRootFile, "utf8").trim();
-    } catch {
-      continue;
-    }
-    if (!recorded) continue;
-    const recordedReal = realpathOrResolve(recorded);
-    if (!claimedPaths.has(recordedReal)) continue;
-    if (!hasUserData(candidatePath)) continue;
-    orphans.push({ dataDir: candidatePath, recordedRoot: recorded });
-  }
-
-  // Step 7: output one line per orphan, tab-separated
-  for (const o of orphans) {
-    process.stdout.write(`${o.dataDir}\t${o.recordedRoot}\n`);
-  }
-}
-
-/**
  * Atomically archive the current sprint into sprints/<sprint-id>/.
  *
  * Renames $SHIPYARD_DATA/sprints/current → $SHIPYARD_DATA/sprints/<sprint-id>
@@ -577,129 +300,6 @@ function archiveSprint(sprintId, opts = {}) {
   process.stdout.write(archiveDir + "\n");
 }
 
-/**
- * Safely delete an orphaned data directory after migration.
- *
- * Customer-facing destructive op: when the resolver semantics change (e.g.,
- * adding worktree-parent detection in commit 7554998), users' prior data
- * directories become orphaned at the old hash. `find-orphans` discovers
- * them; `drop-orphan` reaps them. Refuses to delete the current project's
- * data dir even if invoked with the matching hash — that would destroy
- * live state.
- *
- * Safety:
- *   1. Hash format strictly validated against `^[0-9a-f]{12}$` (no path
- *      traversal via argv).
- *   2. Refuse if the resolved candidate equals or is contained by the
- *      current data dir (handles symlink/case-insensitive FS edge cases
- *      that pure hash comparison would miss). Validator C7.
- *   3. Refuse if the candidate has no `.project-root` breadcrumb file —
- *      we never `rm -rf` arbitrary directories.
- *
- * Logged to .data-ops.log via the same breadcrumb format auto-approve-data
- * uses, so customers can grep `shipyard-context diagnose` output for the
- * deletion event.
- */
-function dropOrphan(hash) {
-  if (!hash) {
-    process.stderr.write(
-      "shipyard-data drop-orphan: missing project hash\n" +
-      "  Usage: shipyard-data drop-orphan <12-hex-hash>\n"
-    );
-    process.exit(1);
-  }
-  if (!/^[0-9a-f]{12}$/.test(hash)) {
-    process.stderr.write(
-      `shipyard-data drop-orphan: invalid hash ${JSON.stringify(hash)}\n` +
-      `  Expected: 12 lowercase hex characters (e.g., dbaa5569a9b3)\n`
-    );
-    process.exit(1);
-  }
-
-  let currentDataDir;
-  try {
-    currentDataDir = getDataDir({ silent: true });
-  } catch {
-    process.stderr.write(
-      "shipyard-data drop-orphan: cannot resolve current data dir; aborting for safety\n"
-    );
-    process.exit(1);
-  }
-
-  const projectsDir = dirname(currentDataDir);
-  const candidate = join(projectsDir, hash);
-  if (!existsSync(candidate)) {
-    process.stderr.write(
-      `shipyard-data drop-orphan: no such directory: ${candidate}\n`
-    );
-    process.exit(1);
-  }
-  // C7: containment check via realpath equality / nesting, not hash equality.
-  const candidateReal = realpathOrResolve(candidate);
-  const currentReal = realpathOrResolve(currentDataDir);
-  if (candidateReal === currentReal) {
-    process.stderr.write(
-      `shipyard-data drop-orphan: refusing to delete the current project's data dir\n` +
-      `  current:   ${currentDataDir}\n` +
-      `  requested: ${candidate}\n`
-    );
-    process.exit(1);
-  }
-  // Reject if either path nests inside the other (symlinked variants).
-  const rel = pathRelative(currentReal, candidateReal);
-  if (!rel || (!rel.startsWith("..") && rel !== "")) {
-    process.stderr.write(
-      `shipyard-data drop-orphan: refusing — candidate overlaps the current data dir via realpath\n` +
-      `  current realpath:   ${currentReal}\n` +
-      `  candidate realpath: ${candidateReal}\n`
-    );
-    process.exit(1);
-  }
-
-  const breadcrumb = join(candidate, ".project-root");
-  if (!existsSync(breadcrumb)) {
-    process.stderr.write(
-      `shipyard-data drop-orphan: refusing — no .project-root breadcrumb at ${breadcrumb}\n` +
-      `  This directory does not look like a Shipyard data dir.\n`
-    );
-    process.exit(1);
-  }
-
-  let recordedRoot = "";
-  try { recordedRoot = readFileSync(breadcrumb, "utf8").trim(); } catch { /* ignore */ }
-
-  rmSync(candidate, { recursive: true, force: false });
-
-  // Best-effort breadcrumb log to the CURRENT data dir's .data-ops.log.
-  // Errors are swallowed — diagnostics never break the command.
-  try {
-    const ts = new Date().toISOString();
-    const line = `${ts} drop-orphan hash=${hash} recorded_root=${recordedRoot} candidate=${candidate}\n`;
-    const logPath = join(currentDataDir, ".data-ops.log");
-    let existing = "";
-    try { existing = readFileSync(logPath, "utf8"); } catch { /* file may not exist */ }
-    writeFileSync(logPath, existing + line);
-  } catch { /* ignore */ }
-
-  process.stdout.write(`Dropped orphan ${hash}\n`);
-}
-
-// Helper for dropOrphan's containment check. Node's path.relative on its own
-// is sufficient because both inputs are pre-realpath'd.
-function pathRelative(from, to) {
-  // Lazy import via path.relative; we already imported `relative` would be
-  // ideal but the file uses pathResolve elsewhere — keep the import surface
-  // small by using a tiny manual implementation.
-  if (from === to) return "";
-  const fromParts = from.split(/[/\\]/);
-  const toParts = to.split(/[/\\]/);
-  let i = 0;
-  while (i < fromParts.length && i < toParts.length && fromParts[i] === toParts[i]) i++;
-  if (i === 0) return null; // disjoint
-  const up = fromParts.slice(i).map(() => "..");
-  const down = toParts.slice(i);
-  return [...up, ...down].join("/") || "";
-}
 
 /**
  * Reap markdown files marked obsolete or terminally-statused after retention.
@@ -935,20 +535,8 @@ function main() {
     case "init":
       init();
       break;
-    case "migrate": {
-      // Parse `migrate <src> [--force]`. The flag may appear in either
-      // position so users don't have to memorize ordering.
-      const rest = process.argv.slice(3);
-      const force = rest.includes("--force");
-      const src = rest.find((a) => a !== "--force");
-      migrate(src, { force });
-      break;
-    }
     case "with-lock":
       withLock(process.argv.slice(3));
-      break;
-    case "find-orphans":
-      findOrphans();
       break;
     case "archive-sprint": {
       // Parse `archive-sprint <sprint-id> [--force]`. Flag may be in
@@ -957,11 +545,6 @@ function main() {
       const force = rest.includes("--force");
       const sprintId = rest.find((a) => a !== "--force");
       archiveSprint(sprintId, { force });
-      break;
-    }
-    case "drop-orphan": {
-      const hash = process.argv[3];
-      dropOrphan(hash);
       break;
     }
     case "events": {
@@ -979,7 +562,7 @@ function main() {
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | migrate <src> [--force] | with-lock <key> -- <cmd> | find-orphans | archive-sprint <sprint-id> [--force] | drop-orphan <hash> | events emit <type> [k=v ...] | next-id <kind>\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | events emit <type> [k=v ...] | next-id <kind>\n`,
       );
       process.exit(1);
   }

@@ -21,7 +21,6 @@
  *   shipyard-context version                           → "Shipyard v<x.y.z>"
  *   shipyard-context diagnose                          → resolver state dump for bug reports
  *   shipyard-context project-claude-md [lines]         → head of <project>/CLAUDE.md
- *   shipyard-context legacy-check                      → LEGACY_SHIPYARD_DETECTED | NO_LEGACY
  *
  *   Generic primitives (`head`, `cat`, `ls`, `ls-glob`, `ls-sort`, `count`) were
  *   removed in the platform-independence refactor. Skill bodies use Claude's
@@ -529,25 +528,11 @@ function main() {
       out(result ?? "No CLAUDE.md");
       break;
     }
-    case "legacy-check": {
-      // Replaces the bash `[ -f .shipyard/config.md ] && echo LEGACY... || echo NO_LEGACY`
-      // one-liner in ship-init. Keeps the exact sentinel tokens — ship-init branches on them.
-      let projectRoot;
-      try {
-        projectRoot = getProjectRoot();
-      } catch {
-        out("NO_LEGACY");
-        return;
-      }
-      const legacyConfig = join(projectRoot, ".shipyard", "config.md");
-      out(existsSync(legacyConfig) ? "LEGACY_SHIPYARD_DETECTED" : "NO_LEGACY");
-      break;
-    }
     default:
       die(
         "Usage: shipyard-context {path|head|cat|ls|ls-glob|ls-sort|count|spec-counts|" +
           "status-counts|debug-count|view|list|count-of|reference|version|" +
-          "project-claude-md|legacy-check|diagnose}",
+          "project-claude-md|diagnose}",
       );
   }
 }

@@ -16,146 +16,79 @@ You are setting up (or updating) Shipyard for this project.
 
 !`shipyard-context view data-version`
 !`shipyard-context view config`
-!`shipyard-context legacy-check`
-!`shipyard-data find-orphans`
 !`shipyard-context project-claude-md`
 
 **Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
 
 ## Detect Mode
 
-**If context shows `LEGACY_SHIPYARD_DETECTED`** → MUST run legacy migration FIRST, before anything else. Do not skip this. Do not go to quick check. The `.shipyard/` directory in the project contains user data that needs to move to plugin data.
+### Legacy Shipyard Footprint Cleanup
 
-**If context shows `NO_LEGACY`** → skip migration, proceed to normal detect mode below.
+Pre-2.0 Shipyard leaked into the user's project: rule files copied into `.claude/rules/` (loaded into *every* Claude Code session, not just Shipyard ones) and permission entries silently merged into `.claude/settings.local.json` by the old `/ship-init` Step 5.5. Both are the customer-reported pain that drove the 2.0 redesign. In 2.0, rules live in the plugin and load on demand; permissions are opt-in with explicit consent (Step 5.5 below). Offer to clean up the leftover footprint on every `/ship-init`.
 
-### Legacy Migration (.shipyard/ → plugin data)
+**Run before fresh-install / update detection. Two independent checks; either may fire.**
 
-**This runs when `.shipyard/config.md` exists in the project directory.** This is a pre-v0.5.0 installation.
+#### Check 1 — Legacy rule files in `.claude/rules/`
 
-**⚠️ Branch check first:** The `.shipyard/` directory may contain data from a different branch (it was git-tracked, so it changes with branch switches). Before migrating, verify the data matches the current branch:
+Use Glob `.claude/rules/shipyard-*.md`. If zero matches → skip to Check 2. Otherwise:
 
-1. Check current branch: `git branch --show-current`
-2. Check if `.shipyard/` was recently modified on this branch: `git log -1 --format=%H -- .shipyard/ 2>/dev/null`
-3. If `.shipyard/` was last modified on a different branch, AskUserQuestion:
-
-   ```
-   The .shipyard/ directory may contain specs from a different branch.
-   Current branch: [branch]
-   Last .shipyard/ commit: [branch/hash]
-
-   1. Migrate anyway — I'll use this data as a starting point
-   2. Start fresh — ignore old data, initialize clean for this branch
-   3. Let me check — I'll switch branches first
-
-   Recommended: 2 — cleaner to start fresh on the current branch
-   ```
-
-**Migration steps (if proceeding):**
-
-1. Run the migration in one atomic step: `shipyard-data migrate .shipyard`
-
-   This handles all of: creating the data directory tree, copying contents
-   from `.shipyard/` (skipping the obsolete `scripts/` subdir which is now
-   served from the plugin), and removing transient state files. The command
-   prints the resolved data directory path on success.
-
-2. Report:
+1. List the matched basenames.
+2. AskUserQuestion:
 
    ```
-   Migrated Shipyard data from .shipyard/ to plugin data directory.
-   The .shipyard/ directory is no longer needed — you can safely delete it:
-     rm -rf .shipyard/
-   ```
-
-   Do NOT auto-delete `.shipyard/`.
-
-3. **Re-run codebase analysis** (Step 3) to ensure `codebase-context.md` matches the current branch.
-4. Continue to QUICK CHECK below.
-
----
-
-### Orphaned plugin-data detection
-
-**If the `find-orphans` context output above is non-empty AND the current data dir has no `config.md`:**
-
-This means a previous Shipyard installation wrote data under a different project hash — most commonly because the worktree-detection fix (R1/F5) changed how worktree paths are resolved. The user's previous sprint state, backlog, codebase context, and memory are all at the orphaned path and would otherwise be silently abandoned.
-
-Each line of `find-orphans` output is tab-separated: `<orphan-data-dir>\t<recorded-project-root>`.
-
-DO NOT proceed with fresh-install or update flows until you have asked the user about each candidate. Use AskUserQuestion:
-
-For a single candidate:
-> "Found orphaned Shipyard data from a previous installation:
->   <orphaned-data-dir>
->   (recorded project root: <recorded-path>)
->
-> This was most likely created before the worktree-detection fix changed the project hash. Migrate this data to the current data directory?
->   1. Yes, migrate it
->   2. No, treat this project as a fresh install (orphaned data stays at the old path)"
-
-For multiple candidates:
-> "Found N orphaned Shipyard data dirs from previous installations. Which would you like to migrate?
->   1. <dir-1> (recorded as <path-1>)
->   2. <dir-2> (recorded as <path-2>)
->   ...
->   N+1. None — treat this project as a fresh install"
-
-If the user picks "migrate", run `shipyard-data migrate <orphaned-data-dir>`. The migrate command's R4 safety guards apply automatically (it refuses on populated dest, and `--force` creates a backup) — but in this scenario the current dir is fresh by definition, so plain `migrate` will succeed without `--force`. R19 ensures the dest's `.project-root` is rewritten to the current project root after the copy.
-
-**After successful migration, MUST report the orphan source path back to the user** so they can reclaim the disk space. The orphan dir is no longer scanned by `find-orphans` once the new dir is populated, so without this announcement the user has no way to discover the leftover data exists. Add to the final report (or as a follow-up message):
-
-> Migration complete. The original orphaned data is at:
->   `<orphaned-data-dir>`
-> It has been copied to the current data directory and is no longer used by Shipyard. Verify your project state with `/ship-status`, then you can safely delete the orphaned directory:
->   `rm -rf <orphaned-data-dir>`
-
-Do NOT auto-delete the orphan source — match the legacy `.shipyard/` migration pattern of telling the user without acting.
-
-After successful migration, treat this as an UPDATE flow (the migrated dir has a config.md, so the update path applies).
-
-If the user picks "none" or "fresh install", continue with the FRESH install flow as normal. The orphaned data stays at the old path; mention it in the final report so they know it's still there.
-
----
-
-### Legacy 2.0 Rule-Injection Cleanup (F-50)
-
-**This runs whenever `.claude/rules/shipyard-*.md` files are present in the project.** Pre-2.0 Shipyard installations copied seven rule files (`shipyard-tdd.md`, `shipyard-spec.md`, `shipyard-data-model.md`, `shipyard-execution.md`, `shipyard-review.md`, `shipyard-next-up.md`, `shipyard-ask-user.md`) into `.claude/rules/`. Claude Code loads everything in `.claude/rules/` into every session's system prompt — so these files leaked Shipyard's discipline into non-Shipyard work, the customer's reported pain.
-
-In Shipyard 2.0, rules live in the plugin (`${CLAUDE_PLUGIN_ROOT}/project-files/rules/`); skills `Read` them on demand. The legacy injected files are stale by definition.
-
-**Detection:** Use Glob `.claude/rules/shipyard-*.md` and count results. If zero → skip this section, continue. If non-zero → continue.
-
-**Cleanup procedure:**
-
-1. List the legacy files found.
-2. Use AskUserQuestion:
-
-   ```
-   Shipyard 2.0 no longer copies rule files into .claude/rules/. The plugin
-   serves them on demand instead. The following legacy files are stale and
-   load into every Claude Code session in this project:
-
-     [list of N legacy file basenames]
-
-   Remove them?
-     1. Yes — delete (recommended; rules now live in the plugin and load
-        only when /ship-* skills are running)
-     2. Keep — leave the files in place (they will continue to load into
-        every session; you can remove later)
-   ```
-
-3. **If user picks "Yes":** for each legacy file, use the Bash tool to `rm <project>/.claude/rules/<basename>` (one Bash call per file is fine; do NOT chain with `&&` — portability). Report:
-
-   ```
-   Removed N legacy rule files from .claude/rules/. Shipyard rules now
+   Pre-2.0 Shipyard copied rule files into .claude/rules/. Claude Code loads
+   everything there into every session in this project, leaking Shipyard
+   discipline into non-Shipyard work. In 2.0, rules live in the plugin and
    load only inside /ship-* skill invocations.
+
+   Found N legacy rule files:
+     [basenames]
+
+   Remove?
+     1. Yes — delete (recommended)
+     2. Keep — leave in place (they keep loading into every session)
    ```
 
-4. **If user picks "Keep":** record the decision and move on. Do not re-prompt on subsequent `/ship-init` runs in the same session — once declined, leave it alone for the rest of the run. The next-session re-prompt is acceptable because the situation may have changed.
+3. If "Yes", `rm <project>/.claude/rules/<basename>` per file (one Bash call each, no `&&` chaining). Report N files removed.
+4. If "Keep", record and do not re-prompt this session.
 
-5. Do NOT auto-delete without consent. The legacy files may have been customized by the user; explicit consent is required.
+#### Check 2 — Legacy permission entries in `.claude/settings.local.json`
 
-After cleanup (or skip), proceed to the normal flow below.
+Read `<project>/.claude/settings.local.json` if it exists. Parse the JSON `permissions.allow` array. Pre-2.0 `/ship-init` Step 5.5 silently merged a known set of entries; in 2.0 those entries are opt-in (Step 5.5 below) and only with explicit consent.
+
+**Known pre-2.0 footprint** (only what old Shipyard itself installed; do not touch the user's other entries):
+
+- Shipyard-specific — `Bash(shipyard-data)`, `Bash(shipyard-data:*)`, `Bash(shipyard-context)`, `Bash(shipyard-context:*)`, `Bash(shipyard-logcap)`, `Bash(shipyard-logcap:*)`. Always safe to remove (only Shipyard skills use them).
+- General — `Bash(git:*)`, `Bash(ls:*)`, `Bash(wc:*)`, `Bash(head:*)`, `Bash(grep:*)`, `WebSearch`, `WebFetch`. Shipyard added these but they're useful for everyday work; offer separately so the user can keep them.
+
+Intersect `permissions.allow` with the footprint above. If empty intersection → skip. Otherwise:
+
+1. AskUserQuestion:
+
+   ```
+   Pre-2.0 /ship-init silently added permission entries to
+   .claude/settings.local.json. In 2.0 these are opt-in with consent. Found:
+
+     Shipyard-specific (safe to remove — only Shipyard skills use them):
+       [list]
+
+     General (Shipyard added these but useful for everyday work):
+       [list]
+
+   What should I remove?
+     1. Shipyard-specific only (recommended — keeps your everyday allowlist)
+     2. All of the above (full pre-2.0 cleanup)
+     3. Show me the file and let me edit manually
+     4. Keep everything (decline cleanup)
+   ```
+
+2. **If 1 or 2:** Read the JSON file in full, filter `permissions.allow` to drop the chosen entries, Write the full file back. Preserve all other keys and any unrelated allow entries verbatim. Report the count removed.
+3. **If 3:** Print the absolute path and the matched entries; do not modify.
+4. **If 4:** Record and do not re-prompt this session.
+
+Do NOT auto-edit without consent — permission files may be hand-tuned.
+
+After both checks (or skip), continue to the normal flow below.
 
 ---
 
@@ -167,7 +100,7 @@ Check if `<SHIPYARD_DATA>/config.md` exists:
 
 If `<SHIPYARD_DATA>/config.md` exists, run these checks before doing anything else:
 
-1. **Legacy rule injection cleanup?** In Shipyard 2.0, rules are NO LONGER copied into `.claude/rules/`. Skills `Read` them on demand from `${CLAUDE_PLUGIN_ROOT}/project-files/rules/`. If the project has legacy `.claude/rules/shipyard-*.md` files from older Shipyard installations, they're stale and pollute every Claude Code session in the project. Use Glob `.claude/rules/shipyard-*.md` to detect them; if any exist, route through the F-50 cleanup step below. CURRENT-rules check needed in 2.0: NONE — there's nothing to keep current in-project.
+1. **Legacy footprint clean?** The legacy cleanup section above runs first regardless. By the time you reach Quick Check, Check 1 (`.claude/rules/shipyard-*.md`) and Check 2 (`.claude/settings.local.json` legacy entries) have already been offered to the user. Nothing to re-check here.
 2. **Config version current?** Read `config_version` from `<SHIPYARD_DATA>/config.md` — if matches latest (3), no migration needed
 3. **Codebase context exists?** Use the Read tool on `<SHIPYARD_DATA>/codebase-context.md` (substitute the literal SHIPYARD_DATA path) — if it exists, no re-analysis needed
 
@@ -180,7 +113,7 @@ If `<SHIPYARD_DATA>/config.md` exists, run these checks before doing anything el
 **If any check fails** → continue to UPDATE mode to fix what's missing. Report what triggered the update:
 ```
 Shipyard needs updating:
-  [✗ missing rules | ✗ config migration needed | ✗ codebase context missing]
+  [✗ config migration needed | ✗ codebase context missing]
 ```
 
 ---
