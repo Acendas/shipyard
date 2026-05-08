@@ -140,7 +140,7 @@ Before selecting features, scan for unfinished work from previous cycles. These 
 2. **Blocked tasks** — Use Grep with `pattern: ^status: blocked`, `path: <SHIPYARD_DATA>/spec/tasks`, `glob: T*.md`, `output_mode: files_with_matches`. Read each match to get title, parent feature, blocked reason.
 3. **Carried-over ideas** (retro, execute, review-gap) — Use Grep with `pattern: ^source: (execute|review-gap|retro)[-/]`, `path: <SHIPYARD_DATA>/spec/ideas`, `glob: IDEA-*.md`, `output_mode: files_with_matches`. The pattern matches three idea origins:
    - **`source: retro/<sprint-id>`** — improvements the team committed to during retrospectives (new slash-separated form) OR `source: retro-sprint-<NNN>` (legacy hyphen-separated form, still recognized for backwards compatibility with IDEAs created before the source-tag convention change)
-   - **`source: execute/<sprint-id>`** — deferred unknowns captured by builders during task execution (step 10 of the builder's process — see `agents/shipyard-builder.md` → "Capture Deferred Unknowns")
+   - **`source: execute/<sprint-id>`** — deferred unknowns captured by builders during task execution (per `dispatching-task-loop`'s capture-deferred-unknowns prompt section)
    - **`source: review-gap/<sprint-id>`** — out-of-scope findings captured during `/ship-review` Stage 0 or Stage 4 (see `skills/ship-review/SKILL.md` → "Capture Out-of-Scope Gaps as IDEAs")
 
    **Recency filter (important — prevents flooding):** over 10+ sprints a project accumulates many ideas, and showing all of them in every planning session is unusable. For each match, Read the frontmatter and keep the idea ONLY if either:

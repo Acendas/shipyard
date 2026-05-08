@@ -10,11 +10,6 @@
     "pattern": "shipyard-data with-lock"
   },
   {
-    "name": "test_delegation_uses_shipyard_logcap",
-    "type": "contains",
-    "pattern": "shipyard-logcap run"
-  },
-  {
     "name": "test_delegation_no_raw_data_dir_redirect",
     "type": "not_contains",
     "pattern": "> \\$\\(shipyard-data\\)/\\.test-output"
@@ -216,11 +211,6 @@
     "pattern": "█.*░|progress bar"
   },
   {
-    "name": "wave_status_velocity",
-    "type": "contains",
-    "pattern": "pace slowing|done.*total tasks"
-  },
-  {
     "name": "wave_status_projection",
     "type": "contains",
     "pattern": "Wave \\[N\\]/\\[M\\]|→ Wave"
@@ -250,12 +240,6 @@
     "type": "contains",
     "pattern": "max_parallel_agents|hard ceiling 4",
     "target": "ref:team-mode.md"
-  },
-  {
-    "name": "readiness_shows_teammate_count",
-    "type": "contains",
-    "pattern": "Teammates:.*concurrent.*max",
-    "dotall": true
   },
   {
     "name": "handoff_tracks_queued_tracks",
@@ -510,11 +494,6 @@
     "pattern": "3-layer.*pattern|3-layer pattern"
   },
   {
-    "name": "has_clean_branch_check",
-    "type": "contains",
-    "pattern": "[Cc]lean branch check|branch must be clean.*next wave"
-  },
-  {
     "name": "has_lsp_strategy_ref",
     "type": "file_exists",
     "path": "skills/ship-execute/references/lsp-strategy.md"
@@ -555,16 +534,6 @@
     "pattern": "SD=\\$\\(shipyard-data"
   },
   {
-    "name": "has_planning_mutex_check",
-    "type": "contains",
-    "pattern": "planning-session mutex check|Planning session active"
-  },
-  {
-    "name": "planning_check_reads_active_session",
-    "type": "contains",
-    "pattern": "Read.*<SHIPYARD_DATA>/\\.active-session"
-  },
-  {
     "name": "step0_runs_worktree_prune",
     "type": "contains",
     "pattern": "git worktree prune"
@@ -580,11 +549,6 @@
     "type": "contains",
     "pattern": "verify_output.*operational|operational.*verify_output",
     "dotall": true
-  },
-  {
-    "name": "post_subagent_bogus_pass_event",
-    "type": "contains",
-    "pattern": "operational_task_bogus_pass"
   },
   {
     "name": "operational_ref_has_max_iterations",
@@ -607,12 +571,6 @@
     "type": "not_contains",
     "pattern": "research_kind_fallback",
     "target": "ref:research-tasks.md"
-  },
-  {
-    "name": "post_subagent_research_gate",
-    "type": "contains",
-    "pattern": "research_output.*research|kind: research.*research_output",
-    "dotall": true
   },
   {
     "name": "research_ref_no_mkdir_dash_p",
@@ -646,31 +604,6 @@
     "pattern": "max_parallel_agents"
   },
   {
-    "name": "dispatch_prompt_includes_commit_required",
-    "type": "contains",
-    "pattern": "COMMIT REQUIRED"
-  },
-  {
-    "name": "failed_builder_salvages_before_redispatch",
-    "type": "contains",
-    "pattern": "builder_salvaged"
-  },
-  {
-    "name": "re_dispatch_has_max_retries",
-    "type": "contains",
-    "pattern": "Max 1 re-dispatch"
-  },
-  {
-    "name": "failed_builder_no_work_resets_status",
-    "type": "contains",
-    "pattern": "builder_no_work"
-  },
-  {
-    "name": "no_ask_user_mid_wave_on_builder_failure",
-    "type": "contains",
-    "pattern": "Do NOT AskUserQuestion mid-wave"
-  },
-  {
     "name": "wave_boundary_uses_scoped_tests",
     "type": "contains",
     "pattern": "WAVE-SCOPED tests|wave-scoped tests|scoped tests for wave"
@@ -684,26 +617,6 @@
     "name": "full_suite_only_at_sprint_completion",
     "type": "contains",
     "pattern": "Full test suite|full test suite.*sprint completion|only time the entire suite runs"
-  },
-  {
-    "name": "post_subagent_has_spec_check",
-    "type": "contains",
-    "pattern": "Task completion verification|task-level spec check"
-  },
-  {
-    "name": "spec_check_redispatches_on_gaps",
-    "type": "contains",
-    "pattern": "gaps found.*re-dispatch|gaps.*Fix these"
-  },
-  {
-    "name": "spec_check_max_3_iterations",
-    "type": "contains",
-    "pattern": "Max 3 iterations"
-  },
-  {
-    "name": "spec_check_skips_trivial_tasks",
-    "type": "contains",
-    "pattern": "Skip for tasks with effort: S"
   },
   {
     "name": "fast_mode_in_detect_mode",
@@ -732,37 +645,14 @@
     "pattern": "--fast.*ignored.*hotfix"
   },
   {
-    "name": "fast_mode_wave_boundary_skip_tests",
-    "type": "contains",
-    "pattern": "[Ff]ast mode.*skip wave.*scoped tests.*entirely",
-    "dotall": true
-  },
-  {
-    "name": "fast_mode_tdd_not_skipped_rule",
-    "type": "contains",
-    "pattern": "NEVER skip TDD.*fast mode.*deferred.*not skipped",
-    "dotall": true
-  },
-  {
     "name": "has_heartbeat_check",
     "type": "contains",
     "pattern": "\\.heartbeat"
   },
   {
-    "name": "heartbeat_cleanup_on_sprint_end",
-    "type": "contains",
-    "pattern": "agents/.*heartbeat cleanup"
-  },
-  {
     "name": "heartbeat_stale_detection",
     "type": "contains",
     "pattern": "idle.*minutes.*last tool|stale.*heartbeat"
-  },
-  {
-    "name": "heartbeat_context_to_fixer",
-    "type": "contains",
-    "pattern": "last activity.*fixer|heartbeat context.*fixer",
-    "dotall": true
   },
   {
     "name": "team_heartbeat_health_check",

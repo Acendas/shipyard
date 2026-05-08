@@ -25,56 +25,11 @@ Execute sprint tasks following the wave plan. Every task follows Red → Green �
 
 $ARGUMENTS
 
-## Session Guard Cleanup
+## Acquire Locks
 
-**First action — planning-session mutex check:** Use the Read tool on `<SHIPYARD_DATA>/.active-session.json` (substitute the literal SHIPYARD_DATA path from the context block above). Then decide:
+Invoke the **`shipyard:acquiring-skill-lock` capability skill** to (a) check the planning-session lock at `<SHIPYARD_DATA>/.active-session.json` and HARD-BLOCK if a discussion is in progress in another session, and (b) acquire `<SHIPYARD_DATA>/.active-execution.json` with the lock JSON shape including `session_id` (CC-7). The capability skill handles cleared-sentinel detection, 2h-stale recovery, and the cross-skill mutual exclusion.
 
-- **File does not exist** → no planning session active. Skip to "Execution Lock" below.
-- **File exists.** Parse the JSON and check:
-  1. If `cleared` is set OR `skill` is `null` → previous planning session ended cleanly. Use the Write tool to overwrite the file with `{"skill": null, "cleared": "<iso-timestamp>"}` (idempotent — keeps the soft-delete sentinel). Skip to "Execution Lock" below.
-  2. If `started` is more than 2 hours old → stale lock from a crashed planning session. Print "(recovered stale planning lock from `/{previous skill}` started {N}h ago)" to the user, use Write to overwrite with the cleared sentinel, then proceed.
-  3. Otherwise → **HARD BLOCK.** A planning session is active and execution cannot start until it ends:
-  ```
-  ⛔ Planning session active — cannot start execution.
-    Skill:   /{skill from file}
-    Topic:   {topic from file}
-    Started: {started from file}
-
-  Finish or pause the planning session first, then run /ship-execute.
-  If the planning session crashed or was closed:
-    Run /ship-status — it will offer to clear the stale lock.
-  ```
-  Print this message as the entire response and STOP — do not load any context, do not call any other tools.
-
-This prevents the failure mode where a discussion is in progress in one terminal and execution gets started in another, which would trip the session-guard hook on every Edit.
-
-## Execution Lock
-
-**Before starting work**, check for concurrent execution:
-
-1. Use the Read tool to read `<SHIPYARD_DATA>/.active-execution.json` (substitute SHIPYARD_DATA from the context block). Parse the JSON. If `cleared` is not set AND `started` is less than 2 hours ago:
-   ```
-   ⛔ BLOCKED: Another execution session is active.
-     Skill: [skill name]
-     Started: [timestamp]
-
-   Concurrent execution causes git conflicts, duplicate commits, and corrupted state.
-   Use the existing session, or /clear then /ship-execute to resume there.
-   If the other session crashed or was closed: /ship-status (will ask to clear the lock)
-   ```
-   **Hard block — do not proceed. Do not offer an override.** Stop immediately.
-
-2. If no lock exists, the lock has `cleared` set, or the lock is stale (>2 hours) → use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with:
-   ```json
-   {
-     "skill": "ship-execute",
-     "sprint": "[sprint ID]",
-     "wave": "[current wave]",
-     "started": "[ISO date]",
-     "session_id": "[Claude Code session ID, from CLAUDE_SESSION_ID env or hook input]"
-   }
-   ```
-   See the `shipyard:acquiring-skill-lock` capability skill for the full lock contract — including the session-id stamping that prevents Terminal-A's lock from blocking Terminal-B's session (CC-7).
+If the planning lock is held by a live different session, print the HARD BLOCK message from the capability skill's contract and STOP — do not load any further context.
 
 3. **On sprint completion or pause** (HANDOFF.md written), use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}`. (Soft-delete sentinel.)
 
@@ -160,45 +115,27 @@ For each task ID in the current wave, read its task file to get title, effort, s
 
 **Record sprint start time (idempotent):** Read SPRINT.md frontmatter. If `started_at` is null or absent, write `started_at: <current ISO 8601 timestamp>` to SPRINT.md frontmatter. If `started_at` already has a value, leave it unchanged — this must never overwrite an existing timestamp so that resuming a paused sprint does not reset the clock.
 
-### Step 1.5: Execution Readiness Check (first wave only)
+### Step 1.5: Execution Readiness Check (fresh-start only)
 
-On a fresh sprint start (case 3 above — no tasks done yet), present a readiness check before writing any code. Skip this step on resume and crash recovery (cases 1 and 2).
+On fresh sprint start, present a compact readiness check before any code is written. Skip on resume / crash recovery.
 
-Output the readiness check as text:
-
-**READINESS CHECK**
-- Branch: `[current branch]` — [matches SPRINT.md / mismatch warning / ⚠️ ON WORKTREE BRANCH]
-- Uncommitted changes: [none / list of changed files]
-- Execution mode: [solo / subagent / team]
-- Total: [N] tasks across [M] waves
-- Teammates: [N feature tracks, M concurrent (max `max_parallel_agents`), K queued] (team mode only)
-
-If current branch starts with `shipyard/wt-`, add a prominent warning:
 ```
-⚠️  WORKTREE BRANCH DETECTED: You are on [branch name], not the working branch.
-    This is likely a leftover from a previous session. Shipyard will switch to [working branch] before spawning agents.
-    If this is intentional, confirm to proceed.
+READINESS CHECK
+  Branch: <current> [matches SPRINT.md? mismatch / ⚠️ on shipyard/wt-* branch]
+  Uncommitted: <none | list>
+  Mode: <solo | subagent | team>
+  Tasks: N across M waves
+  Wave 1: <task IDs + titles + effort>
+  Baseline tests: <pass | fail | not-run>
+  Risks: <top 2-3 from SPRINT.md>
+HOW TO PAUSE: type "pause" any time.
 ```
 
-The worktree-creation probe and `manual_worktrees=true` fallback path that lived here in pre-2.0 are gone (F-35). Anthropic shipped the isolation: worktree fixes (stale-reuse, Read/Edit denial, cwd-leak, WorktreeCreate hook); the `using-worktrees` capability skill encodes the trust-the-platform model. If isolation: worktree is genuinely broken on a user's Claude Code version, the `dispatching-task-loop` capability skill's HARD STOP catches it (subagent reports the wrong branch and refuses to proceed).
+If the current branch starts with `shipyard/wt-*`, add: *"⚠️ Worktree branch detected — Shipyard will switch to <working branch> before spawning agents."*
 
-**WAVE 1** — what runs first:
-- [task IDs + titles + effort]
-- Execution: [sequential / parallel]
-- Estimated: [token/time projections if available]
+Then `AskUserQuestion`: Begin execution (Recommended) / Adjust / Abort.
 
-**BASELINE TESTS** — current test state before any changes:
-- [pass/fail/not-run — from pre-flight or quick check]
-
-**RISKS FROM PLANNING** (carried from SPRINT.md):
-- [top 2-3 risks with mitigations]
-
-**HOW TO PAUSE**: Type "pause" at any time to save progress and stop cleanly. If the session ends abruptly (crash, quota, closed terminal), run `/ship-execute` again — it will recover automatically and salvage any in-flight work.
-
-Then use `AskUserQuestion` with options (2-4 options, use multi-select where choices aren't mutually exclusive):
-- **Begin execution (Recommended)** — start Wave 1
-- **Adjust** — change execution mode, reorder tasks, or fix pre-conditions
-- **Abort** — don't start, fix issues first
+The worktree-creation probe and `manual_worktrees=true` fallback are gone (F-35). `using-worktrees` capability skill encodes the trust-the-platform model; `dispatching-task-loop`'s HARD STOP catches genuinely-broken isolation.
 
 ### Step 2: Execute Waves
 
@@ -240,7 +177,7 @@ Before spawning any agent for a task, read the task file frontmatter and check `
 
 **Why this matters.** The silent-pass failure mode — `/ship-execute` marking "run E2E suite and fix findings" tasks done without running any tests — is the exact bug introduced when operational tasks hit the builder. The builder has no Red step for an operational task, exits clean on an empty tree, and the "Before Exiting" check passes trivially. This routing split is the primary fix. The `shipyard-builder` agent ALSO has a Step 0 HARD STOP that refuses any task with `kind: operational` — but that's defense in depth. The first line of defense is this router.
 
-**Note — builders may write IDEA files during task execution.** As part of their process (step 10, CAPTURE DEFERRED UNKNOWNS), builders are allowed to write up to 3 `IDEA-*` files to `<SHIPYARD_DATA>/spec/ideas/` for deferred unknowns and scope-adjacent rot discovered while building. These are staged and committed atomically with the task's implementation, so they survive (or roll back) with it. IDEAs written during execution surface in `/ship-sprint`'s carry-over scan and `/ship-backlog`'s IDEAS section on subsequent planning cycles — this is the idea-capture chain that prevents observations from vanishing at session end. See `agents/shipyard-builder.md` → "Capture Deferred Unknowns" for the rules, caps, and frontmatter template.
+**Note — builders may write IDEA files during task execution.** Up to 3 `IDEA-*` files to `<SHIPYARD_DATA>/spec/ideas/` for deferred unknowns and scope-adjacent rot discovered while building. Committed atomically with the task. IDEAs surface in `/ship-sprint`'s carry-over scan and `/ship-backlog`'s IDEAS section. The capture-deferred-unknowns rules are inlined in `dispatching-task-loop`'s subagent prompt template.
 
 #### Per-task dispatch (solo + subagent modes — kind: feature only)
 
@@ -265,69 +202,24 @@ The skill returns a structured verdict (`STATUS: COMPLETE` + `COMMIT: <sha>` + `
 
 Capabilities used per task: `shipyard:dispatching-task-loop` (which internally uses `shipyard:verifying-completion`, `shipyard:tdd-cycle`, `shipyard:running-acceptance-probe`, `shipyard:anti-stub-scan`, and `shipyard:using-worktrees`).
 
-#### Post-Subagent (all modes)
-Spot-check each subagent before merging. The check differs by task kind — read the task file's `kind:` field first.
+#### Post-Subagent gate (all modes)
 
-**For `kind: feature` tasks:**
-1. Verify key files exist (ls the implementation + test files)
-2. Verify git commits present (`git log --grep="TASK_ID"` in worktree)
-3. **Item completeness check**: if the task's Technical Notes lists discrete items (e.g., "migrate these 8 calls", "add these 5 endpoints"), grep the diff for each item. Count how many were actually addressed vs how many were listed. If <100% → flag as incomplete, don't merge, re-spawn builder with the missing items listed explicitly
-4. **If no commits found — salvage and re-dispatch** (do NOT just flag as failed):
-   a. Check worktree for uncommitted changes: `git -C <worktree> status --porcelain`
-   b. **If dirty tree** (uncommitted work exists):
-      - Salvage with two sequential Bash calls (not `&&` — portability):
-        ```
-        git -C <worktree> add -A
-        ```
-        ```
-        git -C <worktree> commit -m "wip(TASK_ID): salvaged by orchestrator"
-        ```
-      - Emit event: `builder_salvaged` with `task=TASK_ID`
-      - Re-dispatch via the **`shipyard:dispatching-task-loop` capability skill** with a continuation note in the parameters: pass the same `task_id`, `task_file_path`, `feature_file_path`, `working_branch`, `worktree_path`, `acceptance_probe`, and `data_dir` as the original dispatch, plus a `continuation_note` parameter set to *"Previous attempt exited without completing; partial work is on this worktree as a WIP commit. Review git log + diff, identify what remains, complete the task, re-probe."* The capability skill's prompt template includes this note as additional context for the new subagent.
-      - **Max 1 re-dispatch per task** (track in a local set). If the continuation
-        builder also fails → update task `status: needs-attention`, emit
-        `builder_redispatch_failed` event, log to PROGRESS.md deviations table,
-        and continue to next task. Do NOT AskUserQuestion mid-wave — that blocks
-        the entire wave. The `needs-attention` status surfaces in `/ship-status`
-        and the next `/ship-sprint` carry-over scan.
-   c. **If clean tree** (no commits AND no uncommitted work):
-      - The builder did nothing. Update task `status: approved` (reset to
-        pre-dispatch state) so it gets picked up by the next sprint or re-run.
-      - Emit event: `builder_no_work` with `task=TASK_ID`
-      - Clean up the empty worktree.
-      - Log deviation in PROGRESS.md.
-5. **If commits found but key files missing** (partial implementation):
-   - Same re-dispatch flow as 4b, but skip the salvage step (work is already
-     committed). Prompt the continuation builder with the specific missing
-     files from the spot-check.
+Most kind-specific gating already lives inside the dispatching-* capability skills (sha verification, probe re-execution, anti-stub-scan, exit-0 + capture checks, findings doc + porcelain checks). Orchestrator-side checks are intentionally minimal:
 
-6. **Task completion verification** (task-level spec check) — spawn `shipyard-review-spec` for this single task to catch obvious acceptance-scenario gaps before the wave-level VERIFY. Skip for tasks with effort: S (trivial tasks don't warrant the overhead). Max 3 iterations: if gaps found, re-dispatch the builder with the specific gap list; if gaps persist after the cap, log as `needs-attention` and proceed to merge.
+**For `kind: feature`** (post `dispatching-task-loop` return):
+- Verify key files exist + commits present (`git log --grep="TASK_ID"` in the worktree).
+- **Item completeness check**: if Technical Notes lists discrete items (e.g., "migrate 8 calls"), grep the diff for each. <100% covered → re-dispatch with the missing list as `continuation_note`.
+- **No-commits salvage**: if the worktree has dirty changes, WIP-commit and re-dispatch via `dispatching-task-loop` with a continuation note. If the worktree is clean (subagent did nothing), reset task `status: approved`. Single re-dispatch per task per wave; persistent failure → `status: needs-attention`, log to PROGRESS.md, advance.
+- **Effort-gated single-task spec check**: for `effort: M|L|XL`, invoke `dispatching-spec-review` with `scope: "task"` to catch obvious AC gaps before merge. Skip `effort: S` (overhead exceeds value).
+- **Merge**: rebase + ff-merge the worktree branch; remove worktree; delete the merged branch.
 
-7. **Merge** — once mechanical checks pass (commits, files, item completeness, spec check), proceed to merge the worktree branch onto the working branch. Full wave-wide acceptance-scenario verification happens in the VERIFY pass (Step 4). Merging early lets the wave-level REFACTOR+MUTATE+VERIFY builder see all tasks together.
+**For `kind: operational`** (post `dispatching-operational-task` return):
+- The capability skill's gate (verify_output populated + capture non-empty + final exit:0 + LAST_LINES match) is authoritative. Orchestrator just records the verdict and advances.
 
-**For `kind: operational` tasks:**
-5. Verify the task file now has a non-empty `verify_output:` field. If missing or empty → emit `operational_task_bogus_pass` with `reason=missing_verify_output` and do NOT mark done.
-6. Verify the capture exists and is non-empty. Using the name from `verify_output:`, resolve its path via `shipyard-logcap path <name>` and check byte count (for example, via `shipyard-logcap tail <name> | wc -c`). If the file is missing or zero-byte → emit `operational_task_bogus_pass` with `reason=empty_capture` or `capture_file_missing` and do NOT mark done.
-7. Verify the final `verify_history` entry on the task file has `exit: 0`. If the last attempt exited non-zero, the task is not done regardless of what the dispatcher wrote — emit `operational_task_bogus_pass` with `reason=final_history_not_green`.
-8. A task that fails any of 5–7 is handled by `shipyard:dispatching-operational-task`'s internal retry budget; escalation to user (when budget exhausted) is the capability skill's responsibility.
+**For `kind: research`** (post `dispatching-research-task` return):
+- Same pattern: capability skill's gate (file exists + ≥1 `### Finding` + porcelain clean) is authoritative.
 
-**For `kind: research` tasks:**
-9. Verify the task file now has a non-empty `research_output:` field. If missing or empty → emit `research_task_bogus_pass` with `reason=missing_research_output` and do NOT mark done.
-10. Resolve the path: either literal absolute path, or relative-to-research-dir (join `<SHIPYARD_DATA>/research/` + value). Use `Read` to confirm the file exists and is not empty. Missing → `research_task_bogus_pass` with `reason=output_file_missing`. Empty or nearly empty (no substantive body) → `reason=empty_findings_doc`.
-11. Verify the doc has at least one `### Finding` section (use Grep with pattern `^### Finding`). Zero matches → `research_task_bogus_pass` with `reason=no_findings_reported`. The Findings Doc Template requires at least one numbered finding; a zero-finding doc is a stub and does not satisfy the task.
-12. **Write-scope enforcement** is handled by `shipyard:dispatching-research-task`'s orchestrator-side gate (porcelain check after subagent return). Out-of-scope writes emit `research_out_of_scope_write` and escalate without retry.
-13. A task that fails 9–11 retries through the capability skill's single-retry budget (transient only) or escalates to user. The capability skill body owns the budget.
-
-**This is the last line of defense** against silent-pass regression across all three kinds. Even if the router drifts, the builder guard drifts, and the operational/research dispatchers drift, these checks catch the exact failure modes: operational tasks marked done without captured command output, research tasks marked done without a substantive findings doc.
-
-**Heartbeat check (subagent and team modes only)** — after the kind-specific checks above, read the agent's heartbeat file at `<SHIPYARD_DATA>/agents/<TASK_ID>.heartbeat` (or `<FEATURE_ID>.heartbeat` in team mode). **Skip in solo mode** — solo agents run without worktree isolation, so no heartbeat file is written (the hook infers agent identity from the worktree CWD path).
-- **File exists:** parse the `ts` and `tool` fields.
-  - If the last heartbeat was >5 minutes before the agent returned → log warning to PROGRESS.md deviations: "Agent <TASK_ID> was idle for N minutes before returning (last tool: `<tool>` on `<target>`)"
-  - If re-dispatching a fixer, pass heartbeat context in the prompt: "Previous builder's last activity was `<tool>` on `<target>` at `<ts>` — it may have been stuck there."
-- **No file** → the agent may have failed before making any tool call (API error on first turn, hook failure, etc.). Proceed to the existing salvage flow — the absence itself is diagnostic.
-- **Delete the heartbeat file** after processing (prevents stale data from confusing the next wave).
-
-Rebase and merge verified worktree branches back to the working branch (subagent/team mode — feature tasks only; operational tasks run on the working branch without worktrees).
+This is the last line of defense against silent-pass regression. Capability-skill gates plus these orchestrator-side checks together cover the failure modes: false completion, stub commits, missing capture, missing findings doc, out-of-scope writes.
 
 ### Step 3: Per-Task Execution (RED → GREEN)
 
@@ -351,82 +243,19 @@ Key rules:
 - Update task file status to `done` after each task
 - Log session progress in PROGRESS.md (blockers, deviations — NOT task completion status)
 
-### Step 4: Wave Boundary Check (between groups of tasks)
+### Step 4: Wave Boundary Check
 
-Between waves (each wave is a group of tasks that ran together):
-- **Rebase and merge** task branches one at a time, sequentially (even though tasks ran in parallel):
-  ```bash
-  # For each completed worktree branch, IN ORDER:
-  git rebase <working-branch> <task-branch>    # replay task commits onto current HEAD
-  git checkout <working-branch>
-  git merge --ff-only <task-branch>             # fast-forward (always works after rebase)
-  git worktree remove <worktree-path>           # clean up worktree
-  git branch -d <task-branch>                   # delete task branch
-  # Now HEAD has moved forward — next rebase starts from here
-  ```
-  If rebase has conflicts → AskUserQuestion with conflict details. Do NOT fall back to regular merge — that creates fork lines in the git graph. Resolve conflicts or skip the task.
-- After all branches merged, verify no stale worktree branches remain: `git worktree list` and `git branch --list shipyard/wt-*` — clean up any leftovers
-- **Clean branch check** — run `git status --porcelain` on the orchestrator's branch. The orchestrator's branch must be clean before starting the next wave. Legitimate changes (PROGRESS.md, task status updates) → commit as `chore(shipyard): wave [N] state update`. Unexpected changes (source files) → AskUserQuestion: "Unexpected uncommitted changes after Wave [N] merge: [file list]. Commit as-is, stash, or investigate? Recommended: investigate."
-- **Update PROGRESS.md** — set frontmatter `current_wave` to the next wave number. This is the resume checkpoint after auto-compaction. If a write could race with another writer (recovery flows, parallel review fixers), wrap it in `shipyard-data with-lock sprint -- <command>`.
-- **Delegate WAVE-SCOPED build to a test subagent** — if `build_commands.scoped` is configured, run a scoped build for the modules touched by this wave's tasks before running tests. If `build_commands.scoped` is not configured but `build_commands.full` is, run the full build (some projects don't support scoped builds). If neither is configured, skip — the project either doesn't need a build step or tests handle compilation implicitly.
-  ```
-  Build wave [N] modules.
-  Command: shipyard-logcap run wave-[N]-build -- <BUILD_SCOPED_COMMAND> [module paths]
-  Return: PASS or FAIL with first error.
-  ```
-  If the scoped build fails → do NOT proceed. Invoke `shipyard:dispatching-operational-task` with the build command to drive a bounded fix loop until the build is green.
-- **Wave REFACTOR + MUTATE** — spawn a `general-purpose` Agent for the wave-level refactor pass. This is the first time tests run this wave; the subagent sees ALL tasks' combined code, runs the REFACTOR pass (cross-task deduplication, naming, helpers), and runs the MUTATE pass (verify tests catch key mutations).
+Between waves:
 
-  Dispatch shape:
-  ```
-  Agent(subagent_type: "general-purpose", prompt: <a self-contained
-  wave-refactor prompt that covers: read the wave's combined diff,
-  identify cross-task duplication and naming inconsistencies, refactor
-  while keeping all tests green, run a small mutation check on critical
-  paths, COMMIT REQUIRED if any changes were made, return commit sha or
-  STATUS: NO_CHANGES if nothing to refactor>)
-  ```
-  No registered agent type — `general-purpose` with the inline contract above. Collect the wave files by reading each task's Technical Notes `files-to-modify` list plus the test files committed (from `git log --name-only --pretty=""` on task commits).
-
-  If the wave-refactor subagent fails or returns without a commit → log the gap in PROGRESS.md deviations and proceed. REFACTOR/MUTATE failure is not a wave blocker; the code is correct (GREEN passed), just unpolished.
-
-- **Wave-scoped tests + single fix iteration** (standard mode only) — after the wave-refactor subagent returns, invoke `shipyard:dispatching-operational-task` to run the wave-scoped tests. If green, proceed. If failures, dispatch ONE fix-focused subagent via `shipyard:dispatching-task-loop` with `continuation_note` listing the failing tests, then re-measure. If still failing after the single retry, log to PROGRESS.md deviations and proceed — wave-scoped test failures are not a wave blocker (the per-task probes already verified individual wirings; this is a final-mile cross-task safety net).
-
-  The pre-2.0 3-iteration REFACTOR loop is gone (F-39). Per-task probes catch wiring at the unit level; wave-level fix loops were over-engineered for the rare integration-failure case and routinely consumed iteration budget on flaky tests. Single retry is the new contract.
-
-  **Fast mode:** skip wave-scoped tests entirely — proceed directly to VERIFY.
-
-- **Wave VERIFY** — invoke the **`shipyard:dispatching-spec-review` capability skill** with `scope: "wave"` and the list of `target_ids` (task IDs in the wave). The capability skill owns the prompt template (read-only role, MET/PARTIAL/MISSING/OVER-BUILT classification, per-finding output shape) and the read-only contract enforcement (post-return `git status --porcelain` check).
-
-  Pass to the capability skill:
-
-  | Parameter | Value |
-  |---|---|
-  | `scope` | `"wave"` |
-  | `target_ids` | List of task IDs in this wave |
-  | `base_ref` | The working branch HEAD before wave kickoff |
-  | `head_ref` | Current HEAD (post-merge of all wave tasks) |
-  | `data_dir` | Literal SHIPYARD_DATA path |
-
-  - **If `STATUS: PASS`** → proceed.
-  - **If `STATUS: FINDINGS`** → re-dispatch the relevant task loops via `shipyard:dispatching-task-loop` to fill the gaps (max 1 re-dispatch per task; the capability skill enforces this). Pass the specific gap list as the `continuation_note`. If gaps persist after 1 re-dispatch → update affected tasks to `needs-attention`, emit `wave_verify_gap` event, log to PROGRESS.md deviations, and proceed. Gaps surface in `/ship-review`.
-- Check for structural gaps (acceptance scenario with no implementation path at all)
-- If gaps found → create patch tasks, add to next wave
-- If blockers → report and attempt swap-in
-- Create worktrees for next wave from updated working branch HEAD
-- **Report progress and continue immediately** — do NOT stop or ask the user. Output a compact wave status line:
-  ```
-  Wave [N]/[M] ✓  [████████░░░░░░░░] [done]/[total] tasks  •  tests [pass/fail]  •  → Wave [N+1]
-  ```
-  Progress bar: 16 chars wide, `█` filled, `░` empty, `done_pct = total_done / total_sprint * 100`. If gaps were found this wave, append ` • [N] gaps → patch tasks`. If pace is slowing relative to earlier waves, append ` • pace slowing`. If wave-scoped tests failed and a fixer was spawned, append ` • tests fixed`. (Type "pause" to stop.)
-
-  **Auto-continue to the next wave without pausing.** The orchestrator stays lean (~10-15% context) by delegating to subagents. Do not suggest `/clear`, do not suggest re-invoking `/ship-execute`, do not ask "do you want to continue?" — just proceed to the next wave.
-
-  **Context pressure: warn-only.** At each wave boundary, optionally read `<SHIPYARD_DATA>/.active-execution.json`'s `compaction_count` field (a free running counter; missing = 0). If ≥ 4, append a one-line warning to the wave report: *"⚠ Context summarised N times this sprint — consider `/clear` then `/ship-execute` to resume with a fresh window."*
-
-  The pre-2.0 auto-pause-at-count-≥-5 logic is gone (F-40). With Opus 1M / Sonnet 200K plus fresh-context-per-task subagents (every `dispatching-task-loop` call discards its iteration trace before returning), the orchestrator's session compaction is rare. Forcing a pause was over-defensive — most users hit 5 because of long sprints, not because of context degradation. Warn instead; let the user decide.
-
-  The PostCompact hook is also gone (F-3 deletion). The counter is no longer auto-incremented; it survives only as a read-only diagnostic if some skill writes to it manually. Treat it as informational, not authoritative.
+1. **Rebase + ff-merge** task branches one at a time, in order. For each `shipyard/wt-*` branch: `git rebase <working-branch>` → `git checkout <working-branch>` → `git merge --ff-only` → `git worktree remove` → `git branch -d`. Conflicts → AskUserQuestion with details; never fall back to a regular merge (creates fork lines).
+2. **Clean orchestrator branch.** `git status --porcelain` must be empty after all merges. Legitimate state changes (PROGRESS.md, task status) → commit `chore(shipyard): wave [N] state update`. Unexpected source-file changes → AskUserQuestion.
+3. **Update PROGRESS.md** `current_wave: <next>`. Wrap in `shipyard-data with-lock sprint --` if a parallel writer is possible (recovery, review fixers).
+4. **Wave-scoped build** (if `build_commands.scoped` or `build_commands.full` configured): invoke `shipyard:dispatching-operational-task` with the build command. Failure → re-dispatch the same capability skill to drive a bounded fix loop.
+5. **Wave REFACTOR + MUTATE**: dispatch a `general-purpose` subagent with an inline wave-refactor prompt (read the combined wave diff, dedupe + rename + add helpers, run a small mutation check, commit if changes). Not a wave blocker — failure logs to PROGRESS.md and advances.
+6. **Wave-scoped tests + single fix iteration** (standard mode only): invoke `shipyard:dispatching-operational-task` with the test command. Failure → ONE re-dispatch via `shipyard:dispatching-task-loop` with the failing-test list as `continuation_note`. Persistent failure logs to PROGRESS.md and advances. **Fast mode skips this step.**
+7. **Wave VERIFY**: invoke `shipyard:dispatching-spec-review` with `scope: "wave"`, `target_ids: [task_ids]`, `base_ref` (pre-wave HEAD), `head_ref` (current HEAD). FINDINGS → single re-dispatch per task via `dispatching-task-loop`; persistent gaps → `needs-attention` and surface to `/ship-review`.
+8. **Report and continue** — emit a one-line wave status (`Wave [N]/[M] ✓ [████░░░░] [done]/[total] tasks • → Wave [N+1]`). **Do NOT pause, do NOT suggest `/clear`, do NOT ask "continue?"** — auto-advance.
+9. **Context pressure: warn-only.** If `<SHIPYARD_DATA>/.active-execution.json`'s `compaction_count` ≥ 4, append `⚠ Context summarised N times — consider /clear then /ship-execute`. The pre-2.0 auto-pause-at-5 logic is gone (F-40); the PostCompact hook is gone (F-3). Counter survives as informational only.
 
 ### Compaction Recovery
 
@@ -441,27 +270,17 @@ If you're unsure which wave you're on or what's been completed (e.g., after auto
 
 This takes ~5 tool calls and recovers full state from files. Do not rely on conversation memory for wave/task state — files are the source of truth.
 
-### Step 5: Sprint Completion (final check)
+### Step 5: Sprint Completion
 
 When all waves done:
 
-**5a. Full build + full test suite**
-- **Full build first** — if `build_commands.full` is configured, invoke the **`shipyard:dispatching-operational-task` capability skill** with `verify_command: build_commands.full` (resolved from config). This is the first time the entire project builds together after all waves merged — catches cross-module compilation errors that scoped wave builds missed. The capability skill captures output, enforces the exit-0 contract, and returns a structured verdict. If the build fails after the operational task's bounded fix-loop (default 3 iterations), surface to user via AskUserQuestion. If `build_commands.full` is not configured, skip to tests.
-- **Full test suite** — invoke the **`shipyard:dispatching-operational-task` capability skill** with `verify_command` resolved to `test_commands.unit`, `test_commands.integration`, and `test_commands.e2e` (one operational dispatch per tier, or one combined dispatch if your project supports a single command). The capability skill runs the command, captures output, parses failures into the fix-findings loop, and gates on exit 0. This is the only time the entire test suite runs. Act on the structured verdict — do NOT run tests directly in this session.
-- If the operational dispatch returns `STATUS: BLOCKED` after its iteration cap, the orchestrator re-dispatches via `shipyard:dispatching-task-loop` for the still-failing tests, treating each cluster of related failures as a continuation task. At sprint level the branch owns all errors — do not scope to the diff. The capability skills enforce the post-return verification (sha existence, capture file present, exit 0).
-
-**5b. Finalize**
-- Delete `<SHIPYARD_DATA>/agents/` directory if it exists (heartbeat cleanup — clean slate for next sprint)
-- Update SPRINT.md frontmatter: `status: completed` and `completed_at: <current ISO 8601 timestamp>` (write both in the same edit)
-- Features remain `in-progress` — only `/ship-review` transitions features to `done` after user approval
-- Report:
+1. **Full build** (if `build_commands.full` configured): invoke `shipyard:dispatching-operational-task` with that command. Catches cross-module compilation errors scoped wave builds missed. Failure → AskUserQuestion.
+2. **Full test suite**: invoke `shipyard:dispatching-operational-task` per tier (unit / integration / e2e) or combined. Persistent failure after the capability skill's iteration cap → re-dispatch via `shipyard:dispatching-task-loop` per failing cluster. Sprint-level branch owns all errors.
+3. **Finalize**: update SPRINT.md frontmatter (`status: completed`, `completed_at: <ISO>`). Features stay `in-progress` — only `/ship-review` transitions them to `done`. Report:
 
 ```
-Sprint complete. [N]/[M] tasks done. Full test suite: [pass/fail]. Code review: [N] issues fixed.
-
-▶ NEXT UP: Review and wrap up the sprint
-  /ship-review — verify work, retro, release, and archive
-  (tip: /clear first for a fresh context window)
+Sprint complete. [N]/[M] tasks done. Full suite: [pass/fail].
+▶ NEXT UP: /ship-review (tip: /clear first for a fresh window)
 ```
 
 ---
@@ -523,88 +342,30 @@ When the orchestrator sees `STATUS: BLOCKED` after the single re-dispatch budget
 
 ## Pause / Resume
 
-Claude Code's `--continue` restores conversation history, but it doesn't know project-level state (which wave, which task, what was happening). Shipyard bridges this gap with a handoff file.
+Claude Code's `--continue` restores conversation history but not project state (which wave, which task). Shipyard bridges with HANDOFF.md.
 
-### On Pause (user says "pause", "stop", "break", or session is ending)
+**On pause** (user says "pause"/"stop"/"break", or session ending): Write `<SHIPYARD_DATA>/sprints/current/HANDOFF.md` with frontmatter `paused_at` / `wave` / `task` / `mode` / `branch` (plus `team_name` / `teammates` / `queued_tracks` in team mode), then sections `## Completed This Session`, `## In Progress`, `## Blocked`, `## Next Steps`, `## Decisions Made`.
 
-Use the Write tool to write `<SHIPYARD_DATA>/sprints/current/HANDOFF.md`:
-```markdown
----
-paused_at: [ISO timestamp]
-wave: [current wave number]
-task: [current task ID or "between tasks"]
-mode: [solo|subagent|team]
-branch: [current git branch]
-team_name: sprint-NNN        # (team mode only)
-teammates: [teammate-F001, teammate-F005]  # (team mode only) active teammates at pause
-queued_tracks: [F003, F007]  # (team mode only) feature tracks waiting to be spawned
----
-# Execution Handoff
+**On resume** (HANDOFF.md exists): (1) Read HANDOFF.md, (2) accumulate `paused_minutes` into SPRINT.md's `total_paused_minutes` then clear `paused_at`, (3) verify PROGRESS.md matches, (4) confirm git branch, (5) team mode only — `TeamCreate` + re-spawn teammates from the `teammates` field (previous teammates are always dead after a session break), (6) delete HANDOFF.md, (7) continue from the documented next step.
 
-## Completed This Session
-- [list of tasks completed]
-
-## In Progress
-- [task ID]: [what was being done, what's left]
-
-## Blocked
-- [any blocked tasks with reasons]
-
-## Next Steps
-1. [exact next action to take]
-2. [then what]
-
-## Decisions Made
-- [any decisions during this session that affect future work]
-```
-
-### On Resume
-
-When `/ship-execute` runs and `<SHIPYARD_DATA>/sprints/current/HANDOFF.md` exists (use Read to check):
-
-**Note:** Step 0 (worktree salvage) has already run before reaching this point. All leftover worktrees have been salvaged and merged onto the working branch. New worktrees will branch from this consolidated state.
-
-1. Read HANDOFF.md — know exactly where we left off
-2. **Accumulate paused time:** If HANDOFF.md frontmatter has a `paused_at` value (non-null), compute `paused_minutes = round((now - paused_at) / 60)` where `now` is the current time and `paused_at` is the ISO 8601 timestamp from HANDOFF.md. Add `paused_minutes` to `total_paused_minutes` in SPRINT.md frontmatter (if `total_paused_minutes` is absent or null, treat it as 0 before adding). Then clear `paused_at` from HANDOFF.md (set it to null).
-3. Read PROGRESS.md — verify completed tasks match
-4. Check git branch — ensure we're on the right branch
-5. If team mode: `TeamCreate(team_name)` (previous session's team is gone). Create new worktrees from the working branch HEAD (which now includes all salvaged work from Step 0). Re-spawn teammates using the session resume prompt from team-mode.md. Use `teammates` field from HANDOFF.md for which feature tracks need re-spawning (max 4 concurrent — restore the queue from `queued_tracks` field). Previous teammate sessions are always dead after a session break — always re-spawn.
-6. Delete HANDOFF.md (it's consumed)
-7. Continue from the next step documented in handoff
-
-This works alongside `claude --continue` — the session history gives conversation context, HANDOFF.md gives project state context.
+Step 0 (worktree salvage) has already run before reaching On Resume. Works alongside `claude --continue`.
 
 ## Deviation Rules
 
-When execution diverges from the plan, apply these rules to decide whether to auto-fix or ask the user:
-
 | Category | Examples | Action |
-|----------|----------|--------|
-| **Bug** | Broken behavior, runtime error, security vulnerability | Delegate to builder subagent, note in PROGRESS.md |
-| **Missing Critical** | Missing error handling, validation, auth check, cross-origin policy | Delegate to builder subagent, note in PROGRESS.md |
-| **Blocker** | Missing dependency, broken import, missing env var | Delegate to builder subagent, note in PROGRESS.md |
-| **Structural** | New database table, new service, different design pattern | AskUserQuestion before proceeding |
+|---|---|---|
+| **Bug / Missing Critical / Blocker** | runtime errors, missing null checks, missing auth, broken imports | invoke `shipyard:dispatching-task-loop` with a patch task; log to PROGRESS.md `## Deviations` |
+| **Structural** | new DB table, new service, different design pattern | `AskUserQuestion` before proceeding |
 
-The key distinction: if the fix is obvious and contained (a bug, a missing null check, a lint error), invoke `shipyard:dispatching-task-loop` with a small patch task to fix it. If the fix changes the shape of the system (new table, different API design), the user needs to decide.
-
-**The orchestrator never writes, edits, or fixes code directly — not for bugs, not for test failures, not for lint errors.** Always spawn a builder subagent.
-
-When auto-fixing, log in PROGRESS.md:
-```
-## Deviations
-| Task | Type | What Changed | Why |
-| T002 | Bug | Added null check in service.ts | Runtime error on empty input |
-| T003 | Missing Critical | Added rate limit to API route | No rate limiting existed |
-```
+**The orchestrator never writes, edits, or fixes code directly.** Always delegate.
 
 ## Rules
 
-- NEVER skip TDD — fast mode defers test execution to the wave boundary; TDD is not skipped, execution is deferred, not skipped. Per-task builders write tests before implementation; REFACTOR/MUTATE/VERIFY run at the wave boundary.
-- NEVER modify test assertions to pass. Fix the implementation.
+- NEVER skip TDD. Fast mode defers test *execution* to the wave boundary; the test-first discipline is unchanged.
+- NEVER modify test assertions to pass — fix the implementation.
 - NEVER build beyond acceptance criteria.
-- ALWAYS commit atomically per task.
-- ALWAYS update task file status to `done` after completing each task.
-- Log session activity in PROGRESS.md (blockers, deviations, session notes).
-- NEVER fix test failures, lint errors, or code bugs directly in this session. Always invoke `shipyard:dispatching-task-loop` (for code-shaped fixes) or `shipyard:dispatching-operational-task` (for command/test-suite-shaped fixes) to delegate.
-- Delegate bugs, missing criticals, and blockers to a builder subagent. Ask for architectural changes.
-- If in doubt → AskUserQuestion.
+- ALWAYS commit atomically per task; update task `status: done` after each.
+- Log blockers / deviations / session notes in PROGRESS.md.
+- NEVER fix test failures, lint errors, or bugs directly in this session — invoke `shipyard:dispatching-task-loop` (code) or `shipyard:dispatching-operational-task` (command-shaped) to delegate.
+- Architectural changes → `AskUserQuestion`.
+- If in doubt → `AskUserQuestion`.
