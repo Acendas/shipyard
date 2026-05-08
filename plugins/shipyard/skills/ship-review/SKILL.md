@@ -385,6 +385,34 @@ recommendation: approve|issues|changes
 
 Body: test summary, goal verification results (observable truths, artifacts, wiring), and gap list. After Stage 5 (Demo) completes, update the verdict: set `complete: true`. This file persists as a review artifact — no cleanup needed. Incomplete verdicts (from interrupted sessions) are re-entered at the review pipeline.
 
+### Stage 4.8: Demo-Path Verification (F-44)
+
+Before advancing to user approval, **run each feature's `demo_probe` end-to-end** to prove the cross-task wiring actually works. This catches the failure mode where every per-task probe passed in isolation but the feature's user-facing flow doesn't compose.
+
+For each feature in scope:
+
+1. Read the feature's frontmatter `demo_probe:` field.
+2. **If `demo_probe` is missing**: refuse to advance to Stage 5. Surface to user via AskUserQuestion: *"Feature [F-NNN] has no `demo_probe`. Approval is gated on a feature-level smoke test that exercises the cross-task user flow. (a) author one now via /ship-discuss [F-NNN], (b) skip with explicit reason, (c) abort review."* Recommended: (a).
+3. **If `demo_probe: skip-with-reason`** with a `demo_probe_skip_reason` populated: include the reason in the per-feature summary (Stage 5) as a known limitation. Allow approval to proceed.
+4. **Otherwise**: invoke the **`shipyard:running-acceptance-probe` capability skill** with `probe_command: <feature.demo_probe>`, `cwd: <repo root>`, `timeout_seconds: 120`. The capability skill runs the probe in a fresh shell and returns the structured verdict.
+5. Record the verdict in PROGRESS.md's review table and include it in the Stage 5 per-feature summary:
+   - **PASS** → ✅ Demo verified (last 5 lines of output captured below)
+   - **FAIL** → ❌ Demo failed; demo probe doesn't exit 0 against the merged feature
+   - **TIMEOUT** → ⚠ Demo exceeded 120s; probe is too broad — split or narrow it
+   - **ERROR** → ⚠ Demo couldn't run; probe definition is wrong (likely missing dependency or misconfigured command)
+
+**Approval gate.** A feature with a FAIL or TIMEOUT verdict cannot be approved. The reviewer must either (a) re-dispatch task-loops to fix the cross-task wiring, or (b) flag the feature as `needs-attention` and defer approval to a future review pass. ERROR verdicts route through AskUserQuestion to fix the probe definition.
+
+This is the per-feature counterpart to per-task acceptance probes (F-32/F-33 / R-3). Together they form the reliability ladder:
+
+```
+per-task acceptance_probe   →  unit-level wiring proof (dispatching-task-loop gate)
+per-feature demo_probe       →  cross-task user-flow proof (this stage)
+sprint-level full test suite →  regression / integration proof (Stage 1)
+```
+
+Mid-tier failures (passing tasks, failing demo) are exactly the bug class the customer-reported "review rubber-stamps stubs" complaint described — the task tests passed against properly wired code, but the cross-task user flow was broken because nobody ever ran it end-to-end.
+
 ### Stage 5: Demo to User
 
 After all features are reviewed and verdicts written, present the complete review results as text.

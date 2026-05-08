@@ -19,6 +19,22 @@ children: []
 tasks: []
 created: null
 updated: null
+# REQUIRED at /ship-review approval-time (Shipyard 2.0 — F-44):
+# demo_probe: |
+#   <single shell command, exit 0 == feature works end-to-end, observable
+#    output, deterministic, bounded ≤120s. Distinct from per-task acceptance
+#    probes — this exercises the cross-task user-facing flow. Authored by
+#    /ship-discuss alongside acceptance criteria; consumed by /ship-review's
+#    Stage 4.8 demo verification before user approval is offered.>
+# Example:
+#   demo_probe: |
+#     curl -fsS -X POST localhost:3000/auth/signup -d '{"email":"d@d.io","password":"x"}' \
+#       | jq -e .id
+# Without one, /ship-review refuses to advance to user approval. If the
+# feature is genuinely too cross-cutting to demo (rare), explicitly mark:
+#   demo_probe: skip-with-reason
+#   demo_probe_skip_reason: "<why the cross-task flow can't be one shell command>"
+# and reviewer surfaces it to user as a known limitation.
 ---
 
 # [Title]

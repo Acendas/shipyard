@@ -242,7 +242,7 @@ Each is plumbing that could mostly be skill-side Read/Write — except for thing
 
 Subcommands inferred from grep: `path`, `view`, `legacy-check`, `project-claude-md`, `diagnose`. Used in skill `!`-prefixed bash blocks to inject context into skill prompts.
 
-- [ ] **F-16.** Retire most of this. Skill bodies can `Read` the same files directly using paths derived from the resolver. The patterns:
+- [~] **F-16.** Retire most of this. Skill bodies can `Read` the same files directly using paths derived from the resolver. The patterns: *(DEFERRED to Sprint 5 polish. Audit revealed that EVERY shipyard-context subcommand (`path`, `view`, `list`, `count-of`, `debug-count`, `status-counts`, `spec-counts`, `version`, `reference`, `legacy-check`, `project-claude-md`, `diagnose`) is in active use by some skill's context block. Wholesale migration to skill-side Read calls would touch every command-skill SKILL.md — the user has been clear about preserving skills that work today (discuss/backlog/sprint plan etc.). Safe alternative path: design a `shipyard-context bootstrap` aggregator that returns the most-needed file contents in one call, then incrementally migrate skills. Out of scope for Sprint 3.)*
   - `shipyard-context path` → skill body says: `<SHIPYARD_DATA path computed from CLAUDE_PLUGIN_DATA>`. Plus the resolver CLI for the rare case.
   - `shipyard-context view config` → `Read <SHIPYARD_DATA>/config.md`.
   - `shipyard-context view sprint 80` → `Read <SHIPYARD_DATA>/sprints/current/SPRINT.md` (head 80 lines).
@@ -251,8 +251,8 @@ Subcommands inferred from grep: `path`, `view`, `legacy-check`, `project-claude-
   - `shipyard-context view data-version` → `Read <SHIPYARD_DATA>/config.md` and look at frontmatter.
   - `shipyard-context legacy-check` → `Glob .shipyard/config.md`.
   - `shipyard-context project-claude-md` → `Read CLAUDE.md`.
-- [ ] **F-17. Keep `diagnose`** — it's the customer support endpoint. Dumps env, resolver output, breadcrumb tail, event log tail. ~100 lines worth keeping, possibly renamed to `shipyard-doctor`.
-- [ ] **F-18.** Delete `view`, `path`, `legacy-check`, `project-claude-md` subcommands. Net: `shipyard-context.mjs` → ~150 lines (just `diagnose`), or merged into `shipyard-data.mjs` as `shipyard-data doctor`.
+- [x] **F-17. Keep `diagnose`** — it's the customer support endpoint. Dumps env, resolver output, breadcrumb tail, event log tail. ~100 lines worth keeping, possibly renamed to `shipyard-doctor`. *(DONE by inertia — `diagnose` was never on the retire list and remains in shipyard-context.mjs as the customer support endpoint. Rename to `shipyard-doctor` is cosmetic and deferred.)*
+- [~] **F-18.** Delete `view`, `path`, `legacy-check`, `project-claude-md` subcommands. Net: `shipyard-context.mjs` → ~150 lines (just `diagnose`), or merged into `shipyard-data.mjs` as `shipyard-data doctor`. *(DEFERRED with F-16. The audit showed every subcommand is consumer-pinned by an active skill; deletion needs a skill-side migration plan first. Sprint 5 polish.)*
 
 ---
 
@@ -361,7 +361,7 @@ Already deeply analyzed in conversation — this is the critical broken skill. F
 
 User said reviewer "rubber-stamps stubs" — same root cause as builder false-completion. Apply the same Iron-Law treatment.
 
-- [ ] **F-44.** Add a **demo-path probe** to the reviewer flow: before approving a feature, run a smoke command that exercises the demo path end-to-end. Capture output; reviewer can't approve without it.
+- [x] **F-44.** Add a **demo-path probe** to the reviewer flow: before approving a feature, run a smoke command that exercises the demo path end-to-end. Capture output; reviewer can't approve without it. *(DONE: feature.md template gains `demo_probe:` REQUIRED field (parallel to task.md's `acceptance_probe:`). New Stage 4.8 in /ship-review invokes `shipyard:running-acceptance-probe` with the feature's demo_probe before advancing to user approval. Approval gated on PASS verdict; FAIL/TIMEOUT block approval; ERROR routes through AskUserQuestion to fix the probe definition. Includes `skip-with-reason` opt-out for genuinely cross-cutting features that can't reduce to one shell command. Closes the customer-reported "review rubber-stamps stubs" complaint at the feature level — the reliability ladder is now per-task probe → per-feature demo probe → sprint full suite.)*
 - [ ] **F-45.** Six review-scanner agents collapse into one prompt template per [F-27](#).
 - [ ] **F-46.** Investigator agent body → reference prompt per F-25.
 - [ ] **F-47.** Critic prompt → reference prompt.
