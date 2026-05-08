@@ -648,7 +648,7 @@ The two principles that matter most in practice for Shipyard: **SRP** (cures the
     - [x] dispatching-operational-task
     - [x] using-worktrees
     - [x] acquiring-skill-lock
-    - [ ] discovering-edge-cases
+    - [x] discovering-edge-cases
     - [ ] extracting-acceptance-criteria
     - [x] authoring-acceptance-probe
 - [ ] **S-2.** **Decomposition order matters.** Build the most-reused skills first — they unblock the most command-skill simplification:
