@@ -639,7 +639,7 @@ The two principles that matter most in practice for Shipyard: **SRP** (cures the
   - Per-skill progress (each commits independently):
     - [x] verifying-completion
     - [x] tdd-cycle
-    - [ ] running-acceptance-probe
+    - [x] running-acceptance-probe
     - [x] anti-stub-scan
     - [x] dispatching-task-loop
     - [ ] dispatching-spec-review
