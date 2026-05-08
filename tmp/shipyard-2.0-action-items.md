@@ -131,7 +131,7 @@ This is Ralph's Iron Law applied at the subagent boundary, not the session bound
 
 - [x] **R-1.** Define the subagent prompt template at `skills/ship-execute/references/task-loop-prompt.md`. Include the Iron-Law verification skill inline and the acceptance probe contract above. *(Path moved to `skills/dispatching-task-loop/SKILL.md` per S-1 capability-skill architecture; supersedes the original location.)*
 - [~] **R-2.** `ship-execute` skill body: per-task dispatch via `general-purpose` agent type with the template. Parse the structured return. *(Template + parsing contract defined in `dispatching-task-loop`. ship-execute wiring is Sprint 4 work — F-37.)*
-- [ ] **R-3.** Acceptance probe field added to task spec template (`project-files/templates/task.md`). `/ship-sprint` planning step authors probes alongside ACs (Opus is doing that work anyway).
+- [~] **R-3.** Acceptance probe field added to task spec template (`project-files/templates/task.md`). `/ship-sprint` planning step authors probes alongside ACs (Opus is doing that work anyway). *(Authoring contract defined in `authoring-acceptance-probe`. Template field add is F-32; `/ship-sprint` wiring is F-33.)*
 - [x] **R-4.** No registered builder agent. The "builder" exists only as the prompt template loaded from inside the skill. *(Realized in `dispatching-task-loop`: dispatch via `general-purpose`; no `subagent_type` references a registered Shipyard agent.)*
 - [x] **R-5.** Anti-stub scanner: small, run after the subagent returns, second-line defense. If it flags something, the orchestrator re-dispatches the subagent with the finding. *(Realized as `skills/anti-stub-scan/`. HIGH/MEDIUM/LOW confidence levels, `shipyard:placeholder reason=` opt-out marker, single-redispatch rule.)*
 
@@ -650,7 +650,7 @@ The two principles that matter most in practice for Shipyard: **SRP** (cures the
     - [x] acquiring-skill-lock
     - [ ] discovering-edge-cases
     - [ ] extracting-acceptance-criteria
-    - [ ] authoring-acceptance-probe
+    - [x] authoring-acceptance-probe
 - [ ] **S-2.** **Decomposition order matters.** Build the most-reused skills first — they unblock the most command-skill simplification:
   - **Wave 1:** `verifying-completion`, `tdd-cycle`, `dispatching-task-loop`, `acquiring-skill-lock`. Unblocks ship-execute slim and ship-quick/ship-bug rewires.
   - **Wave 2:** `using-worktrees`, `running-acceptance-probe`, `anti-stub-scan`, `authoring-acceptance-probe`. Unblocks ship-review and ship-sprint.
