@@ -71,13 +71,12 @@ This prevents the failure mode where a discussion is in progress in one terminal
      "sprint": "[sprint ID]",
      "wave": "[current wave]",
      "started": "[ISO date]",
-     "tracks_compaction_pressure": true,
-     "compaction_count": 0
+     "session_id": "[Claude Code session ID, from CLAUDE_SESSION_ID env or hook input]"
    }
    ```
-   The `tracks_compaction_pressure` flag opts this lock into the context-pressure counter managed by the PostCompact hook. The counter lives on the lock object itself — when the lock is cleared, the counter dies with it, so there is no separate reset step and no cross-skill leakage. See `references/context-pressure.md` for the full contract.
+   See the `shipyard:acquiring-skill-lock` capability skill for the full lock contract — including the session-id stamping that prevents Terminal-A's lock from blocking Terminal-B's session (CC-7).
 
-3. **On sprint completion or pause** (HANDOFF.md written), use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}`. (Soft-delete sentinel — session-guard treats `skill: null` as inactive, and because the counter was a field on the old lock object it vanishes with the overwrite.)
+3. **On sprint completion or pause** (HANDOFF.md written), use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}`. (Soft-delete sentinel.)
 
 ## Detect Mode
 
@@ -459,13 +458,11 @@ Between waves (each wave is a group of tasks that ran together):
 
   If the wave-refactor subagent fails or returns without a commit → log the gap in PROGRESS.md deviations and proceed. REFACTOR/MUTATE failure is not a wave blocker; the code is correct (GREEN passed), just unpolished.
 
-  *(F-39 in tmp/shipyard-2.0-action-items.md flags this whole section as over-engineered; in Sprint 4 the iteration counter and 3-cap REFACTOR loop are scheduled to be dropped or capped at 1. For now, the dispatch is rewired off the registered builder; semantic simplification follows.)*
+- **Wave-scoped tests + single fix iteration** (standard mode only) — after the wave-refactor subagent returns, invoke `shipyard:dispatching-operational-task` to run the wave-scoped tests. If green, proceed. If failures, dispatch ONE fix-focused subagent via `shipyard:dispatching-task-loop` with `continuation_note` listing the failing tests, then re-measure. If still failing after the single retry, log to PROGRESS.md deviations and proceed — wave-scoped test failures are not a wave blocker (the per-task probes already verified individual wirings; this is a final-mile cross-task safety net).
 
-- **REFACTOR LOOP** (standard mode only) — after the wave-refactor subagent returns, measure test state and fix any failures with up to 2 additional iterations. Full algorithm: `references/refactor-loop.md`.
+  The pre-2.0 3-iteration REFACTOR loop is gone (F-39). Per-task probes catch wiring at the unit level; wave-level fix loops were over-engineered for the rare integration-failure case and routinely consumed iteration budget on flaky tests. Single retry is the new contract.
 
-  Summary: invoke the **`shipyard:dispatching-operational-task` capability skill** with a wave-scoped operational task that runs the test command and parses failures. If all pass, proceed. If any fail, dispatch up to 2 more fix-focused subagents via `shipyard:dispatching-task-loop` (iterations 2–3), re-measuring after each. Stuck = same failing test names as the previous iteration. Cap = 3 total iterations. On loop exhaustion or stuck, write iteration history to PROGRESS.md deviations and proceed — REFACTOR loop failure is not a wave blocker.
-
-  **Fast mode:** skip wave-scoped tests entirely and the REFACTOR loop — proceed directly to VERIFY.
+  **Fast mode:** skip wave-scoped tests entirely — proceed directly to VERIFY.
 
 - **Wave VERIFY** — invoke the **`shipyard:dispatching-spec-review` capability skill** with `scope: "wave"` and the list of `target_ids` (task IDs in the wave). The capability skill owns the prompt template (read-only role, MET/PARTIAL/MISSING/OVER-BUILT classification, per-finding output shape) and the read-only contract enforcement (post-return `git status --porcelain` check).
 
@@ -493,18 +490,11 @@ Between waves (each wave is a group of tasks that ran together):
 
   **Auto-continue to the next wave without pausing.** The orchestrator stays lean (~10-15% context) by delegating to subagents. Do not suggest `/clear`, do not suggest re-invoking `/ship-execute`, do not ask "do you want to continue?" — just proceed to the next wave.
 
-  **Context pressure detection:** At each wave boundary, use the Read tool on `<SHIPYARD_DATA>/.active-execution.json` (substitute SHIPYARD_DATA from the context block). Parse the JSON and read the `compaction_count` field. Treat a missing field as `0`. Thresholds (calibrated for long-running execution; see `references/context-pressure.md` for current model-context assumptions — Opus is 1M GA, Sonnet is 200K GA):
-  - **count ≤ 3** → note it in passing, continue normally
-  - **count = 4** → warn in wave report: "⚠ Context summarised 4 times — working memory is degrading. One more compaction will trigger an auto-pause recommendation."
-  - **count ≥ 5** → **auto-pause at this wave boundary.** Use the Write tool to write HANDOFF.md, then use Write to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel — clears the lock AND the counter in one write), and tell the user:
-    ```
-    ⚠ Auto-pausing at wave boundary — conversation history has been reconstructed 5 times this sprint.
-    Working memory is degrading. Progress saved.
-    Run: /clear then /ship-execute (resumes from Wave [N+1] with a fresh window)
-    ```
-    The pause is a quality decision, not a quota decision. Each auto-compaction is a lossy summarisation; by count 5 Claude is operating on a summary-of-a-summary-of-a-summary and starting to make things up. A fresh window restores full working memory. (On Opus 1M sessions you also have plenty of token runway left at this point; on Sonnet 200K sessions the runway is shorter, but the fidelity argument is the same.)
+  **Context pressure: warn-only.** At each wave boundary, optionally read `<SHIPYARD_DATA>/.active-execution.json`'s `compaction_count` field (a free running counter; missing = 0). If ≥ 4, append a one-line warning to the wave report: *"⚠ Context summarised N times this sprint — consider `/clear` then `/ship-execute` to resume with a fresh window."*
 
-  The counter is a field on the execution lock itself, managed by the PostCompact hook and gated by the lock's `tracks_compaction_pressure` flag. No separate reset step — the counter lives and dies with the lock. Full contract in `references/context-pressure.md`.
+  The pre-2.0 auto-pause-at-count-≥-5 logic is gone (F-40). With Opus 1M / Sonnet 200K plus fresh-context-per-task subagents (every `dispatching-task-loop` call discards its iteration trace before returning), the orchestrator's session compaction is rare. Forcing a pause was over-defensive — most users hit 5 because of long sprints, not because of context degradation. Warn instead; let the user decide.
+
+  The PostCompact hook is also gone (F-3 deletion). The counter is no longer auto-incremented; it survives only as a read-only diagnostic if some skill writes to it manually. Treat it as informational, not authoritative.
 
 ### Compaction Recovery
 
@@ -622,15 +612,6 @@ branch: [current git branch]
 team_name: sprint-NNN        # (team mode only)
 teammates: [teammate-F001, teammate-F005]  # (team mode only) active teammates at pause
 queued_tracks: [F003, F007]  # (team mode only) feature tracks waiting to be spawned
-refactor_loop:               # only present if paused mid-REFACTOR loop
-  wave: [wave number]
-  current_iteration: [1|2|3]
-  failing_tests: ["TestName", ...]
-  iteration_history:
-    - iteration: 1
-      failing_tests: ["TestA", "TestB", "TestC"]
-    - iteration: 2
-      failing_tests: ["TestA", "TestB"]
 ---
 # Execution Handoff
 
@@ -661,10 +642,9 @@ When `/ship-execute` runs and `<SHIPYARD_DATA>/sprints/current/HANDOFF.md` exist
 2. **Accumulate paused time:** If HANDOFF.md frontmatter has a `paused_at` value (non-null), compute `paused_minutes = round((now - paused_at) / 60)` where `now` is the current time and `paused_at` is the ISO 8601 timestamp from HANDOFF.md. Add `paused_minutes` to `total_paused_minutes` in SPRINT.md frontmatter (if `total_paused_minutes` is absent or null, treat it as 0 before adding). Then clear `paused_at` from HANDOFF.md (set it to null).
 3. Read PROGRESS.md — verify completed tasks match
 4. Check git branch — ensure we're on the right branch
-5. **REFACTOR loop resume:** If HANDOFF.md frontmatter contains `refactor_loop` (non-null), the session was paused mid-REFACTOR loop. Reconstruct loop state from it: `current_iteration` is where the loop stopped, `failing_tests` is the last known failure set, `iteration_history` has the per-iteration record. Continue the loop from `current_iteration + 1` — do NOT restart from iteration 1. See `references/refactor-loop.md` for the algorithm. If `current_iteration` is already 3 (cap reached but pause happened before PROGRESS.md write): write the deviation entry and proceed to VERIFY.
-6. If team mode: `TeamCreate(team_name)` (previous session's team is gone). Create new worktrees from the working branch HEAD (which now includes all salvaged work from Step 0). Re-spawn teammates using the session resume prompt from team-mode.md. Use `teammates` field from HANDOFF.md for which feature tracks need re-spawning (max 4 concurrent — restore the queue from `queued_tracks` field). Previous teammate sessions are always dead after a session break — always re-spawn.
-7. Delete HANDOFF.md (it's consumed)
-8. Continue from the next step documented in handoff
+5. If team mode: `TeamCreate(team_name)` (previous session's team is gone). Create new worktrees from the working branch HEAD (which now includes all salvaged work from Step 0). Re-spawn teammates using the session resume prompt from team-mode.md. Use `teammates` field from HANDOFF.md for which feature tracks need re-spawning (max 4 concurrent — restore the queue from `queued_tracks` field). Previous teammate sessions are always dead after a session break — always re-spawn.
+6. Delete HANDOFF.md (it's consumed)
+7. Continue from the next step documented in handoff
 
 This works alongside `claude --continue` — the session history gives conversation context, HANDOFF.md gives project state context.
 
