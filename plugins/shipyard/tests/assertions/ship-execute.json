@@ -80,11 +80,6 @@
     "pattern": "rebase"
   },
   {
-    "name": "has_tdd_cycle_ref",
-    "type": "contains",
-    "pattern": "tdd-cycle\\.md"
-  },
-  {
     "name": "has_git_strategy_ref",
     "type": "contains",
     "pattern": "git-strategy\\.md"
@@ -139,11 +134,6 @@
     "name": "git_strategy_exists",
     "type": "file_exists",
     "path": "skills/ship-execute/references/git-strategy.md"
-  },
-  {
-    "name": "tdd_cycle_exists",
-    "type": "file_exists",
-    "path": "skills/ship-execute/references/tdd-cycle.md"
   },
   {
     "name": "team_mode_exists",
@@ -234,11 +224,6 @@
     "name": "wave_status_projection",
     "type": "contains",
     "pattern": "Wave \\[N\\]/\\[M\\]|→ Wave"
-  },
-  {
-    "name": "has_learning_opportunity",
-    "type": "contains",
-    "pattern": "LEARNING OPPORTUNITY|learnings"
   },
   {
     "name": "uses_shipyard_data_path",
@@ -550,29 +535,9 @@
     "pattern": "[Ii]tem completeness|discrete items.*grep|100%.*incomplete"
   },
   {
-    "name": "mentions_live_capture_section",
-    "type": "contains",
-    "pattern": "Live Verification Capture"
-  },
-  {
-    "name": "references_live_capture_md",
-    "type": "contains",
-    "pattern": "live-capture\\.md"
-  },
-  {
     "name": "mentions_shipyard_logcap_binary",
     "type": "contains",
     "pattern": "shipyard-logcap"
-  },
-  {
-    "name": "explains_capture_why_not_rule",
-    "type": "contains",
-    "pattern": "[Rr]e-runs burn tokens|re-analys|re-grep"
-  },
-  {
-    "name": "sets_logcap_session_per_wave",
-    "type": "contains",
-    "pattern": "SHIPYARD_LOGCAP_SESSION"
   },
   {
     "name": "live_capture_ref_exists",
@@ -637,18 +602,6 @@
     "pattern": "operational_task_bogus_pass"
   },
   {
-    "name": "operational_ref_uses_shipyard_logcap",
-    "type": "contains",
-    "pattern": "shipyard-logcap run",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_has_fix_findings_loop",
-    "type": "contains",
-    "pattern": "fix-findings|Fix-findings",
-    "target": "ref:operational-tasks.md"
-  },
-  {
     "name": "operational_ref_has_max_iterations",
     "type": "contains",
     "pattern": "max_iterations"
@@ -660,105 +613,10 @@
     "target": "ref:operational-tasks.md"
   },
   {
-    "name": "operational_ref_forbids_recursion",
-    "type": "contains",
-    "pattern": "Recursion is forbidden|MUST be `kind: feature`|nest operational tasks",
-    "target": "ref:operational-tasks.md",
-    "dotall": true
-  },
-  {
-    "name": "operational_ref_verify_history_append",
-    "type": "contains",
-    "pattern": "verify_history",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_emits_verify_started",
-    "type": "contains",
-    "pattern": "operational_task_verify_started",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_emits_passed",
-    "type": "contains",
-    "pattern": "operational_task_passed",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_emits_bogus_pass",
-    "type": "contains",
-    "pattern": "operational_task_bogus_pass",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_escalation_path",
-    "type": "contains",
-    "pattern": "operational_task_escalated|needs-attention",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_empty_capture_check",
-    "type": "contains",
-    "pattern": "empty capture|zero.byte|non-zero byte count|CAPTURE_BYTES|wc -c",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_has_classifier_table",
-    "type": "contains",
-    "pattern": "actionable.*non-actionable|actionable_findings|Classify findings",
-    "target": "ref:operational-tasks.md",
-    "dotall": true
-  },
-  {
-    "name": "operational_ref_patch_task_id_pattern",
-    "type": "contains",
-    "pattern": "PARENT_TASK_ID.*p<iteration|p<N><letter|T07-p1a",
-    "target": "ref:operational-tasks.md",
-    "dotall": true
-  },
-  {
-    "name": "operational_ref_uses_write_tool_for_patches",
-    "type": "contains",
-    "pattern": "Write tool directly|use the Write tool",
-    "target": "ref:operational-tasks.md"
-  },
-  {
     "name": "operational_ref_patch_template_has_kind_feature",
     "type": "contains",
     "pattern": "kind: feature",
     "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_parent_operational_audit_trail",
-    "type": "contains",
-    "pattern": "parent_operational",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_has_decision_tree",
-    "type": "contains",
-    "pattern": "iteration_budget_exhausted.*patch_task_cap_exceeded.*finding_reappeared_after_fix",
-    "target": "ref:operational-tasks.md",
-    "dotall": true
-  },
-  {
-    "name": "operational_ref_patches_serial_not_parallel",
-    "type": "contains",
-    "pattern": "serial|sequentially|serial dispatch",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_no_worktree_isolation_for_patches",
-    "type": "contains",
-    "pattern": "no `isolation: worktree`|Omit it|without a worktree",
-    "target": "ref:operational-tasks.md"
-  },
-  {
-    "name": "operational_ref_patches_persist_as_audit",
-    "type": "contains",
-    "pattern": "Do not delete patch task files|audit trail|persist.*spec/tasks",
-    "target": "ref:operational-tasks.md",
-    "dotall": true
   },
   {
     "name": "research_tasks_ref_exists",
@@ -789,45 +647,9 @@
     "target": "ref:research-tasks.md"
   },
   {
-    "name": "research_ref_has_scope_resolution",
-    "type": "contains",
-    "pattern": "research_scope",
-    "target": "ref:research-tasks.md"
-  },
-  {
-    "name": "research_ref_has_output_field",
-    "type": "contains",
-    "pattern": "research_output",
-    "target": "ref:research-tasks.md"
-  },
-  {
-    "name": "research_ref_emits_started",
-    "type": "contains",
-    "pattern": "research_task_started",
-    "target": "ref:research-tasks.md"
-  },
-  {
-    "name": "research_ref_emits_passed",
-    "type": "contains",
-    "pattern": "research_task_passed",
-    "target": "ref:research-tasks.md"
-  },
-  {
     "name": "research_ref_emits_bogus_pass",
     "type": "contains",
     "pattern": "research_task_bogus_pass",
-    "target": "ref:research-tasks.md"
-  },
-  {
-    "name": "research_ref_emits_escalated",
-    "type": "contains",
-    "pattern": "research_task_escalated|needs-attention",
-    "target": "ref:research-tasks.md"
-  },
-  {
-    "name": "research_ref_no_fix_findings_loop",
-    "type": "contains",
-    "pattern": "No fix-findings loop|no fix-findings loop|one-shot",
     "target": "ref:research-tasks.md"
   },
   {
@@ -840,13 +662,6 @@
     "name": "post_subagent_research_gate",
     "type": "contains",
     "pattern": "research_output.*research|kind: research.*research_output",
-    "dotall": true
-  },
-  {
-    "name": "research_ref_slug_from_existing_filename",
-    "type": "contains",
-    "pattern": "read the task's existing slug|existing slug from its filename|Glob.*spec/tasks",
-    "target": "ref:research-tasks.md",
     "dotall": true
   },
   {
@@ -874,20 +689,6 @@
     "pattern": "porcelain check|research_out_of_scope_write|Write-scope enforcement"
   },
   {
-    "name": "operational_ref_iteration_counter_semantics",
-    "type": "contains",
-    "pattern": "Counter unit semantics|counts the.*verify runs|initial verify.*re-verifies",
-    "target": "ref:operational-tasks.md",
-    "dotall": true
-  },
-  {
-    "name": "operational_ref_kind_research_points_at_research_tasks_ref",
-    "type": "contains",
-    "pattern": "kind: research.*research-tasks\\.md",
-    "target": "ref:operational-tasks.md",
-    "dotall": true
-  },
-  {
     "name": "skill_mentions_idea_capture_chain",
     "type": "contains",
     "pattern": "IDEA.*spec/ideas|Capture Deferred Unknowns"
@@ -906,11 +707,6 @@
     "name": "ship_execute_forbids_run_pipe_to_tail_in_body",
     "type": "not_contains",
     "pattern": "shipyard-logcap run[^\\n]*\\|[^\\n]*tail"
-  },
-  {
-    "name": "ship_execute_live_capture_covers_backgrounding_trap",
-    "type": "contains",
-    "pattern": "0-byte|exit\\s*14[347]|Backgrounded .run. killed|apparent-wrapper-failure"
   },
   {
     "name": "uses_max_parallel_agents_from_config",
@@ -1014,12 +810,6 @@
     "type": "contains",
     "pattern": "NEVER skip TDD.*fast mode.*deferred.*not skipped",
     "dotall": true
-  },
-  {
-    "name": "tdd_cycle_ref_mentions_fast_mode",
-    "type": "contains",
-    "pattern": "Fast mode.*--fast",
-    "target": "ref:tdd-cycle.md"
   },
   {
     "name": "has_heartbeat_check",

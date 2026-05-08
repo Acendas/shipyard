@@ -120,7 +120,7 @@ If checks 1-2 fail → run `git init` (if needed), then `git add -A && git commi
 - **LSP first.** Use LSP (`documentSymbol`, `goToDefinition`, `findReferences`, `hover`) before Grep/Read for all code navigation. Fall back silently if LSP is unavailable. Pass this to builder subagents. Full strategy: `references/lsp-strategy.md`.
 - **Stay lean as orchestrator** (~10-15% context). Pass file paths to subagents, not contents. State lives in PROGRESS.md / HANDOFF.md, not conversation. Spot-check results before trusting them. Full guide: `references/context-management.md`.
 - **Git strategy.** Work on the user's current branch — no sprint branches, no pushes. Solo commits directly; subagent/team mode uses per-task or per-feature worktrees that rebase back at wave/feature end. Worktrees branch from current local HEAD. Atomic commits per task. Full strategy: `references/git-strategy.md`.
-- **Live capture.** Wrap verification commands you'll want to re-inspect with `shipyard-logcap run <name> --max-size <S> --max-files <N> -- <command>` — tees output to a rotating temp file. Skip when the command already file-backs its output. Decision table for bounds: `references/live-capture.md`.
+- **Output capture.** Test/build/E2E commands and other verification runs are dispatched via `shipyard:dispatching-operational-task`, which captures stdout+stderr to `<SHIPYARD_DATA>/captures/<task_id>/run-<N>.log` via plain `tee`. No `shipyard-logcap` dependency. Don't run verification commands directly in this session — delegate.
 - **Communication.** Blocker reports and decisions use the 3-layer pattern (one-liner / context / options); keep under 100 words; always recommend a default. Full guide: `references/communication-design.md`.
 
 ## FULL SPRINT Execution
@@ -202,12 +202,6 @@ Then use `AskUserQuestion` with options (2-4 options, use multi-select where cho
 
 ### Step 2: Execute Waves
 
-**Capture session tag (per wave).** Before spawning builders for a wave, use the Write tool to create/overwrite `<SHIPYARD_DATA>/.active-logcap-session` with a single line containing `<sprint-id>-wave-<N>` (e.g., `sprint-007-wave-2`). This is the file that `shipyard-logcap` reads to decide which session directory new captures land in — writing it here means every logcap invocation from any skill, subagent, or hook during this wave automatically groups into one folder without needing an env var.
-
-**Why the file and not an env var:** each Bash tool call in Claude Code spawns a fresh shell, so shell-level exports of the session variable do NOT propagate to the next invocation or to subagents. The file sentinel at `<SHIPYARD_DATA>/.active-logcap-session` is the only mechanism that works cross-process, cross-subagent, and cross-hook. `shipyard-logcap` reads it internally (resolution order: env var → file → per-day fallback) so neither you nor the builder needs to know about it after this single write.
-
-**Clearing the session** is optional — if you don't overwrite the file at wave boundaries, the next wave will inherit the prior wave's session name until a new write lands. Best practice: overwrite at the start of every wave with the new `<sprint-id>-wave-<N+1>` value so `shipyard-logcap list` shows a clean wave-by-wave layout. At sprint completion, overwrite with `<sprint-id>-complete` so any post-sprint verification (ship-review runs) lands in its own folder.
-
 For each wave (starting from current):
 
 **ALWAYS delegate task execution to subagents.** Every task runs in a fresh context window — this keeps the orchestrator lean and prevents context degradation across waves. The mode determines parallelism, not whether subagents are used.
@@ -220,7 +214,7 @@ Spawn subagents **in parallel** — up to `execution.max_parallel_agents` from c
 
 #### Team Mode (10+ tasks)
 Spawn persistent teammates per feature track using Agent Teams. Each teammate works through all tasks in its feature — more efficient than per-task subagents for features with 3+ tasks. **Max `execution.max_parallel_agents` concurrent teammates** (default 3, hard ceiling 4) — additional feature tracks are queued and spawned as earlier ones complete.
-**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/team-mode.md`
+**Read the full protocol** in `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/team-mode.md`. (Team-mode workarounds for Anthropic's then-buggy worktree-isolation are mostly obsolete — the file is on track for retirement once Anthropic's native Agent Teams worktree isolation is GA. Keep using `general-purpose` + `team_name` per the `using-worktrees` capability skill until then.)
 
 #### Pre-spawn Branch Check (subagent AND team mode)
 
@@ -241,8 +235,8 @@ The WorktreeCreate hook branches worktrees from the current local branch. If the
 Before spawning any agent for a task, read the task file frontmatter and check `kind:`. The dispatch path depends on the kind — getting this wrong is how the silent-pass bug happens.
 
 - **`kind: feature`** or **absent** → standard `shipyard-builder` dispatch below (this is the path the rest of this section documents).
-- **`kind: operational`** → **DO NOT spawn the builder.** Follow the full protocol in `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/operational-tasks.md`. That file defines how to resolve `verify_command`, dispatch `shipyard-test-runner` via `shipyard-logcap`, run the fix-findings loop, and gate "done" on captured output. The post-subagent gate at the end of this step also has an operational-specific branch — see Step 2 Post-Subagent below.
-- **`kind: research`** → **DO NOT spawn the builder.** Follow the full protocol in `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/research-tasks.md`. Research tasks dispatch to `shipyard-researcher` in task-driven mode (the agent has `Write` scoped to `<SHIPYARD_DATA>/research/` for exactly this purpose). The dispatcher gates done on a populated `research_output:` field pointing at a non-empty findings doc with at least one `### Finding` section. Post-subagent gate for research tasks is Step 2 "Post-Subagent" steps 9–11 below.
+- **`kind: operational`** → invoke `shipyard:dispatching-operational-task` capability skill. It owns the verify_command resolution, the run+capture phase, the bounded fix-findings loop (cap from `operational_tasks.max_iterations`), and the orchestrator-side gate (verify_output populated, capture file non-empty, final exit:0, LAST_LINES match).
+- **`kind: research`** → invoke `shipyard:dispatching-research-task` capability skill. It owns the Write-scope HARD GATE (one findings doc), the Findings Doc Template, and the orchestrator-side gate (file exists + ≥1 `### Finding` section + porcelain-clean).
 
 **Why this matters.** The silent-pass failure mode — `/ship-execute` marking "run E2E suite and fix findings" tasks done without running any tests — is the exact bug introduced when operational tasks hit the builder. The builder has no Red step for an operational task, exits clean on an empty tree, and the "Before Exiting" check passes trivially. This routing split is the primary fix. The `shipyard-builder` agent ALSO has a Step 0 HARD STOP that refuses any task with `kind: operational` — but that's defense in depth. The first line of defense is this router.
 
@@ -315,14 +309,14 @@ Spot-check each subagent before merging. The check differs by task kind — read
 5. Verify the task file now has a non-empty `verify_output:` field. If missing or empty → emit `operational_task_bogus_pass` with `reason=missing_verify_output` and do NOT mark done.
 6. Verify the capture exists and is non-empty. Using the name from `verify_output:`, resolve its path via `shipyard-logcap path <name>` and check byte count (for example, via `shipyard-logcap tail <name> | wc -c`). If the file is missing or zero-byte → emit `operational_task_bogus_pass` with `reason=empty_capture` or `capture_file_missing` and do NOT mark done.
 7. Verify the final `verify_history` entry on the task file has `exit: 0`. If the last attempt exited non-zero, the task is not done regardless of what the dispatcher wrote — emit `operational_task_bogus_pass` with `reason=final_history_not_green`.
-8. A task that fails any of 5–7 is re-dispatched through the operational loop (if under iteration budget) or escalated (Step 5 of `references/operational-tasks.md`).
+8. A task that fails any of 5–7 is handled by `shipyard:dispatching-operational-task`'s internal retry budget; escalation to user (when budget exhausted) is the capability skill's responsibility.
 
 **For `kind: research` tasks:**
 9. Verify the task file now has a non-empty `research_output:` field. If missing or empty → emit `research_task_bogus_pass` with `reason=missing_research_output` and do NOT mark done.
 10. Resolve the path: either literal absolute path, or relative-to-research-dir (join `<SHIPYARD_DATA>/research/` + value). Use `Read` to confirm the file exists and is not empty. Missing → `research_task_bogus_pass` with `reason=output_file_missing`. Empty or nearly empty (no substantive body) → `reason=empty_findings_doc`.
 11. Verify the doc has at least one `### Finding` section (use Grep with pattern `^### Finding`). Zero matches → `research_task_bogus_pass` with `reason=no_findings_reported`. The Findings Doc Template requires at least one numbered finding; a zero-finding doc is a stub and does not satisfy the task.
-12. **Write-scope enforcement.** The researcher has the `Write` tool but is contractually scoped to the single findings doc at the dispatch path. Run the porcelain check: working tree must be byte-identical to the pre-dispatch snapshot, and `<SHIPYARD_DATA>/research/` must differ by exactly one file (the expected findings doc). Any other write → emit `research_out_of_scope_write` with the list of unexpectedly modified files and escalate directly (do NOT retry — retrying produces another out-of-scope write). The full protocol is in `references/research-tasks.md` Post-Subagent gate check #5.
-13. A task that fails 9–11 is re-dispatched through the research protocol (Step 3 failure path of `references/research-tasks.md`, single retry allowed only for transient failures) or escalated (Step 4 of that file). A task that fails 12 is escalated without retry.
+12. **Write-scope enforcement** is handled by `shipyard:dispatching-research-task`'s orchestrator-side gate (porcelain check after subagent return). Out-of-scope writes emit `research_out_of_scope_write` and escalate without retry.
+13. A task that fails 9–11 retries through the capability skill's single-retry budget (transient only) or escalates to user. The capability skill body owns the budget.
 
 **This is the last line of defense** against silent-pass regression across all three kinds. Even if the router drifts, the builder guard drifts, and the operational/research dispatchers drift, these checks catch the exact failure modes: operational tasks marked done without captured command output, research tasks marked done without a substantive findings doc.
 
@@ -339,7 +333,7 @@ Rebase and merge verified worktree branches back to the working branch (subagent
 
 Each task is a small, focused unit of work: **write tests → write implementation → commit**. In fast mode (`--fast`), builders write tests but skip all test execution — tests are deferred to the wave boundary. In normal mode, builders run logcap captures at RED (`<TASK_ID>-red`) and GREEN (`<TASK_ID>-green`) phases. REFACTOR, MUTATE, and VERIFY all happen in Step 4.
 
-**Read the full cycle details:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/tdd-cycle.md`
+**Read the full cycle details** in the `shipyard:tdd-cycle` capability skill — the canonical Iron Law and Red→Green→Refactor contract. The `dispatching-task-loop` capability skill inlines the same Iron Law into every subagent prompt.
 
 Per-task summary:
 1. **READ SPEC** → understand what to build
