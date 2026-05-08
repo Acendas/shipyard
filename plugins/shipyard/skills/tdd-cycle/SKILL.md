@@ -57,7 +57,7 @@ RED → GREEN → REFACTOR → repeat
 2. **Write the test.** Place it in the correct test file with proper imports and assertions. The assertion should encode the *behavior* the scenario describes, not the implementation.
 3. **Run the test.** Watch it fail.
    - **Fail must be for the right reason.** "ImportError: module not found" or "function not defined" is the expected failure mode for a fresh feature. A pass on the first run means the test isn't testing what you think — fix the test before proceeding.
-   - In Fast mode (per `ship-execute`'s wave-boundary policy), test execution defers to the wave boundary — but the test still gets written first. Fast mode never excuses skipping the *write-test-before-code* discipline.
+   - Per `ship-execute`'s wave-boundary policy, test *execution* defers to the wave boundary (scoped) and sprint completion (full) — but the test still gets written first. The deferred-execution policy never excuses skipping the *write-test-before-code* discipline. The per-task acceptance probe runs inside the task and is the wiring-proof signal; the deferred suite is the unit-level proof.
 4. **Capture the failure output** (the last 10 lines and exit code). You'll paste this into the commit body.
 
 ### GREEN — Make it pass with the minimum code

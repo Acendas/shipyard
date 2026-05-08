@@ -619,32 +619,6 @@
     "pattern": "Full test suite|full test suite.*sprint completion|only time the entire suite runs"
   },
   {
-    "name": "fast_mode_in_detect_mode",
-    "type": "contains",
-    "pattern": "--fast.*[Ff]ast mode"
-  },
-  {
-    "name": "fast_mode_passed_to_builder",
-    "type": "contains",
-    "pattern": "Fast mode:.*yes.*--fast"
-  },
-  {
-    "name": "fast_mode_in_readiness_check",
-    "type": "contains",
-    "pattern": "fast mode"
-  },
-  {
-    "name": "fast_mode_in_step3",
-    "type": "contains",
-    "pattern": "fast mode.*builders write tests but skip all test execution",
-    "dotall": true
-  },
-  {
-    "name": "fast_mode_hotfix_ignored",
-    "type": "contains",
-    "pattern": "--fast.*ignored.*hotfix"
-  },
-  {
     "name": "has_heartbeat_check",
     "type": "contains",
     "pattern": "\\.heartbeat"
@@ -673,20 +647,8 @@
     "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
   },
   {
-    "name": "refactor_loop_standard_mode_only",
-    "type": "contains",
-    "pattern": "REFACTOR LOOP.*standard mode only|standard mode only.*REFACTOR LOOP",
-    "dotall": true
-  },
-  {
     "name": "refactor_loop_replaces_old_fixer_flow",
     "type": "not_contains",
     "pattern": "If wave-scoped tests FAIL.*Spawn.*builder.*AskUserQuestion|AskUserQuestion.*B-INT-.*bug file"
-  },
-  {
-    "name": "refactor_loop_fast_mode_skip",
-    "type": "contains",
-    "pattern": "[Ff]ast mode.*skip.*REFACTOR loop|REFACTOR loop.*[Ff]ast mode.*skip",
-    "dotall": true
   }
 ]

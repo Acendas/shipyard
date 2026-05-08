@@ -38,7 +38,6 @@ If the planning lock is held by a live different session, print the HARD BLOCK m
 - `--task T001` → Execute single task only
 - `--hotfix B-HOT-001` → Hotfix mode (branch from main, bypass sprint)
 - `--mode solo|subagent|team` → Override execution mode
-- `--fast` → Fast mode: sets `Fast mode: yes` in builder prompts when `--fast` is used; builders write tests but skip all test execution (deferred to wave boundary). REFACTOR loop and wave-scoped tests are skipped.
 - No args → Execute full sprint from current wave
 
 ---
@@ -194,7 +193,6 @@ Pass these parameters to `dispatching-task-loop`:
 | `acceptance_probe` | `acceptance_probe:` from the task's frontmatter (HALT and surface to user if missing — task is unauthorable without one) |
 | `data_dir` | Literal SHIPYARD_DATA path |
 | `worktree_path` | null in solo mode; absolute worktree path in subagent/team mode |
-| `fast_mode` | `true` if `--fast` was passed, else `false` |
 
 In **subagent/team mode**, the capability skill internally dispatches with `isolation: "worktree"` (per `using-worktrees` — Anthropic's stable primitive). In **solo mode**, no isolation. The skill handles both transparently.
 
@@ -221,9 +219,9 @@ Most kind-specific gating already lives inside the dispatching-* capability skil
 
 This is the last line of defense against silent-pass regression. Capability-skill gates plus these orchestrator-side checks together cover the failure modes: false completion, stub commits, missing capture, missing findings doc, out-of-scope writes.
 
-### Step 3: Per-Task Execution (RED → GREEN)
+### Step 3: Per-Task Execution (implementation only)
 
-Each task is a small, focused unit of work: **write tests → write implementation → commit**. In fast mode (`--fast`), builders write tests but skip all test execution — tests are deferred to the wave boundary. In normal mode, builders run logcap captures at RED (`<TASK_ID>-red`) and GREEN (`<TASK_ID>-green`) phases. REFACTOR, MUTATE, and VERIFY all happen in Step 4.
+Each task is a small, focused unit of work: **write tests → write implementation → run acceptance probe → commit**. Tasks do NOT execute the test suite — test execution is deferred. Wave-scoped tests run at the wave boundary (Step 4); the full suite runs at sprint completion (Step 5). The per-task acceptance probe is the only check that fires inside the task.
 
 **Read the full cycle details** in the `shipyard:tdd-cycle` capability skill — the canonical Iron Law and Red→Green→Refactor contract. The `dispatching-task-loop` capability skill inlines the same Iron Law into every subagent prompt.
 
@@ -231,17 +229,17 @@ Per-task summary:
 1. **READ SPEC** → understand what to build
 2. **READ CODEBASE** → check existing patterns
 3. **PLAN** → decide approach
-4. **RED** → write tests that would fail; run via logcap (normal mode) or skip run (fast mode)
-5. **GREEN** → implement; run tests via logcap (normal mode) or skip run (fast mode)
-6. **COMPLETENESS CHECK** → if Technical Notes lists discrete items, grep to confirm every one was addressed
-7. **COMMIT** → `feat(TASK_ID): [description]`, update task status to `done`
+4. **RED** → write tests that would fail (do NOT run them — wave boundary executes tests)
+5. **GREEN** → implement; trust the test contract you just wrote
+6. **PROBE** → run the task's `acceptance_probe:` (single command, exit 0 + observable output)
+7. **COMPLETENESS CHECK** → if Technical Notes lists discrete items, grep to confirm every one was addressed
+8. **COMMIT** → `feat(TASK_ID): [description]`, update task status to `done`
 
 Key rules:
-- Tests MUST be written before implementation
-- Fast mode defers test execution; normal mode runs tests at task level via logcap
-- Commit format: `feat(TASK_ID): [description]`
-- Update task file status to `done` after each task
-- Log session progress in PROGRESS.md (blockers, deviations — NOT task completion status)
+- Tests MUST be written before implementation. Test *execution* is deferred to wave/sprint boundaries; the test-first discipline is unchanged.
+- The acceptance probe is the only thing run inside the task — it proves the wiring works without running the suite.
+- Commit format: `feat(TASK_ID): [description]`. Update task file status to `done` after each.
+- Log session progress in PROGRESS.md (blockers, deviations — NOT task completion status).
 
 ### Step 4: Wave Boundary Check
 
@@ -252,7 +250,7 @@ Between waves:
 3. **Update PROGRESS.md** `current_wave: <next>`. Wrap in `shipyard-data with-lock sprint --` if a parallel writer is possible (recovery, review fixers).
 4. **Wave-scoped build** (if `build_commands.scoped` or `build_commands.full` configured): invoke `shipyard:dispatching-operational-task` with the build command. Failure → re-dispatch the same capability skill to drive a bounded fix loop.
 5. **Wave REFACTOR + MUTATE**: dispatch a `general-purpose` subagent with an inline wave-refactor prompt (read the combined wave diff, dedupe + rename + add helpers, run a small mutation check, commit if changes). Not a wave blocker — failure logs to PROGRESS.md and advances.
-6. **Wave-scoped tests + single fix iteration** (standard mode only): invoke `shipyard:dispatching-operational-task` with the test command. Failure → ONE re-dispatch via `shipyard:dispatching-task-loop` with the failing-test list as `continuation_note`. Persistent failure logs to PROGRESS.md and advances. **Fast mode skips this step.**
+6. **Wave-scoped tests + single fix iteration**: invoke `shipyard:dispatching-operational-task` with `test_commands.scoped` (or `test_commands.unit` if no scoped variant). This is the first time tests run for the wave's merged code. Failure → ONE re-dispatch via `shipyard:dispatching-task-loop` with the failing-test list as `continuation_note`. Persistent failure logs to PROGRESS.md and advances.
 7. **Wave VERIFY**: invoke `shipyard:dispatching-spec-review` with `scope: "wave"`, `target_ids: [task_ids]`, `base_ref` (pre-wave HEAD), `head_ref` (current HEAD). FINDINGS → single re-dispatch per task via `dispatching-task-loop`; persistent gaps → `needs-attention` and surface to `/ship-review`.
 8. **Report and continue** — emit a one-line wave status (`Wave [N]/[M] ✓ [████░░░░] [done]/[total] tasks • → Wave [N+1]`). **Do NOT pause, do NOT suggest `/clear`, do NOT ask "continue?"** — auto-advance.
 9. **Context pressure: warn-only.** If `<SHIPYARD_DATA>/.active-execution.json`'s `compaction_count` ≥ 4, append `⚠ Context summarised N times — consider /clear then /ship-execute`. The pre-2.0 auto-pause-at-5 logic is gone (F-40); the PostCompact hook is gone (F-3). Counter survives as informational only.
@@ -306,7 +304,7 @@ Single-task mode follows the same structure: builder writes tests + implementati
 
 Shipyard does not create branches, merge, or push for hotfixes — the user handles their own git workflow. Hotfix does NOT affect sprint state or velocity.
 
-Hotfix mode always runs tests at task level — the regression test is the whole point of a hotfix. The `--fast` flag is ignored in hotfix mode — tests always run to verify the regression is caught.
+Hotfix mode is the one exception that DOES run tests at task level — the regression test is the whole point of a hotfix, and you need to see it go red→green→still-red-after-revert→green to prove the fix actually catches the bug. Sprint tasks never run tests at task level (deferred to wave boundary); hotfix tasks always do.
 
 ---
 
@@ -361,7 +359,7 @@ Step 0 (worktree salvage) has already run before reaching On Resume. Works along
 
 ## Rules
 
-- NEVER skip TDD. Fast mode defers test *execution* to the wave boundary; the test-first discipline is unchanged.
+- NEVER skip TDD. Test *execution* is deferred to wave/sprint boundaries; the test-first discipline is unchanged. Tasks write tests before implementation; scoped tests run at the wave boundary; the full suite runs at sprint completion. Hotfix is the one exception (always runs tests at task level).
 - NEVER modify test assertions to pass — fix the implementation.
 - NEVER build beyond acceptance criteria.
 - ALWAYS commit atomically per task; update task `status: done` after each.

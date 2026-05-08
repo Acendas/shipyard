@@ -23,7 +23,6 @@ Invoke this capability skill from a command skill (`ship-execute`, `ship-quick`,
 - `acceptance_probe` — the smoke command from the task frontmatter (required; if missing, halt and surface to the user — the task is unauthorable without one)
 - `data_dir` — literal `<SHIPYARD_DATA>` path
 - `worktree_path` — only when worktree-isolating (subagent/team mode); else null
-- `fast_mode` — boolean from `--fast` flag
 
 ## The Subagent Prompt Template
 
@@ -40,7 +39,6 @@ ID: {{task_id}}
 Working branch: {{working_branch}}
 Worktree path: {{worktree_path_or_none}}
 Data dir: {{data_dir}}
-Fast mode: {{fast_mode}}
 
 Reading list (read these files before doing anything else):
 - {{task_file_path}}                         (your task spec — frontmatter + acceptance criteria)
@@ -75,17 +73,19 @@ Loop until the acceptance probe passes AND no stubs remain. Do not exit otherwis
 
 1. **Read** the task spec, parent feature, codebase-context. Identify the acceptance
    criteria and the Technical Notes (URLs, gotchas, files-to-modify).
-2. **Write tests (RED)** that exercise each acceptance scenario. Run them via
-   `{{test_command}}` and confirm they fail for the expected reason (function/module
-   missing). If a test passes immediately, it isn't testing the right thing — fix it.
-3. **Write implementation (GREEN)** — minimum code to pass. Run tests. If they fail,
-   fix the implementation, not the test.
-4. **Run the acceptance probe** to demonstrate wiring works:
+2. **Write tests (RED)** that exercise each acceptance scenario. Place them in the
+   correct test files with proper imports and assertions. Do NOT execute them — test
+   *execution* is deferred (scoped tests run at the wave boundary, full suite at
+   sprint completion). Your acceptance probe (step 4) is the only check that runs
+   inside this task.
+3. **Write implementation (GREEN)** — minimum code to satisfy the test contract you
+   just wrote. Trust the assertions; the wave boundary will execute them.
+4. **Run the acceptance probe** to demonstrate wiring works end-to-end:
        PROBE: {{acceptance_probe}}
    The probe is your authoritative signal. Capture exit code and the last 20 lines
    of output verbatim.
 5. **If probe exit ≠ 0:** reflect on the output. What does the failure tell you about
-   what's actually wired? Fix it. Re-run RED → GREEN → PROBE. Loop.
+   what's actually wired? Fix it. Re-run the probe. Loop.
 6. **If probe passes:** scan your own diff for stubs (the rules above). If any stub
    remains, fix it and re-probe. Otherwise commit.
 7. **Commit atomically:** `feat({{task_id}}): <one-line>` with the probe output tail
@@ -166,8 +166,8 @@ The subagent's exit contract is the same Iron Law as Ralph's promise — but at 
 ## Integration Notes
 
 - **Worktree mode.** When `worktree_path` is non-null, the orchestrator pre-creates the worktree (`git worktree add` from the working branch's HEAD). The subagent's `cd` is implicit because the orchestrator passes the worktree path; the subagent operates from there. With Anthropic's `isolation: worktree` fix, you may pass `isolation: "worktree"` directly on the Agent call instead — both work; pre-creation is more explicit.
-- **Fast mode.** When `fast_mode=true`, the prompt above changes step 4: "skip running tests via {{test_command}}; the wave-boundary REFACTOR builder runs them." But the probe is still required — fast mode never skips the probe. Probe is the wiring proof; tests are the unit-level proof.
-- **Hotfix.** Same template, with the regression-test cycle (Red → Green → Revert → Red → Restore → Green) explicitly required in the prompt prefix. The probe is the regression scenario itself.
+- **Test execution is deferred by default.** Tasks write tests but do NOT run them — scoped tests run at the wave boundary, full suite at sprint completion. The acceptance probe is the only check that runs inside the task; it's the wiring proof, the deferred suite is the unit-level proof. This is the only mode of operation; there's no opt-in flag.
+- **Hotfix is the one exception** that DOES run tests at task level. The regression-test cycle (Red → Green → Revert → Red → Restore → Green) requires watching the test go through the full red-green-red-green motion — a deferred suite can't prove a regression test catches the specific bug. Hotfix dispatches inline this discipline; sprint dispatches don't.
 
 ## Failure Modes the Contract Catches
 
