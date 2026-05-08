@@ -76,11 +76,6 @@
     "pattern": "shipyard-logcap"
   },
   {
-    "name": "links_live_capture_reference",
-    "type": "contains",
-    "pattern": "live-capture\\.md"
-  },
-  {
     "name": "no_shell_sd_substitution",
     "type": "not_contains",
     "pattern": "\\$\\(shipyard-data"

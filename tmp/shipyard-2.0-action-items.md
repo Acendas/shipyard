@@ -422,7 +422,7 @@ User said it works. Minimum-touch.
 
 User said it works. Minimum-touch. Possibly the cleanest skill since it's read-only.
 
-- [ ] **F-58.** Keep as-is structurally. Update calls to retired CLIs.
+- [x] **F-58.** Keep as-is structurally. Update calls to retired CLIs. *(DONE: ship-status SKILL.md audit clean — no registered-agent or stale-CLI references. Read-only skill is structurally correct as-is. Sized 296 lines; no slim needed.)*
 
 ---
 
@@ -430,8 +430,8 @@ User said it works. Minimum-touch. Possibly the cleanest skill since it's read-o
 
 Smaller skills. Quick audit:
 
-- [ ] **F-59.** `ship-help`, `ship-bug`, `ship-quick` — likely fine at current size. Check for registered-agent dispatches and CLI references; rewire.
-- [ ] **F-60.** `ship-debug` — Anthropic now has a `Debug` plan-mode-style flow. Worth re-reading to see if any of `ship-debug`'s logic should defer to native debugging.
+- [x] **F-59.** `ship-help`, `ship-bug`, `ship-quick` — likely fine at current size. Check for registered-agent dispatches and CLI references; rewire. *(DONE: audit found one stale `references/live-capture.md` link in ship-bug (now a dead path) — replaced with explicit plain-`tee` capture instructions inline. ship-help is clean. ship-quick's companion `references/verification-capture.md` updated to point at dispatching-operational-task and remove dead cross-refs to live-capture. No registered-agent dispatches remain in any of the three.)*
+- [x] **F-60.** `ship-debug` — Anthropic now has a `Debug` plan-mode-style flow. Worth re-reading to see if any of `ship-debug`'s logic should defer to native debugging. *(DONE: audit found one stale `references/live-capture.md` link in ship-debug — replaced with inline bounds suggestions (no external file dependency). The skill's hypothesis-elimination methodology is genuinely Shipyard-specific and not duplicative of Anthropic's Debug plan-mode (which is more about pause-and-think during tasks); ship-debug is a structured root-cause investigation flow with persistent state survives `/clear`. Keeping as-is structurally; no native-Debug redirect warranted.)*
 
 ---
 

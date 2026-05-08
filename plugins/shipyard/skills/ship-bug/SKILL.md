@@ -97,7 +97,7 @@ created: [today]
 
 Then immediately begin the debug investigation (Step 3 of ship-debug: form hypothesis → test → record → repeat). When root cause is found, fix with TDD (regression test first), commit as `fix(B-HOT-NNN): [description]`.
 
-**Capture the repro.** When running the repro command during investigation, wrap it: `shipyard-logcap run bhot-NNN-repro --max-size <S> --max-files <N> -- <command>`. Bug repros are often flaky — the captured file lets you re-inspect a different signal without re-triggering the bug, which is the most expensive part of debugging. If the first repro run shows something unexpected, `shipyard-logcap grep` the capture with a wider pattern before you re-run. Full guide and decision table for bounds: `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/live-capture.md`.
+**Capture the repro.** When running the repro command during investigation, capture its output: `<repro-command> 2>&1 | tee <SHIPYARD_DATA>/captures/bhot-NNN/repro.log`. Bug repros are often flaky — the captured file lets you re-inspect a different signal without re-triggering the bug, which is the most expensive part of debugging. If the first repro run shows something unexpected, grep the capture with a wider pattern before re-running. For long-running repros (dev server, watch mode, `adb logcat`), `shipyard-logcap run bhot-NNN-repro -- <command>` adds rotation + signal forwarding; otherwise plain `tee` is sufficient.
 
 ## Rules
 
