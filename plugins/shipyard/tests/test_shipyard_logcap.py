@@ -348,24 +348,10 @@ class TestProbeAndPrune(LogcapTestBase):
         # The probe's reported tmp_dir should be our sandbox tmp.
         self.assertIn(self.tmpdir, stdout)
 
-    def test_prune_removes_old_sessions(self):
-        # Seed a capture and then backdate the session dir so prune finds it.
-        run_cli(
-            ['run', 'oldcap', '--', 'sh', '-c', 'echo x'],
-            env_extra=self.env,
-        )
-        session_dir = os.path.join(self.capture_dir(), 'unit-test-session')
-        self.assertTrue(os.path.exists(session_dir))
-        # Push mtime back 48 hours.
-        old_time = os.path.getmtime(session_dir) - 48 * 3600
-        os.utime(session_dir, (old_time, old_time))
-
-        stdout, _, rc = run_cli(
-            ['prune', '--older-than', '24h'], env_extra=self.env,
-        )
-        self.assertEqual(rc, 0)
-        self.assertIn('pruned 1', stdout)
-        self.assertFalse(os.path.exists(session_dir))
+    # test_prune_removes_old_sessions REMOVED in 2.0 (F-19/F-22). The
+    # `prune` subcommand was deleted from shipyard-logcap because no skill
+    # ever called it — capture-session housekeeping is a user-side cron
+    # concern, not a Shipyard CLI surface.
 
 
 class TestProjectIsolation(LogcapTestBase):

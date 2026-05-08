@@ -1026,42 +1026,9 @@ function cmdProbe() {
   process.stdout.write(`session:      ${session}\n`);
 }
 
-// ─── Subcommand: prune ──────────────────────────────────────────────────────
-
-function cmdPrune(args) {
-  let olderThan = "24h";
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--older-than") {
-      olderThan = args[++i];
-    } else {
-      throw new LogcapError(`shipyard-logcap prune: unknown option "${args[i]}".`);
-    }
-  }
-  const olderThanMs = parseDuration(olderThan);
-
-  const captureRoot = getProjectCaptureRoot();
-  if (!existsSync(captureRoot)) {
-    process.stdout.write("(nothing to prune)\n");
-    return;
-  }
-
-  const cutoff = Date.now() - olderThanMs;
-  let removed = 0;
-  for (const entry of readdirSync(captureRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const sessionDir = join(captureRoot, entry.name);
-    const st = statSync(sessionDir);
-    if (st.mtimeMs < cutoff) {
-      try {
-        rmSync(sessionDir, { recursive: true, force: true });
-        removed++;
-      } catch (err) {
-        process.stderr.write(`logcap: cannot remove ${sessionDir}: ${err.message}\n`);
-      }
-    }
-  }
-  process.stdout.write(`pruned ${removed} session(s) older than ${olderThan}\n`);
-}
+// F-19/F-22: cmdPrune removed in 2.0 — was never called from any Shipyard
+// skill (audit at iteration 35 found zero callers). Capture-session
+// housekeeping is a user-side cron concern, not a Shipyard CLI surface.
 
 // ─── CLI dispatch ───────────────────────────────────────────────────────────
 
@@ -1095,9 +1062,7 @@ async function main() {
       case "probe":
         cmdProbe();
         return;
-      case "prune":
-        cmdPrune(rest);
-        return;
+      // F-19: `prune` subcommand removed in 2.0 — never called from skills.
       default:
         process.stderr.write(`shipyard-logcap: unknown subcommand "${subcommand}".\n`);
         printHelp();
