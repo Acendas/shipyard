@@ -642,7 +642,7 @@ The two principles that matter most in practice for Shipyard: **SRP** (cures the
     - [x] running-acceptance-probe
     - [x] anti-stub-scan
     - [x] dispatching-task-loop
-    - [ ] dispatching-spec-review
+    - [x] dispatching-spec-review
     - [ ] dispatching-code-review
     - [ ] dispatching-research-task
     - [ ] dispatching-operational-task
