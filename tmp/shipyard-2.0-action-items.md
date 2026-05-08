@@ -306,7 +306,7 @@ All going away per [CC-1](#cross-cutting). Conversion notes:
 
 - [ ] **F-25.** Delete `plugins/shipyard/agents/` entirely after conversion. Each conversion is mechanical: take the body, drop the YAML frontmatter (description/model/tools — those become Agent dispatch params), wrap in a "Subagent: <role>" header and parameterize what the orchestrator passes.
 - [ ] **F-26.** Update every `Agent(subagent_type: shipyard:shipyard-X, …)` call across all skills to `Agent(subagent_type: general-purpose, prompt: <load template> + <task params>)`. Skill body shows the `Read ${CLAUDE_PLUGIN_ROOT}/skills/<owner>/references/<role>-prompt.md` step explicitly.
-- [ ] **F-27.** Six review-* agents collapse into one **scanner-prompts.md** file with sections per scanner (security, bugs, silent-failures, patterns, spec, tests). The `ship-review` skill picks which section to load based on what's being reviewed.
+- [x] **F-27.** Six review-* agents collapse into one **scanner-prompts.md** file with sections per scanner (security, bugs, silent-failures, patterns, spec, tests). The `ship-review` skill picks which section to load based on what's being reviewed. *(Realized as two capability skills: `dispatching-code-review` (security/bugs/silent-failures/patterns/tests/observability sections, concern-array activates which) and `dispatching-spec-review` (spec compliance — separate skill since its semantic is different from code-quality scanning). Cleaner than one mega-prompt.)*
 - [x] **F-28.** When converting `shipyard-builder` (the highest-leverage agent), inline the **Iron-Law verification** prose at the top of the prompt template (per [CC-4](#cross-cutting)). The prompt template is the only place where `verification-before-completion` and `test-driven-development` Iron Law content lands in the subagent's context — so it must be there explicitly, not behind a Skill tool call inside the subagent (the subagent has no `using-superpowers` bootstrap). *(Iron Laws inlined at top of `dispatching-task-loop`'s prompt template: NO PRODUCTION CODE WITHOUT FAILING TEST FIRST + NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION + NO STUBS.)*
 
 ---
@@ -643,7 +643,7 @@ The two principles that matter most in practice for Shipyard: **SRP** (cures the
     - [x] anti-stub-scan
     - [x] dispatching-task-loop
     - [x] dispatching-spec-review
-    - [ ] dispatching-code-review
+    - [x] dispatching-code-review
     - [ ] dispatching-research-task
     - [ ] dispatching-operational-task
     - [x] using-worktrees
