@@ -223,7 +223,7 @@ Each is plumbing that could mostly be skill-side Read/Write — except for thing
   - `with-lock` — file locking primitive. ~120 lines.
   - `init` — atomic directory tree creation + template copy via `cpSync`. Could be inlined as a skill multi-Write but `cpSync` for templates is genuinely simpler. ~60 lines.
 
-- [ ] **F-13. Retire these to skill bodies:**
+- [~] **F-13. Retire these to skill bodies:** *(PARTIAL — retired 5 of 7: `events {tail,grep,since,json}` (queries → skill-side `Read .shipyard-events.jsonl`), `project-id` (→ resolver CLI), `project-root` (→ resolver CLI), `reap-obsolete` (function deleted; no consumers). KEPT: `events emit` (load-bearing for hooks + skills writing structured events with locking), `next-id` (atomic counter, race-safe), `archive-sprint` (atomic rename, used by ship-review and ship-sprint), `find-orphans` (still serves orphan-recovery flow until F-7's breadcrumb retires), `drop-orphan` (paired with find-orphans). The fully-skill-side direction would land after the breadcrumb retires.)*
   - `events emit` / `events tail|grep|since|json` — the JSONL log can be appended via Write tool (with-lock for atomicity). Reading it is a Read + filter in the skill. **820 lines worth retiring** (the events code is the largest single chunk).
   - `next-id` — getting the next free ID is "Glob the dir, parse names, increment". Skill-side Read+Glob is fine. ~100 lines.
   - `project-id` — wraps the resolver. Just call the resolver directly via `node -e` or context block. ~10 lines.
@@ -232,7 +232,7 @@ Each is plumbing that could mostly be skill-side Read/Write — except for thing
   - `drop-orphan` — same; dies with `find-orphans`.
   - `reap-obsolete` — sweeps obsolete sprints. Skill-side or weekly cron, not load-bearing.
 
-- [ ] **F-14.** Net: `shipyard-data.mjs` should drop from 1,187 lines to ~300 lines covering `init`, `migrate`, `with-lock`. Plus a deprecation window for `events emit` (skills migrate first, then it's deletable).
+- [~] **F-14.** Net: `shipyard-data.mjs` should drop from 1,187 lines to ~300 lines covering `init`, `migrate`, `with-lock`. Plus a deprecation window for `events emit` (skills migrate first, then it's deletable). *(PARTIAL: shipyard-data.mjs is now 996 lines (was 1187, -191 / -16%). The bigger drop awaits retiring `events emit` + `find-orphans` / `drop-orphan` / `archive-sprint` / `next-id` once their consumers move to skill-side patterns. `events emit` is load-bearing for diagnostic correctness; `next-id` and `archive-sprint` are race-safe primitives that genuinely need a CLI for atomicity. The ~300-line target is plausible but requires careful primitive-by-primitive review.)*
 
 - [ ] **F-15. Over-engineering flag:** `events.jsonl` is the cross-cutting structured event log Anthropic plugin authors usually skip. It's diagnostic gold but only when something breaks. Move to a single-file skill helper (skill calls `Write` with append flag through `with-lock`) — no separate CLI surface needed.
 

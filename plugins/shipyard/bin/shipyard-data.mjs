@@ -7,11 +7,22 @@
  * files not in PATHEXT). Skills invoke this as a bare command — PATH lookup
  * finds `shipyard-data` (sh shim) on Unix and `shipyard-data.cmd` on Windows.
  *
- * Usage:
- *   shipyard-data              → prints data directory path
- *   shipyard-data init         → creates the directory tree if missing
- *   shipyard-data project-id   → prints just the project hash
- *   shipyard-data project-root → prints the parent repo root
+ * Usage (Shipyard 2.0):
+ *   shipyard-data                              → prints data directory path
+ *   shipyard-data init                         → creates the directory tree
+ *   shipyard-data migrate <src> [--force]      → atomic migration from legacy path
+ *   shipyard-data with-lock <key> -- <cmd>     → fcntl-style locking primitive
+ *   shipyard-data find-orphans                 → orphan recovery scan
+ *   shipyard-data archive-sprint <id> [--force]→ atomic sprint rename
+ *   shipyard-data drop-orphan <hash>           → manual orphan cleanup
+ *   shipyard-data events emit <type> [k=v ...] → structured event log append
+ *   shipyard-data next-id <kind>               → atomic ID allocator
+ *
+ * Retired in 2.0 (F-13/F-14):
+ *   shipyard-data project-id   → use shipyard-resolver.mjs project-hash
+ *   shipyard-data project-root → use shipyard-resolver.mjs project-root
+ *   shipyard-data reap-obsolete → unused; fold into cron if needed
+ *   shipyard-data events {tail,grep,since,json} → Read .shipyard-events.jsonl
  *
  * The init subcommand also handles the cp -r / rm -rf cleanup that
  * ship-init's SKILL.md used to inline as POSIX shell commands. Doing it
@@ -22,8 +33,8 @@ import { execFileSync } from "node:child_process";
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { EVENTS_LOG_NAME, logEvent, withLockfile } from "./_hook_lib.mjs";
-import { getDataDir, getProjectHash, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
+import { logEvent, withLockfile } from "./_hook_lib.mjs";
+import { getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -712,90 +723,6 @@ function pathRelative(from, to) {
  *
  * Logged to .data-ops.log per file removed.
  */
-function reapObsolete(args) {
-  const dryRun = args.includes("--dry-run");
-  let maxAgeDays = 30;
-  const ageIdx = args.indexOf("--max-age-days");
-  if (ageIdx >= 0 && ageIdx + 1 < args.length) {
-    const n = parseInt(args[ageIdx + 1], 10);
-    if (!Number.isNaN(n) && n >= 0) maxAgeDays = n;
-  }
-  const cutoffMs = Date.now() - maxAgeDays * 86400000;
-
-  let dataDir;
-  try {
-    dataDir = getDataDir({ silent: true });
-  } catch {
-    process.stderr.write("shipyard-data reap-obsolete: cannot resolve data dir\n");
-    process.exit(1);
-  }
-  const specDir = join(dataDir, "spec");
-  if (!existsSync(specDir)) {
-    process.stdout.write("Reaped 0 files (no spec dir)\n");
-    return;
-  }
-
-  const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---/;
-  const OBSOLETE_RE = /^obsolete:\s*true\s*$/m;
-  const STATUS_RE = /^status:\s*(graduated|superseded|cancelled)\s*$/m;
-
-  const matches = [];
-  const walk = (dir) => {
-    let entries;
-    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const ent of entries) {
-      const full = join(dir, ent.name);
-      if (ent.isDirectory()) {
-        walk(full);
-        continue;
-      }
-      if (!ent.name.endsWith(".md")) continue;
-      let content;
-      try { content = readFileSync(full, "utf8"); } catch { continue; }
-      const fm = FRONTMATTER_RE.exec(content);
-      if (!fm) continue;
-      const block = fm[1];
-      const hit = OBSOLETE_RE.test(block) || STATUS_RE.test(block);
-      if (!hit) continue;
-      let st;
-      try { st = statSync(full); } catch { continue; }
-      if (st.mtimeMs > cutoffMs) continue;
-      matches.push(full);
-    }
-  };
-  walk(specDir);
-
-  if (dryRun) {
-    for (const m of matches) process.stdout.write(`would-reap ${m}\n`);
-    process.stdout.write(`Would reap ${matches.length} files (dry-run, max-age-days=${maxAgeDays})\n`);
-    return;
-  }
-
-  let removed = 0;
-  for (const m of matches) {
-    try {
-      rmSync(m, { force: false });
-      removed++;
-    } catch (err) {
-      process.stderr.write(`shipyard-data reap-obsolete: failed to remove ${m}: ${err.message}\n`);
-    }
-  }
-
-  // Best-effort breadcrumb log
-  try {
-    const ts = new Date().toISOString();
-    const lines = matches.slice(0, removed).map((m) => `${ts} reap-obsolete file=${m}\n`).join("");
-    if (lines) {
-      const logPath = join(dataDir, ".data-ops.log");
-      let existing = "";
-      try { existing = readFileSync(logPath, "utf8"); } catch { /* ignore */ }
-      writeFileSync(logPath, existing + lines);
-    }
-  } catch { /* ignore */ }
-
-  process.stdout.write(`Reaped ${removed} obsolete files (max-age-days=${maxAgeDays})\n`);
-}
-
 /**
  * `shipyard-data events` — query and emit structured events from
  * `$SHIPYARD_DATA/.shipyard-events.jsonl`. The events log is the primary
@@ -819,129 +746,23 @@ function reapObsolete(args) {
  */
 function eventsCmd(args) {
   const dataDir = getDataDir();
-  const logPath = join(dataDir, EVENTS_LOG_NAME);
-  const sub = args[0] ?? "tail";
+  const sub = args[0];
 
-  function readAllEvents() {
-    if (!existsSync(logPath)) return [];
-    let raw;
-    try {
-      raw = readFileSync(logPath, "utf8");
-    } catch (err) {
-      process.stderr.write(`shipyard-data events: cannot read log: ${err.message}\n`);
-      process.exit(1);
-    }
-    const out = [];
-    for (const line of raw.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        out.push(JSON.parse(trimmed));
-      } catch {
-        // Tolerate malformed lines (e.g., partial write recovered after a
-        // crash). The events log is best-effort, not a database.
-      }
-    }
-    return out;
-  }
-
-  function pretty(ev) {
-    // Compact one-liner: "ts type k1=v1 k2=v2 ...". Quoted only if value
-    // contains a space; otherwise bare for grep-friendliness.
-    const parts = [ev.ts || "?", ev.type || "?"];
-    for (const [k, v] of Object.entries(ev)) {
-      if (k === "ts" || k === "type") continue;
-      const s = typeof v === "string" ? v : JSON.stringify(v);
-      const needsQuote = /\s/.test(s);
-      parts.push(`${k}=${needsQuote ? JSON.stringify(s) : s}`);
-    }
-    return parts.join(" ");
-  }
-
-  function parseDuration(s) {
-    // "1h", "30m", "2d", "45s" → ms
-    const m = /^(\d+)([smhd])$/.exec(s);
-    if (!m) return null;
-    const n = parseInt(m[1], 10);
-    const unit = m[2];
-    const mul = unit === "s" ? 1000 : unit === "m" ? 60_000 : unit === "h" ? 3_600_000 : 86_400_000;
-    return n * mul;
+  // F-13/F-14: Pre-2.0 supported `tail | grep | since | json` query
+  // subcommands. Retired in 2.0 — the events log is JSONL, query directly:
+  //   Read <SHIPYARD_DATA>/.shipyard-events.jsonl (last N lines / grep / etc.)
+  // The `emit` subcommand is the only one that stayed because it's the
+  // append-with-lock path used by hooks and skills to write structured
+  // events without racing.
+  if (!sub || sub !== "emit") {
+    process.stderr.write(
+      `shipyard-data events: only 'emit' is supported in 2.0.\n` +
+      `  Read events directly: <SHIPYARD_DATA>/.shipyard-events.jsonl\n`
+    );
+    process.exit(1);
   }
 
   switch (sub) {
-    case "tail": {
-      let n = 50;
-      let asJson = false;
-      for (let i = 1; i < args.length; i++) {
-        if (args[i] === "-n" && args[i + 1]) {
-          const v = parseInt(args[i + 1], 10);
-          if (Number.isFinite(v) && v > 0) n = v;
-          i++;
-        } else if (args[i] === "--json") {
-          asJson = true;
-        }
-      }
-      const events = readAllEvents();
-      const tail = events.slice(-n);
-      for (const ev of tail) {
-        process.stdout.write((asJson ? JSON.stringify(ev) : pretty(ev)) + "\n");
-      }
-      break;
-    }
-    case "grep": {
-      const needle = args[1] || "";
-      if (!needle) {
-        process.stderr.write("shipyard-data events grep: <type-substring> is required\n");
-        process.exit(1);
-      }
-      const events = readAllEvents();
-      for (const ev of events) {
-        if (typeof ev.type === "string" && ev.type.includes(needle)) {
-          process.stdout.write(pretty(ev) + "\n");
-        }
-      }
-      break;
-    }
-    case "since": {
-      const arg = args[1] || "";
-      if (!arg) {
-        process.stderr.write("shipyard-data events since: <iso-or-duration> is required (e.g. '1h', '2026-04-07T17:00:00Z')\n");
-        process.exit(1);
-      }
-      let cutoffMs;
-      const dur = parseDuration(arg);
-      if (dur !== null) {
-        cutoffMs = Date.now() - dur;
-      } else {
-        const parsed = Date.parse(arg);
-        if (Number.isNaN(parsed)) {
-          process.stderr.write(`shipyard-data events since: cannot parse "${arg}" as ISO timestamp or duration (Ns/Nm/Nh/Nd)\n`);
-          process.exit(1);
-        }
-        cutoffMs = parsed;
-      }
-      const events = readAllEvents();
-      for (const ev of events) {
-        const t = Date.parse(ev.ts);
-        if (Number.isFinite(t) && t >= cutoffMs) {
-          process.stdout.write(pretty(ev) + "\n");
-        }
-      }
-      break;
-    }
-    case "json": {
-      // Stream the raw JSONL — preserves the on-disk shape exactly so
-      // pipelines like `shipyard-data events json | jq 'select(...)'`
-      // work without re-parsing pretty output.
-      if (!existsSync(logPath)) break;
-      try {
-        process.stdout.write(readFileSync(logPath, "utf8"));
-      } catch (err) {
-        process.stderr.write(`shipyard-data events json: cannot read log: ${err.message}\n`);
-        process.exit(1);
-      }
-      break;
-    }
     case "emit": {
       const type = args[1];
       if (!type) {
@@ -968,12 +789,6 @@ function eventsCmd(args) {
       logEvent(dataDir, type, fields);
       break;
     }
-    default:
-      process.stderr.write(
-        `shipyard-data events: unknown subcommand "${sub}". ` +
-          `Expected: tail [-n N] [--json] | grep <substring> | since <iso|duration> | json | emit <type> [k=v ...]\n`,
-      );
-      process.exit(1);
   }
 }
 
@@ -1149,28 +964,22 @@ function main() {
       dropOrphan(hash);
       break;
     }
-    case "reap-obsolete": {
-      reapObsolete(process.argv.slice(3));
-      break;
-    }
     case "events": {
       eventsCmd(process.argv.slice(3));
       break;
     }
-    case "project-id":
-      process.stdout.write(getProjectHash(getProjectRoot()) + "\n");
-      break;
-    case "project-root":
-      process.stdout.write(getProjectRoot() + "\n");
-      break;
     case "next-id": {
       nextIdCmd(process.argv.slice(3));
       break;
     }
+    // F-13/F-14: project-id, project-root, reap-obsolete retired in 2.0.
+    //   project-id  → use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash`
+    //   project-root→ use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-root`
+    //   reap-obsolete→ unused by skills; fold into a future cron or skill-side sweep if needed
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | migrate <src> [--force] | with-lock <key> -- <cmd> | find-orphans | archive-sprint <sprint-id> [--force] | drop-orphan <hash> | reap-obsolete [--dry-run] [--max-age-days N] | events <subcmd> | next-id <kind> | project-id | project-root\n`,
+          `Expected: (none) | init | migrate <src> [--force] | with-lock <key> -- <cmd> | find-orphans | archive-sprint <sprint-id> [--force] | drop-orphan <hash> | events emit <type> [k=v ...] | next-id <kind>\n`,
       );
       process.exit(1);
   }

@@ -515,117 +515,10 @@ class TestShipyardDataDropOrphan(unittest.TestCase):
         self.assertIn('no such directory', err)
 
 
-class TestShipyardDataReapObsolete(unittest.TestCase):
-    """Tests for `shipyard-data reap-obsolete [--dry-run] [--max-age-days N]`.
-
-    reap-obsolete physically deletes markdown files marked with sentinel
-    frontmatter (`obsolete: true` or `status: graduated|superseded|cancelled`)
-    after a retention period. Soft-delete is the source of truth; this is
-    just garbage collection.
-    """
-
-    def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix='shipyard-reap-test-')
-        self.plugin_data = os.path.join(self.tmp, 'plugin-data')
-        self.project_dir = os.path.join(self.tmp, 'project')
-        os.makedirs(self.plugin_data)
-        os.makedirs(self.project_dir)
-        self.env = {
-            'CLAUDE_PROJECT_DIR': self.project_dir,
-            'CLAUDE_PLUGIN_DATA': self.plugin_data,
-        }
-        out, _, _ = run_cli([], env_extra=self.env)
-        self.data_dir = out.strip()
-        self.spec = os.path.join(self.data_dir, 'spec')
-        os.makedirs(os.path.join(self.spec, 'features'))
-        os.makedirs(os.path.join(self.spec, 'ideas'))
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def _write_md(self, relpath, frontmatter, age_days=None):
-        full = os.path.join(self.spec, relpath)
-        os.makedirs(os.path.dirname(full), exist_ok=True)
-        with open(full, 'w') as f:
-            f.write('---\n' + frontmatter + '\n---\n\n# Body\n')
-        if age_days is not None:
-            mtime = (
-                __import__('time').time() - age_days * 86400
-            )
-            os.utime(full, (mtime, mtime))
-        return full
-
-    def test_reap_obsolete_marker(self):
-        old = self._write_md('features/F001-old.md', 'obsolete: true', age_days=60)
-        out, err, code = run_cli(
-            ['reap-obsolete'], env_extra=self.env
-        )
-        self.assertEqual(code, 0, err)
-        self.assertIn('Reaped 1', out)
-        self.assertFalse(os.path.exists(old))
-
-    def test_reap_status_graduated(self):
-        old = self._write_md('ideas/IDEA-001.md', 'status: graduated', age_days=60)
-        run_cli(['reap-obsolete'], env_extra=self.env)
-        self.assertFalse(os.path.exists(old))
-
-    def test_reap_status_superseded(self):
-        old = self._write_md('features/F002.md', 'status: superseded', age_days=60)
-        run_cli(['reap-obsolete'], env_extra=self.env)
-        self.assertFalse(os.path.exists(old))
-
-    def test_reap_status_cancelled(self):
-        old = self._write_md('features/F003.md', 'status: cancelled', age_days=60)
-        run_cli(['reap-obsolete'], env_extra=self.env)
-        self.assertFalse(os.path.exists(old))
-
-    def test_reap_skips_recent(self):
-        recent = self._write_md(
-            'features/F004.md', 'obsolete: true', age_days=5
-        )
-        out, _, _ = run_cli(['reap-obsolete'], env_extra=self.env)
-        self.assertIn('Reaped 0', out)
-        self.assertTrue(os.path.exists(recent))
-
-    def test_reap_skips_active(self):
-        active = self._write_md(
-            'features/F005.md', 'status: in-progress', age_days=60
-        )
-        out, _, _ = run_cli(['reap-obsolete'], env_extra=self.env)
-        self.assertIn('Reaped 0', out)
-        self.assertTrue(os.path.exists(active))
-
-    def test_reap_dry_run(self):
-        old = self._write_md('features/F006.md', 'obsolete: true', age_days=60)
-        out, _, code = run_cli(
-            ['reap-obsolete', '--dry-run'], env_extra=self.env
-        )
-        self.assertEqual(code, 0)
-        self.assertIn('Would reap 1', out)
-        self.assertIn('would-reap', out)
-        self.assertTrue(os.path.exists(old))
-
-    def test_reap_max_age_override(self):
-        old = self._write_md('features/F007.md', 'obsolete: true', age_days=10)
-        # Default 30 days → 10 days is too recent. With --max-age-days 5
-        # the same file becomes eligible.
-        out, _, _ = run_cli(['reap-obsolete'], env_extra=self.env)
-        self.assertIn('Reaped 0', out)
-        out, _, _ = run_cli(
-            ['reap-obsolete', '--max-age-days', '5'], env_extra=self.env
-        )
-        self.assertIn('Reaped 1', out)
-        self.assertFalse(os.path.exists(old))
-
-
 class TestShipyardDataEvents(unittest.TestCase):
-    """Tests for `shipyard-data events <subcmd>`.
-
-    The events log is the cross-cutting diagnostic surface for bug
-    reports — `shipyard-context diagnose` dumps its tail and customers
-    paste it. The CLI must be ergonomic enough that "tail the events"
-    and "filter by type" are one-liners that work without piping
-    through jq.
+    """Tests for \`shipyard-data events emit\` (the only events subcommand
+    in 2.0; tail/grep/since/json query subs were retired in F-13/F-14
+    — query the JSONL directly).
     """
 
     def setUp(self):
@@ -643,128 +536,45 @@ class TestShipyardDataEvents(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _read_events(self):
+        """Read the on-disk JSONL log directly — replaces the old query
+        subcommands (tail/grep/since/json), which were retired in 2.0.
+        The data dir is plugin_data/projects/<hash>/, so ask the CLI."""
+        import json as _json
+        out, _, code = run_cli([], env_extra=self.env)
+        self.assertEqual(code, 0, 'shipyard-data (no args) failed')
+        data_dir = out.strip()
+        log = os.path.join(data_dir, '.shipyard-events.jsonl')
+        if not os.path.exists(log):
+            return []
+        with open(log) as f:
+            return [_json.loads(line) for line in f if line.strip()]
+
     def _emit(self, event_type, **fields):
-        """Use the CLI's own emit subcommand so we test the read+write path
-        end to end via the same surface users hit."""
+        import json as _json
         args = ['events', 'emit', event_type]
         for k, v in fields.items():
-            # Pass numbers/booleans as JSON so the CLI parses them as
-            # typed values, not strings.
-            import json as _json
             args.append(f'{k}={_json.dumps(v)}')
-        out, err, code = run_cli(args, env_extra=self.env)
+        _, err, code = run_cli(args, env_extra=self.env)
         self.assertEqual(code, 0, f'emit failed: {err}')
 
-    def test_events_tail_empty(self):
-        # No events file → tail returns empty stdout, exit 0
-        out, err, code = run_cli(['events', 'tail'], env_extra=self.env)
-        self.assertEqual(code, 0)
-        self.assertEqual(out, '')
-
-    def test_events_emit_then_tail(self):
-        self._emit('compaction_detected', sprint='S001', count=3)
-        out, _, code = run_cli(['events', 'tail'], env_extra=self.env)
-        self.assertEqual(code, 0)
-        # pretty form: ts type k=v k=v
-        self.assertIn('compaction_detected', out)
-        self.assertIn('sprint=S001', out)
-        self.assertIn('count=3', out)
-
-    def test_events_tail_n_limit(self):
-        for i in range(10):
-            self._emit('x', i=i)
-        out, _, _ = run_cli(['events', 'tail', '-n', '3'], env_extra=self.env)
-        lines = [l for l in out.strip().split('\n') if l]
-        self.assertEqual(len(lines), 3)
-        # Tail of last 3: i=7,8,9
-        self.assertIn('i=9', lines[-1])
-        self.assertIn('i=7', lines[0])
-
-    def test_events_tail_json_mode(self):
-        self._emit('compaction_detected', count=2)
-        out, _, _ = run_cli(
-            ['events', 'tail', '--json'], env_extra=self.env
-        )
-        import json
-        parsed = [json.loads(l) for l in out.strip().split('\n') if l]
-        self.assertEqual(len(parsed), 1)
-        self.assertEqual(parsed[0]['type'], 'compaction_detected')
-        self.assertEqual(parsed[0]['count'], 2)
-
-    def test_events_grep_type(self):
-        self._emit('compaction_detected', count=1)
-        self._emit('session_guard_blocked', tool='Edit')
-        self._emit('compaction_detected', count=2)
-        out, _, _ = run_cli(
-            ['events', 'grep', 'compaction'], env_extra=self.env
-        )
-        lines = [l for l in out.strip().split('\n') if l]
-        self.assertEqual(len(lines), 2)
-        self.assertTrue(all('compaction_detected' in l for l in lines))
-
-    def test_events_grep_no_match(self):
-        self._emit('x')
-        out, _, code = run_cli(
-            ['events', 'grep', 'nope'], env_extra=self.env
-        )
-        self.assertEqual(code, 0)
-        self.assertEqual(out, '')
-
-    def test_events_grep_requires_arg(self):
-        _, err, code = run_cli(['events', 'grep'], env_extra=self.env)
-        self.assertNotEqual(code, 0)
-        self.assertIn('substring', err)
-
-    def test_events_since_duration(self):
-        self._emit('old')
-        # All events have ts ≈ now, so 'since 1h' must include them all.
-        out, _, _ = run_cli(
-            ['events', 'since', '1h'], env_extra=self.env
-        )
-        self.assertIn('old', out)
-
-    def test_events_since_iso(self):
-        self._emit('marker')
-        # ISO timestamp far in the past → all events match.
-        out, _, _ = run_cli(
-            ['events', 'since', '2000-01-01T00:00:00Z'], env_extra=self.env
-        )
-        self.assertIn('marker', out)
-
-    def test_events_since_far_future(self):
-        self._emit('past')
-        # ISO timestamp in the far future → no events match.
-        out, _, code = run_cli(
-            ['events', 'since', '2099-01-01T00:00:00Z'], env_extra=self.env
-        )
-        self.assertEqual(code, 0)
-        self.assertEqual(out, '')
-
-    def test_events_since_invalid(self):
-        self._emit('x')
-        _, err, code = run_cli(
-            ['events', 'since', 'not-a-time'], env_extra=self.env
-        )
-        self.assertNotEqual(code, 0)
-        self.assertIn('cannot parse', err)
-
-    def test_events_json_full_dump(self):
-        self._emit('a')
-        self._emit('b')
-        out, _, _ = run_cli(['events', 'json'], env_extra=self.env)
-        import json
-        lines = [json.loads(l) for l in out.strip().split('\n') if l]
-        self.assertEqual(len(lines), 2)
-        self.assertEqual(lines[0]['type'], 'a')
-        self.assertEqual(lines[1]['type'], 'b')
+    def test_events_emit_writes_jsonl_record(self):
+        self._emit('something_happened', count=3, ok=True, label='S007')
+        events = self._read_events()
+        self.assertEqual(len(events), 1)
+        ev = events[0]
+        self.assertEqual(ev['type'], 'something_happened')
+        self.assertEqual(ev['count'], 3)
+        self.assertEqual(ev['ok'], True)
+        self.assertEqual(ev['label'], 'S007')
 
     def test_events_emit_typed_fields(self):
-        # Numbers and booleans should round-trip as their native JSON
-        # types — not get coerced to strings.
+        # Numbers and booleans round-trip as their native JSON types —
+        # not coerced to strings.
         self._emit('typed', count=42, ratio=3.14, flag=True, name='S007')
-        out, _, _ = run_cli(['events', 'tail', '--json'], env_extra=self.env)
-        import json
-        ev = json.loads(out.strip())
+        events = self._read_events()
+        self.assertEqual(len(events), 1)
+        ev = events[0]
         self.assertIsInstance(ev['count'], int)
         self.assertEqual(ev['count'], 42)
         self.assertIsInstance(ev['ratio'], float)
@@ -776,12 +586,12 @@ class TestShipyardDataEvents(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn('type', err)
 
-    def test_events_unknown_subcommand(self):
-        _, err, code = run_cli(
-            ['events', 'bogus'], env_extra=self.env
-        )
+    def test_events_unknown_subcommand_rejected(self):
+        # 2.0: only "emit" is supported. Anything else is rejected with
+        # a hint to read the JSONL directly.
+        _, err, code = run_cli(['events', 'bogus'], env_extra=self.env)
         self.assertNotEqual(code, 0)
-        self.assertIn('unknown subcommand', err)
+        self.assertIn('emit', err)
 
 
 class TestShipyardDataNextId(unittest.TestCase):
