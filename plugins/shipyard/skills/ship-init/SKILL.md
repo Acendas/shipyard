@@ -535,42 +535,48 @@ If any check fails, fix it before reporting. For example:
 - No git → run `git init && git add -A && git commit -m "chore: initial commit"`
 - No test commands → note in report: "⚠️ Test commands not configured. Run /ship-init again after setting up your test framework."
 
-### Step 5.5: Configure Permissions
+### Step 5.5: Configure Permissions (opt-in, F-49)
 
-Shipyard skills and agents need specific tool permissions to run without interrupting the user mid-execution. Configure `.claude/settings.local.json` to allow these.
+Shipyard 2.0 does NOT silently edit `.claude/settings.local.json`. The pre-2.0 behavior — auto-merging 6+ entries into the user's local Claude Code permissions file — was reported as presumptuous: customers expect their `.claude/` files to belong to them.
 
-**Read existing `.claude/settings.local.json`** (may not exist). Merge — never replace existing entries.
+Instead, present the permission set and ask the user explicitly. Use `AskUserQuestion`:
 
-**Required permissions:**
+> *"Shipyard skills run a few approved commands during execution. Adding these to `.claude/settings.local.json` makes them auto-allowed (no per-call prompts). Add now?*
+> *1. Add — silences ~6 approval prompts per sprint (Recommended)*
+> *2. Skip — I'll approve commands case-by-case as Shipyard runs them*
+> *3. Show me the list first*"
 
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(git:*)",
-      "Bash(shipyard-data)",
-      "Bash(ls:*)",
-      "Bash(wc:*)",
-      "Bash(head:*)",
-      "Bash(grep:*)",
-      "WebSearch",
-      "WebFetch"
-    ]
-  }
-}
+**If user picks "Show me the list first"**, print the proposed `permissions.allow` entries:
+
+```
+Bash(git:*)         — git commands during sprint execution
+Bash(shipyard-data) — shipyard-data CLI for atomic state ops
+Bash(ls:*), Bash(wc:*), Bash(head:*), Bash(grep:*)
+                    — read-only inspection during context loading
+WebSearch, WebFetch — research during /ship-discuss + /ship-sprint
 ```
 
-If test commands were detected in Step 3, also add one `Bash(<prefix>:*)` entry per detected command prefix (e.g., `Bash(npx vitest:*)`, `Bash(npm test:*)`, `Bash(pytest:*)`, `Bash(go test:*)`, `Bash(cargo test:*)`).
+Plus per-command-prefix entries for any test commands detected in Step 3 (e.g., `Bash(npx vitest:*)`, `Bash(pytest:*)`).
 
-Merge into the existing `.claude/settings.local.json`: Read the file (or start with `{}`), append missing entries to `permissions.allow` (exact string match, no duplicates), Write back. Leave all other keys untouched.
+Then re-prompt: Add / Skip.
 
-**Report what was added** (just new entries, not the full list):
+**If user picks "Add"** (or after the list-first follow-up):
+1. Read existing `.claude/settings.local.json` (or start from `{}`).
+2. Merge missing entries into `permissions.allow` (exact string match, no duplicates).
+3. Write back. Leave all other keys untouched.
+4. Report:
+   ```
+   Permissions: added N entries to .claude/settings.local.json
+     + Bash(git:*), Bash(shipyard-data), WebSearch, WebFetch, ...
+   ```
+
+**If user picks "Skip"**: do nothing to `.claude/settings.local.json`. Report:
 ```
-Permissions: added 6 entries to .claude/settings.local.json
-  + Bash(git:*), Bash(shipyard-data), WebSearch, WebFetch, ...
+Permissions: skipped (you'll see one approval prompt per command at first run).
+Re-run /ship-init later if you change your mind.
 ```
 
-If all required entries already exist: "Permissions: already configured ✓"
+If all required entries already exist when running update mode: report "Permissions: already configured ✓" and skip the prompt.
 
 ### Step 6: Report
 
@@ -711,9 +717,11 @@ Quick consistency check:
 
 Report issues if found, suggest `/ship-status` to validate and auto-fix.
 
-### Step 5.5: Update Permissions
+### Step 5.5: Update Permissions (opt-in, F-49)
 
-Run the same permission configuration as FRESH INSTALL Step 5.5. This ensures new permissions added in plugin updates are backfilled. The same merge-not-replace approach preserves existing user entries and only adds missing required ones.
+Run the same opt-in permission flow as FRESH INSTALL Step 5.5: detect missing entries, present them via AskUserQuestion (Add / Skip / Show list), merge only with explicit consent. The same merge-not-replace logic applies — existing user entries are never touched, only new required ones are proposed for addition.
+
+If the existing `.claude/settings.local.json` already has all entries Shipyard needs, skip the prompt and report "Permissions: already configured ✓".
 
 ### Step 6: Report
 

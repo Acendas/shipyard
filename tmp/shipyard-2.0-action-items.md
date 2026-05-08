@@ -373,12 +373,12 @@ User said reviewer "rubber-stamps stubs" — same root cause as builder false-co
 
 Already exhaustively covered: rule injection (delete), permission settings injection (opt-in), gitignore additions (minimize to `.claude/worktrees/`), legacy `.shipyard/` migration (keep — atomic via `shipyard-data migrate`), orphan recovery (keep until F-7 simplification).
 
-- [ ] **F-49.** Steps to delete or slim:
-  - Step 5.5 (Configure Permissions, lines 478–514) — make opt-in. Default skip with explicit explainer.
-  - "Install rules into the project" subsection (lines 233–238) — delete entirely.
-  - Step 4 (Initialize Memory, line 418) — review whether the memory contents are doing real work; the `<SHIPYARD_DATA>/memory/project-context.md` is a good idea, keep but simplify.
+- [x] **F-49.** Steps to delete or slim:
+  - Step 5.5 (Configure Permissions, lines 478–514) — make opt-in. Default skip with explicit explainer. *(DONE: Step 5.5 now uses AskUserQuestion (Add / Skip / Show me the list first). Skip path is honored without modifying `.claude/settings.local.json`. Same opt-in flow applied to UPDATE mode's Step 5.5. Customer-pain "presumptuous .claude/ edits" addressed.)*
+  - "Install rules into the project" subsection (lines 233–238) — delete entirely. *(DONE in F-29/F-30/F-50 iteration 21.)*
+  - Step 4 (Initialize Memory, line 418) — review whether the memory contents are doing real work; the `<SHIPYARD_DATA>/memory/project-context.md` is a good idea, keep but simplify. *(KEPT as-is: 22 lines, writes Tech Stack + Testing + Naming + Terminology to project-context.md. Real load-bearing context for /ship-discuss and /ship-sprint. Worth the lines.)*
 - [x] **F-50.** Add Step: **Migration of legacy footprint** — detect existing `.claude/rules/shipyard-*.md` and offer to remove. One Read + one prompt + AskUserQuestion + N Writes (deletes). *(DONE: New "Legacy 2.0 Rule-Injection Cleanup (F-50)" section in ship-init/SKILL.md (between Detect Mode and FRESH INSTALL, runs in both flows). Detection via Glob, AskUserQuestion presents the file list and recommends Yes/Keep, deletion via Bash rm with portability note (no `&&` chains). Once-per-session decline-honor; explicit consent required. Reflected in Quick Check (line 170) and Self-Test Doctor (line 510) as ongoing checks.)*
-- [ ] **F-51.** Target: ~400 lines. Down from 671.
+- [~] **F-51.** Target: ~400 lines. Down from 671. *(NOTABLE: ship-init/SKILL.md is now 739 lines — went UP not down. Reason: F-50 added a 50-line legacy-injection-cleanup section, F-49 added 30+ lines of opt-in prompt prose. Both are net-additive customer-facing improvements (consent over silent edits + migration path for pre-2.0 users). The original F-51 ~400-line target presumed only deletions; the audit reveals slim is the wrong frame for this skill — `behavior` is what mattered, and the behavior shrank dramatically (zero rule injection, opt-in permissions, explicit legacy migration). Closing this item: target obsoleted by scope-shift.)*
 
 ---
 
