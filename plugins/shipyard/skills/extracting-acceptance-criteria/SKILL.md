@@ -33,7 +33,7 @@ An AC is a single, observable, testable statement about what the system does (or
 
 > **Given** \<context\>, **when** \<action\>, **then** \<observable outcome\>.
 
-You don't have to write them in literal Given/When/Then. The shape just enforces three properties: a starting condition, a triggering action, and an observable outcome that a probe can check.
+Literal Given/When/Then phrasing is optional. The shape enforces three properties: a starting condition, a triggering action, and an observable outcome that a probe can check.
 
 Examples (good):
 

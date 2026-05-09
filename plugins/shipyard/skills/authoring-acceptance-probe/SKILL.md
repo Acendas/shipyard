@@ -114,7 +114,7 @@ Before writing the probe to the task file, confirm:
 - [ ] **Exit 0 ↔ pass.** No "exit 0 means probably ok"; exit 0 means the AC is satisfied.
 - [ ] **Observable output.** When passing, the probe prints something that demonstrates the wiring (a value, a row count, a matched text). Bare exit-0 with empty output is suspicious.
 - [ ] **Deterministic.** Run twice without changes → same exit code. Network calls to external APIs, time-based checks, or randomized inputs are red flags.
-- [ ] **Bounded.** Default budget is 60s; hard cap 5m. If the probe needs >60s, you're testing too much.
+- [ ] **Bounded.** Default budget is 60s; hard cap 5m. A probe that needs >60s is testing too much — narrow it.
 - [ ] **Doesn't pass today.** Run the probe on the current working branch *before* implementation. It should FAIL — if it passes pre-implementation, the probe isn't testing the change. (This is the probe-equivalent of TDD's "watch it fail" rule.)
 
 ## Where the Probe Lands
