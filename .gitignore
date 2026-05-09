@@ -9,3 +9,6 @@ __pycache__/
 /.claude/
 /.shipyard/
 /CLAUDE.md
+
+# Workspace artifacts (Ralph loop, action items)
+tmp/
