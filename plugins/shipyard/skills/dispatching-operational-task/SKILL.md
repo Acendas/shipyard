@@ -35,12 +35,24 @@ Operational tasks run in two phases inside the subagent's loop:
 ### Phase 1 — Run + Capture
 
 1. Resolve the verify command (handle `test_commands.e2e` style indirection).
-2. Run the command, tee output to a stable path:
+2. Run the command via **Monitor** so progress and failures stream to the orchestrator/user as notifications instead of arriving as one blob at the end. The capture file remains the source of truth for the structured return:
    ```
-   <verify_command> 2>&1 | tee <SHIPYARD_DATA>/captures/<task_id>/run-<N>.log
+   Monitor(
+     command: "(<verify_command>) 2>&1 | tee <SHIPYARD_DATA>/captures/<task_id>/run-<N>.log | grep -E --line-buffered '<filter-pattern>'",
+     description: "<task_id> verify run <N>",
+     timeout_ms: <bounded; default 1800000 (30m), cap 3600000>
+   )
    ```
-   `<N>` is the iteration number, starting at 1.
-3. Capture the exit code.
+   `<N>` is the iteration number, starting at 1. Monitor exits when the verify command exits; the exit code Monitor reports IS the verify command's exit code (the tee/grep tail does not mask it because we wrap the verify in `(…)` and pipe explicitly — but verify the exit propagates by reading the capture's last line if in doubt).
+
+   **Filter pattern — must cover both progress and failure modes.** Silence is not success. Author the regex so a crash, a hang, or an unexpected non-zero exit produces *some* event the user can see. Concretely, the alternation should include:
+   - At least one progress marker the runner emits per file/case (e.g., `PASS|FAIL|✓|✗`, `passed|failed|skipped`, `\\[OK\\]|\\[ERR\\]`).
+   - Failure signatures the agent would act on: `Traceback|Error|FAILED|assert|Killed|OOM|Segmentation fault|panic:|exit code [^0]`.
+   - For test runners specifically: also include `Tests:|Suites:|Ran [0-9]+|^FAIL `-style summary lines so a green run still produces a final event.
+
+   When in doubt, broaden the filter — extra events are recoverable; a silent crashloop is not.
+
+3. After Monitor exits, capture its reported exit code AND read the capture file from disk (the file is the authoritative artifact; Monitor notifications are ephemeral). Take the last 20 lines for `LAST_LINES`.
 4. Append to the task's `verify_history:` frontmatter:
    ```yaml
    verify_history:
@@ -102,9 +114,31 @@ Max patch tasks (scope guard): {{max_patch_tasks}}
 
 # The Loop
 
-1. **Run + capture.** Execute the verify command, tee output to:
-       {{data_dir}}/captures/{{task_id}}/run-<iteration>.log
-   Capture exit code.
+1. **Run + capture (stream via Monitor).** Run the verify command via the
+   Monitor tool so progress and failures land as events while the run is in
+   flight. Tee output to a stable capture path; the file remains the
+   authoritative artifact.
+
+       Monitor(
+         command: "({{verify_command_resolved}}) 2>&1 | tee {{data_dir}}/captures/{{task_id}}/run-<iteration>.log | grep -E --line-buffered '<filter>'",
+         description: "{{task_id}} verify run <iteration>",
+         timeout_ms: 1800000
+       )
+
+   The `<filter>` regex MUST match BOTH progress markers (so a healthy run
+   still produces events) AND failure signatures (so a crash, hang, or
+   non-zero exit produces events). Silence is not success. Suggested base:
+
+       PASS|FAIL|✓|✗|passed|failed|skipped|Tests:|Suites:|Ran [0-9]+|Traceback|Error|FAILED|assert|Killed|OOM|Segmentation fault|panic:|exit code [^0]
+
+   Tighten or extend per the runner in use; when in doubt, broaden it. After
+   Monitor exits, take its reported exit code as the verify command's exit
+   code, and Read the capture file from disk to extract the LAST_LINES tail.
+
+   For very short verify commands (under ~10 seconds total), plain blocking
+   Bash with tee is fine — Monitor's overhead isn't worth it for sub-second
+   feedback. The threshold is whether streaming progress would meaningfully
+   help the user or orchestrator know the run is still alive.
 
 2. **Update task frontmatter.** Append the iteration to verify_history:
        verify_history:

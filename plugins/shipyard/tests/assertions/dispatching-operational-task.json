@@ -53,5 +53,20 @@
     "name": "no_registered_shipyard_agent",
     "type": "not_contains",
     "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "uses_monitor_for_verify_run",
+    "type": "contains",
+    "pattern": "Monitor\\("
+  },
+  {
+    "name": "monitor_filter_covers_failures",
+    "type": "contains",
+    "pattern": "Silence is not success"
+  },
+  {
+    "name": "monitor_grep_line_buffered",
+    "type": "contains",
+    "pattern": "grep -E --line-buffered"
   }
 ]
