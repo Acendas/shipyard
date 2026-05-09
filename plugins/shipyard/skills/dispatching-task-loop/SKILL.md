@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 This is how Shipyard executes one task without burning the orchestrator's context window. The subagent does the loop; the orchestrator does the gate.
 
-**Why this exists.** Ralph Loop's reliability is structural — the loop refuses to exit until completion is real. But Ralph runs *in your session*, so every false attempt accumulates in your context. By the fifth iteration, you're operating on a summary of a summary. We move the loop into a subagent: the subagent absorbs every iteration's reasoning, false attempts, and tool calls; when it returns, only a structured summary lands in the orchestrator.
+**Why this exists.** A self-checking loop's reliability is structural — the loop refuses to exit until completion is real. But running that loop in the orchestrator session means every false attempt accumulates in the orchestrator's context. By the fifth iteration, the orchestrator is operating on a summary of a summary. Move the loop into a subagent instead: the subagent absorbs every iteration's reasoning, false attempts, and tool calls; when it returns, only a structured summary lands in the orchestrator.
 
 ## When to Invoke
 

@@ -14,7 +14,7 @@ A task is "done" only when its acceptance is observable — right now, in this t
 NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
 ```
 
-If you have not run the verification command in this message, you cannot claim it passes. Period.
+No completion claim is permitted unless the verification command ran in this message. Period.
 
 **Violating the letter of this rule is violating the spirit of this rule.**
 

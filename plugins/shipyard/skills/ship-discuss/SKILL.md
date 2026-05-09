@@ -62,7 +62,7 @@ This is a Read+Write mutex. There is a small theoretical race window between the
 }
 ```
 
-This file activates a PreToolUse hook that blocks source code writes. If you find yourself wanting to write implementation code, STOP — you are in a discussion, not an execution session.
+This file is the active-skill mutex (see the `acquiring-skill-lock` capability skill for semantics). Any other Shipyard skill entering will see the held lock and refuse. The mutex is advisory — no hook physically blocks tool calls — so the discipline is yours: if you find yourself wanting to write implementation code, STOP. Discussion is for shaping the spec, not building the thing.
 
 ## Detect Mode
 
@@ -112,7 +112,7 @@ If you lose context mid-discussion (e.g., after auto-compaction):
 2. Check for feature file matching the topic: use Glob `<SHIPYARD_DATA>/spec/features/F*-*.md` to enumerate, then Read each and match by title against the current topic.
    - If found with empty acceptance criteria → Phase 3 incomplete, resume Phase 3
    - If found with acceptance criteria and `status: proposed` → Phase 3 done, resume from Phase 3.5 (Impact Analysis)
-   - If found with `status: approved` but `.active-session.json` still has `skill: ship-discuss` (not cleared) → Phase 6 (Finalize) was interrupted mid-sequence. Read BACKLOG.md: if the feature ID is already listed, resume from Phase 6 step 3 (idea archival) or step 4 (Next Up) depending on whether an idea file still has `status: proposed`. If the feature ID is missing from BACKLOG.md, resume from Phase 6 step 2 (append to BACKLOG.md). Either way, the final session-guard sentinel write still runs last.
+   - If found with `status: approved` but `.active-session.json` still has `skill: ship-discuss` (not cleared) → Phase 6 (Finalize) was interrupted mid-sequence. Read BACKLOG.md: if the feature ID is already listed, resume from Phase 6 step 3 (idea archival) or step 4 (Next Up) depending on whether an idea file still has `status: proposed`. If the feature ID is missing from BACKLOG.md, resume from Phase 6 step 2 (append to BACKLOG.md). Either way, the final mutex-release write still runs last.
 3. If neither file exists → pre-research phases only (interactive). AskUserQuestion: "A previous discussion session was interrupted before research completed. Can you summarize what was decided so far?" Resume from Phase 1.5 (Research)
 
 Research findings are the most expensive state to lose (WebSearch/WebFetch results). The research draft file preserves them.
@@ -158,7 +158,7 @@ Want to flesh this out into a full feature now, or save it for later?
 ```
 
 - **"now" / "yes" / user engages** → switch to IDEA mode (Step I1 below) with the just-created IDEA-NNN
-- **"later" / "no" / silence** → done. Clean up session guard and exit.
+- **"later" / "no" / silence** → done. Clean up active-skill mutex and exit.
 
 **Rules for CAPTURE mode:**
 - Be fast. Don't ask clarifying questions upfront.
@@ -172,108 +172,9 @@ Want to flesh this out into a full feature now, or save it for later?
 
 When the input is an epic ID (E001) or the user describes a large initiative.
 
-### Step EP1: Load Epic Context
+**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/epic-mode.md`
 
-If existing epic:
-1. Use Glob `<SHIPYARD_DATA>/spec/epics/E00N-*.md` (substitute the epic ID), then Read the matching file.
-2. Find all features in this epic: use Grep with `pattern: ^epic: E00N`, `path: <SHIPYARD_DATA>/spec/features`, `glob: F*.md`, `output_mode: files_with_matches`, then Read each match.
-3. For each feature, read title, status, story points, acceptance criteria count
-
-Present the current state:
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- EPIC: E001 — Payment System
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- Features (4):
-   F003 — Card Payments (done, 8 pts, 5 scenarios)
-   F004 — Refund Flow (approved, 5 pts, 3 scenarios)
-   F012 — Payment Analytics (proposed, 3 pts, 2 scenarios)
-   F015 — Split Payments (proposed, 8 pts, 0 scenarios)
-
- Total: 24 pts | Done: 8 pts | Remaining: 16 pts
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-If new epic (user described a large initiative): create the epic file first, then proceed.
-
-### Step EP2: Epic-Level Discussion
-
-Use AskUserQuestion to understand the direction:
-- What's changing about this epic? (scope, priority, direction)
-- Any new features to add? Any existing features to remove or split?
-- Has the business context changed? (competitor launched, user feedback, pivot)
-- Are there cross-feature concerns to address? (shared infrastructure, common patterns, sequencing)
-
-### Step EP3: Cascade Changes to Features
-
-This is the critical step. Based on the discussion, identify changes that need to propagate to features:
-
-**For each affected feature:**
-
-| Change type | What happens |
-|---|---|
-| **Scope change** | Update feature's acceptance criteria, re-estimate RICE/points |
-| **New dependency** | Add to feature's `dependencies:` array (bidirectional) |
-| **Priority shift** | Update RICE fields, note in decision log |
-| **Acceptance criteria change** | Edit feature file, add decision log entry: "Updated due to epic E00N discussion: [reason]" |
-| **Feature removed from epic** | Set `epic: ""` in feature frontmatter, note in decision log |
-| **Feature added to epic** | Set `epic: E00N` in feature frontmatter |
-| **Feature invalidated** | Set `status: cancelled` in feature frontmatter, note reason in decision log |
-| **New feature identified** | Run NEW mode inline to create it, assign to this epic |
-
-**Sprint impact check:** For each modified feature, check if it's in an active sprint. If yes, flag:
-```
-⚠ F004 (Refund Flow) is in Sprint 3 — 2/4 tasks done.
-  Changing acceptance criteria may invalidate completed work.
-  Apply now / defer to post-sprint / skip this change
-```
-
-### Step EP4: Create New Features (if any)
-
-For each new feature identified during the epic discussion, run the standard NEW mode phases (Phase 1 → 5) with the epic pre-assigned. Bundle related features — discuss all new features before writing any, so dependencies are clear.
-
-### Step EP5: Quality Gate
-
-Review the epic after all changes:
-
-| # | Check | Fail criteria |
-|---|---|---|
-| 1 | **All features have acceptance criteria** | Any feature in epic has 0 scenarios |
-| 2 | **No orphan features** | Features that lost their epic assignment aren't floating unassigned |
-| 3 | **Dependencies are consistent** | Feature A depends on B, but B doesn't know about A |
-| 4 | **No duplicates within epic** | Two features describe the same behavior |
-| 5 | **Epic scope is coherent** | Features in the epic don't logically belong together |
-
-### Step EP6: Wrap Up
-
-Present the changed state:
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- EPIC UPDATED: E001 — Payment System
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- Changes:
-   F004: acceptance criteria updated (3 → 5 scenarios)
-   F012: RICE re-estimated (score: 18 → 24)
-   F015: split into F015 + F018 (split payments → basic + advanced)
-   F018: NEW — Advanced Split Payments (5 pts, 4 scenarios)
-
- Sprint impact:
-   F004 is in Sprint 3 — changes deferred to post-sprint
-
- Features (5):
-   F003 — Card Payments (done)
-   F004 — Refund Flow (approved, updated)
-   F012 — Payment Analytics (proposed, re-estimated)
-   F015 — Basic Split Payments (proposed, scoped down)
-   F018 — Advanced Split Payments (proposed, NEW)
-
- Total: 29 pts | Done: 8 pts | Remaining: 21 pts
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-AskUserQuestion: "Approve these changes? (yes / adjust / revert all)"
+Six steps in sequence: **EP1 Load Epic Context** (Glob the epic file, Grep features by `^epic: E00N`, present a summary block of features + points + scenarios); **EP2 Epic-Level Discussion** (AskUserQuestion about scope, new/removed features, business context shifts, cross-feature concerns); **EP3 Cascade Changes to Features** (propagate scope changes, new dependencies, priority shifts, acceptance criteria changes, additions/removals/invalidations to each affected feature file — full change-type table in reference; flag sprint-active features before mutating them); **EP4 Create New Features** (run NEW mode Phase 1→5 inline with epic pre-assigned, bundle related features so dependencies are clear); **EP5 Quality Gate** (5 checks: all features have acceptance criteria, no orphan features, consistent dependencies, no duplicates, coherent epic scope); **EP6 Wrap Up** (present changed-state summary, AskUserQuestion: "Approve these changes? (yes / adjust / revert all)").
 
 ---
 
@@ -305,12 +206,7 @@ Impact Analysis (Phase 3.5) runs as normal — it scans existing features for de
 
 ### Step I3: Mark the Idea as Graduated
 
-Idea archival happens inside Phase 6 (Finalize), between the BACKLOG.md append and the session-guard cleanup — not here and not as a standalone step. The graduation target is:
-```
-<SHIPYARD_DATA>/spec/ideas/IDEA-NNN-[slug].md
-```
-
-When Phase 6 runs for an idea-sourced feature, after appending to BACKLOG.md, use the Edit tool to set the idea file's frontmatter to `status: graduated` and add `graduated_to: FNNN`. Confirm: "IDEA-NNN has been graduated to [FNNN: title]." Doing the Edit inside Phase 6 keeps it inside the session-guard window. Listings filter `status: graduated` ideas out by default; the `reap-obsolete` housekeeping reaps them physically after retention.
+Idea archival happens inside Phase 6 (Finalize), between the BACKLOG.md append and the mutex release — not here and not as a standalone step. See `references/phase-finalize.md` for the graduation target path and exact ordering.
 
 ---
 
@@ -338,64 +234,19 @@ Have a natural conversation about the topic. **Always use AskUserQuestion — ne
 
 ### Phase 1.5: Research
 
-Once you understand what the user wants, research before challenging. Walk this in order. **Use LSP first** for code navigation; fall back to Grep/Read silently.
+**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-1-research.md`
 
-1. **Constitution check.** Glob `.claude/rules/project-*.md` and `.claude/rules/learnings/*.md`, read every match. Extract architecture boundaries, banned patterns, naming conventions, domain vocabulary, shared utilities. Flag tensions with the proposed feature as pre-loaded Phase 1.5b challenge items. Skip silently if no `project-*.md` files exist.
+Once you understand what the user wants, research before challenging. **Use LSP first** for code navigation; fall back to Grep/Read silently. Walk in order: (1) **Constitution check** — Glob `.claude/rules/project-*.md` and `.claude/rules/learnings/*.md` to extract architecture boundaries and banned patterns; (2) **Internal research** — Glob `<SHIPYARD_DATA>/spec/features/F*.md` and read `codebase-context.md`; (3) **How others solve it** — WebSearch established products, common user complaints, security pitfalls; WebFetch official docs.
 
-2. **Internal research.** Glob `<SHIPYARD_DATA>/spec/features/F*.md` and Read each to find overlaps. Use LSP `documentSymbol` / `findReferences` for relevant codebase patterns. Read `<SHIPYARD_DATA>/codebase-context.md` for stack constraints.
+Write findings to the feature file `## Technical Notes` (after Phase 3 creates it) with HIGH/MEDIUM/LOW confidence labels. Be prescriptive: "Use X" not "Consider X or Y" — the builder needs decisions. Fold findings into the conversation naturally before challenging.
 
-3. **How others solve it.** WebSearch how established products handle this same problem, the standard UX patterns users expect, and open-source implementations to study. WebSearch common user complaints about existing solutions to learn from their mistakes. WebSearch best practices and security pitfalls for the domain (include the current year for currency). WebFetch official docs for mentioned libraries/APIs.
-
-**Write findings to the feature file `## Technical Notes`** (after Phase 3 creates it) with this structure:
-
-```markdown
-## Technical Notes
-
-### Research Findings
-
-**How others do it**
-- [Product/project] — [how they solve this, what we can learn] (confidence: HIGH/MEDIUM)
-- [Open-source repo] — [relevant approach or pattern] (confidence: HIGH/MEDIUM)
-- [Common user complaints about existing solutions] — [what to avoid]
-
-**Relevant docs**
-- [URL] — [why it matters] (confidence: HIGH)
-
-**Codebase patterns to follow**
-- [file path] — [what pattern to mirror]
-
-**Constitution constraints**
-- [rule from project-*.md] — [how it applies to this feature]
-
-**Known gotchas**
-- [pitfall] — [how to avoid] (confidence: HIGH/MEDIUM/LOW)
-
-**Recommended approach**
-- [prescriptive direction — "Use X" not "Consider X or Y"]
-```
-
-Confidence levels: **HIGH** = verified in official docs or codebase. **MEDIUM** = multiple sources agree but not officially verified. **LOW** = single source or AI knowledge only.
-
-Be prescriptive: "Use X" not "Consider X or Y". The builder needs decisions, not options.
-
-Fold findings into the conversation naturally before challenging: "I looked into how other apps handle this — most use [X] because [Y]. That aligns with what you're describing."
-
-**Visual context:** If the feature spans multiple services, external APIs, or touches multiple parts of the architecture, show a C4 diagram (Context or Container level) so the user can see where it fits. If it involves 3+ components communicating in sequence, show a sequence diagram to make the interaction flow visible. See `references/communication-design.md` for C4 and sequence diagram patterns. Skip for features that live entirely within one component.
+**Visual context:** If the feature spans multiple services or touches multiple parts of the architecture, show a C4 diagram (Context or Container level). If it involves 3+ components communicating in sequence, show a sequence diagram. See `references/communication-design.md` for patterns. Skip for features that live entirely within one component.
 
 ### Phase 1.5b: Challenge & Surface
 
-Once you have a reasonable understanding of the feature, **proactively challenge it** before moving to spec. Invoke the **`shipyard:discovering-edge-cases` capability skill** to walk the seven discovery categories (boundary inputs, concurrency, failure modes, adversarial input, observability gaps, NFRs, domain-specific) and return structured findings.
+**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-1-5b-challenge.md`
 
-Pass to the capability skill:
-
-| Parameter | Value |
-|---|---|
-| `feature_text` | Inline summary of the user's feature so far, OR contents of `.research-draft.md` if it exists |
-| `parent_context` | Path to the parent epic/feature if applicable, else null |
-| `domain_hints` | Inferred from the feature draft (`["auth"]`, `["payments"]`, `["external-api"]`, `["multi-tenant"]`, `["AI/LLM"]`, `["cache"]` — pick relevant ones) |
-| `data_dir` | Literal SHIPYARD_DATA path |
-
-The capability skill returns a structured findings list with per-finding `category`, `case`, `currently_handled` (true/false/ambiguous), and `spec_response_needed`. You hold the structured list (~3-5k tokens), not the seven methodology references. Also run a quick pre-mortem (from `discovery-techniques.md`) — that one is short enough to do inline.
+Once you have a reasonable understanding of the feature, **proactively challenge it** before moving to spec. Invoke the **`shipyard:discovering-edge-cases` capability skill** to walk the seven discovery categories (boundary inputs, concurrency, failure modes, adversarial input, observability gaps, NFRs, domain-specific) and return structured findings. Pass `feature_text`, `parent_context`, `domain_hints`, and `data_dir`. The capability skill returns a structured list (~3-5k tokens). Also run a quick pre-mortem inline (from `discovery-techniques.md`).
 
 **Presentation:** Follow `references/communication-design.md`. Max 3–4 items per AskUserQuestion; batch into themed groups of 3 if more. For each item: what I found → why it matters → what I recommend. Use the 3-layer pattern for anything genuinely surprising. Compact visual summary before the AskUserQuestion:
 
@@ -406,18 +257,7 @@ The capability skill returns a structured findings list with per-finding `catego
   ❓  [Finding]           → needs decision
 ```
 
-**Do not proceed to Phase 2 until grey areas are resolved or explicitly deferred.**
-
-Write research findings and challenge resolutions to `<SHIPYARD_DATA>/spec/.research-draft.md`:
-
-```yaml
----
-topic: "[primary topic from user input]"
-created: [ISO date]
----
-```
-
-Body sections: `## Research Findings` (implementation context, patterns, docs/references, gotchas — same structure as feature Technical Notes), `## Challenge Resolutions` (resolved grey areas, deferred items). This file is absorbed into the feature file's Technical Notes in Phase 3 and then deleted.
+**Do not proceed to Phase 2 until grey areas are resolved or explicitly deferred.** Write research findings and challenge resolutions to `<SHIPYARD_DATA>/spec/.research-draft.md` (frontmatter `topic:` + `created:`; body sections `## Research Findings` and `## Challenge Resolutions`). This file is absorbed into the feature file's Technical Notes in Phase 3 and then deleted.
 
 ### Phase 2: Viability Gate
 
@@ -429,7 +269,7 @@ Before writing to spec, silently evaluate each feature:
 4. **TESTABLE** — Can we verify with automated tests + demo? → KILL if purely subjective
 5. **SCOPED** — Is it one feature, not three in a trench coat? → SPLIT if multiple stories
 
-If viability kills the feature, use the Edit tool to set `obsolete: true` in `<SHIPYARD_DATA>/spec/.research-draft.md`'s frontmatter (soft-delete sentinel — recovery logic filters it out; `reap-obsolete` reaps it later).
+If viability kills the feature, use the Edit tool to set `obsolete: true` in `<SHIPYARD_DATA>/spec/.research-draft.md`'s frontmatter (soft-delete sentinel — recovery logic filters it out; it stays as a soft-deleted record).
 
 If a feature fails a gate, AskUserQuestion — don't block. Frame positively: "This feature needs X to be buildable" not "This feature fails because X is missing."
 Example: "I can't write testable acceptance criteria for this yet — the scope is too broad. Can we narrow it to something specific? (narrow it / capture as-is and refine later)"
@@ -438,88 +278,9 @@ The user can override: "Just capture it as proposed, we'll refine later."
 
 ### Phase 3: Write to Spec
 
-Use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md`. If it exists and is not marked `obsolete: true`, absorb its content into the feature file's `## Technical Notes` and `## Decision Log` sections. **Do not mark it obsolete yet** — it serves as a recovery checkpoint until Phase 3 is fully complete (feature file written with acceptance criteria, estimates, and epic assignment). Use Edit to set `obsolete: true` in `.research-draft.md`'s frontmatter only after Phase 3 finishes.
+**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-3-write-spec.md`
 
-For each well-defined feature:
-
-1. **Generate ID** — Next available FNNN (F001, F002, etc.)
-2. **Determine epic** — Use Glob `<SHIPYARD_DATA>/spec/epics/E*.md` to enumerate epics and Read each. Use Grep with `pattern: ^epic:`, `path: <SHIPYARD_DATA>/spec/features`, `glob: F*.md`, `output_mode: content`, `-n: false` to see how features are grouped. Then decide:
-
-   **Does it belong to an existing epic?** Check if the feature:
-   - Shares the same user-facing domain (e.g., auth, payments, onboarding)
-   - Would be described under the same section of a product overview
-   - Depends on or extends features already in an existing epic
-
-   **Should it create a new epic?** Check if:
-   - It introduces a new product area not covered by existing epics
-   - It involves 3+ features that logically group together (1-2 features don't justify an epic)
-   - Existing epics would be diluted by adding unrelated functionality
-
-   **If unclear** — explain the options and AskUserQuestion:
-   ```
-   This feature touches [domain]. I see two options:
-
-   1. Add to E002 (Payments) — it's related to billing, but the scope is broader
-   2. Create new epic "Revenue Analytics" — this is the first of likely 3+ features in this area
-
-   Recommended: 2 — this feels like a distinct product area that will grow
-   ```
-
-   **If no epics exist yet** — create the first one if the feature is part of a larger initiative. Otherwise, leave `epic: ""` and let it accumulate. Epics emerge from patterns, don't force them early.
-
-3. **Write feature file** to `<SHIPYARD_DATA>/spec/features/FNNN-[slug].md`.
-
-   **Frontmatter — every field is required. No omissions.**
-   ```yaml
-   ---
-   id: FNNN
-   title: ""
-   type: feature
-   epic: ""               # E00N if assigned, empty string if none
-   status: proposed
-   story_points: 0        # rough estimate from discussion
-   complexity: ""         # low | medium | high
-   token_estimate: 0      # estimated total tokens (input+output) to implement this feature. Guide: S task ~50K, M task ~150K, L task ~300K. Sum across expected tasks.
-   rice_reach: 0          # 0–10: how many users affected
-   rice_impact: 0         # 0–3: massive=3, high=2, medium=1, low=0.5
-   rice_confidence: 0     # 0–100: % confidence in reach/impact estimates
-   rice_effort: 0         # person-months (use 0.5 for small features)
-   rice_score: 0          # computed: (reach × impact × confidence) / effort
-   feasibility: 0         # 1–10 from viability gate
-   dependencies: []       # feature IDs this depends on
-   references: []         # full relative paths: <SHIPYARD_DATA>/spec/references/FNNN-slug.md
-   children: []           # sub-feature IDs if split
-   tasks: []              # populated during sprint planning
-   created: YYYY-MM-DD
-   updated: YYYY-MM-DD
-   ---
-   ```
-
-   **Body sections:**
-   - User story ("As a... I want... so that...")
-   - Why This Matters (business reasoning)
-   - Acceptance criteria in Given/When/Then format (at least 2 scenarios: happy path + one edge case)
-   - **Interface** — only if API endpoints, method signatures, or event schemas were discussed. Skip the section entirely if nothing was covered.
-   - **Data Model** — only if schema fields, entity relationships, or data constraints were discussed. Skip if not.
-   - **Configuration** — only if settings, environment variables, or feature flags were discussed. Skip if not.
-   - **Flows** — only if a sequence, state machine, or user journey was discussed. Use Mermaid. Skip if not.
-   - **Error Handling** — only if specific failure modes or error responses were discussed. Skip if not.
-   - Technical notes (research findings — from `.research-draft.md`)
-   - Decision log (decisions made during this discussion)
-   - **No inline task table** — tasks are created as separate files in `<SHIPYARD_DATA>/spec/tasks/` and referenced via the `tasks:` array in frontmatter. Preliminary task IDs can be listed during discuss; full task files are created during sprint planning.
-   - **Hard limit: 200 lines per file.** If the feature has 10+ acceptance scenarios or extensive technical notes, split it:
-     - Split into sub-features (F001a, F001b) for large scenario sets
-     - Extract API contracts, data models, wireframes to `<SHIPYARD_DATA>/spec/references/FNNN-<slug>.md`. Add frontmatter to each extracted file: `feature: FNNN` and `source: extracted from FNNN during discuss`.
-     - Add full relative paths (e.g., `<SHIPYARD_DATA>/spec/references/F001-api.md`) to the `references:` array in the feature's frontmatter
-     - Plan the split BEFORE writing, not after
-
-4. **Initial estimates** — fill every RICE field in the frontmatter written above:
-   - Use AskUserQuestion for `rice_reach` and `rice_impact` if not obvious from context
-   - Estimate `rice_confidence`, `rice_effort`, `story_points`, `complexity`, `token_estimate`, and `feasibility` yourself based on the discussion
-   - Compute `rice_score` = (rice_reach × rice_impact × rice_confidence) / rice_effort
-   - No field may be left at 0 or empty without a deliberate reason noted in the decision log
-
-5. **Epic**: If an epic was assigned, set `epic: E00N` in feature frontmatter. Do NOT update the epic file with a features list — epic membership is derived by querying feature files.
+For each well-defined feature: generate the next FNNN ID, determine the epic (existing, new, or empty — see reference for the decision tree), and write `<SHIPYARD_DATA>/spec/features/FNNN-[slug].md` with full required frontmatter (id, title, type, epic, status, story_points, complexity, token_estimate, all RICE fields, feasibility, dependencies, references, children, tasks, created, updated). Body sections: user story, Why This Matters, **acceptance criteria in Given/When/Then format** (happy path + at least one edge case), optional Interface / Data Model / Configuration / Flows / Error Handling sections (include only if discussed), Technical Notes (absorbed from `.research-draft.md`), Decision Log. **Hard limit: 200 lines per file** — split into sub-features (F001a/b) or extract to `<SHIPYARD_DATA>/spec/references/FNNN-<slug>.md` if larger. Fill every RICE field; compute `rice_score = (reach × impact × confidence) / effort`. Mark `.research-draft.md` `obsolete: true` only after Phase 3 finishes (it is the recovery checkpoint until then).
 
 ### Phase 3.5: Impact Analysis
 
@@ -564,89 +325,17 @@ Skip if BACKLOG.md is empty or doesn't exist.
 
 ### Phase 4.9: Quality Gate (self-review loop)
 
-Before presenting to the user, review your own output. Re-read each feature file you wrote and check against this checklist:
+**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-quality-and-critique.md`
 
-| # | Check | Fail criteria |
-|---|---|---|
-| 1 | **Every acceptance scenario is Given/When/Then** | Vague prose like "user can do X" without structured scenario |
-| 2 | **Happy path + at least 1 edge case per feature** | Only happy path covered |
-| 3 | **No ambiguous words** | "appropriate", "properly", "as needed", "etc.", "various" in acceptance criteria |
-| 4 | **No TBDs or placeholders** | Any "TBD", "TODO", "to be decided", "[fill in]" left in the spec |
-| 5 | **User story has clear actor, action, and value** | "As a... I want... so that..." missing any part |
-| 6 | **RICE fields all populated** | Any RICE field still at 0 without a reason in the decision log |
-| 7 | **Dependencies identified** | Feature touches other features but `dependencies: []` is empty |
-| 8 | **Research findings are prescriptive** | "Consider X or Y" instead of "Use X" |
-| 9 | **How others do it section populated** | No real-world product references found |
-| 10 | **Feature is one feature, not multiple** | Acceptance scenarios describe unrelated behaviors |
-| 11 | **NFRs considered** | Feature handles sensitive data or has scale concerns but no NFR notes |
-| 12 | **Edge cases covered** | No boundary values, state transitions, or concurrency scenarios |
-| 13 | **Failure modes analyzed** | Write operations exist but no failure mode table |
-| 14 | **EARS syntax used** | Acceptance criteria use vague language instead of WHEN/WHILE/IF patterns |
-| 15 | **All states covered** | Missing empty state, error state, loading state, or offline state |
-
-Iterate the checklist on each feature file, fixing failures (AskUserQuestion when input is needed) and re-running. Max 3 iterations. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag remaining gaps as "Unresolved — needs follow-up in /ship-discuss [ID]". Then proceed to Phase 4.95.
+Before presenting to the user, re-read each feature file and run the 15-check quality gate (Given/When/Then formatting, happy + edge cases, no ambiguous words, no TBDs, RICE populated, dependencies identified, prescriptive research, NFRs, EARS syntax, all states covered, etc. — full table in the reference). Iterate fixes up to 3 passes; emit only per-iteration deltas, not the whole table on each pass. Flag remaining gaps as "Unresolved — needs follow-up in /ship-discuss [ID]", then proceed to Phase 4.95.
 
 ### Phase 4.95: Adversarial Critique
 
-After the self-review quality gate passes, spawn the critic agent to challenge the spec from angles the self-review doesn't cover — implicit assumptions, feasibility risks, and design decision quality.
+**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-quality-and-critique.md`
 
-**Determine stakes level:**
-- `high` if: feature is part of an epic, story_points >= 8, touches auth/payments/data, or has 6+ acceptance scenarios
-- `standard` otherwise
+After the quality gate passes, spawn a `general-purpose` critic subagent (inline prompt in the reference — kept inline per S-1 granularity) to challenge the spec from angles self-review misses: implicit assumptions, feasibility risks, ambiguities, missing error states. Determine stakes level: `high` if feature is part of an epic, story_points ≥ 8, touches auth/payments/data, or has 6+ acceptance scenarios; `standard` otherwise.
 
-**Spawn the critic:** dispatch a `general-purpose` subagent with the inline critic prompt below. The critic role is reused across ship-review, ship-sprint, and ship-discuss with mode-specific framing; per S-1's granularity criterion, the prompt stays inline.
-
-Substitute the literal SHIPYARD_DATA path before spawning:
-
-```
-Agent(subagent_type: "general-purpose", prompt: |
-
-You are an adversarial critic of a feature spec. Your job is to find what
-the spec misses: implicit assumptions, feasibility risks, ambiguous
-acceptance criteria, design decisions that locked in a constraint without
-acknowledging it, and missing error states.
-
-Apply anti-sycophancy: do not agree with the spec just because it sounds
-reasonable. Pre-mortem the feature: imagine it shipped and broke in
-production — what was the failure mode the spec didn't catch?
-
-Mode: feature-critique
-Stakes: [standard | high]   (high if part of an epic, ≥8 story points,
-                             touches auth/payments/data, or 6+ acceptance
-                             scenarios)
-
-Read these files:
-  - All feature files written in Phase 3 (full paths inlined here)
-  - Codebase context: <SHIPYARD_DATA>/codebase-context.md
-  - Project rules: .claude/rules/project-*.md
-
-Return:
-  STATUS: CHALLENGES
-  PRIORITY_ACTIONS: <ordered list — mandatory fixes>
-  IMPLICIT_ASSUMPTIONS: <baked-in assumptions the spec didn't surface>
-  FEASIBILITY_RISKS: <design choices that may not survive contact with reality>
-  AMBIGUITIES: <ACs that are too vague to test against>
-  MISSING_ERROR_STATES: <happy-path-only paths that should specify failure>
-
-If you genuinely have no challenges:
-  STATUS: NO_CHALLENGES
-  REASON: <one paragraph confirming you considered each adversarial angle>
-
-You are READ-ONLY: no edits, no commits, no spawning subagents.
-)
-```
-
-**Process the critic's findings:**
-
-1. Read the `PRIORITY ACTIONS` section — these are mandatory fixes
-2. For each FAIL item and HIGH-risk assumption:
-   - If fixable without user input → fix the feature file directly (update acceptance criteria, add missing error states, clarify ambiguous text, add noted dependencies)
-   - If requires user judgment → collect into a single AskUserQuestion with the critic's evidence and your recommendation
-3. For CONCERN items: note them in the feature's `## Decision Log` as "Critic flagged — [summary]. Accepted because: [your reasoning]" or fix if quick
-4. For RECONSIDER verdicts from Pass 3 (steel-man challenges): AskUserQuestion with both options and the critic's reasoning, plus your recommendation
-5. If the critic identified assumptions that the spec relies on silently, make them explicit in the spec — add them to acceptance criteria or Technical Notes
-
-**Do NOT re-run the critic after fixes.** One round only. Address what you can, ask the user about the rest, and proceed.
+Process the critic's findings: fix what's fixable without user input, batch judgment calls into a single AskUserQuestion with the critic's evidence and your recommendation, log CONCERN items in the Decision Log, make silent assumptions explicit in the spec. **Do NOT re-run the critic after fixes.** One round only.
 
 ### Phase 5: Spec Approval Gate (NOT an Implementation Plan)
 
@@ -676,14 +365,16 @@ Then use `AskUserQuestion` for approval:
 
 ### Phase 6: Finalize (only on Approve)
 
-Run these steps in order. The session guard stays active until the **very last** step so that any accidental Edit to a source file during Finalize still gets blocked — that's the whole point of the ordering. Do not reorder to "optimize" the cleanup.
+**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-finalize.md`
 
-1. **Update feature statuses.** For each approved feature, change `status: proposed` → `status: approved` in its spec file (`.md`, allowed by the guard).
-2. **Append to BACKLOG.md.** Use the Edit tool to add approved feature IDs to `<SHIPYARD_DATA>/spec/BACKLOG.md` (`.md`, allowed by the guard).
-3. **Mark graduated ideas.** If any features were sourced from an IDEA file (IDEA mode), use the Edit tool to set `status: graduated` and add `graduated_to: FNNN` in the corresponding `<SHIPYARD_DATA>/spec/ideas/IDEA-NNN-*.md` frontmatter now. Doing this here — inside the guarded window — keeps the lifecycle change inside the session-guard cover.
-4. **Use the Edit tool to also mark `.research-draft.md` obsolete** if it still exists with the current topic — sets `obsolete: true` in its frontmatter.
-5. **Print the Next Up block** (see below). The user sees it and the conversation is effectively over.
-6. **Last action — after everything above has flushed:** use the Write tool to overwrite `<SHIPYARD_DATA>/.active-session.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel — `session-guard` treats `skill: null` as inactive). Until this step, any Edit to a source-code path is still blocked by the session guard. After this step, do **not** continue with any tool calls — the discussion is done. If the user wants to build the feature, they will run `/ship-sprint` in a new session.
+Run these steps in order. The active-skill mutex stays active until the **very last** step so that any accidental Edit to a source file during Finalize still gets blocked. Do not reorder to "optimize" the cleanup.
+
+1. **Update feature statuses** — `status: proposed` → `status: approved` in each spec file.
+2. **Append to BACKLOG.md** — use Edit to add approved feature IDs to `<SHIPYARD_DATA>/spec/BACKLOG.md`.
+3. **Mark graduated ideas** — for IDEA-sourced features, set `status: graduated` and add `graduated_to: FNNN` in the source idea file. Doing this inside the guarded window keeps the lifecycle change inside the mutex window.
+4. **Mark `.research-draft.md` obsolete** if it still exists with the current topic (`obsolete: true`).
+5. **Print the Next Up block** (see below).
+6. **Last action — after everything above has flushed:** use Write to overwrite `<SHIPYARD_DATA>/.active-session.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel). After this step, do **not** continue with any tool calls — the discussion is done. If the user wants to build the feature, they will run `/ship-sprint` in a new session.
 
 ---
 
@@ -780,16 +471,9 @@ Update the sprint file with whatever the user chooses.
 
 ### Step 5: Approval Gate & Finalize
 
-After the impact analysis (and any sprint-replan choices) is applied, run Phase 5 (Spec Approval Gate) and Phase 6 (Finalize) against the refined feature. Same STOP rule, same ordering invariant: the session guard stays active until the last step.
+After the impact analysis (and any sprint-replan choices) is applied, run Phase 5 (Spec Approval Gate) and Phase 6 (Finalize) against the refined feature. Same STOP rule, same ordering invariant: the active-skill mutex stays active until the last step.
 
-REFINE-specific differences from the NEW-mode finalize:
-
-- Phase 6 step 1 is a no-op for features that were already `status: approved` before this session — leave the status alone.
-- Phase 6 step 2 is a no-op if the feature ID is already in BACKLOG.md (REFINE edits an existing backlog entry, it does not append a duplicate).
-- Phase 6 step 3 (idea archival) only applies if this REFINE run just graduated an idea; otherwise skip.
-- Phase 6 steps 4 and 5 (Next Up + `.active-session.json` delete) always run, in that order. The guard cleanup is still the very last action so any accidental source-code Edit during the wrap-up is still blocked.
-
-If the REFINE run was interrupted by the "cancel" branch of the Sprint Impact Check (Step 0), the session guard still needs to be cleaned up — delete `.active-session.json` as the last action before returning control to the user.
+REFINE-mode differences from NEW-mode finalize (status no-op for already-approved features, BACKLOG.md no-op if ID already present, idea archival only if this run graduated an idea, cancel-branch cleanup) are documented in `references/phase-finalize.md` under "REFINE-mode differences".
 
 ---
 

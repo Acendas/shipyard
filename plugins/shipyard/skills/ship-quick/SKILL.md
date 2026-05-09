@@ -32,7 +32,7 @@ $ARGUMENTS
 
 - **File does not exist** → no planning session active. Skip to "Execution Lock Check" below.
 - **File exists.** Parse the JSON and check:
-  1. If `cleared` is set OR `skill` is `null` → previous planning session ended cleanly. Use Write to overwrite the file with `{"skill": null, "cleared": "<iso-timestamp>"}` (idempotent — the soft-delete sentinel ensures `session-guard` treats it as inactive). Skip to "Execution Lock Check" below.
+  1. If `cleared` is set OR `skill` is `null` → previous planning session ended cleanly. Use Write to overwrite the file with `{"skill": null, "cleared": "<iso-timestamp>"}` (idempotent — the soft-delete sentinel keeps the mutex inactive for any other skill that reads it). Skip to "Execution Lock Check" below.
   2. If `started` is more than 2 hours old → stale lock from a crashed planning session. Print "(recovered stale planning lock from `/{previous skill}` started {N}h ago)", use Write to overwrite with the cleared sentinel, then proceed.
   3. Otherwise → **HARD BLOCK.** A planning session is active and quick tasks cannot start until it ends:
   ```
@@ -46,7 +46,7 @@ $ARGUMENTS
   ```
   Print this message as the entire response and STOP.
 
-This prevents the failure mode where a discussion is in progress and `/ship-quick` would otherwise trip the session-guard hook on every Edit. Quick tasks are implementing work — they need a clear runway.
+This prevents the failure mode where a discussion is in progress and `/ship-quick` would otherwise trip the active-skill mutex on every Edit. Quick tasks are implementing work — they need a clear runway.
 
 ## Execution Lock Check
 

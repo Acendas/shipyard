@@ -35,24 +35,36 @@ Operational tasks run in two phases inside the subagent's loop:
 ### Phase 1 — Run + Capture
 
 1. Resolve the verify command (handle `test_commands.e2e` style indirection).
-2. Run the command via **Monitor** so progress and failures stream to the orchestrator/user as notifications instead of arriving as one blob at the end. The capture file remains the source of truth for the structured return:
+2. Run the command via **Monitor** so progress and failures stream to the orchestrator/user as notifications instead of arriving as one blob at the end. The capture file remains the source of truth for the structured return.
+
+   **Exit-code propagation — sentinel-file pattern.** A naive `<verify> | tee | grep` is broken in two ways: grep returning 1 on no-match would falsely flag a clean green run as failed, and `|| true` to suppress that swallows the *verify's* failure too. `set -o pipefail` plus `${PIPESTATUS[0]}` doesn't save you either — `|| true` resets PIPESTATUS by the time you read it. The robust pattern writes the verify's exit code to a sentinel file inside the subshell, BEFORE the pipe:
+
    ```
    Monitor(
-     command: "(<verify_command>) 2>&1 | tee <SHIPYARD_DATA>/captures/<task_id>/run-<N>.log | grep -E --line-buffered '<filter-pattern>'",
+     command: "( (<verify_command>); echo $? > <SHIPYARD_DATA>/captures/<task_id>/run-<N>.exit ) 2>&1 | tee <SHIPYARD_DATA>/captures/<task_id>/run-<N>.log | grep -E --line-buffered '<filter-pattern>' || true",
      description: "<task_id> verify run <N>",
-     timeout_ms: <bounded; default 1800000 (30m), cap 3600000>
+     timeout_ms: 1800000
    )
    ```
-   `<N>` is the iteration number, starting at 1. Monitor exits when the verify command exits; the exit code Monitor reports IS the verify command's exit code (the tee/grep tail does not mask it because we wrap the verify in `(…)` and pipe explicitly — but verify the exit propagates by reading the capture's last line if in doubt).
 
-   **Filter pattern — must cover both progress and failure modes.** Silence is not success. Author the regex so a crash, a hang, or an unexpected non-zero exit produces *some* event the user can see. Concretely, the alternation should include:
-   - At least one progress marker the runner emits per file/case (e.g., `PASS|FAIL|✓|✗`, `passed|failed|skipped`, `\\[OK\\]|\\[ERR\\]`).
-   - Failure signatures the agent would act on: `Traceback|Error|FAILED|assert|Killed|OOM|Segmentation fault|panic:|exit code [^0]`.
-   - For test runners specifically: also include `Tests:|Suites:|Ran [0-9]+|^FAIL `-style summary lines so a green run still produces a final event.
+   The inner `(<verify_command>)` matters: if verify itself contains `exit`, that `exit` only terminates the inner subshell. The outer shell then runs `echo $?` against the inner's exit code and writes the sentinel. Without the inner subshell, a verify like `printf '...'; exit 2` would terminate the surrounding subshell before the echo ran, and the sentinel file would never appear.
+
+   After Monitor returns, Read `run-<N>.exit` for the authoritative exit code. The `|| true` on the grep is fine here — grep's exit no longer matters because the sentinel is the source of truth. Works under `bash`, `sh`, `dash`, `zsh` without shell-option assumptions.
+
+   `<N>` is the iteration number, starting at 1.
+
+   `<N>` is the iteration number, starting at 1.
+
+   **Filter pattern — must cover progress AND failure.** Silence is not success. The alternation must include at least one progress marker (so a healthy run produces events) AND at least one failure signature (so a crash, hang, or non-zero exit produces events). A regex that catches only `PASS` is *exactly* the silent-crashloop case the rule exists to prevent.
+
+   - Progress tokens (pick at least one per runner): `PASS`, `passed`, `✓`, `Tests:`, `Suites:`, `Ran [0-9]+`, `\\[OK\\]`.
+   - Failure tokens (pick at least one): `FAIL`, `failed`, `✗`, `Traceback`, `Error`, `FAILED`, `assert`, `Killed`, `OOM`, `Segmentation fault`, `panic:`, `\\[ERR\\]`.
 
    When in doubt, broaden the filter — extra events are recoverable; a silent crashloop is not.
 
-3. After Monitor exits, capture its reported exit code AND read the capture file from disk (the file is the authoritative artifact; Monitor notifications are ephemeral). Take the last 20 lines for `LAST_LINES`.
+   **Notification budget.** Each filtered line is a notification = a turn cost. Aim for ~50 notifications per run. For suites with hundreds of tests, prefer summary-line filters (`Tests:|Suites:|Ran [0-9]+|^FAIL `) over per-case PASS/FAIL — the summary still surfaces final state plus any individual failure. Per-runner suggestions in `references/monitor-filters.md`.
+
+3. After Monitor exits, Read `run-<N>.exit` for the authoritative exit code. Read the capture file from disk (the file is the authoritative artifact; Monitor notifications are ephemeral). Take the last 20 lines for `LAST_LINES`.
 4. Append to the task's `verify_history:` frontmatter:
    ```yaml
    verify_history:
@@ -132,13 +144,13 @@ Max patch tasks (scope guard): {{max_patch_tasks}}
        PASS|FAIL|✓|✗|passed|failed|skipped|Tests:|Suites:|Ran [0-9]+|Traceback|Error|FAILED|assert|Killed|OOM|Segmentation fault|panic:|exit code [^0]
 
    Tighten or extend per the runner in use; when in doubt, broaden it. After
-   Monitor exits, take its reported exit code as the verify command's exit
-   code, and Read the capture file from disk to extract the LAST_LINES tail.
+   Monitor exits, Read the sentinel `run-<iteration>.exit` for the verify's
+   exit code (see Phase 1 for the sentinel pattern), and Read the capture
+   file from disk for the LAST_LINES tail.
 
-   For very short verify commands (under ~10 seconds total), plain blocking
-   Bash with tee is fine — Monitor's overhead isn't worth it for sub-second
-   feedback. The threshold is whether streaming progress would meaningfully
-   help the user or orchestrator know the run is still alive.
+   **Notification budget.** ~50 notifications per run is the target. For
+   large suites, prefer summary-line filters over per-case PASS lines —
+   see `references/monitor-filters.md` for runner-specific recipes.
 
 2. **Update task frontmatter.** Append the iteration to verify_history:
        verify_history:
@@ -216,7 +228,7 @@ The combination of (Iron Law in prompt) + (orchestrator-side gate) catches:
 
 ## Note on logcap
 
-The `shipyard-logcap` CLI is not required for the basic capture path — plain `tee` to a deterministic path under `<SHIPYARD_DATA>/captures/` is enough for typical operational tasks. logcap is preferable when you need rotation, grouping, or line-boundary-safe streaming for long-running processes.
+The `shipyard-logcap` CLI is not required for the basic capture path — plain `tee` to a deterministic path under `<SHIPYARD_DATA>/captures/` is enough for typical operational tasks. logcap is preferable for rotation, grouping, or line-boundary-safe streaming on long-running processes.
 
 ## Pairing With Other Skills
 

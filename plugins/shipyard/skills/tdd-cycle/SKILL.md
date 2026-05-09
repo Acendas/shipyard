@@ -1,6 +1,6 @@
 ---
 name: tdd-cycle
-description: Use when implementing any sprint task, bug fix, hotfix, or quick change that produces production code. Enforces Red → Green → Refactor with the Iron Law that you must watch the test fail before writing implementation. The contract every Shipyard builder follows; pairs with verifying-completion at task-done time.
+description: Use when implementing any sprint task, bug fix, hotfix, or quick change that produces production code. Enforces Red → Green → Refactor with the Iron Law of watching the test fail before writing implementation. The contract every Shipyard builder follows; pairs with verifying-completion at task-done time.
 disable-model-invocation: true
 ---
 
@@ -38,7 +38,7 @@ NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 If you wrote code before the test:
 
 - **Delete it.** Start over from the test.
-- Don't keep it as "reference" — you'll subconsciously work backward from it.
+- Don't keep it as "reference" — subconscious work-backwards from it is hard to avoid.
 - Don't "adapt" it while writing the test.
 - Don't peek at it.
 - Implement fresh from the test you just wrote.

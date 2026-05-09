@@ -176,7 +176,7 @@ IDEAS — [N] pending discussion
 
 `/ship-spec move F001 E002` — Move feature F001 to epic E002
 
-`/ship-spec archive F001` — Archive feature: use Edit to set frontmatter `status: deferred` (do NOT physically move the file — `reap-obsolete` will reap it after the retention period).
+`/ship-spec archive F001` — Archive feature: use Edit to set frontmatter `status: deferred` (do NOT physically move the file — the soft-deleted record stays in place; physical removal is manual for now).
 
 `/ship-spec diff F001` — Show change history for F001 (git log for the file)
 
@@ -337,7 +337,7 @@ When changing status, update it **in the feature file frontmatter** (single sour
 
 - Read-only by default. Only modify files when an explicit subcommand is used.
 - When changing status, validate the transition is legal using the state machine above.
-- When archiving, use Edit to set `status: deferred` in the feature's frontmatter and Edit BACKLOG.md to remove the ID. Do NOT physically move files — `reap-obsolete` housekeeping handles physical removal after retention.
+- When archiving, use Edit to set `status: deferred` in the feature's frontmatter and Edit BACKLOG.md to remove the ID. Do NOT physically move files — physical removal is manual; the soft-delete keeps history queryable.
 - For status changes that remove from backlog (approved → deferred), use Edit to remove the ID from BACKLOG.md. No other data needs updating — BACKLOG.md only stores IDs.
 - **Always use AskUserQuestion when clarification is needed:**
   - ID not found → AskUserQuestion: "[ID] doesn't exist. Did you mean [closest match]? Or provide the correct ID."

@@ -62,7 +62,7 @@ This is a Read+Write mutex. There is a small theoretical race window between the
 }
 ```
 
-This file activates a PreToolUse hook that blocks source code writes during planning. If you find yourself wanting to write implementation code, STOP — you are planning, not executing.
+This file is the active-skill mutex (see the `acquiring-skill-lock` capability skill). Any other Shipyard skill entering will see the held lock and refuse. The mutex is advisory — no hook physically blocks tool calls — so the discipline is yours: if you find yourself wanting to write implementation code, STOP. Planning is for decomposing the work, not building it.
 
 ## Detect Mode
 
@@ -134,80 +134,7 @@ If the user provides a new capacity value, use that figure for the rest of this 
 
 Before selecting features, scan for unfinished work from previous cycles. These items take priority over new features — they represent commitments already made.
 
-**Scan these locations:**
-
-1. **Open bugs** — Use Grep with `pattern: ^status: (open|investigating)`, `path: <SHIPYARD_DATA>/spec/bugs`, `glob: B*.md`, `output_mode: files_with_matches`. Read each match to get title, severity, source (sprint ID, code review, integration test).
-2. **Blocked tasks** — Use Grep with `pattern: ^status: blocked`, `path: <SHIPYARD_DATA>/spec/tasks`, `glob: T*.md`, `output_mode: files_with_matches`. Read each match to get title, parent feature, blocked reason.
-3. **Carried-over ideas** (retro, execute, review-gap) — Use Grep with `pattern: ^source: (execute|review-gap|retro)[-/]`, `path: <SHIPYARD_DATA>/spec/ideas`, `glob: IDEA-*.md`, `output_mode: files_with_matches`. The pattern matches three idea origins:
-   - **`source: retro/<sprint-id>`** — improvements the team committed to during retrospectives (new slash-separated form) OR `source: retro-sprint-<NNN>` (legacy hyphen-separated form, still recognized for backwards compatibility with IDEAs created before the source-tag convention change)
-   - **`source: execute/<sprint-id>`** — deferred unknowns captured by builders during task execution (per `dispatching-task-loop`'s capture-deferred-unknowns prompt section)
-   - **`source: review-gap/<sprint-id>`** — out-of-scope findings captured during `/ship-review` Stage 0 or Stage 4 (see `skills/ship-review/SKILL.md` → "Capture Out-of-Scope Gaps as IDEAs")
-
-   **Recency filter (important — prevents flooding):** over 10+ sprints a project accumulates many ideas, and showing all of them in every planning session is unusable. For each match, Read the frontmatter and keep the idea ONLY if either:
-   - its `source:` field references one of the **last 2 sprint IDs** (the previous sprint or the one before it), OR
-   - its `created:` date is within the **last 14 days**
-
-   Everything else stays reachable via `/ship-discuss` triage mode but doesn't clutter sprint planning.
-
-   **Display cap:** show at most **8 ideas** across all three origins combined, grouped by origin. If there are more than 8 after the recency filter, show the 8 newest and add a `+N more — see /ship-discuss triage for full list` footer line. Group by origin so retro items stay visually distinct from execute/review-gap discoveries.
-
-   **Why these three origins specifically:** they are the three writer paths — retro writes at sprint end, execute writes during task work, review-gap writes during out-of-scope findings detection. If a new writer path is added later (e.g., `debug/`, `hotfix/`), it must be added to this regex explicitly — do NOT widen to `^source: ` wildcard, because `source: "inline capture"` from ship-discuss's CAPTURE mode should NOT auto-carry (the user just captured it; they'll discuss it next via triage, not immediately re-surface it in sprint planning).
-4. **In-progress features** — Use Grep with `pattern: ^status: in-progress`, `path: <SHIPYARD_DATA>/spec/features`, `glob: F*.md`, `output_mode: files_with_matches`. Filter to features NOT in an active sprint (read SPRINT.md to find current sprint feature IDs). These were started but not completed/approved in a previous sprint.
-5. **Silent-pass suspects** — Use Grep with `pattern: ^kind: operational`, `path: <SHIPYARD_DATA>/spec/tasks`, `glob: T*.md`, `output_mode: files_with_matches`. For each match, Read the frontmatter and check two conditions: (a) `status: done` AND `verify_output:` field is absent or empty, OR (b) `verify_history:` exists but the most recent entry has `exit: <non-zero>` or `escalated: true`. These are operational tasks that were *marked done* in a prior sprint without captured evidence of a passing run — the exact silent-pass failure mode. Surface them under their own heading: **"PREVIOUSLY MARKED DONE WITHOUT EVIDENCE — re-verify?"**. The user should decide: re-run verify now (add as an operational carry-over task), promote findings to a new sprint, or accept-with-known-issues. Never silently re-mark these as approved and carry them into the new sprint untouched — the whole point of this scan is to break the deterministic recurrence of the silent-pass bug.
-6. **Needs-attention tasks (prior sprint escalation)** — Use Grep with `pattern: ^status: needs-attention`, `path: <SHIPYARD_DATA>/spec/tasks`, `glob: T*.md`, `output_mode: files_with_matches`. These are tasks that a prior sprint's operational fix-findings loop or research dispatcher escalated — the loop ran, produced a full audit trail in `verify_history` or `research_history`, but did not converge. Distinct from silent-pass (no evidence) and blocked (waiting on a dependency): needs-attention tasks have *tried and failed*, and the user has enough information in the history to make a decision. For each match, Read the frontmatter and extract the last 3 `verify_history` entries (or `research_history` for `kind: research`) plus the escalation reason from the final entry. Surface under the heading **"⚠ NEEDS ATTENTION — prior sprint escalation"**. Do NOT auto-carry into the new sprint — the user must explicitly choose: open a debug session, re-plan findings as individual feature tasks, re-scope the research, or accept with known issues.
-
-**Display carry-over work before the feature list (if any exists):**
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- CARRY-OVER (from previous sprints)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- BUGS ([N] open)
-  B-CR-001 — Missing null check in auth middleware (code review, must-fix)
-  B-INT-002 — Payment webhook timeout (integration test failure)
-
- BLOCKED TASKS ([N])
-  T045 — OAuth token refresh (blocked: API key not provisioned)
-    Parent: F012 — Third-Party Auth
-
- CARRIED-OVER IDEAS ([N]/[TOTAL] — grouped by origin; recency filter: last 2 sprints or 14 days)
-  retro/
-    IDEA-042 — Add request tracing headers (retro/sprint-005)
-    IDEA-043 — Reduce test flakiness in CI (retro/sprint-005)
-  execute/
-    IDEA-044 — Evaluate argon2id vs bcrypt (execute/sprint-006, from T012)
-  review-gap/
-    IDEA-045 — Swallowed exception in logging wrapper (review-gap/sprint-006, auth.ts:87)
-  + 3 more — see /ship-discuss triage for full list
-
- INCOMPLETE FEATURES ([N])
-  F008 — Email Notifications (in-progress, 3/5 tasks done)
-
- ⚠ PREVIOUSLY MARKED DONE WITHOUT EVIDENCE ([N]) — re-verify?
-  T007 — Run E2E suite and fix findings (kind: operational, no verify_output)
-    Last sprint: sprint-012. This is the silent-pass failure mode —
-    the task was marked done but no command output was captured.
-
- ⚠ NEEDS ATTENTION ([N]) — from prior sprint escalation
-  T007 — Run E2E suite and fix findings (kind: operational)
-    Escalated: iteration_budget_exhausted (after 3 iterations, 4 patch tasks)
-    Last 3 attempts:
-      iter 1 — 3 findings, fixed (T007-p1a, T007-p1b, T007-p1c)
-      iter 2 — 2 findings, fixed (T007-p2a, T007-p2b)
-      iter 3 — 2 findings reappeared after fix — gave up
-    Options: /ship-debug T007 | re-plan findings as tasks | accept with issues
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-Then AskUserQuestion: "Found [N] carry-over items from previous sprints. Include all in this sprint, pick specific items, or skip to new features? (all / pick / skip)"
-
-- **all** → include all carry-over items, deduct their points from capacity before selecting new features
-- **pick** → user selects which carry-over items to include
-- **skip** → proceed to new features only (carry-over items stay for next sprint)
-
-For bugs: create tasks from bug files (if not already decomposed). For blocked tasks: re-add to wave structure after verifying blocker is resolved. For retro items: run through a quick inline discuss (no full `/ship-discuss` — just confirm scope and create a task). For incomplete features: re-decompose remaining tasks only.
+See `references/carry-over-scan.md` for the full scan procedure (six scan locations: open bugs, blocked tasks, carried-over ideas with recency filter, in-progress features, silent-pass suspects, needs-attention escalations), the canonical display block, and the disposition prompt (all / pick / skip).
 
 ### Step 2: Select Features
 
@@ -258,9 +185,7 @@ Output the feature list as formatted text:
 Selected: 13 pts | ~1.6 hrs | ~650K tokens
 ```
 
-These projections help the user answer:
-1. **"Do I have enough time?"** — compare projected hours against available time
-2. **"Will I exhaust my token quota?"** — compare projected tokens against API limits/plan allowance
+These projections help the user answer "Do I have enough time?" and "Will I exhaust my token quota?".
 
 Then AskUserQuestion: "Which features for this sprint? (list IDs, or 'suggested' to accept)"
 
@@ -268,373 +193,55 @@ Then AskUserQuestion: "Which features for this sprint? (list IDs, or 'suggested'
 
 Apply the planning checklists from `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/planning-checklists.md` throughout Steps 3-9 (Definition of Ready, cross-cutting concerns, risk register, MoSCoW, three-point estimation, test strategy).
 
-**Delegate per-feature research to `general-purpose` subagents in sprint-analyst mode — one per selected feature, all spawned in parallel** (single message, N tool calls). Each analyst loads its feature file + references + relevant codebase context + project rules and returns a structured `SPRINT ANALYST REPORT`. You hold N reports (~2k each), not N feature trees + their references + all rules.
+**Delegate per-feature research to `general-purpose` subagents in sprint-analyst mode — one per selected feature, all spawned in parallel** (single message, N tool calls). Each analyst returns a structured `SPRINT ANALYST REPORT`.
 
-The analyst role is single-use to ship-sprint, so the prompt template is inline rather than living in a Layer-2 capability skill. Substitute the literal SHIPYARD_DATA path before spawning:
-
-```
-For each selected feature, spawn:
-  Agent(subagent_type: "general-purpose", prompt: |
-    You are a sprint analyst. Investigate one feature in depth and return a
-    structured SPRINT ANALYST REPORT covering: architecture impact, files to
-    modify, patterns to follow, reuse opportunities, strategy (clean addition /
-    refactor / migration with named pattern), principles, anti-patterns,
-    risks/gotchas, and external doc URLs.
-
-    Feature ID: F<NNN>
-    Feature path: <SHIPYARD_DATA>/spec/features/F<NNN>-*.md
-    Codebase context: <SHIPYARD_DATA>/codebase-context.md
-    Project rules glob: .claude/rules/project-*.md and .claude/rules/learnings/*.md
-
-    Use LSP first for code navigation (documentSymbol, findReferences,
-    goToDefinition); fall back to Grep + WebSearch. Read the feature spec,
-    its references, the codebase areas it touches, and relevant rules. Then
-    return your structured report. READ-ONLY: no edits, no commits.
-  )
-```
-
-The reports cover: architecture impact, files to modify, patterns to follow, reuse opportunities, strategy (clean addition / refactor / migration with named pattern), principles, anti-patterns, risks/gotchas, external docs. Use them directly in Step 4 task decomposition — the analyst's output drops into the task Technical Notes template with minimal rework.
-
-**If a report flags low-confidence findings**, the orchestrator validates them inline before relying on them — use LSP first (`documentSymbol`, `findReferences`, `goToDefinition`) for code navigation, then Grep / WebSearch as fallback. The analysts already use LSP in their own runs; this is a final spot-check pass at the orchestrator level.
+See `references/sprint-analyst-report.md` for the full analyst-dispatch prompt template and report schema. Use the analyst output directly in Step 4 task decomposition. If a report flags low-confidence findings, the orchestrator validates them inline (LSP first, then Grep / WebSearch).
 
 ### Step 3.5: Rules Compliance Check
 
-Before anything else, verify selected features comply with current project rules. Rules may have been added or updated AFTER features were discussed — specs can be stale.
-
-**Process:**
-1. Read ALL project rules: glob `.claude/rules/project-*.md` and `.claude/rules/learnings/*.md`
-2. For each selected feature, read its acceptance criteria and Technical Notes
-3. Check for contradictions — does any acceptance scenario violate a rule?
-
-**Common contradictions:**
-- Feature spec says "poll every N minutes" but rules say "event-driven first"
-- Feature spec says "store in local file" but rules say "use database for persistent state"
-- Feature spec assumes a pattern that learnings say to avoid
-- Feature spec uses terminology that doesn't match domain vocabulary in rules
-
-**For each violation found:**
-
-Output the explanation (what the spec says, what the rule says, why they conflict), then AskUserQuestion:
-
-```
-F010 Scenario 4 contradicts .claude/rules/event-driven-first.md:
-  Spec says: "periodic 1hr health check"
-  Rule says: "prefer event-driven push over polling"
-
-1. Update spec — rewrite the scenario to comply (I'll update the feature file now)
-2. Send back to discuss — this feature needs rethinking (/ship-discuss F010)
-3. Override rule — the spec is intentionally different here (document why in decision log)
-4. Remove scenario — it's no longer needed
-
-Recommended: 1 — the spec predates the rule, update to match current architecture
-```
-
-After resolving all violations, proceed. Features sent back to discuss are removed from this sprint's selection.
+Verify selected features comply with current project rules — rules may have been added or updated AFTER features were discussed. See `references/spec-validation.md` § "Step 3.5" for the contradiction-detection process and the per-violation AskUserQuestion options (update spec / send back to discuss / override rule / remove scenario). Features sent back to discuss are removed from this sprint's selection.
 
 ### Step 3.55: Terminology Alignment Check
 
-Verify that the language in feature specs matches what the codebase actually calls things. Mismatched terminology causes builders to create duplicate code, use wrong APIs, or implement against the wrong abstractions.
-
-**Process:**
-
-1. **Extract key terms from each feature spec** — entity names, API endpoints, component names, state names, event names, database table/column names mentioned in acceptance criteria, data model, or interface sections
-
-2. **Search the codebase for each term** — Grep for the exact name and common variants (camelCase, snake_case, PascalCase, plural/singular):
-   - Does this entity/component/table exist in code?
-   - What is it actually called? (the spec might say "user" but code says "account", spec says "notification" but code says "alert")
-   - Are there naming convention differences? (spec says "payment_status" but code enum is `PaymentState`)
-
-3. **Check domain vocabulary** — if `.claude/rules/project-*.md` defines a domain vocabulary (term mappings, canonical names), verify spec terms match
-
-4. **Report mismatches:**
-   ```
-   TERMINOLOGY MISMATCHES — F009: Maintenance Requests
-
-   Spec says          Code uses           Where in code
-   ─────────────────────────────────────────────────────
-   "tenant"           "organization"      src/models/Organization.ts
-   "maintenance_req"  "service_request"   src/api/serviceRequests.ts
-   "submitted"        "pending"           src/types/RequestStatus.ts
-   "admin"            "manager"           src/auth/roles.ts
-   ```
-
-   For each mismatch, AskUserQuestion:
-   ```
-   1. Update spec — use the code's terminology (recommended for existing entities)
-   2. Update code — rename to match the spec (only if the spec term is better)
-   3. Keep both — they're different concepts despite similar names (document the distinction)
-   ```
-
-5. **Update feature files** with resolved terminology before decomposing tasks. This prevents builders from creating `Tenant` models when `Organization` already exists.
-
-Skip this step if the codebase is empty (greenfield project — no existing terms to conflict with).
+Verify spec language matches what the codebase actually calls things. See `references/spec-validation.md` § "Step 3.55" for term-extraction, codebase search, mismatch-table format, and the per-mismatch AskUserQuestion (update spec / update code / keep both). Skip on greenfield. Update feature files with resolved terminology before decomposing tasks.
 
 ### Step 3.6: Definition of Ready Gate
 
-
-Before decomposing, verify each feature is ready. Run the Definition of Ready checks from `planning-checklists.md`. If any feature fails → send back to `/ship-discuss` or resolve now.
-
-Also run the **Cross-Cutting Concerns Audit** from the checklists — for each feature, check auth, logging, caching, rate limiting, analytics, feature flags, background jobs, notifications, search, migration, config. Record what's needed in task Technical Notes.
-
-Run the **Knowledge Gap Assessment** — flag tasks in unfamiliar domains, add research time to estimates.
-
-**Auto-generate SME skills for knowledge gaps:** If knowledge gaps cluster around a specific technology that has no existing skill in `.claude/skills/` (e.g., multiple tasks need OAuth patterns but no `/oauth-expert` skill exists), silently dispatch a `general-purpose` subagent in skill-writer mode for that specific technology. The skill is generated without user interaction. Report in the sprint plan output: "Generated /[tech]-expert skill to fill knowledge gap."
-
-The skill-writer prompt is single-use to ship-sprint and ship-init; for ship-sprint, the inline form is:
-
-```
-Agent(subagent_type: "general-purpose", prompt: |
-  You are generating a project-specific SME (Subject Matter Expert) skill for
-  the technology: <TECH>. Read the codebase to learn how it's actually used in
-  this project, then write a SKILL.md to .claude/skills/<TECH>-expert/ that
-  captures the project's specific conventions, patterns, anti-patterns, and
-  gotchas — NOT a generic tutorial.
-
-  Sources to read: relevant files from the codebase, .claude/rules/, package
-  manifests for version info, any existing usage patterns. Self-validate that
-  every example you write would actually compile in this project.
-
-  Output: write SKILL.md and any references/ files. No commits. Return the
-  skill path and a one-line summary of what's covered.
-)
-```
+Before decomposing, verify each feature is ready. Run the DoR checks, Cross-Cutting Concerns Audit, and Knowledge Gap Assessment from `planning-checklists.md`. See `references/spec-validation.md` § "Step 3.6" for details and the auto-generate-SME-skill subagent dispatch prompt for clustered knowledge gaps.
 
 ### Step 3.7: Surface Implementation Decisions
 
-After research, identify every point where there's a meaningful choice — don't silently pick one and move on. Common decision points:
+After research, identify every point where there's a meaningful choice — don't silently pick one. For each decision point: output an explanation with options/tradeoffs/recommendation, then AskUserQuestion with numbered choices. If research can't resolve the decision, offer a POC spike (options: spike it / pick one / defer).
 
-- **Library/framework choice** — "Use Zustand vs Redux vs Jotai for state management"
-- **Architecture approach** — "Server components vs client components for this page"
-- **Data modeling** — "Separate table vs JSON column for this data"
-- **API design** — "REST vs GraphQL vs tRPC for this endpoint"
-- **Migration strategy** — "Big bang vs incremental strangler fig"
-- **Build vs buy** — "Hand-roll auth vs use Auth.js vs use Clerk"
-
-For each decision point:
-
-1. **Output explanation** (plain text) — describe the options, tradeoffs, what the codebase already uses, what research found, and your recommendation with reasoning
-2. **AskUserQuestion** — short summary with numbered choices and your recommendation
-
-```
-State management approach for F001:
-
-1. Library A — already used in the project, team knows it, well-documented
-2. Library B — newer, less boilerplate, but no team experience
-3. Custom solution — full control, but more code and maintenance
-
-Recommended: 1 — already a dependency, aligns with existing patterns in the codebase
-```
-
-**If research can't resolve the decision** — offer a POC spike:
-
-```
-I can't confidently recommend an approach here. Want me to spike it?
-
-1. Spike it — I'll build a minimal POC in a worktree to test [option A] vs [option B] (takes ~5-10 min, throwaway code)
-2. Pick one — go with [your recommendation] and course-correct during execution if needed
-3. Defer — park this feature and plan the rest of the sprint
-
-Recommended: 1 — the risk of picking wrong is high enough to justify a quick spike
-```
-
-**POC spike flow (if user chooses spike):**
-
-A POC spike does not fit `dispatching-task-loop`'s contract (no tests, no atomic commit, no acceptance probe — the deliverable is a recommendation, not production code). Dispatch directly via `general-purpose` with `isolation: "worktree"` so the spike runs in throwaway isolation:
-
-```
-Agent(subagent_type: "general-purpose", isolation: "worktree", prompt: |
-  Build a minimal proof-of-concept to test: <SPECIFIC QUESTION>.
-  No tests needed. No production quality. Just prove whether <APPROACH>
-  works in this project's context.
-
-  Work in your worktree freely — commits stay on the worktree branch and
-  will be discarded after this spike (the worktree is throwaway).
-
-  Return: what worked, what didn't, any gotchas you hit, and your
-  recommendation for the planning conversation.
-)
-```
-
-After the subagent returns, read its findings, present to the user with the updated recommendation, and AskUserQuestion with the revised choices. The worktree gets cleaned up automatically by Claude Code's stale-worktree cleanup since nothing merges back.
-7. Record decision in the feature's Decision Log: "POC spike: tested [approach], found [result], chose [decision]"
-8. Worktree is automatically cleaned up (throwaway)
-
-The POC takes minutes, not hours. It answers "will this work?" with evidence instead of guessing.
-
-**If no meaningful choices exist** (the codebase already uses a framework, there's only one sensible approach, or the feature is straightforward) — skip this step for that feature and note in Technical Notes: "No implementation decisions — approach follows existing patterns."
-
-**Record all decisions** in the feature file's `## Decision Log` with date and reasoning. These decisions flow into task Technical Notes so the builder knows what was decided and why.
-
-**Write findings to each task file `## Technical Notes`** (after Step 4 creates task files). The full template lives in `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-tech-notes-template.md` — Read it once at the start of Step 4, then fill it in per task and Write directly to the task file. **Do not echo the template back into conversation.** Task specs must be executable: a builder follows them mechanically without re-reading the feature file.
+See `references/implementation-decisions.md` for the full catalogue of decision-point types, the explanation/AskUserQuestion templates, the POC spike subagent dispatch (`isolation: "worktree"`, throwaway), and Decision Log recording. Write findings into each task file's `## Technical Notes` after Step 4 creates them — do not echo the template back into conversation.
 
 ### Step 3.75: Simplification Opportunity Scan
 
-**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/simplification-scan.md`
+Now that research has identified libraries, patterns, and utilities this sprint will introduce, scan the codebase for simplification opportunities. See `references/implementation-decisions.md` § "Step 3.75" and the full protocol at `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/simplification-scan.md`.
 
-Now that research has identified the libraries, patterns, and utilities this sprint will introduce, scan the codebase for simplification opportunities. This is more concrete than the discuss-time scan because implementation decisions have been made and files-to-modify are identified.
-
-**Skip if:** no selected feature introduces new libraries, shared utilities, or patterns (purely additive features with no reusable infrastructure).
-
-**Process:**
-1. For each selected feature, extract from research findings and decision log:
-   - New libraries being added (from Step 3.7 decisions)
-   - New utilities/helpers being created (from architecture analysis)
-   - New patterns being introduced (from implementation strategy)
-2. Run the 5 detection strategies from the protocol against the codebase
-3. Also check existing IDEA files: use Grep with `pattern: ^source: "?simplification-scan`, `path: <SHIPYARD_DATA>/spec/ideas`, `glob: IDEA-*.md`, `output_mode: files_with_matches` — a previous `/ship-discuss` may have already found opportunities for features now entering the sprint. Re-evaluate those: are they still valid? Can any be promoted to sprint tasks now?
-
-**Routing at sprint time:**
-
-| Effort | Route | Action |
-|---|---|---|
-| **Trivial** (< 15 min, < 5 files) | Extend existing task | Add to the relevant task's Technical Notes under **Cleanup** |
-| **Small** (< 1 hr, < 10 files) | New cleanup task | Create a task in the final wave with dependency on the feature task that introduces the new thing |
-| **Medium/Large** | IDEA file | Create or keep existing IDEA file for backlog |
-
-**Scope guard:** Total effort of trivial + small items MUST NOT exceed 20% of sprint capacity. Excess → demote to IDEA files.
-
-Present findings using the protocol's format and AskUserQuestion: "Apply these simplification opportunities? (all / pick / skip)"
-
-- **all** → extend tasks, create cleanup tasks, create/keep IDEA files
-- **pick** → user selects
-- **skip** → note in sprint draft: "Simplification scan ran, opportunities deferred"
+Skip if no selected feature introduces new libraries/utilities/patterns. Routing: trivial → extend existing task; small → new cleanup task in final wave; medium/large → IDEA file. Scope guard: trivial+small ≤ 20% of sprint capacity. Then AskUserQuestion: "Apply these simplification opportunities? (all / pick / skip)".
 
 ### Step 4: Decompose Tasks (5-stage protocol)
 
-**Read first:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-decomposition-patterns.md` — contains the 9 splitting patterns, walking skeleton rules, Red step examples, and effort anchors. Read it before decomposing any feature; decomposing without it produces bundled tasks.
+See `references/wave-decomposition.md` § "Step 4" for the full 5-stage protocol (Stage 1 map AC → drafts; Stage 2 walking-skeleton foundation → Wave 1; Stage 3 run drafts through 9 splitting patterns; Stage 4 write Red step + author acceptance probe via `shipyard:authoring-acceptance-probe` capability skill + write task file; Stage 5 effort assignment using S/M/L 8/80 rule).
 
-Always include cleanup as explicit tasks — not afterthoughts. If architecture analysis found dead code, deprecated patterns, stale config, or migration shims, create dedicated cleanup tasks in the final wave so they don't block feature work.
+Always include cleanup as explicit tasks. **Do not write task files until Stage 4.** Read `references/task-decomposition-patterns.md` first.
 
-**Do not write task files until Stage 4.** Follow these stages in order for each selected feature.
+After all stages: populate `## Technical Notes` per task using the template in `references/task-tech-notes-template.md`. Run the INVEST output check (Independent, Testable). Apply the Task Kinds taxonomy (`feature` / `operational` / `research`) — see `references/task-kinds.md`. Run the **kind auto-classifier** for operational signals; on a hit, AskUserQuestion: *"This task looks operational… Classify as `kind: operational` with `verify_command: [inferred]`? (yes, operational / no, it's a feature task / no, research)"* — recommended option first. Apply the **task size guard**: split anything with >8 discrete items.
 
-#### Stage 1: Map acceptance criteria to task drafts
-
-Check the feature's `tasks:` frontmatter array first — if tasks already exist from a prior session, verify each has a `First failing test:` entry in its Technical Notes (sign that the protocol was followed). If yes, skip to Stage 3 for any remaining `approved`-status tasks. If no Red step is present, re-decompose from here.
-
-Read the feature spec's acceptance criteria (written by `/ship-discuss` in Gherkin form). List one draft entry per criterion — no task files yet, just a named mapping:
-
-```
-Criterion: "User can refresh an expired access token"  → draft: "Add JWT refresh endpoint"
-Criterion: "Refresh token is invalidated after use"    → draft: "Invalidate refresh token on use"
-Criterion: "Expired refresh token returns 401"         → draft: "Return 401 for expired refresh token"
-```
-
-Every final task must trace back to exactly one acceptance criterion, or carry an explicit label: `[infrastructure]`, `[cleanup]`, or `[spike]`. This traceability is the test that decomposition is complete — no criterion left uncovered, no task invented without a spec anchor.
-
-#### Stage 2: Extract the walking skeleton (Wave 1 foundation)
-
-Before any behavior task, identify what must exist across all layers for any behavior to be testable: schema migrations, new route registrations, type/interface/enum definitions, service stubs, dependency injection wiring. Extract these into a single foundation task (see the patterns reference for the task template).
-
-**Rule:** Wave 1 = foundation only. No behavior task can sit in Wave 1. Every behavior task depends on the foundation. This enforces vertical slicing — each behavior task is a thin, independently testable end-to-end slice through the foundation.
-
-If the feature has no cross-layer infrastructure needs (e.g., a pure UI wording change or isolated function fix), skip this stage and place behavior tasks in Wave 1 directly.
-
-#### Stage 3: Run each behavior draft through the 9 splitting patterns
-
-Apply the **"and" test first**: if the draft title or description contains "and" connecting two independent behaviors — mandatory split before continuing.
-
-Then run through the 9 patterns from `task-decomposition-patterns.md`. If any pattern fires — split the draft into two before proceeding. Re-evaluate each resulting draft; a single draft may need multiple passes. Do not proceed to Stage 4 until no pattern fires on any remaining draft.
-
-Patterns that fire most often in software sprints (run these first):
-- **Workflow steps** — sequential process steps bundled into one draft
-- **CRUD operations** — "manage X" or multiple data verbs on the same entity
-- **Happy path vs. edge cases** — "implement X and handle errors / validate / edge cases"
-- **Make-it-work vs. make-it-fast** — any mention of caching, performance, or optimization
-
-#### Stage 4: Write the Red step, author the acceptance probe, then write the task file
-
-For each draft that survived Stage 3:
-
-1. **Red step.** Complete this sentence before creating the file:
-
-   > "The first failing test for this task is: `[specific assertion]`"
-
-   If the sentence requires "and" — Stage 3 applies again, split.
-   If the sentence is vague ("tests for the auth flow") — scope is unresolved; do not write the file. Clarify the acceptance criterion before proceeding.
-
-2. **Acceptance probe.** For `kind: feature` tasks, invoke the **`shipyard:authoring-acceptance-probe` capability skill** to derive the smoke command from the task's acceptance criteria. Pass `feature_text` (the AC text), `parent_context` (parent feature path), and `domain_hints` (inferred from the feature's tech stack and frontmatter). The capability skill:
-
-   - Asks the canonical "what one shell command, run from a clean state, prints observable evidence the wiring works" question.
-   - Walks the probe-pattern catalogue (HTTP, CLI, library, migration, refactor, frontend, background job, config) plus the anti-patterns table.
-   - Runs the quality checklist: one command, self-contained, exit-0-means-pass, observable output, deterministic, bounded ≤60s, AND fails today against the unimplemented state.
-   - Returns the probe command as a YAML-ready string.
-
-   Write the returned probe to the task's frontmatter `acceptance_probe:` field (use a YAML block scalar `|` for multi-line probes). **Without a probe, dispatching-task-loop refuses to dispatch — task is unauthorable.** If the probe is genuinely elusive after the patterns are tried, surface to the user:
-
-   > *"This task's acceptance criteria don't reduce to a single observable command. Should we (a) refine the criteria, (b) split into smaller tasks, or (c) mark this task `kind: research` and produce a findings doc instead? Recommended: (a)."*
-
-   Skip probe authoring for `kind: operational` (the verify_command IS the probe — see operational task guidance) and `kind: research` (no code commit, no probe — research_output is the deliverable).
-
-3. **Write the task file.** Use the Write tool to create `<SHIPYARD_DATA>/spec/tasks/TNNN-[slug].md` from `${CLAUDE_PLUGIN_ROOT}/project-files/templates/task.md`. Required frontmatter:
-   - `id`, `title`, `feature` (parent ID), `status`, `effort` (S/M/L), `dependencies`
-   - **`kind`** (see Task Kinds below)
-   - **`acceptance_probe`** for `kind: feature` (the probe authored in step 2)
-   - **`verify_command`** for `kind: operational`
-   - **`research_scope`** for `kind: research`
-
-   Write the Red step into `## Technical Notes` under the heading `First failing test:`.
-
-Task files are the **single source of truth** — title, effort, status, dependencies, kind, and probe all live there.
-
-#### Stage 5: Assign effort using the adapted 8/80 rule
-
-| Effort | Range | When to use |
-|--------|-------|-------------|
-| **S** | 1-4 hrs | One clear Red step, obvious implementation, pattern exists in codebase |
-| **M** | 4-8 hrs | Some exploration needed, bounded scope |
-| **L** | 1-2 days | Significant implementation, one coherent area, no splitting pattern fired |
-
-For any task assigned `effort: L`: confirm all 9 patterns were checked and none fired, and the Red step covers exactly one behavior. If uncertain — AskUserQuestion: *"This task is estimated L (1-2 days). Could it split into [specific suggestions]? (split / no, it's cohesive)"*. Write the justification in Technical Notes: "L effort because: [reason]."
-
-**No task exceeds L.** A task requiring more than 1-2 days is a feature, not a task — return it to the backlog.
-
----
-
-After all stages: populate `## Technical Notes` in each task file using findings from Steps 3-3.5: architecture impact, files to modify, implementation strategy, Decision Log choices, patterns to follow, gotchas, cleanup items. Use the template in `references/task-tech-notes-template.md`. Every task must have Technical Notes — the builder reads these before writing any code. Update the feature's `tasks:` array with all final task IDs.
-
-**INVEST output check.** After all tasks are written for a feature:
-- **I (Independent):** No task in the same wave depends on another task in the same wave. Same-wave dependencies indicate a missed foundation task — revisit Stage 2.
-- **T (Testable):** Every task has exactly one specific done-condition (one Red step). Multiple or ambiguous conditions — split.
-
-**Task Kinds.** Every task has a `kind:` field that tells the executor *which agent runs it* and *what "done" means*. See `references/task-kinds.md` for the full taxonomy. Summary:
-- **`kind: feature`** (default) — task writes new code or modifies existing code. Follows the TDD cycle (Red → Green → Refactor). Dispatched to `shipyard-builder`. Done = atomic commit containing impl + tests. This is the implicit default if `kind:` is absent.
-- **`kind: operational`** — task's deliverable IS running a command and responding to its output. Examples: "run the full E2E suite and fix findings", "run `npm audit` and patch vulnerabilities", "benchmark the query planner and investigate regressions". **Requires `verify_command:`** — either a literal shell command or a config-key reference like `test_commands.e2e`. Dispatched to `shipyard-test-runner` (NOT the builder) because operational tasks have no Red step and no code commit. Done = `verify_output:` field populated pointing at a non-empty `shipyard-logcap` capture from a passing run.
-- **`kind: research`** — task's deliverable is written findings / a decision doc; no code expected. Dispatched to `shipyard-researcher`. (Execution path for research kind is out of scope for the initial operational-task fix; plan for it but treat as feature-parity until operational path is stable.)
-
-**Why this matters.** The silent-pass failure mode — task marked done without tests actually running — happens when an operational-shaped task is routed to the builder, which exits clean on an empty tree because there's no code for it to write. The `kind:` field is the load-bearing signal that prevents this.
-
-**Kind auto-classifier.** Before writing each task file, scan the task description for operational signals — they are easy to miss by eye and the classifier is how users surface them. Signal phrases (case-insensitive):
-- `run the … tests`, `run the full suite`, `run all …`
-- `audit`, `scan for`, `check for` (when used as a command, not as a metaphor)
-- `benchmark`, `measure`, `profile`
-- `verify` / `validate` when the verification IS the deliverable (not "implement X and verify it works")
-- `investigate` when the investigation is command-driven (e.g., re-run a flaky test N times)
-
-When a signal fires, **do NOT auto-assign `kind: operational` silently.** Use AskUserQuestion: *"This task looks operational (its deliverable is running a command and responding to output, not writing code). Classify as `kind: operational` with `verify_command: [inferred]`? (yes, operational / no, it's a feature task / no, research)"* — because misclassification in either direction is costly (silent-pass for false-negative; wrong agent dispatched for false-positive). Make the recommended option first in the AskUserQuestion list. If confirmed operational and the `verify_command` is not obvious from the task description, prompt the user for it with examples from their `config.md` test_commands block.
-
-**Task size guard:** A single builder agent has limited context. Tasks with many discrete items (migrations, endpoints, config entries, etc.) MUST be split so no single task has more than **8 discrete items** to implement. For example, "migrate 24 ConfigLoader calls" becomes 3 tasks of 8 each, not one task of 24. The builder will lose items past ~10 and silently mark the task done. Count the items in Technical Notes — if >8, split the task. Each sub-task should list its specific items in an explicit checklist in Technical Notes so the builder can verify completeness.
+If a task is estimated `effort: L` and you're uncertain, AskUserQuestion: *"This task is estimated L (1-2 days). Could it split into [specific suggestions]? (split / no, it's cohesive)"*.
 
 ### Step 5: Build Task Dependency Graph
 
-Build the dependency graph from task files. Read each task file's frontmatter to determine which tasks depend on which. Do NOT duplicate task data into SPRINT.md — the sprint file only stores task IDs grouped by wave.
+Build the dependency graph from task file frontmatter. Do NOT duplicate task data into SPRINT.md — the sprint file only stores task IDs grouped by wave. (Detail: `references/wave-decomposition.md` § "Step 5".)
 
 ### Step 6: Find the Bottleneck
 
-Identify the longest chain of dependent tasks (the critical path). If any of these tasks are delayed, the whole sprint is delayed.
+Identify the longest chain of dependent tasks (the critical path).
 
 ### Step 7: Wave Assignment
 
-Waves are groups of tasks that can run together. Tasks in the same wave don't depend on each other, so they can run in parallel. Each wave finishes before the next one starts.
-
-Group tasks into waves:
-- Wave 1: tasks with no dependencies (these start first)
-- Wave 2: tasks that depend only on wave 1 tasks
-- Wave N: tasks that depend only on earlier wave tasks
-
-Rules:
-- Tasks within a wave have NO dependencies on each other
-- Each wave completes fully before the next starts
-- Mark which waves can run in parallel (multiple subagents)
+Group tasks into waves: Wave 1 = no dependencies, Wave N = depends only on earlier waves. Tasks within a wave have NO dependencies on each other. Each wave completes fully before the next starts. Mark which waves can run in parallel. (Detail: `references/wave-decomposition.md` § "Step 7".)
 
 ### Step 8: Determine Execution Mode
 
@@ -669,98 +276,15 @@ Include a `## Risks` section derived from: critical path tasks, external deps, k
 
 ### Step 9.5: Quality Gate (self-review loop)
 
-Before presenting the plan, review your own output. Re-read each task file and the sprint draft, checking:
+Before presenting the plan, review your own output. Re-read each task file and the sprint draft against a 20-check table covering files-to-modify, architecture, dependency integrity, prescriptive strategy, cleanup, no-cycles, AC clarity, effort, critical path, wave/dep alignment, test strategy, cross-cutting, risks, MoSCoW, PERT, kind-specific required fields (`verify_command`, `research_scope`, `First failing test:`), no nested operational loops, and no "and"-titles in feature tasks.
 
-| # | Check | Fail criteria |
-|---|---|---|
-| 1 | **Every task has files-to-modify identified** | Architecture section empty or says "TBD" |
-| 2 | **Architecture layers mapped per task** | No layers/blast radius/boundaries listed |
-| 3 | **No task depends on something undefined** | Dependency references a task ID that doesn't exist |
-| 4 | **Implementation strategy is prescriptive** | "Consider X or Y" instead of "Use X" |
-| 5 | **Cleanup tasks captured** | Architecture analysis found dead code/deprecated patterns but no cleanup task exists |
-| 6 | **No circular dependencies** | Task A → B → C → A |
-| 7 | **Every task has clear acceptance criteria** | Task description is vague ("implement feature") without specific deliverable |
-| 8 | **Effort estimates present** | Any task has no S/M/L effort |
-| 9 | **Critical path makes sense** | Bottleneck task has no clear reason for being the bottleneck |
-| 10 | **Wave assignment respects dependencies** | A task appears in the same wave as a task it depends on |
-| 11 | **Test strategy present** | Any task has no Test Strategy section |
-| 12 | **Cross-cutting concerns addressed** | Feature needs auth/logging/caching but no task covers it |
-| 13 | **Risk register populated** | Sprint has critical-path or external deps but no risks section |
-| 14 | **MoSCoW classified** | Acceptance criteria not tagged MUST/SHOULD/COULD/WON'T |
-| 15 | **PERT estimates for uncertain tasks** | High-uncertainty task has single-point estimate only |
-| 16 | **Every `kind: operational` task has a non-empty `verify_command`** | Operational task missing `verify_command` → rejected at DoR. Without this the executor has no command to run and will either crash or (worse) fall back to marking the task done. See `references/task-kinds.md`. |
-| 17 | **No `kind: operational` task is nested inside another operational loop** | Patch tasks created by the fix-findings loop MUST be `kind: feature`. Operational → operational recursion is forbidden. |
-| 18 | **Every `kind: research` task has a non-empty `research_scope`** | Research task missing `research_scope` → rejected at DoR. Without it the researcher has no question to investigate and will fail loud at dispatch (`research_scope_missing` event). See `references/task-kinds.md`. |
-| 19 | **Every `kind: feature` task has a `First failing test:` in Technical Notes** | Technical Notes missing this section means the Stage 4 Red step protocol was skipped — the builder has no TDD starting point and may silently invent scope. Re-derive the Red step and add it before approval. |
-| 20 | **No `kind: feature` task title contains "and" joining two independent behaviors** | "Implement X and add Y", "Update X and fix Y" patterns indicate Stage 3 splitting was missed. Split the task; two behaviors means two tasks. |
-
-Iterate the checklist against task files and the sprint draft, fixing failures (update task files, recompute waves) and re-running. Max 3 iterations. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag any remaining gaps in the sprint plan summary as "Planning gaps — review during execution". Then proceed to Step 9.7.
+See `references/spec-validation.md` § "Step 9.5" for the full 20-row checklist with fail criteria. Iterate up to 3 times, fixing failures and re-running. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag any remaining gaps in the sprint plan summary as "Planning gaps — review during execution". Then proceed to Step 9.7.
 
 ### Step 9.7: Adversarial Critique
 
-After the self-review quality gate passes, spawn the critic agent to challenge the sprint plan from angles the self-review doesn't cover — implicit assumptions in Technical Notes, estimate realism, wave conflict risks, and rollback gaps.
+After the self-review quality gate passes, spawn the critic agent to challenge the plan from angles the self-review doesn't cover. **Determine stakes level:** `high` if sprint has 10+ tasks, total story_points >= 20, any feature touches auth/payments/data, or critical path has 4+ tasks; `standard` otherwise.
 
-**Determine stakes level:**
-- `high` if: sprint has 10+ tasks, total story_points >= 20, any feature touches auth/payments/data, or critical path has 4+ tasks
-- `standard` otherwise
-
-**Spawn the critic:** dispatch a `general-purpose` subagent with the inline critic prompt below. The critic role is reused across ship-review, ship-sprint, and ship-discuss with mode-specific framing; per the granularity criterion in S-1, the prompt stays inline (different inputs, different evaluation criteria — one combined critic capability skill would be a junk drawer).
-
-Substitute the literal SHIPYARD_DATA path before spawning:
-
-```
-Agent(subagent_type: "general-purpose", prompt: |
-
-You are an adversarial critic of a sprint plan. Your job is to find what
-the plan misses: blind spots, optimistic estimates, wave-conflict risks,
-acceptance-scenario coverage gaps, and feasibility issues.
-
-Apply anti-sycophancy: do not agree with the plan just because it sounds
-reasonable. Pre-mortem the sprint: imagine it shipped two weeks late or
-half-broken — what was the failure mode?
-
-Mode: sprint-critique
-Stakes: [standard | high]   (high if 10+ tasks, ≥20 story points,
-                             auth/payments/data, or critical path 4+ tasks)
-
-Read these files:
-  - SPRINT-DRAFT.md: <SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md
-  - All task files: <SHIPYARD_DATA>/spec/tasks/ (filter to sprint scope)
-  - Feature specs covered: <list of feature file paths>
-  - Codebase context: <SHIPYARD_DATA>/codebase-context.md
-  - Project rules: .claude/rules/project-*.md
-
-Return:
-  STATUS: CHALLENGES
-  PRIORITY_ACTIONS: <ordered list — mandatory fixes>
-  TASK_GAPS: <missing tasks needed to cover acceptance scenarios>
-  WAVE_CONFLICTS: <tasks that should not be in the same wave>
-  ESTIMATE_RISKS: <effort estimates that look optimistic — with reason>
-  ASSUMPTION_RISKS: <high-risk assumptions baked into the plan>
-
-If you genuinely have no challenges:
-  STATUS: NO_CHALLENGES
-  REASON: <one paragraph confirming you considered each adversarial angle>
-
-You are READ-ONLY: no edits, no commits, no spawning subagents.
-)
-```
-
-**Process the critic's findings:**
-
-1. Read the `PRIORITY ACTIONS` section — these are mandatory fixes
-2. For each FAIL item and HIGH-risk assumption:
-   - Task completeness gaps → create missing tasks, update wave structure
-   - Wave conflict risks → re-assign tasks to different waves
-   - Estimate realism concerns → adjust effort estimates, potentially split tasks
-   - Technical Notes gaps → add missing implementation detail
-   - Dependency chain risks → add mitigation to risk register
-   - If requires user judgment → collect into a single AskUserQuestion with the critic's evidence and your recommendation
-3. For CONCERN items: note them in the `## Risks` section of SPRINT-DRAFT.md as "Critic flagged — [summary]. Mitigation: [your plan]" or fix if quick
-4. For RECONSIDER verdicts from Pass 3 (steel-man challenges on implementation decisions): AskUserQuestion with both options and the critic's reasoning, plus your recommendation
-5. If fixes changed the wave structure, re-verify no circular dependencies and no same-wave dependency violations
-
-**Do NOT re-run the critic after fixes.** One round only. Address what you can, ask the user about the rest, and proceed.
+See `references/spec-validation.md` § "Step 9.7" for the full critic dispatch prompt and the findings-processing rules (PRIORITY_ACTIONS, TASK_GAPS, WAVE_CONFLICTS, ESTIMATE_RISKS, ASSUMPTION_RISKS). For RECONSIDER verdicts on implementation decisions, AskUserQuestion with both options + critic's reasoning + your recommendation. **Do NOT re-run the critic after fixes.** One round only.
 
 ### Step 10: Present Sprint Plan
 
@@ -792,30 +316,25 @@ Then for each wave: task IDs + titles, execution (sequential/parallel), dependen
              T005
 ```
 
-**RISKS** — from the risk register:
-- Risk, likelihood, impact, mitigation
-
-**DECISIONS MADE** — from Step 3.7:
-- Key implementation choices and reasoning
-
-**QUALITY GATE RESULTS** — from Step 9.5:
-- All checks passed, or flagged gaps
+**RISKS** — from the risk register: risk, likelihood, impact, mitigation
+**DECISIONS MADE** — from Step 3.7: key implementation choices and reasoning
+**QUALITY GATE RESULTS** — from Step 9.5: all checks passed, or flagged gaps
 
 Then use `AskUserQuestion` for approval:
 - **Approve (Recommended)** — create the sprint and proceed to Step 11
 - **Refine** — give feedback on specific tasks/waves, iterate
-- **Cancel** — cancel the sprint draft (sets `status: cancelled` in SPRINT-DRAFT.md and task files, clears `tasks:` arrays in feature frontmatter; `reap-obsolete` housekeeping reaps later)
+- **Cancel** — cancel the sprint draft (sets `status: cancelled` in SPRINT-DRAFT.md and task files, clears `tasks:` arrays in feature frontmatter; the soft-deleted record stays in place)
 
 ### Step 11: Create Sprint (after approval)
 
 If approved:
 
-1. Use Edit to set `status: superseded` in SPRINT-DRAFT.md frontmatter (the `reap-obsolete` housekeeping reaps it later — do not physically delete). Use Write to create SPRINT.md and PROGRESS.md.
+1. Use Edit to set `status: superseded` in SPRINT-DRAFT.md frontmatter (the soft-deleted record stays in place; physical removal is manual for now — do not physically delete). Use Write to create SPRINT.md and PROGRESS.md.
 2. Update feature statuses to `in-progress` in feature frontmatter
 3. Remove pulled feature IDs from BACKLOG.md
 4. **Record working branch** — capture the user's current branch: `git branch --show-current`. Write `branch: <current branch>` to SPRINT.md frontmatter. Shipyard works on whatever branch the user is already on — it does not create sprint branches.
 
-**Clean up session guard:** Use the Write tool to overwrite `<SHIPYARD_DATA>/.active-session.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel — `session-guard` treats `skill: null` as inactive). Planning is complete.
+**Clean up active-skill mutex:** Use the Write tool to overwrite `<SHIPYARD_DATA>/.active-session.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel — the mutex pattern treats `skill: null` as inactive). Planning is complete.
 
 Then show:
 ```

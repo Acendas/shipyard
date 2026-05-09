@@ -1,6 +1,6 @@
 ---
 name: acquiring-skill-lock
-description: Use at the entry of any Shipyard command skill that mutates state (ship-execute, ship-discuss, ship-sprint, ship-review, ship-init). Acquires (or politely refuses) the active-skill mutex stored in <SHIPYARD_DATA>, with session-ID stamping so concurrent terminals on the same repo no longer false-block each other. Releases by writing a soft-delete sentinel.
+description: Use at the entry of any Shipyard command skill that mutates project state — /ship-execute, /ship-discuss, /ship-sprint, /ship-review, /ship-init. Prevents two terminals on the same repo from racing on the same sprint or spec. Returns acquired or refused with the holder's identity so the caller can proceed or surface a clean "another session is active" message.
 disable-model-invocation: true
 ---
 

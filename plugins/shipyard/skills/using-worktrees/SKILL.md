@@ -1,6 +1,6 @@
 ---
 name: using-worktrees
-description: Use whenever Shipyard needs filesystem isolation for parallel task execution or worktree-aware diff inspection — /ship-execute per-task isolation, /ship-review diff scoping. Wraps Claude Code's `isolation: worktree` Agent param + `WorktreeCreate` hook + `worktree.baseRef` setting.
+description: Use to give a task or review its own filesystem checkout — /ship-execute per-task isolation so parallel builders never see each other's half-written files, or /ship-review diff scoping where the review subagent inspects only the wave's changes. Returns the worktree path and branch the caller dispatches into.
 disable-model-invocation: true
 ---
 

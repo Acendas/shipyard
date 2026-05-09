@@ -70,66 +70,13 @@ For each feature/task being reviewed:
 
 Skip if `--skip-code-review` is passed or reviewing a hotfix.
 
-Run the multi-agent code review on the sprint's diff before tests and spec compliance — it catches bugs, security issues, silent failures, and pattern violations and auto-fixes them. The orchestration logic (6 parallel scanners + an opus investigator) lives in `references/code-review-orchestration.md`. Read that at the start of this stage.
-
-Per iteration (max 3):
-
-1. **Checkpoint.** `git tag pre-code-review-$(date +%s)` — rollback point for failed fix iterations.
-2. **Orchestrate.** Follow the reference end-to-end. Iteration 1 uses `git diff $(git merge-base HEAD <main_branch>)...HEAD`; iteration 2+ uses the cumulative delta `git diff <pre-code-review-tag>..HEAD`. Phase 5 writes `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md` with VERDICT / COUNTS / ---ACTIONABLE--- sections.
-3. **Evaluate.** Append counts to the Code Review table in PROGRESS.md. Zero must-fix + zero should-fix → clean pass, proceed to Stage 1. Only consider items → acceptable, proceed to Stage 1. Must-fix or should-fix → continue.
-4. **Diminishing returns** (iteration 2+). Read the previous count from PROGRESS.md. If unchanged or increased, AskUserQuestion: "Code review isn't converging — [N] must-fix issues remain after [iteration] fix attempts. Proceed to demo with current state, or investigate manually?"
-5. **Fix.** Invoke the **`shipyard:dispatching-task-loop` capability skill** with a synthetic continuation task that points at the CODE-REVIEW.md findings. Pass:
-   - `task_id`: a synthetic ID like `CR-FIX-iter-N`
-   - `task_file_path`: `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md` (the findings doc serves as the spec — the capability skill's prompt instructs the subagent to skip everything above `---ACTIONABLE---` and fix all M/S items below)
-   - `working_branch`: the sprint working branch
-   - `worktree_path`: null (works directly on the working branch — no isolation; this is a fix-up pass on already-merged code)
-   - `acceptance_probe`: `git log -1 --format='%s' | grep -q '^refactor: address code review'` (probe verifies a refactor commit landed)
-   - `continuation_note`: *"Fix all M and S items in CODE-REVIEW.md below the ---ACTIONABLE--- separator. Follow TDD. Commit: `refactor: address code review (iteration N)`."*
-   - `data_dir`: literal SHIPYARD_DATA path
-
-   The capability skill's structured-return + sha verification handle the "verify a new commit exists" check that previously lived inline. If it returns `STATUS: BLOCKED` (no fixes possible), `git reset --hard` to the most recent `pre-code-review-*` tag and flag the iteration as failed (don't count toward the cap).
-6. **Repeat** from step 2.
-
-**Exit:** clean pass → Stage 1. 3 iterations reached with remaining must-fix → use Write to create `<SHIPYARD_DATA>/spec/bugs/B-CR-[slug].md` per finding so they surface in the next sprint, then AskUserQuestion whether to proceed to demo. After exit, delete checkpoint tags: `git tag --list 'pre-code-review-*' | xargs -I {} git tag -d {}`.
-
-**Out-of-scope findings in Stage 0 code review.** If any scanner surfaces a concrete defect that is real but *outside the sprint's diff scope* (e.g., while reviewing the auth feature's diff, the silent-failures scanner flagged a swallowed exception in a helper that wasn't touched by the sprint), capture it as an IDEA — not a `B-CR-*` bug. The B-CR bugs are for in-scope code-review findings that need fixing before this sprint ships; out-of-scope findings are for the next sprint's planning to consider. See Stage 4's "Capture Out-of-Scope Gaps as IDEAs" section for the full protocol — it applies to Stage 0 findings too, with `found_during: code-review-stage-0` in the frontmatter instead of `surface-gap-stage-4`. Hard cap: 5 per stage (enforced separately from Stage 4's cap — Stage 0 and Stage 4 have independent budgets).
-
-Log each iteration in PROGRESS.md:
-```
-## Code Review
-| Iteration | Must-fix | Should-fix | Consider | Action |
-| 1         | 3        | 5          | 2        | Fixer addressed 8 findings |
-| 2         | 0        | 1          | 2        | Fixer addressed 1 finding |
-| 3         | 0        | 0          | 2        | Clean — proceeding |
-```
+Run the multi-agent code review on the sprint's diff before tests and spec compliance — 6 parallel scanners + an opus investigator (orchestration logic in `references/code-review-orchestration.md`) catch bugs, security issues, silent failures, and pattern violations, then the `shipyard:dispatching-task-loop` fixer addresses must-fix and should-fix items. Iterate up to 3 times with diminishing-returns AskUserQuestion at iteration 2+: *"Code review isn't converging — [N] must-fix issues remain after [iteration] fix attempts. Proceed to demo with current state, or investigate manually?"* On exit-with-remaining-must-fix after 3 iterations, write `B-CR-*` bugs and AskUserQuestion whether to proceed to demo. Out-of-scope scanner findings become IDEAs (see Stage 4 protocol). Full mechanics — checkpoint tags, fixer parameters, PROGRESS.md table format, scope guard — in `references/scanner-dispatch.md`.
 
 ### Stage 0.5: Code Simplification
 
 Skip if `--skip-code-review` is passed (same gate as Stage 0).
 
-After the code review loop exits clean, run a simplification pass on the sprint's changed code. The code review fixer may have introduced quick patches; this pass cleans them up for clarity, consistency, and reuse before tests and demo.
-
-1. Get the sprint diff file list:
-   ```bash
-   git diff --name-only $(git merge-base HEAD <main_branch>)...HEAD
-   ```
-2. Spawn the simplifier agent:
-   ```
-   Agent(subagent_type: code-simplifier:code-simplifier, prompt: |
-     Review and simplify the following files that were changed in this sprint.
-     Focus on: reducing unnecessary complexity, eliminating redundant code,
-     improving naming, consolidating related logic, and applying project
-     conventions from CLAUDE.md. Preserve all functionality.
-
-     Changed files:
-     [list from step 1]
-
-     Commit your changes as: refactor: simplify sprint code)
-   ```
-3. Verify a commit exists after the agent returns. If no commit → the simplifier found nothing to improve (clean pass).
-4. Log in PROGRESS.md: `Simplification: [N files touched | no changes needed]`
-
-**Scope guard:** The simplifier only touches files in the sprint diff. It must not modify files outside the diff scope. If the agent's commit touches unexpected files, revert with `git reset --hard HEAD~1` and proceed without simplification.
+After Stage 0 exits clean, spawn the `code-simplifier:code-simplifier` agent against the sprint diff to clean up quick patches the fixer may have introduced. Scope-guarded to sprint-diff files only — reverts via `git reset --hard HEAD~1` if the simplifier touches unexpected files. Mechanics in `references/scanner-dispatch.md`.
 
 ### Stage 1: Run Tests & Spec Verification
 
@@ -239,49 +186,7 @@ For each gap, classify into one of three destinations — this is a decision tre
 - **Complex and in-scope** (feature doesn't work but tests pass, wiring broken within this feature, behavior contradicts this feature's spec) → **debug session**. Use the Write tool to create `<SHIPYARD_DATA>/debug/[feature-id]-[gap].md` with the symptoms and evidence from the review.
 - **Out-of-scope** (real defect or smell that isn't in the feature being reviewed — e.g., while reviewing the payments feature, the scanner flagged a race condition in the auth middleware) → **IDEA file**. Capture the observation as an idea so it doesn't vanish, without polluting the current feature's review. See "Capture Out-of-Scope Gaps as IDEAs" below.
 
-**Capture Out-of-Scope Gaps as IDEAs.**
-
-Out-of-scope gaps are real defects — they deserve tracking — but they don't belong in the current feature's patch-task list (which would blow up sprint scope) or the debug session (which is feature-specific). The existing destinations (`bugs/`, `debug/`, patch tasks) are all scope-locked to the thing being reviewed. IDEAs are the overflow valve for "real but not now."
-
-**Hard cap: 5 IDEAs per review stage** (5 for Stage 0 code-review findings, 5 for Stage 4 gap findings — 10 total per review run). If you have more than 5 out-of-scope findings in a stage, write exactly ONE summary IDEA with `overflow: true` in the frontmatter and a bulleted list of the additional items in the body. Why 5? Same reasoning as the builder's 3-per-task cap — idea farms are how signal gets drowned in noise.
-
-**When to capture vs when to let it go:**
-
-- **Capture** — concrete defects, latent bugs, architectural smells with a specific citation (file:line), security concerns that aren't in the current feature's threat model, deprecated API usage, silent failure modes.
-- **Do NOT capture** — style preferences, "this could be cleaner", "I would have designed this differently", refactor wishes without a concrete defect, things already tracked in bugs/ or debug/ sessions (would duplicate), gaps that are actually in-scope for the feature being reviewed.
-
-**How to capture** (mechanical):
-
-1. Allocate an ID atomically: run `shipyard-data next-id ideas` — returns a zero-padded 3-digit string (e.g., `042`). **Do NOT `ls` and guess** — parallel reviewers would race.
-
-2. Write the IDEA file via the Write tool at `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` (slug is lowercase-kebab-case, ≤5 words):
-   ```yaml
-   ---
-   id: IDEA-<id>
-   title: "<one-line observation>"
-   type: gap
-   status: proposed
-   source: review-gap/<sprint-id>
-   found_during: surface-gap-stage-4     # or code-review-stage-0
-   feature_reviewed: <feature-id>        # the feature you were reviewing when you found this
-   created: <current ISO date>
-   ---
-
-   ## Observation
-
-   <2–3 sentences: what you found, where (file:line), why it's a real defect, not a preference>
-
-   ## Evidence
-
-   - File: <path:line>
-   - Pattern: <what the scanner / review flagged>
-   - Severity estimate: low | medium | high
-   - Why out-of-scope: <why this doesn't belong in the current feature's patch tasks>
-   ```
-
-3. Repeat up to 5 per stage. On overflow, collapse to one `overflow: true` IDEA.
-
-**Hard rule — out-of-scope only.** In-scope must-fix items still become bugs (`B-CR-*.md` in Stage 0). Complex in-scope issues still become debug sessions. Simple in-scope issues still become patch tasks. IDEAs are EXCLUSIVELY for observations that are real but belong to a different feature, a different sprint, or a future cleanup pass. Violating this rule floods the IDEA backlog with bugs masquerading as ideas and makes `/ship-discuss` unusable.
+**Capture Out-of-Scope Gaps as IDEAs.** Out-of-scope gaps are real defects but don't belong in the current feature's patch-task list or debug session. Allocate an ID via `shipyard-data next-id ideas` (never `ls`-and-guess), then Write `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with `source: review-gap/<sprint-id>`, `found_during: surface-gap-stage-4` (or `code-review-stage-0`), and `feature_reviewed: <feature-id>`. **Hard cap: 5 per stage** (Stage 0 and Stage 4 budgets are independent); on overflow, write one `overflow: true` summary IDEA. **Hard rule — out-of-scope only:** in-scope must-fix → `B-CR-*` bugs, in-scope complex → debug session, in-scope simple → patch task. Full IDEA frontmatter schema, capture-vs-skip criteria, and frontmatter template in `references/scanner-dispatch.md`.
 
 ### Stage 4.5: Quality Gate (self-review loop)
 
@@ -467,101 +372,26 @@ Fast-track for hotfixes:
 
 ## Sprint Retrospective
 
-After sprint approval (or when `--retro-only` is passed), run the retrospective. This analyzes what happened, captures learnings, and creates improvement items.
+After sprint approval (or when `--retro-only` is passed), run the retrospective. This analyzes what happened, captures learnings, and creates improvement items. If `--retro-only` with a sprint ID, Read that sprint's archived files from `<SHIPYARD_DATA>/sprints/sprint-NNN/` instead of `current/`.
 
-If `--retro-only` with a sprint ID (e.g., `--retro-only sprint-003`), Read that sprint's archived files from `<SHIPYARD_DATA>/sprints/sprint-NNN/` instead of `current/`.
-
-### Retro Compaction Recovery
-
-If you lose context mid-retro:
-1. Check for `RETRO-DATA.md` in the sprint directory
-2. Read frontmatter `step` field: `data_gathered` → skip to Retro Step 2, `feedback_collected` → skip to Retro Step 3, `action_items_created` → skip to Retro Step 4
-3. If no RETRO-DATA.md → start from Retro Step 1
+The retro runs in four steps with compaction recovery via `RETRO-DATA.md`'s `step` frontmatter field. Full mechanics — data-gathering source files, throughput computation, IDEA allocation/frontmatter, metrics rollover, anti-pattern flags — in `references/retro-and-release.md`.
 
 ### Retro Step 1: Gather Data
-
-Compute from source files (read SPRINT.md for task IDs, then read each task file for status/effort, and each feature file for points):
-- **Planned vs delivered** — count task files with `status: done` vs total tasks
-- **Velocity** — sum story points from completed features
-- **Carry-over** — tasks not finished (and why)
-- **Bugs found** — filter by `found_during` matching sprint ID
-- **Blocked time** — total time tasks spent blocked
-- **Swaps** — mid-sprint scope changes
-- **Patch tasks** — gaps found during review
-- **Estimate accuracy** — planned effort vs actual per task
-- **Token accuracy** — compare `token_estimate` from feature frontmatter (planned) against actual if available. Note: actual token usage isn't automatically tracked (Claude Code doesn't expose per-session token counts). Record as "estimated: NNK" for now. As actual data becomes available from billing/usage, it can be fed back to improve estimates.
-
-**Throughput computation:**
-1. Read `started_at`, `completed_at`, `total_paused_minutes` from SPRINT.md frontmatter
-2. If both timestamps present:
-   - `active_minutes` = elapsed - paused
-   - If `active_minutes > 0`: compute `pts_per_hour`, append to metrics.md
-   - If `active_minutes <= 0`: warn about incomplete timing data
-3. If timestamps missing: omit throughput
-
-Write computed data to `RETRO-DATA.md` (frontmatter: `step: data_gathered`). Present summary:
-
-```
-SPRINT [NNN] RETROSPECTIVE
-
-Planned: [N] tasks ([M] pts) across [W] waves
-Delivered: [N] tasks ([M] pts)
-Carry-over: [N] tasks ([M] pts)
-Velocity: [N] pts (previous: [M] pts)
-Throughput: X.X pts/hr (M.M hrs active)
-Bugs: [N] | Blocked incidents: [N]
-Estimate accuracy: [avg]% (range: [min]%-[max]%)
-```
+Compute planned-vs-delivered, velocity, carry-over, bugs, blocked time, swaps, patch tasks, estimate accuracy, throughput from SPRINT.md + task/feature files. Write to `RETRO-DATA.md` (`step: data_gathered`) and present the summary block.
 
 ### Retro Step 2: Facilitate Discussion
+Three sequential AskUserQuestion calls — lead each with the data-driven observation, then ask:
+1. **What went well?**
+2. **What didn't go well?**
+3. **What should we change?**
 
-Three sequential AskUserQuestion calls (explain context first, then ask):
-
-1. **What went well?** — lead with data-driven observations, then ask for user's perspective
-2. **What didn't go well?** — lead with flagged issues, then ask
-3. **What should we change?** — lead with suggested improvements, then ask
-
-Append responses to RETRO-DATA.md under `## Team Feedback`. Update frontmatter: `step: feedback_collected`.
+Append responses to `RETRO-DATA.md` under `## Team Feedback`. Update frontmatter: `step: feedback_collected`.
 
 ### Retro Step 3: Create Action Items
-
-For each actionable improvement, allocate an ID atomically and write an idea file.
-
-**Allocate the ID.** Run `shipyard-data next-id ideas` — the CLI returns a zero-padded 3-digit string (e.g., `042`). Use it as `IDEA-042` in the filename and the `id` frontmatter field. **Do NOT `ls spec/ideas/` and pick a number manually** — parallel sessions would race and clobber each other. The allocator is the only safe way to pick an idea ID.
-
-**Write the file** via the Write tool at `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with this frontmatter:
-```yaml
----
-id: IDEA-<id>
-title: "[improvement]"
-type: improvement
-status: proposed
-source: retro/<sprint-id>
-story_points: [estimate]
-created: [today]
----
-```
-
-**Source-tag format.** `source: retro/<sprint-id>` (slash-separated origin, e.g., `retro/sprint-007`) is the new convention — it mirrors `execute/<sprint-id>` and `review-gap/<sprint-id>` so the carry-over scan can grep with a single regex `^source: (execute|review-gap|retro)/`. The old `retro-sprint-NNN` format (hyphen-separated) is still recognized by readers for backwards compatibility with IDEAs created before this change, but new IDEAs must use the slash form.
-
-Update RETRO-DATA.md: `step: action_items_created`, `ideas_created: [IDEA-<id>, ...]`.
+For each actionable improvement, allocate an ID via `shipyard-data next-id ideas` (never `ls`-and-guess) and Write `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with `source: retro/<sprint-id>` (slash form — matches the carry-over scan regex). Update `RETRO-DATA.md`: `step: action_items_created`.
 
 ### Retro Step 4: Update Metrics
-
-1. **Update metrics** — Read `<SHIPYARD_DATA>/memory/metrics.md`, then use Write to overwrite with the previous content plus appended new entries: velocity, carry-over rate, bug rate, estimate accuracy, anti-pattern flags
-2. **Quarterly rollover** — if metrics.md exceeds 300 lines, archive older data to `metrics-[quarter].md`
-3. **Save to memory** — key retro insights that persist across sessions
-
-### Anti-Pattern Detection
-
-During retro, flag:
-- **Overloading** — planned >120% of capacity
-- **Over-building** — tasks 2x+ estimate without scope change
-- **Estimation gaps** — estimates consistently off by >50%
-- **Zombie stories** — same items in 2+ sprints, never completed
-- **Scope creep** — too many mid-sprint swaps
-
-Present as observations, not judgments.
+Append velocity, carry-over rate, bug rate, estimate accuracy, anti-pattern flags to `<SHIPYARD_DATA>/memory/metrics.md` (quarterly rollover at 300 lines). Save key insights to memory.
 
 ### Shipyard Plugin Issue Detection
 
@@ -569,7 +399,7 @@ Some retro findings are **Shipyard plugin problems**, not user project problems 
 
 **How to detect:** If a deviation, anti-pattern, or "what didn't go well" item references any of these:
 - Claude Code bug numbers (`#29110`, `#37549`, `#39973`, etc.)
-- Shipyard hook names (`subagent-stop`, `auto-approve-data`, `session-guard`, `worktree-branch`, etc.)
+- Shipyard hook names (`auto-approve-data`, `worktree-branch`, `plugin-data-breadcrumb`)
 - Shipyard internal state (`.active-execution.json`, `.compaction-count`, `.shipyard-events.jsonl`)
 - Agent dispatch failures (builder early return, builder salvaged, spec-check not converging)
 - Worktree branch issues (CWD drift, wrong branch, worktree probe failures)
@@ -591,36 +421,10 @@ Use `AskUserQuestion` to offer:
 
 ## Release
 
-After retro completes, generate the release record. This is a changelog + status tracker — Shipyard does not create git tags, push, or create GitHub releases.
+After retro completes, generate the release record. This is a changelog + status tracker — Shipyard does not create git tags, push, or create GitHub releases. Full mechanics — release-plan output format, frontmatter writes, archive command, status dashboard — in `references/retro-and-release.md`.
 
 ### Release Step 1: Present Release Plan
-
-Read all feature files with `status: done` from this sprint. Generate the full release picture. The release is the most irreversible action in the workflow — status changes, archiving, and changelog are hard to undo.
-
-Output the release plan as text:
-
-**CHANGELOG** — what ships:
-```
- FEATURES
-  - F001: [title] — [one-line description from spec]
-  - F005: [title] — [one-line description from spec]
-
- BUG FIXES
-  - B001: [title]
-```
-
-**STATUS CHANGES** — what moves:
-- Features: [IDs] status `done` → `released`, `released_at: [date]`
-- Sprint: archived to `<SHIPYARD_DATA>/sprints/sprint-NNN/`
-
-**RETRO HIGHLIGHTS** — key numbers from the retro (if just completed):
-- Velocity, throughput, estimate accuracy
-- Action items created
-
-**FILES WRITTEN** — what changes on disk:
-- CHANGELOG.md in project root (prepended)
-- Feature file frontmatter updates
-- Sprint directory archived
+Read all `status: done` features from this sprint. Output the release plan as text — CHANGELOG block, STATUS CHANGES, RETRO HIGHLIGHTS, FILES WRITTEN. Release is the most irreversible action in the workflow; surface everything before confirming.
 
 Then use `AskUserQuestion` for approval:
 - **Release (Recommended)** — proceed to Release Step 2 (write everything)
@@ -628,18 +432,13 @@ Then use `AskUserQuestion` for approval:
 - **Skip release** — skip release record, still archive sprint
 
 ### Release Step 2: Write Release Record
-
-1. Update feature statuses to `released` in feature file frontmatter
-2. Record in each feature's frontmatter: `released_at: [date]`
-3. Append changelog to `CHANGELOG.md` in the **project root** (not plugin data). If the file doesn't exist, create it. Prepend the new entry at the top (newest first). This is a project deliverable that belongs in git.
+Update feature frontmatter (`status: released`, `released_at: [date]`) and prepend the new entry to `CHANGELOG.md` in the **project root** (not plugin data — this is a project deliverable that belongs in git).
 
 ### Release Step 3: Archive Sprint
-
-Run `shipyard-data archive-sprint sprint-NNN` from Bash (substitute the real sprint ID). This atomically renames `<SHIPYARD_DATA>/sprints/current/` → `<SHIPYARD_DATA>/sprints/sprint-NNN/` and recreates an empty `current/` for the next cycle. Do NOT synthesize raw `cp`/`mv`/`mkdir` against the plugin data dir — those are not portable and not atomic. `shipyard-data archive-sprint` is the only Shipyard binary you need to invoke from Bash, and it works because this skill has generic `Bash` allowed.
+Run `shipyard-data archive-sprint sprint-NNN` from Bash. This atomically renames `current/` → `sprint-NNN/` and recreates an empty `current/`. Do NOT synthesize raw `cp`/`mv`/`mkdir` against the plugin data dir — they're not portable and not atomic.
 
 ### Final: Run Status
-
-After archiving, run the `/ship-status` validation and dashboard to give the user a clean project health snapshot. This catches any state issues from the sprint and auto-fixes them before the next cycle.
+After archiving, run `/ship-status` to give the user a clean project health snapshot and auto-fix any state issues before the next cycle.
 
 ### Wrap Up
 

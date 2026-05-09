@@ -68,5 +68,30 @@
     "name": "monitor_grep_line_buffered",
     "type": "contains",
     "pattern": "grep -E --line-buffered"
+  },
+  {
+    "name": "monitor_filter_progress_token_required",
+    "type": "contains",
+    "pattern": "Progress tokens"
+  },
+  {
+    "name": "monitor_filter_failure_token_required",
+    "type": "contains",
+    "pattern": "Failure tokens"
+  },
+  {
+    "name": "monitor_pipefail_or_sentinel_documented",
+    "type": "contains",
+    "pattern": "pipefail|run-<N>\\.exit"
+  },
+  {
+    "name": "monitor_notification_budget_documented",
+    "type": "contains",
+    "pattern": "Notification budget|~50 notifications"
+  },
+  {
+    "name": "monitor_filters_reference_exists",
+    "type": "contains",
+    "pattern": "monitor-filters\\.md"
   }
 ]
