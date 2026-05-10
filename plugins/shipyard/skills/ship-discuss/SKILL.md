@@ -236,7 +236,7 @@ Have a natural conversation about the topic. **Always use AskUserQuestion — ne
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-1-research.md`
 
-Once you understand what the user wants, research before challenging. **Use LSP first** for code navigation; fall back to Grep/Read silently. Walk in order: (1) **Constitution check** — Glob `.claude/rules/project-*.md` and `.claude/rules/learnings/*.md` to extract architecture boundaries and banned patterns; (2) **Internal research** — Glob `<SHIPYARD_DATA>/spec/features/F*.md` and read `codebase-context.md`; (3) **How others solve it** — WebSearch established products, common user complaints, security pitfalls; WebFetch official docs.
+Once you understand what the user wants, research before challenging. **Use LSP first** for code navigation; fall back to Grep/Read silently. Walk in order: (1) **Constitution check** — Glob `.claude/rules/project-*.md` and `.claude/rules/learnings/*.md`; flag both **tensions** (feature violates a rule → Phase 1.5b challenge) AND **gaps** (feature enters territory no rule covers → log to `.research-draft.md` `## Constitution Gaps` so Phase 1.5b resolves the gray area and Phase 6 offers to codify it as a new rule); (2) **Internal research** — Glob `<SHIPYARD_DATA>/spec/features/F*.md` and read `codebase-context.md`; (3) **How others solve it** — WebSearch established products, common user complaints, security pitfalls; WebFetch official docs.
 
 Write findings to the feature file `## Technical Notes` (after Phase 3 creates it) with HIGH/MEDIUM/LOW confidence labels. Be prescriptive: "Use X" not "Consider X or Y" — the builder needs decisions. Fold findings into the conversation naturally before challenging.
 
@@ -268,6 +268,8 @@ Before writing to spec, silently evaluate each feature:
 3. **BUILDABLE** — Can we decompose into executable tasks? → KILL if impossible constraints
 4. **TESTABLE** — Can we verify with automated tests + demo? → KILL if purely subjective
 5. **SCOPED** — Is it one feature, not three in a trench coat? → SPLIT if multiple stories
+
+When SPLIT fires (or BUILDABLE/SCOPED fails on size grounds), invoke the **`shipyard:splitting-stories` capability skill** with `level: feature`, the draft text, the AC list, and `domain_hints` inferred from the discussion. The skill returns split candidates with cited patterns and `acceptance_hint`s. Present them as an AskUserQuestion: "This looks like [N] stories, not one — split it? (split as suggested / pick which children to keep / capture as-is and refine later)". Reject any candidate that fails the skill's horizontal-slice check before presenting (the skill flags these in `horizontal_rejections` — re-prompt the skill if it returned any).
 
 If viability kills the feature, use the Edit tool to set `obsolete: true` in `<SHIPYARD_DATA>/spec/.research-draft.md`'s frontmatter (soft-delete sentinel — recovery logic filters it out; it stays as a soft-deleted record).
 

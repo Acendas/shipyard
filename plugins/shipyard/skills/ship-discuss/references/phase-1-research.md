@@ -6,7 +6,9 @@ This is the full protocol for Phase 1.5 (Research) in `/ship-discuss`. The SKILL
 
 Walk this in order. **Use LSP first** for code navigation; fall back to Grep/Read silently.
 
-1. **Constitution check.** Glob `.claude/rules/project-*.md` and `.claude/rules/learnings/*.md`, read every match. Extract architecture boundaries, banned patterns, naming conventions, domain vocabulary, shared utilities. Flag tensions with the proposed feature as pre-loaded Phase 1.5b challenge items. Skip silently if no `project-*.md` files exist.
+1. **Constitution check.** Glob `.claude/rules/project-*.md` and `.claude/rules/learnings/*.md`, read every match. Extract architecture boundaries, banned patterns, naming conventions, domain vocabulary, shared utilities. Then do **two** passes against the proposed feature:
+   - **Tensions** — places the feature would violate an existing rule. Pre-load these as Phase 1.5b challenge items.
+   - **Gaps (gray areas)** — territory the feature enters that no existing rule covers. For each gap, write one line to `<SHIPYARD_DATA>/spec/.research-draft.md` under a `## Constitution Gaps` section: `- [area] — no rule covers [decision needed]; agent slop risk: [specific failure mode]`. Examples of gap-triggers: a new concurrency model (queues, jobs, websockets), a new external integration class (payments, auth provider, AI/LLM call), a new data category (PII, tenant-scoped, audit-logged), a new UI surface (background tab, server component, edge route), a new error class that needs propagation rules. Phase 1.5b challenges resolve these gray areas explicitly; Phase 6 Finalize then proposes the resolutions as new constitution rules. Skip the gap pass silently if no `project-*.md` files exist (the project hasn't opted into a constitution).
 
 2. **Internal research.** Glob `<SHIPYARD_DATA>/spec/features/F*.md` and Read each to find overlaps. Use LSP `documentSymbol` / `findReferences` for relevant codebase patterns. Read `<SHIPYARD_DATA>/codebase-context.md` for stack constraints.
 

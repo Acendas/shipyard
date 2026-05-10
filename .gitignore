@@ -12,3 +12,6 @@ __pycache__/
 
 # Workspace artifacts (Ralph loop, action items)
 tmp/
+
+# Ephemeral logcap session marker
+.active-logcap-session

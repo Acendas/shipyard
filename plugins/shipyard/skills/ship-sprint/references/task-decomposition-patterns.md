@@ -2,6 +2,8 @@
 
 Reference for Step 4 of `/ship-sprint`. Read before decomposing any feature — the protocol in SKILL.md refers to sections here by name.
 
+> **Canonical source:** `${CLAUDE_PLUGIN_ROOT}/skills/splitting-stories/references/patterns.md`. The `splitting-stories` capability skill is the single source of truth for the patterns, the "and" test, the horizontal-slice rejection rule, the Cynefin sensitivity, and the selection tiebreaker. This sprint-local reference is kept for the walking-skeleton (Stage 2), Red-step forcing function (Stage 4), 8/80 effort rule (Stage 5), and INVEST output check — all sprint-specific concerns. When the two diverge on pattern detail, the capability skill wins; update there.
+
 ## Why this reference exists
 
 "Break into atomic tasks" is an aspiration, not a protocol. Without named patterns and a forcing function, an LLM orchestrator decomposes top-down (thinking in features and waves) and naturally lands at a granularity too coarse for the builder. This reference gives the concrete patterns that fire before a task file is written, ensuring splits happen at the right moment.

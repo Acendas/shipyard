@@ -334,7 +334,7 @@ If the user wants to formalize existing features later, they use `/ship-discuss 
 
 **Read the full guide:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-init/references/constitution-advisor.md`
 
-Evaluate the project's existing architectural rules across 10 categories: architecture boundaries, code size limits, naming conventions, component patterns, testing patterns, error handling, banned patterns, domain vocabulary, shared patterns, and build order.
+Evaluate the project's existing architectural rules across 11 categories: architecture boundaries, code size limits, naming conventions, component patterns, testing patterns, error handling, banned patterns, domain vocabulary, shared patterns, build order, and AI slop mitigation. The slop-mitigation category is not optional — for every project, walk each major area of the codebase (data, UI, API, jobs, tests, infra) and identify the specific failure modes an agent is likely to produce there given the stack, then propose concrete rules that prevent each one.
 
 For each category, classify as COVERED / WEAK / MISSING by checking:
 - `.claude/rules/` — existing path-scoped rules (use `ls .claude/rules/` explicitly, hidden dirs are not globbed by default)
@@ -346,8 +346,8 @@ For each category, classify as COVERED / WEAK / MISSING by checking:
 
 For any WEAK or MISSING category:
 1. **Analyze the codebase** — measure actual file sizes, detect naming patterns already in use, find import boundaries
-2. **Research the stack** — WebSearch for "[framework] [category] best practices" and "[framework] production conventions" to find what experienced teams enforce. Check framework docs for official style guides.
-3. **Propose specific rules** — not generic advice, but concrete enforceable rules grounded in the project's actual tech stack and existing patterns
+2. **Research the stack** — WebSearch for "[framework] [category] best practices", "[framework] production conventions", AND "[framework] common LLM mistakes / hallucinated APIs" to find both what experienced teams enforce and what agents reliably get wrong. Check framework docs for official style guides and recently-removed APIs that models still suggest.
+3. **Propose specific rules** — not generic advice, but concrete enforceable rules grounded in the project's actual tech stack and existing patterns. Include a *why* inline so an agent can judge edge cases. For each area, include at least one slop-mitigation rule that names the specific failure mode (e.g., "no fabricated AR scopes — grep for the method on the model before using it", "no `as unknown as T` to silence the type-checker — fix the type or ask")
 
 Present all proposals at once, grouped by category, with rationale for each. Let the user accept all, pick some, or skip entirely. Create accepted rules as `.claude/rules/` files (not prefixed with `shipyard-`).
 

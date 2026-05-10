@@ -1,0 +1,102 @@
+[
+  {
+    "name": "has_disable_model_invocation",
+    "type": "contains",
+    "pattern": "disable-model-invocation: true"
+  },
+  {
+    "name": "has_invest_gate",
+    "type": "contains",
+    "pattern": "## Step 0: INVEST Gate"
+  },
+  {
+    "name": "has_and_test",
+    "type": "contains",
+    "pattern": "## Step 1: The \"And\" Test"
+  },
+  {
+    "name": "has_eleven_patterns_step",
+    "type": "contains",
+    "pattern": "## Step 2: Run the 11 Splitting Patterns"
+  },
+  {
+    "name": "has_horizontal_rejection",
+    "type": "contains",
+    "pattern": "## Step 3: Reject Horizontal Slices"
+  },
+  {
+    "name": "has_selection_tiebreaker",
+    "type": "contains",
+    "pattern": "## Step 4: Selection Tiebreaker"
+  },
+  {
+    "name": "has_cynefin_sensitivity",
+    "type": "contains",
+    "pattern": "## Step 5: Cynefin Sensitivity"
+  },
+  {
+    "name": "has_output_shape",
+    "type": "contains",
+    "pattern": "## Output Shape"
+  },
+  {
+    "name": "has_pattern_field_in_output",
+    "type": "contains",
+    "pattern": "\"pattern\":"
+  },
+  {
+    "name": "has_acceptance_hint_field",
+    "type": "contains",
+    "pattern": "acceptance_hint"
+  },
+  {
+    "name": "has_horizontal_rejections_field",
+    "type": "contains",
+    "pattern": "horizontal_rejections"
+  },
+  {
+    "name": "has_read_only_contract",
+    "type": "contains",
+    "pattern": "## Read-Only Contract"
+  },
+  {
+    "name": "references_patterns_file",
+    "type": "contains",
+    "pattern": "references/patterns.md"
+  },
+  {
+    "name": "names_workflow_pattern",
+    "type": "contains",
+    "pattern": "Workflow Steps"
+  },
+  {
+    "name": "names_crud_pattern",
+    "type": "contains",
+    "pattern": "CRUD Operations"
+  },
+  {
+    "name": "names_perf_pattern_mandatory",
+    "type": "contains",
+    "pattern": "Make-it-Work vs. Make-it-Fast"
+  },
+  {
+    "name": "names_spike_pattern",
+    "type": "contains",
+    "pattern": "Spike"
+  },
+  {
+    "name": "no_second_person_leak_you_should",
+    "type": "not_contains",
+    "pattern": "[Yy]ou should"
+  },
+  {
+    "name": "no_second_person_leak_you_must",
+    "type": "not_contains",
+    "pattern": "[Yy]ou must"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  }
+]

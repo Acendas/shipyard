@@ -32,13 +32,14 @@ Before any behavior task, identify what must exist across all layers for any beh
 
 If the feature has no cross-layer infrastructure needs (e.g., a pure UI wording change or isolated function fix), skip this stage and place behavior tasks in Wave 1 directly.
 
-### Stage 3: Run each behavior draft through the 9 splitting patterns
+### Stage 3: Run each behavior draft through the splitting-stories capability skill
 
-Apply the **"and" test first**: if the draft title or description contains "and" connecting two independent behaviors — mandatory split before continuing.
+For each behavior draft from Stage 1, invoke the **`shipyard:splitting-stories` capability skill** with `level: task`, the draft title and description, the AC text from the parent feature, and `domain_hints` (inferred from the parent feature's tech stack and frontmatter). The skill applies the "and" test, walks the 11 splitting patterns, rejects horizontal slices structurally, and returns either a no-split signal or a list of vertical child candidates with cited patterns and `acceptance_hint`s.
 
-Then run through the 9 patterns from `task-decomposition-patterns.md`. If any pattern fires — split the draft into two before proceeding. Re-evaluate each resulting draft; a single draft may need multiple passes. Do not proceed to Stage 4 until no pattern fires on any remaining draft.
+If the skill returns `candidates`, replace the draft with those children before continuing. Re-invoke on any child the model is unsure about — a single draft may need multiple passes. Do not proceed to Stage 4 until the skill returns no-split (or `partial: true` in a complex domain — see the skill's Cynefin handling) for every remaining draft.
 
-Patterns that fire most often in software sprints (run these first):
+The capability skill is the single source of truth for the patterns; the trigger phrases, examples, stack-specific notes, and selection tiebreaker live in `${CLAUDE_PLUGIN_ROOT}/skills/splitting-stories/references/patterns.md`. The local `task-decomposition-patterns.md` is kept as a sprint-level summary and may lag the canonical catalogue — when in doubt, the capability skill wins. Patterns that fire most often in software sprints:
+
 - **Workflow steps** — sequential process steps bundled into one draft
 - **CRUD operations** — "manage X" or multiple data verbs on the same entity
 - **Happy path vs. edge cases** — "implement X and handle errors / validate / edge cases"
