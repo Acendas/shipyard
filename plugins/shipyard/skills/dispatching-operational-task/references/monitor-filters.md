@@ -71,3 +71,7 @@ PASS|✓     ← WRONG. A crash produces no events. Looks identical to "still ru
 ```
 
 The point of the rule is that the filter must surface failure modes. If the runner doesn't emit a clear failure marker, broaden the alternation or include `Error|Traceback|panic:` as defensive wildcards.
+
+## Related: ScheduleWakeup discipline
+
+When the verify-run is genuinely long (multi-minute test suite, CI runner, external service) and `Monitor` isn't the right primitive, callers schedule a `ScheduleWakeup` to come back later. The cache-TTL rules for picking `delaySeconds` live in a sibling reference — see `schedule-wakeup-discipline.md`. Short version: 60–270s warm-cache window or 1200s+ idle window; never 300s (worst-of-both region).

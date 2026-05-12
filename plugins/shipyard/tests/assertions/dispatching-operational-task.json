@@ -93,5 +93,21 @@
     "name": "monitor_filters_reference_exists",
     "type": "contains",
     "pattern": "monitor-filters\\.md"
+  },
+  {
+    "name": "documents_goal_mode_default",
+    "type": "contains",
+    "pattern": "Goal-mode default|/goal-shaped"
+  },
+  {
+    "name": "emits_operational_iteration_event",
+    "type": "contains",
+    "pattern": "operational_iteration"
+  },
+  {
+    "name": "documents_escalation_code_enum",
+    "type": "contains",
+    "pattern": "ESCALATION_CODE.*verify_flaky",
+    "dotall": true
   }
 ]

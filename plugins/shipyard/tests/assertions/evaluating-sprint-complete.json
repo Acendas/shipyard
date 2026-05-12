@@ -1,0 +1,78 @@
+[
+  {
+    "name": "has_frontmatter_name",
+    "type": "frontmatter_field",
+    "field": "name",
+    "value": "evaluating-sprint-complete"
+  },
+  {
+    "name": "disable_model_invocation",
+    "type": "contains",
+    "pattern": "disable-model-invocation: true"
+  },
+  {
+    "name": "lists_seven_invariants",
+    "type": "contains",
+    "pattern": "Seven Invariants|seven invariants"
+  },
+  {
+    "name": "invariant_1_commit_sha_exists",
+    "type": "contains",
+    "pattern": "git cat-file -e|merge-base --is-ancestor"
+  },
+  {
+    "name": "invariant_2_sprint_verify",
+    "type": "contains",
+    "pattern": "sprint_verify_exit_code|sprint-boundary verify"
+  },
+  {
+    "name": "invariant_3_spec_done",
+    "type": "contains",
+    "pattern": "status: done|terminal-done"
+  },
+  {
+    "name": "invariant_4_no_orphan_ac",
+    "type": "contains",
+    "pattern": "orphan AC|no orphan"
+  },
+  {
+    "name": "invariant_5_no_silent_markers",
+    "type": "contains",
+    "pattern": "silent_failure|wave_check_escalated"
+  },
+  {
+    "name": "invariant_6_clean_worktrees",
+    "type": "contains",
+    "pattern": "git worktree list|uncommitted state"
+  },
+  {
+    "name": "invariant_7_review_clean",
+    "type": "contains",
+    "pattern": "review_verdict_path|review.*verdict"
+  },
+  {
+    "name": "no_recovery_at_sprint_level",
+    "type": "contains",
+    "pattern": "does NOT do recovery|halts cleanly"
+  },
+  {
+    "name": "has_status_complete_return",
+    "type": "contains",
+    "pattern": "STATUS: COMPLETE"
+  },
+  {
+    "name": "has_status_incomplete_return",
+    "type": "contains",
+    "pattern": "STATUS: INCOMPLETE"
+  },
+  {
+    "name": "emits_sprint_complete_events",
+    "type": "contains",
+    "pattern": "sprint_complete_passed|sprint_complete_failed"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  }
+]

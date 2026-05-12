@@ -385,5 +385,192 @@ class TestDiagnoseEventsTail(NamedSubcommandBase):
         self.assertIn('"count":2', out)
 
 
+class TestCheckCommitExists(NamedSubcommandBase):
+    """`shipyard-context check-commit-exists <sha>` — verifies a sha is
+    present in the current git repo. Used by verifying-wave-completion and
+    evaluating-sprint-complete to confirm subagent-returned commits are
+    real before trusting the structured return contract.
+    """
+
+    def _make_commit(self):
+        # Make an empty commit; return its sha.
+        subprocess.run(['git', '-C', self.project_dir,
+                        '-c', 'user.email=t@t', '-c', 'user.name=t',
+                        'commit', '--allow-empty', '-m', 'test', '-q'],
+                       check=True, capture_output=True)
+        proc = subprocess.run(['git', '-C', self.project_dir, 'rev-parse', 'HEAD'],
+                              capture_output=True, text=True, check=True)
+        return proc.stdout.strip()
+
+    def test_existing_sha_returns_zero_and_prints_full_sha(self):
+        sha = self._make_commit()
+        out, _, code = run_cli(['check-commit-exists', sha],
+                               env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), sha)
+
+    def test_abbreviated_sha_resolves_to_full(self):
+        sha = self._make_commit()
+        out, _, code = run_cli(['check-commit-exists', sha[:7]],
+                               env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), sha)
+
+    def test_missing_sha_returns_nonzero_and_prints_missing(self):
+        # Make at least one commit so this isn't a bare repo case.
+        self._make_commit()
+        out, _, code = run_cli(['check-commit-exists', 'deadbeefcafe'],
+                               env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 1)
+        self.assertEqual(out.strip(), 'missing')
+
+    def test_malformed_sha_rejected(self):
+        _, err, code = run_cli(['check-commit-exists', 'not-a-sha'],
+                               env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 1)
+        self.assertIn('Usage', err)
+
+    def test_missing_sha_arg_shows_usage(self):
+        _, err, code = run_cli(['check-commit-exists'],
+                               env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 1)
+        self.assertIn('Usage', err)
+
+
+class TestScanEvents(NamedSubcommandBase):
+    """`shipyard-context scan-events --tail N <type1> [type2 ...]` — reads
+    the structured event log tail, filtered to specific event types.
+    """
+
+    def _emit(self, event_type, **fields):
+        data_cli = os.path.join(
+            os.path.dirname(__file__), '..', 'bin', 'shipyard-data.mjs'
+        )
+        argv = ['node', data_cli, 'events', 'emit', event_type] + \
+               [f'{k}={v}' for k, v in fields.items()]
+        subprocess.run(argv, env={**os.environ, **self.env},
+                       check=True, capture_output=True)
+
+    def test_empty_log_prints_nothing_exit_zero(self):
+        # Don't initialize the log; subcommand should exit 0 with no output.
+        out, _, code = run_cli(
+            ['scan-events', '--tail', '10', 'wave_check_passed'],
+            env_extra=self.env, cwd=self.project_dir,
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), '')
+
+    def test_filters_by_type(self):
+        self._emit('wave_check_passed', wave=1)
+        self._emit('task_loop_iteration', task='T-001', iteration=1)
+        self._emit('silent_failure', task='T-002')
+        self._emit('wave_check_passed', wave=2)
+        out, _, code = run_cli(
+            ['scan-events', '--tail', '50', 'silent_failure', 'wave_check_passed'],
+            env_extra=self.env, cwd=self.project_dir,
+        )
+        self.assertEqual(code, 0)
+        lines = [l for l in out.strip().split('\n') if l]
+        self.assertEqual(len(lines), 3)
+        # Each filtered line should be valid JSON with the right type
+        types = [json.loads(l)['type'] for l in lines]
+        self.assertEqual(set(types), {'wave_check_passed', 'silent_failure'})
+        # task_loop_iteration must NOT appear
+        self.assertNotIn('task_loop_iteration', out)
+
+    def test_tail_limits_search_window(self):
+        for i in range(10):
+            self._emit('wave_check_passed', wave=i)
+        # With tail=3, only the last 3 emissions are scanned.
+        out, _, code = run_cli(
+            ['scan-events', '--tail', '3', 'wave_check_passed'],
+            env_extra=self.env, cwd=self.project_dir,
+        )
+        self.assertEqual(code, 0)
+        lines = [l for l in out.strip().split('\n') if l]
+        self.assertEqual(len(lines), 3)
+
+    def test_no_types_requires_usage(self):
+        _, err, code = run_cli(
+            ['scan-events', '--tail', '10'],
+            env_extra=self.env, cwd=self.project_dir,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn('Usage', err)
+
+    def test_invalid_tail_rejected(self):
+        _, err, code = run_cli(
+            ['scan-events', '--tail', '0', 'wave_check_passed'],
+            env_extra=self.env, cwd=self.project_dir,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn('positive integer', err)
+
+
+class TestCheckDirtyWorktrees(NamedSubcommandBase):
+    """`shipyard-context check-dirty-worktrees` — lists `shipyard/wt-*`
+    worktrees with uncommitted state. Output is one path per line; empty
+    output means all-clean.
+    """
+
+    def _make_first_commit(self):
+        # An initial commit is needed before `git worktree add` works.
+        with open(os.path.join(self.project_dir, 'seed.txt'), 'w') as f:
+            f.write('seed')
+        subprocess.run(['git', '-C', self.project_dir, 'add', 'seed.txt'],
+                       check=True, capture_output=True)
+        subprocess.run(['git', '-C', self.project_dir,
+                        '-c', 'user.email=t@t', '-c', 'user.name=t',
+                        'commit', '-m', 'seed', '-q'],
+                       check=True, capture_output=True)
+
+    def test_no_worktrees_prints_nothing(self):
+        out, _, code = run_cli(['check-dirty-worktrees'],
+                               env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), '')
+
+    def test_clean_shipyard_worktree_does_not_appear(self):
+        self._make_first_commit()
+        wt_path = os.path.join(self.tmp, 'wt-clean')
+        subprocess.run(['git', '-C', self.project_dir, 'worktree', 'add',
+                        '-b', 'shipyard/wt-clean', wt_path],
+                       check=True, capture_output=True)
+        out, _, code = run_cli(['check-dirty-worktrees'],
+                               env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), '')
+
+    def test_dirty_shipyard_worktree_listed(self):
+        self._make_first_commit()
+        wt_path = os.path.join(self.tmp, 'wt-dirty')
+        subprocess.run(['git', '-C', self.project_dir, 'worktree', 'add',
+                        '-b', 'shipyard/wt-dirty', wt_path],
+                       check=True, capture_output=True)
+        # Make the worktree dirty (untracked file is dirty per git status --porcelain).
+        with open(os.path.join(wt_path, 'dirty.txt'), 'w') as f:
+            f.write('uncommitted')
+        out, _, code = run_cli(['check-dirty-worktrees'],
+                               env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0)
+        # The dirty worktree appears in output (may be the realpath).
+        self.assertIn('wt-dirty', out)
+
+    def test_non_shipyard_worktree_ignored(self):
+        # A worktree NOT named shipyard/wt-* is ignored even when dirty.
+        self._make_first_commit()
+        wt_path = os.path.join(self.tmp, 'user-worktree')
+        subprocess.run(['git', '-C', self.project_dir, 'worktree', 'add',
+                        '-b', 'feature/user', wt_path],
+                       check=True, capture_output=True)
+        with open(os.path.join(wt_path, 'dirty.txt'), 'w') as f:
+            f.write('user-uncommitted')
+        out, _, code = run_cli(['check-dirty-worktrees'],
+                               env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0)
+        # User worktree must NOT be reported — scope is shipyard worktrees only.
+        self.assertNotIn('user-worktree', out)
+
+
 if __name__ == '__main__':
     unittest.main()

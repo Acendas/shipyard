@@ -1,0 +1,5 @@
+STATUS: INCOMPLETE
+SPRINT: sprint-003
+INVARIANTS_FAILED: 7
+DETAILS:
+  invariant_7: review_verdict_path is null — /ship-review has not run yet for this sprint. This is the expected pre-review failure: the predicate surfaces invariants 1-6 BEFORE the user spends review time. All other invariants passed. After /ship-review completes, re-invoke this skill with the verdict path supplied.

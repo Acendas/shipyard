@@ -10,6 +10,14 @@ A `kind: operational` task is one whose deliverable is **a successful run of a n
 
 Operational tasks have no Red step, no acceptance probe (the command itself is the gate), and no atomic feature commit (fixes commit as they go). Mis-routing this through `dispatching-task-loop` is the silent-pass bug — the feature builder has no work to do (no Red, tests already exist), exits clean on an empty tree, and the "Before Exiting" gate trivially passes. Route here.
 
+## Goal-mode default
+
+This skill is /goal-shaped at the operational-task level: "run until the verify command exits 0." The Phase 1 (run+capture) → Phase 2 (fix-findings) → Phase 1 cycle is the /goal loop. It runs `max_iterations` (default 3 from config) times before returning `STATUS: BLOCKED` — there is no flag, no opt-in, no user prompt mid-loop. The cap is the only escape; otherwise the subagent stays inside the loop until the verify command exits 0.
+
+The orchestrator does not surface mid-loop to the user. The subagent absorbs every fix attempt, every re-run, every patch-task filing. Only the final structured return — `STATUS: COMPLETE` with `verify_output:` populated and the last capture's exit:0, or `STATUS: BLOCKED` with the failing-tail summary — reaches the orchestrator.
+
+Emit a `operational_iteration` event from inside the subagent per cycle (`shipyard-data events emit operational_iteration task=<id> iteration=<N> exit=<code> findings=<count>`) so a user inspecting `/ship-status` or the event log mid-run can see the loop converging without re-reading the capture file.
+
 ## When to Invoke
 
 `/ship-execute` calls this skill when a task's frontmatter has `kind: operational`. Other entry points:
@@ -187,10 +195,22 @@ Your reply MUST contain these lines, exactly:
 OR:
 
     STATUS: BLOCKED
+    ESCALATION_CODE: <one of: verify_flaky | external_dependency_unreachable | spec_coverage_gap | dispatch_loop_repeated | (omit if none fits)>
     REASON: <one paragraph: what's still failing and why>
     VERIFY_OUTPUT: captures/{{task_id}}/run-<final-N>.log
     FINAL_EXIT: <non-zero>
     ITERATIONS_RUN: <integer>
+
+Prefer a specific ESCALATION_CODE over BLOCKED-with-prose-only when one fits.
+Codes:
+
+  - verify_flaky: command passed and failed within the iteration cap with different
+    failure signatures across runs (non-deterministic)
+  - external_dependency_unreachable: failures are about an unreachable DB/API/CI
+    runner, not about the code under test
+  - spec_coverage_gap: findings indicate the verify command's scope drifted from
+    the task's intent (e.g., new tests added that aren't in the task's spec)
+  - dispatch_loop_repeated: same fix attempted ≥3 times with no convergence
 
 Begin.
 ```

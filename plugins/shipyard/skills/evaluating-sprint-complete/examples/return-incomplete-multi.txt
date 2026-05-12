@@ -1,0 +1,7 @@
+STATUS: INCOMPLETE
+SPRINT: sprint-003
+INVARIANTS_FAILED: 3,4,7
+DETAILS:
+  invariant_3: Feature F-018 (auth-session-persistence) still has status: in-progress. Linked tasks T-051..T-053 are all status: done, but the feature frontmatter was not advanced. Likely cause: subagent that completed T-053 didn't transition the feature status. User can: (a) manually flip F-018 to done if the work is genuinely complete, (b) re-dispatch T-053 with a continuation note that includes feature-frontmatter advancement.
+  invariant_4: 2 acceptance criteria are orphan: AC-F018-3 (session timeout config respected) has no test mapping or implementation marker; AC-F018-5 (refresh-token rotation) has a probe but no passing probe_exit:0 event in the log.
+  invariant_7: review_verdict_path is null — /ship-review hasn't run yet. (Expected if this is the pre-review invocation.)

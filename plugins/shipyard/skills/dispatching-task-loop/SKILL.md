@@ -10,6 +10,14 @@ This is how Shipyard executes one task without burning the orchestrator's contex
 
 **Why this exists.** A self-checking loop's reliability is structural — the loop refuses to exit until completion is real. But running that loop in the orchestrator session means every false attempt accumulates in the orchestrator's context. By the fifth iteration, the orchestrator is operating on a summary of a summary. Move the loop into a subagent instead: the subagent absorbs every iteration's reasoning, false attempts, and tool calls; when it returns, only a structured summary lands in the orchestrator.
 
+## Goal-mode default
+
+This loop is /goal-shaped at the task level: "work until the acceptance probe passes." There is no flag, no opt-in — the subagent's internal cycle (Cycle steps 1–8 below) and iteration cap (5) ARE the /goal semantics. The cap exists so the orchestrator can redirect on genuinely stuck tasks (one redispatch via the orchestrator-side rule, then `needs-attention`), not so the subagent can give up early. The subagent must not return `STATUS: COMPLETE` until the probe passes; it must not return `STATUS: BLOCKED` before exhausting reasonable attempts.
+
+The orchestrator does NOT surface mid-loop to the user. Probe failures inside the iteration cap stay inside the subagent context. The user sees only the final structured return: COMPLETE with evidence, or BLOCKED with a one-paragraph reason after the cap. This is the trade /goal makes — silence between dispatch and result, with the structured return contract guaranteeing no silent false completion.
+
+Emit a `task_loop_iteration` event from inside the subagent (`shipyard-data events emit task_loop_iteration task=<id> iteration=<N> probe_exit=<code>`) so `/ship-status` can render the trajectory without re-reading the subagent's transcript. The event log is the user's window into a running /goal loop.
+
 ## When to Invoke
 
 Invoke this capability skill from a command skill (`ship-execute`, `ship-quick`, `ship-bug`, hotfix path) per task. Not for `kind: research` (use `dispatching-research-task`) or `kind: operational` (use `dispatching-operational-task`) — those have different deliverables.
@@ -115,7 +123,19 @@ this order. Anything else around them is fine but the orchestrator parses these:
 OR, if blocked:
 
     STATUS: BLOCKED
+    ESCALATION_CODE: <one of: design_ambiguity | verify_flaky | spec_coverage_gap | external_dependency_unreachable | dispatch_loop_repeated | (omit if none fits)>
     REASON: <one paragraph, plain text, what you tried and what's stuck>
+
+Prefer a specific ESCALATION_CODE over BLOCKED-with-prose-only when one fits — the
+orchestrator routes on the code, not the prose. Codes:
+
+  - design_ambiguity: AC conflicts with spec or with itself; can't decide without user
+  - verify_flaky: probe passed once and failed once with different signatures
+  - spec_coverage_gap: AC has no implementation marker; registry vs diff drift
+  - external_dependency_unreachable: probe fails due to infra (DB/API/CI), not code
+  - dispatch_loop_repeated: same fix attempted ≥3 times with no convergence
+
+If none fits, omit ESCALATION_CODE — orchestrator treats it as a generic blocker.
 
 Any other shape is treated as a violation. STATUS: COMPLETE without a valid sha,
 without PROBE_EXIT: 0, or without PROBE_OUTPUT_TAIL is a violation. The orchestrator
@@ -138,7 +158,13 @@ After the Agent call returns, parse the reply:
    - All checks pass → mark task `done`, log the probe tail to the wave's progress.
 
 3. **If `STATUS: BLOCKED`:**
-   - Read `REASON:`. If the reason indicates a routing / context error (e.g., "feature spec missing", "no test command configured"), surface to the user via AskUserQuestion. Do not auto-redispatch — that loops on a structural blocker.
+   - **Read `ESCALATION_CODE:` first.** If present, route directly:
+     - `design_ambiguity` → AskUserQuestion with the REASON; never auto-redispatch.
+     - `verify_flaky` → emit `verify_flaky_suspected` event with the probe output; surface to user with a `bisect-flaky` recommendation.
+     - `spec_coverage_gap` → surface to `/ship-spec` / user; do not advance the task.
+     - `external_dependency_unreachable` → AskUserQuestion with infrastructure investigation hint; do not auto-retry.
+     - `dispatch_loop_repeated` → mark `needs-attention` immediately; skip the single-redispatch rule below.
+   - **If no ESCALATION_CODE**, fall back to prose routing: read `REASON:`. If it indicates a routing / context error (e.g., "feature spec missing", "no test command configured"), surface to the user via AskUserQuestion. Do not auto-redispatch — that loops on a structural blocker.
    - If the reason indicates an implementation difficulty (e.g., "the existing API doesn't expose what the spec needs"), apply the **single redispatch rule**: redispatch ONCE with the prior reason inlined as `Previous attempt blocked at: <reason>; please retry with this context`. If the second attempt also returns BLOCKED, mark the task `needs-attention`, log to PROGRESS.md deviations, and continue to the next task. Do NOT redispatch a third time on the same task within one wave — that's the failure mode the cap exists to prevent.
 
 4. **Always invoke `verifying-completion` mentally** before flipping the task to `done`. The Iron Law applies at the orchestrator boundary too: "subagent said COMPLETE" is not by itself evidence; the sha-existence check, probe-output presence, and anti-stub-clean check are.

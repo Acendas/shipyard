@@ -1,6 +1,6 @@
 ---
 name: ship-discuss
-description: "Feature discovery — from quick idea capture to full spec with acceptance criteria. Use when the user mentions a new feature, a 'what if', a 'we should also', wants to discuss requirements, brainstorm, refine an existing feature, explore what to build next, define acceptance criteria, or jot down something for later."
+description: "Feature discovery — from quick idea capture to a full spec with acceptance criteria."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, "Bash(shipyard-context:*)"]
 effort: high
 argument-hint: "[topic, feature ID, or quick idea]"

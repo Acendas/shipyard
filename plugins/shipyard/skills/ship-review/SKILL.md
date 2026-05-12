@@ -1,6 +1,6 @@
 ---
 name: ship-review
-description: "Run multi-agent code review (security, bugs, silent failures, patterns, tests, spec) plus spec verification, retrospective, and release. Auto-fixes findings until clean. Use when the user wants to review completed work, verify a feature, see a demo, check if tests pass, approve sprint results, run a retro, analyze velocity, or wrap up a sprint."
+description: "Run multi-agent code review, spec verification, retrospective, and release — auto-fixing findings until clean."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion]
 effort: high
 argument-hint: "[feature ID] [--demo] [--hotfix ID] [--retro-only] [--skip-code-review]"
@@ -70,7 +70,11 @@ For each feature/task being reviewed:
 
 Skip if `--skip-code-review` is passed or reviewing a hotfix.
 
-Run the multi-agent code review on the sprint's diff before tests and spec compliance — 6 parallel scanners + an opus investigator (orchestration logic in `references/code-review-orchestration.md`) catch bugs, security issues, silent failures, and pattern violations, then the `shipyard:dispatching-task-loop` fixer addresses must-fix and should-fix items. Iterate up to 3 times with diminishing-returns AskUserQuestion at iteration 2+: *"Code review isn't converging — [N] must-fix issues remain after [iteration] fix attempts. Proceed to demo with current state, or investigate manually?"* On exit-with-remaining-must-fix after 3 iterations, write `B-CR-*` bugs and AskUserQuestion whether to proceed to demo. Out-of-scope scanner findings become IDEAs (see Stage 4 protocol). Full mechanics — checkpoint tags, fixer parameters, PROGRESS.md table format, scope guard — in `references/scanner-dispatch.md`.
+Run the multi-agent code review on the sprint's diff before tests and spec compliance — 6 parallel scanners + an opus investigator (orchestration logic in `references/code-review-orchestration.md`) catch bugs, security issues, silent failures, and pattern violations, then the `shipyard:dispatching-task-loop` fixer addresses must-fix and should-fix items.
+
+**Goal-mode default — run until scanners come back clean or the iteration cap is hit.** This loop is /goal-shaped: keep dispatching the fixer against the residual findings without user interruption until either the scanners report zero must-fix items or 3 iterations elapse. Do NOT pause mid-loop to ask the user whether to keep going — that pre-empts the convergence signal that the cap is designed to surface. Emit a structured `code_review_iteration` event per pass via `shipyard-data events emit code_review_iteration sprint=<id> iteration=<N> must_fix=<count> should_fix=<count>` so the user (and `/ship-status`) can see the loop's trajectory without a prompt.
+
+On exit-with-remaining-must-fix after the cap, emit `code_review_escalated` with the residual finding counts, write `B-CR-*` bugs, and surface ONCE via AskUserQuestion: *"Code review hit its iteration cap with [N] must-fix items remaining. (a) write B-CR bugs and proceed to demo, (b) hand back without demo so I can investigate manually."* Recommended: (a). Out-of-scope scanner findings become IDEAs (see Stage 4 protocol). Full mechanics — checkpoint tags, fixer parameters, PROGRESS.md table format, scope guard — in `references/scanner-dispatch.md`.
 
 ### Stage 0.5: Code Simplification
 
@@ -209,55 +213,9 @@ Iterate the checklist against your findings. If any check reveals a missed gap, 
 
 ### Stage 4.6: Critic Challenge
 
-After the self-review loop stabilizes, dispatch a **`general-purpose`** subagent in critic mode to challenge the review findings. The critic reads the feature spec, implementation, and the review's results to find what the reviewer missed. No registered Shipyard agent — this is an inline prompt template, since the critic role is specialized to ship-review and not reused elsewhere.
+After the self-review loop stabilizes, dispatch a **`general-purpose`** subagent in critic mode to challenge the review findings. The critic reads the feature spec, implementation, and the review's results to find what the reviewer missed — blind spots, false positives, and false negatives. Anti-sycophancy + pre-mortem framing; read-only.
 
-Substitute the literal SHIPYARD_DATA path for `<SHIPYARD_DATA>` before spawning:
-
-```
-Agent(subagent_type: "general-purpose", prompt: |
-
-You are an adversarial critic reviewing the conclusions of a feature
-review. Your job is to find what the reviewer missed: blind spots, false
-positives (things marked ✅ that aren't actually working), and false
-negatives (gaps the reviewer didn't surface).
-
-Apply anti-sycophancy: do not agree with the review's conclusions just
-because they sound reasonable. Pre-mortem the feature: imagine it shipped
-and broke in production — what was the failure mode?
-
-Feature: [FEATURE_ID]
-Mode: review-critique
-Stakes: [standard or high — match the feature's complexity]
-
-Read these files:
-  - Feature spec: <SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md
-  - Task files: <SHIPYARD_DATA>/spec/tasks/ (filter by feature: [FEATURE_ID])
-  - Codebase context: <SHIPYARD_DATA>/codebase-context.md
-  - Project rules: .claude/rules/**/*.md
-
-Review findings to challenge:
-  - Observable truths: [list from Stage 3]
-  - Wiring check: [results from Stage 3]
-  - Gaps found: [gap list from Stage 4]
-  - Self-review iterations: [N] (stabilized / hit max)
-
-Return:
-  STATUS: CHALLENGES
-  BLIND_SPOTS: <list with file:line citations where possible>
-  FALSE_POSITIVES: <items the reviewer marked ✅ that you have evidence are broken>
-  FALSE_NEGATIVES: <items the reviewer flagged as gaps that are actually fine>
-  PRIORITY_ACTIONS: <ordered list of what should be addressed before approval>
-
-If you genuinely have no challenges:
-  STATUS: NO_CHALLENGES
-  REASON: <one paragraph confirming you considered each adversarial angle>
-
-You are READ-ONLY: no edits, no commits, no spawning subagents. You may
-Read, Grep, Glob, run read-only git, and run static analysis as a check.
-)
-```
-
-The critic returns a structured report with blind spots, false positives/negatives, and priority actions.
+The full subagent prompt template (with `<SHIPYARD_DATA>`, `[FEATURE_ID]`, stakes, and findings substitutions) and the consumption protocol live in `references/critic-prompt.md`. The critic returns a structured `STATUS: CHALLENGES` or `STATUS: NO_CHALLENGES` report — Stage 4.7 processes the findings with one surgical pass.
 
 ### Stage 4.7: Final Review Pass
 

@@ -1,6 +1,6 @@
 ---
 name: ship-bug
-description: "Report a bug or production issue with minimal ceremony. Creates a spec entry and optional fix task. Use when the user reports something broken, a defect, unexpected behavior, a regression, or needs to file a hotfix for production. Also use for --hotfix emergency production issues."
+description: "File a bug or production hotfix with minimal ceremony — creates a spec entry and optional fix task."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 argument-hint: "[bug description] or --hotfix [description]"
 ---

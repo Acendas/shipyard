@@ -1,0 +1,6 @@
+STATUS: ESCALATED
+WAVE: 2
+INVARIANTS_FAILED: 5
+REASON: Invariant 5 detected an anti_stub_finding event for task T-043 (file: src/auth/login.ts, line 42). The finding has high confidence and is tied to a task that has already returned STATUS: COMPLETE — the wave cannot advance because shippable code now contains a stub the contract was supposed to prevent. User intervention required: review the finding, decide whether to re-dispatch T-043 with a continuation note, mark the finding accepted as an IDEA, or halt the sprint.
+ITERATIONS_RUN: 3
+RECOVERABLE_INVARIANTS: (none — invariant 5 with a confirmed marker is non-recoverable by design)

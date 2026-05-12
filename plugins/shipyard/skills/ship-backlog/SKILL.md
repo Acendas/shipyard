@@ -1,6 +1,6 @@
 ---
 name: ship-backlog
-description: "View, groom, and manage the prioritized backlog sorted by RICE score. Use when the user wants to see the backlog, reprioritize features, run a grooming session, clean up stale items, declare backlog bankruptcy, or decide what to work on next."
+description: "View, groom, and prioritize the Shipyard backlog by RICE score."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 argument-hint: "[groom|rank|approve|bankruptcy]"
 ---

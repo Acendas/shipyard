@@ -1,6 +1,6 @@
 ---
 name: ship-execute
-description: "Execute the current sprint by running tasks in waves with strict test-driven development (write tests first, then code). Supports solo, subagent, and team execution modes. Use when the user wants to start building, execute sprint tasks, run a specific task, apply a hotfix, or resume execution after a break."
+description: "Execute the current sprint in test-first waves, with solo, subagent, or team modes."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, Monitor, TeamCreate, TeamDelete, TaskCreate, TaskUpdate, TaskGet, TaskList, SendMessage]
 effort: medium
 argument-hint: "[--task ID] [--hotfix ID] [--mode solo|subagent|team]"
@@ -45,6 +45,14 @@ If the planning lock is held by a live different session, print the HARD BLOCK m
 ## Pre-flight: Status Check
 
 Before doing anything else, run the `/ship-status` validation silently (Check 1–7 from ship-status). This catches stale state, tasks marked done without commits, broken references, and schema issues BEFORE spending tokens on execution. Auto-fix what can be fixed. If critical issues remain (e.g., sprint references non-existent tasks), report and stop — don't execute on broken state.
+
+## Pre-flight: /goal-mode Gates
+
+`/ship-execute` runs /goal-shaped by default — sprint-start to sprint-done without per-wave hand-off, halting only on documented escalation contracts. Seven pre-flight gates refuse entry when a known-ambiguous condition exists, so /goal never compounds a structural problem. Skip on `--task` and `--hotfix` modes.
+
+Run each gate in order. First failure emits `sprint_goal_preflight_failed` (`shipyard-data events emit sprint_goal_preflight_failed gate=<name> sprint=<id>`) and halts with an actionable message. Do NOT proceed in degraded /goal mode.
+
+The gate names, structural checks, rationale, and actionable-fix copy per gate live in [references/goal-mode-preflight.md](references/goal-mode-preflight.md). Read that file when implementing the pre-flight phase.
 
 ## Pre-flight: Git Repository Check
 
@@ -252,8 +260,9 @@ Between waves:
 5. **Wave REFACTOR + MUTATE**: dispatch a `general-purpose` subagent with an inline wave-refactor prompt (read the combined wave diff, dedupe + rename + add helpers, run a small mutation check, commit if changes). Not a wave blocker — failure logs to PROGRESS.md and advances.
 6. **Wave-scoped tests + single fix iteration**: invoke `shipyard:dispatching-operational-task` with `test_commands.scoped` (or `test_commands.unit` if no scoped variant). This is the first time tests run for the wave's merged code. The operational task runs the suite via Monitor, so progress and failures stream to the user as the wave-scoped run proceeds — no waiting on a single end-of-run blob. Failure → ONE re-dispatch via `shipyard:dispatching-task-loop` with the failing-test list as `continuation_note`. Persistent failure logs to PROGRESS.md and advances.
 7. **Wave VERIFY**: invoke `shipyard:dispatching-spec-review` with `scope: "wave"`, `target_ids: [task_ids]`, `base_ref` (pre-wave HEAD), `head_ref` (current HEAD). FINDINGS → single re-dispatch per task via `dispatching-task-loop`; persistent gaps → `needs-attention` and surface to `/ship-review`.
-8. **Report and continue** — emit a one-line wave status (`Wave [N]/[M] ✓ [████░░░░] [done]/[total] tasks • → Wave [N+1]`). **Do NOT pause, do NOT suggest `/clear`, do NOT ask "continue?"** — auto-advance.
-9. **Context pressure: warn-only.** If `<SHIPYARD_DATA>/.active-execution.json`'s `compaction_count` ≥ 4, append `⚠ Context summarised N times — consider /clear then /ship-execute`. The counter is informational; never auto-pause.
+8. **Wave COMPLETION GATE**: invoke `shipyard:verifying-wave-completion` with `wave_number`, `task_ids`, `data_dir`, `working_branch`, `wave_base_sha`, `wave_head_sha`, `wave_probe_capture`, `wave_probe_exit_code`. The capability skill runs the six-invariant composite check (all builders returned structured contracts, every commit_sha exists, wave-probe passes with non-empty capture, completion events emitted, no silent-failure markers in window, no uncommitted worktree state) with ScheduleWakeup-based recovery for RECOVERABLE misses and structured escalation otherwise. `STATUS: ESCALATED` → AskUserQuestion with the `REASON:` text; do NOT advance the wave counter. `STATUS: COMPLETE` → proceed to step 9.
+9. **Report and continue** — emit a one-line wave status (`Wave [N]/[M] ✓ [████░░░░] [done]/[total] tasks • → Wave [N+1]`). **Do NOT pause, do NOT suggest `/clear`, do NOT ask "continue?"** — auto-advance.
+10. **Context pressure: warn-only.** If `<SHIPYARD_DATA>/.active-execution.json`'s `compaction_count` ≥ 4, append `⚠ Context summarised N times — consider /clear then /ship-execute`. The counter is informational; never auto-pause.
 
 ### Compaction Recovery
 
@@ -274,7 +283,8 @@ When all waves done:
 
 1. **Full build** (if `build_commands.full` configured): invoke `shipyard:dispatching-operational-task` with that command. Catches cross-module compilation errors scoped wave builds missed. Failure → AskUserQuestion.
 2. **Full test suite**: invoke `shipyard:dispatching-operational-task` per tier (unit / integration / e2e) or combined. Persistent failure after the capability skill's iteration cap → re-dispatch via `shipyard:dispatching-task-loop` per failing cluster. Sprint-level branch owns all errors.
-3. **Finalize**: update SPRINT.md frontmatter (`status: completed`, `completed_at: <ISO>`). Features stay `in-progress` — only `/ship-review` transitions them to `done`. Report:
+3. **Sprint-complete predicate**: invoke `shipyard:evaluating-sprint-complete` with `sprint_id`, `data_dir`, `working_branch`, `sprint_base_sha` (from SPRINT.md frontmatter), `sprint_head_sha` (current HEAD), `sprint_verify_capture` (from step 2), `sprint_verify_exit_code` (from step 2), `review_verdict_path` (null at this stage; `/ship-review` will run after). The skill runs the seven-invariant composite gate. `STATUS: INCOMPLETE` → halt with the failing invariant list via AskUserQuestion; do NOT mark sprint complete. `STATUS: COMPLETE` → proceed to step 4. Invariant 7 (review-verdict-clean) is expected to FAIL at this stage because review hasn't run yet — that's by design; the user runs `/ship-review` next, then re-invokes the predicate. The pre-`/ship-review` invocation here surfaces invariants 1–6 (commits, sprint-verify, spec-done, no-orphan-AC, no-silent-markers, clean-worktrees) before burning review time on a sprint that isn't shippable for structural reasons.
+4. **Finalize**: update SPRINT.md frontmatter (`status: completed`, `completed_at: <ISO>`). Features stay `in-progress` — only `/ship-review` transitions them to `done`. Report:
 
 ```
 Sprint complete. [N]/[M] tasks done. Full suite: [pass/fail].
@@ -347,6 +357,14 @@ Claude Code's `--continue` restores conversation history but not project state (
 **On resume** (HANDOFF.md exists): (1) Read HANDOFF.md, (2) accumulate `paused_minutes` into SPRINT.md's `total_paused_minutes` then clear `paused_at`, (3) verify PROGRESS.md matches, (4) confirm git branch, (5) team mode only — `TeamCreate` + re-spawn teammates from the `teammates` field (previous teammates are always dead after a session break), (6) delete HANDOFF.md, (7) continue from the documented next step.
 
 Step 0 (worktree salvage) has already run before reaching On Resume. Works alongside `claude --continue`.
+
+## Resume-from-event-log (/goal-mode crash recovery)
+
+A user-initiated pause writes HANDOFF.md (above). A /goal-mode interruption (Esc mid-loop, escalation halt, budget exhaustion, session crash without HANDOFF.md) leaves no hand-written artifact — the event log is the source of truth instead.
+
+When `/ship-execute` re-enters without HANDOFF.md but with a non-empty `<SHIPYARD_DATA>/.shipyard-events.jsonl`, follow the protocol in [references/resume-from-event-log.md](references/resume-from-event-log.md). Short shape: scan the log for the last `wave_check_passed`, cross-check the registry, re-verify the last-clean-wave invariants with `wakeup_budget: 0`, re-dispatch incomplete tasks in the current wave, advance. PROGRESS.md is for humans; the event log is for machines — this protocol reads the machine surface.
+
+If the event log is empty or corrupted, refuse to resume — re-run `/ship-status --repair` first.
 
 ## Deviation Rules
 

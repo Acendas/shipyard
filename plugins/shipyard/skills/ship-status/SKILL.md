@@ -1,6 +1,6 @@
 ---
 name: ship-status
-description: "Project dashboard showing sprint progress, backlog health, spec coverage, state validation, and what to do next. Also validates and auto-fixes state inconsistencies. Use when the user asks about project status, progress, what's happening, what's left, what to work on next, wants a health check, suspects state corruption, or just wants an overview."
+description: "Project dashboard — sprint progress, backlog health, spec coverage, state validation, and what to do next."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 argument-hint: "[sprint|backlog|health|spec]"
 ---

@@ -650,5 +650,40 @@
     "name": "refactor_loop_replaces_old_fixer_flow",
     "type": "not_contains",
     "pattern": "If wave-scoped tests FAIL.*Spawn.*builder.*AskUserQuestion|AskUserQuestion.*B-INT-.*bug file"
+  },
+  {
+    "name": "wave_boundary_invokes_completion_gate",
+    "type": "contains",
+    "pattern": "verifying-wave-completion"
+  },
+  {
+    "name": "wave_completion_gate_six_invariants_referenced",
+    "type": "contains",
+    "pattern": "six-invariant|6 invariants|six invariants"
+  },
+  {
+    "name": "goal_mode_preflight_gates_section",
+    "type": "contains",
+    "pattern": "/goal-mode Gates|goal-mode Gates"
+  },
+  {
+    "name": "sprint_goal_preflight_failed_event",
+    "type": "contains",
+    "pattern": "sprint_goal_preflight_failed"
+  },
+  {
+    "name": "sprint_completion_invokes_predicate",
+    "type": "contains",
+    "pattern": "evaluating-sprint-complete"
+  },
+  {
+    "name": "resume_from_event_log_section",
+    "type": "contains",
+    "pattern": "Resume-from-event-log|resume-from-event-log"
+  },
+  {
+    "name": "resume_uses_event_log_as_source_of_truth",
+    "type": "contains",
+    "pattern": "event log is the source of truth|event log.*authoritative"
   }
 ]

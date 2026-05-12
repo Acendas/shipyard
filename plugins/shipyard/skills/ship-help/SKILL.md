@@ -1,6 +1,6 @@
 ---
 name: ship-help
-description: "Ask questions about Shipyard, get guidance, or ask it to perform actions. Use when the user asks how to do something in Shipyard, wants help with the workflow, seems lost or unsure what to do next, or wants Shipyard to perform an action on their behalf like moving a feature or updating status."
+description: "Ask questions about Shipyard or have it perform workflow actions on your behalf."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, WebSearch, "Bash(shipyard-context:*)"]
 argument-hint: "[question or request]"
 ---

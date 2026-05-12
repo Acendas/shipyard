@@ -1,0 +1,98 @@
+[
+  {
+    "name": "has_frontmatter_name",
+    "type": "frontmatter_field",
+    "field": "name",
+    "value": "verifying-wave-completion"
+  },
+  {
+    "name": "disable_model_invocation",
+    "type": "contains",
+    "pattern": "disable-model-invocation: true"
+  },
+  {
+    "name": "lists_six_invariants",
+    "type": "contains",
+    "pattern": "Six Invariants|six invariants"
+  },
+  {
+    "name": "invariant_1_structured_returns",
+    "type": "contains",
+    "pattern": "structured contract|returned a structured"
+  },
+  {
+    "name": "invariant_2_commits_exist",
+    "type": "contains",
+    "pattern": "check-commit-exists|git cat-file -e"
+  },
+  {
+    "name": "invariant_3_wave_probe",
+    "type": "contains",
+    "pattern": "wave_probe_exit_code|wave-boundary verify-probe"
+  },
+  {
+    "name": "invariant_4_completion_events",
+    "type": "contains",
+    "pattern": "task_loop_completed|completion event"
+  },
+  {
+    "name": "invariant_5_silent_failure_markers",
+    "type": "contains",
+    "pattern": "silent_failure|loop_detected"
+  },
+  {
+    "name": "invariant_6_uncommitted_worktree",
+    "type": "contains",
+    "pattern": "git worktree list|uncommitted state"
+  },
+  {
+    "name": "uses_schedule_wakeup",
+    "type": "contains",
+    "pattern": "ScheduleWakeup"
+  },
+  {
+    "name": "documents_wakeup_budget",
+    "type": "contains",
+    "pattern": "wakeup_budget|wakeup budget"
+  },
+  {
+    "name": "cache_ttl_default_warm_window",
+    "type": "contains",
+    "pattern": "180|warm-cache"
+  },
+  {
+    "name": "references_schedule_wakeup_discipline",
+    "type": "contains",
+    "pattern": "schedule-wakeup-discipline\\.md"
+  },
+  {
+    "name": "has_status_complete_return",
+    "type": "contains",
+    "pattern": "STATUS: COMPLETE"
+  },
+  {
+    "name": "has_status_escalated_return",
+    "type": "contains",
+    "pattern": "STATUS: ESCALATED"
+  },
+  {
+    "name": "emits_wave_check_passed_event",
+    "type": "contains",
+    "pattern": "wave_check_passed"
+  },
+  {
+    "name": "emits_wave_check_recoverable_event",
+    "type": "contains",
+    "pattern": "wave_check_recoverable"
+  },
+  {
+    "name": "emits_wave_check_escalated_event",
+    "type": "contains",
+    "pattern": "wave_check_escalated"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type: *shipyard:shipyard-"
+  }
+]

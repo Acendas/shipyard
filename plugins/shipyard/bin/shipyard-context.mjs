@@ -43,6 +43,7 @@
 import { existsSync, openSync, readdirSync, readFileSync, realpathSync, statSync, closeSync, readSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
+import { spawnSync } from "node:child_process";
 import { getDataDir, getProjectHash, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
 
 /**
@@ -525,11 +526,129 @@ function main() {
       out(result ?? "No CLAUDE.md");
       break;
     }
+    case "check-commit-exists": {
+      // Verify a commit sha exists in the current repo. Used by
+      // verifying-wave-completion (invariant 2) and evaluating-sprint-complete
+      // (invariant 1) to confirm subagent-returned shas are real before
+      // trusting the structured return contract.
+      //
+      // Exit 0 = sha exists. Exit 1 = sha missing or invalid. Output is the
+      // resolved sha on success (so callers can confirm the abbreviated form
+      // they passed resolved to the same object), or the literal "missing" on
+      // failure.
+      const sha = args[0];
+      if (!sha || !/^[a-f0-9]{4,64}$/.test(sha)) {
+        die("Usage: shipyard-context check-commit-exists <sha>");
+      }
+      const proc = spawnSync("git", ["cat-file", "-e", sha], {
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      if (proc.status === 0) {
+        const resolve = spawnSync("git", ["rev-parse", "--verify", sha], {
+          encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+        });
+        out(resolve.status === 0 ? resolve.stdout.trim() : sha);
+        process.exit(0);
+      }
+      out("missing");
+      process.exit(1);
+    }
+    case "scan-events": {
+      // Read the structured event log tail, filtered to specific event types.
+      // Used by verifying-wave-completion (invariants 1, 4, 5) and
+      // evaluating-sprint-complete (invariants 1, 5) to inspect the log
+      // without re-implementing JSONL parsing in skill prose.
+      //
+      // Usage: scan-events --tail N <type1> [type2 ...]
+      // Output: matching JSONL lines (one per match), or nothing if no matches.
+      let tail = 200;
+      const types = [];
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (a === "--tail") {
+          const n = parseInt(args[++i], 10);
+          if (!Number.isFinite(n) || n <= 0 || n > 100000) {
+            die("scan-events: --tail must be a positive integer ≤ 100000");
+          }
+          tail = n;
+        } else {
+          types.push(a);
+        }
+      }
+      if (types.length === 0) {
+        die("Usage: shipyard-context scan-events [--tail N] <type1> [type2 ...]");
+      }
+      const eventsPath = join(sd, ".shipyard-events.jsonl");
+      if (!existsSync(eventsPath)) {
+        // No events yet — print nothing, exit 0. Consumer treats empty as "no markers".
+        process.exit(0);
+      }
+      let content;
+      try {
+        content = readFileSync(eventsPath, "utf8");
+      } catch {
+        process.exit(0);
+      }
+      const lines = content.split("\n").filter((l) => l.length > 0);
+      const start = Math.max(0, lines.length - tail);
+      const typeSet = new Set(types);
+      for (let i = start; i < lines.length; i++) {
+        try {
+          const ev = JSON.parse(lines[i]);
+          if (typeSet.has(ev.type)) {
+            out(lines[i]);
+          }
+        } catch {
+          // Malformed line — skip silently. Event log is append-only; a
+          // partial write at the tail is recoverable on next emit.
+          continue;
+        }
+      }
+      break;
+    }
+    case "check-dirty-worktrees": {
+      // List worktrees with uncommitted state, scoped to `shipyard/wt-*`.
+      // Used by verifying-wave-completion (invariant 6) and
+      // evaluating-sprint-complete (invariant 6).
+      //
+      // Output: one absolute worktree path per line, empty if all clean.
+      // Exit 0 always — the output IS the result. Callers decide whether
+      // empty output means PASS or whether non-empty means RECOVERABLE.
+      const wtList = spawnSync("git", ["worktree", "list", "--porcelain"], {
+        encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+      });
+      if (wtList.status !== 0) {
+        // Not in a git repo or no worktrees — output nothing, exit 0.
+        process.exit(0);
+      }
+      const worktrees = [];
+      let current = null;
+      for (const line of wtList.stdout.split("\n")) {
+        if (line.startsWith("worktree ")) {
+          if (current) worktrees.push(current);
+          current = line.slice("worktree ".length).trim();
+        }
+      }
+      if (current) worktrees.push(current);
+      for (const wt of worktrees) {
+        // Only inspect shipyard worktrees; ignore the parent repo and any
+        // unrelated user worktrees.
+        const base = wt.split(/[\\/]/).pop() || "";
+        if (!base.startsWith("wt-")) continue;
+        const status = spawnSync("git", ["-C", wt, "status", "--porcelain"], {
+          encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+        });
+        if (status.status === 0 && status.stdout.trim().length > 0) {
+          out(wt);
+        }
+      }
+      break;
+    }
     default:
       die(
-        "Usage: shipyard-context {path|head|cat|ls|ls-glob|ls-sort|count|spec-counts|" +
-          "status-counts|debug-count|view|list|count-of|reference|version|" +
-          "project-claude-md|diagnose}",
+        "Usage: shipyard-context {path|spec-counts|status-counts|debug-count|" +
+          "view|list|count-of|reference|version|project-claude-md|diagnose|" +
+          "check-commit-exists|scan-events|check-dirty-worktrees}",
       );
   }
 }

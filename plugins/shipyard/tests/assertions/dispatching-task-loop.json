@@ -58,5 +58,27 @@
     "name": "no_dead_reference_links",
     "type": "not_contains",
     "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  },
+  {
+    "name": "documents_goal_mode_default",
+    "type": "contains",
+    "pattern": "Goal-mode default|/goal-shaped"
+  },
+  {
+    "name": "emits_task_loop_iteration_event",
+    "type": "contains",
+    "pattern": "task_loop_iteration"
+  },
+  {
+    "name": "documents_escalation_code_enum",
+    "type": "contains",
+    "pattern": "ESCALATION_CODE.*design_ambiguity",
+    "dotall": true
+  },
+  {
+    "name": "escalation_routing_design_ambiguity",
+    "type": "contains",
+    "pattern": "design_ambiguity.*AskUserQuestion",
+    "dotall": true
   }
 ]

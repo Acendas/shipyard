@@ -301,5 +301,20 @@
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
     "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+  },
+  {
+    "name": "code_review_loop_goal_mode",
+    "type": "contains",
+    "pattern": "Goal-mode default|/goal-shaped"
+  },
+  {
+    "name": "code_review_emits_iteration_event",
+    "type": "contains",
+    "pattern": "code_review_iteration"
+  },
+  {
+    "name": "code_review_no_mid_loop_pause",
+    "type": "not_contains",
+    "pattern": "diminishing-returns AskUserQuestion at iteration 2"
   }
 ]

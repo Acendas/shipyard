@@ -1,0 +1,6 @@
+STATUS: ESCALATED
+WAVE: 3
+INVARIANTS_FAILED: 1,4
+REASON: After 3 recovery wakeups, task T-051 still has no structured return event and no task_loop_completed marker. Each re-dispatch attempt has either timed out or the subagent has exited without writing to the event log. Budget exhausted.
+ITERATIONS_RUN: 3
+RECOVERABLE_INVARIANTS: 1, 4
