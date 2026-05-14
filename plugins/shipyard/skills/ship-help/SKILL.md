@@ -1,6 +1,6 @@
 ---
 name: ship-help
-description: "Ask questions about Shipyard or have it perform workflow actions on your behalf."
+description: "Ask Shipyard questions or run workflow actions."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, WebSearch, "Bash(shipyard-context:*)"]
 argument-hint: "[question or request]"
 ---

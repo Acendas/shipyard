@@ -1,6 +1,6 @@
 ---
 name: verifying-completion
-description: Use whenever you are about to claim a task is done, a fix works, tests pass, a spec is satisfied, or a sprint is complete — before any commit, transition, or status flip. Requires running the verification command in this turn and reading its output before any success claim. Evidence before claims, always.
+description: Verify completion claims with evidence before commit.
 disable-model-invocation: true
 ---
 

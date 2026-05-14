@@ -1,6 +1,6 @@
 ---
 name: evaluating-sprint-complete
-description: Use at sprint-boundary in /ship-execute to confirm the seven-invariant sprint-complete predicate holds across all waves.
+description: Evaluate the seven-invariant sprint-complete predicate.
 disable-model-invocation: true
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: verifying-wave-completion
-description: Use after every wave dispatch in /ship-execute to confirm the wave is fully complete across six invariants — not just that the wave-scoped probe passed.
+description: Verify wave completion across six invariants.
 disable-model-invocation: true
 ---
 

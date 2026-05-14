@@ -1,6 +1,6 @@
 ---
 name: ship-status
-description: "Project dashboard — sprint progress, backlog health, spec coverage, state validation, and what to do next."
+description: "Show the Shipyard project dashboard and next steps."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 argument-hint: "[sprint|backlog|health|spec]"
 ---

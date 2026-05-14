@@ -1,6 +1,6 @@
 ---
 name: authoring-acceptance-probe
-description: Use during /ship-sprint task planning, /ship-quick scoping, or /ship-bug fix authoring whenever a task is being created or refined. Derives a single, runnable smoke-test command from the task's acceptance criteria and writes it to the task frontmatter as `acceptance_probe:`. Pairs with running-acceptance-probe (which executes them) and dispatching-task-loop (which gates on them).
+description: Author a runnable acceptance probe from criteria.
 disable-model-invocation: true
 ---
 

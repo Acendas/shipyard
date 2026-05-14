@@ -1,6 +1,6 @@
 ---
 name: running-acceptance-probe
-description: Use whenever Shipyard needs to verify that a task's wiring works end-to-end — orchestrator-side validation of a subagent's claimed probe pass, /ship-review demo-path verification, or any "does this actually run from a clean state" check. Runs the probe in a fresh shell, captures output verbatim, returns a pass/fail signal with evidence the caller can paste into commits or reports.
+description: Run a task's acceptance probe and capture output.
 disable-model-invocation: true
 ---
 

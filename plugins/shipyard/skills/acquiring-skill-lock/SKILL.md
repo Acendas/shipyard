@@ -1,6 +1,6 @@
 ---
 name: acquiring-skill-lock
-description: Use at the entry of any Shipyard command skill that mutates project state — /ship-execute, /ship-discuss, /ship-sprint, /ship-review, /ship-init. Prevents two terminals on the same repo from racing on the same sprint or spec. Returns acquired or refused with the holder's identity so the caller can proceed or surface a clean "another session is active" message.
+description: Acquire a per-project lock for the current skill.
 disable-model-invocation: true
 ---
 

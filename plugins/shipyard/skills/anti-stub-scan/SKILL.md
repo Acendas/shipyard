@@ -1,6 +1,6 @@
 ---
 name: anti-stub-scan
-description: Use after a subagent returns STATUS:COMPLETE and before flipping a task to done — scans the diff for stub patterns (empty bodies, NotImplementedError, lone return-null implementations, TODO markers, commented-out call sites). Second-line defense behind dispatching-task-loop's prompt-level Iron Laws. Returns structured findings the orchestrator re-dispatches against.
+description: Scan a diff for stub patterns and TODO markers.
 disable-model-invocation: true
 ---
 

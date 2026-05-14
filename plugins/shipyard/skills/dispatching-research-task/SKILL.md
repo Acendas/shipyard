@@ -1,6 +1,6 @@
 ---
 name: dispatching-research-task
-description: Use to execute one Shipyard task with kind:research — investigate a technical unknown, evaluate an external API, scan a codebase pattern, produce a structured findings doc under <SHIPYARD_DATA>/research/. Different deliverable shape than feature tasks (no code commit, no acceptance probe). Dispatches `general-purpose` with a tightly-scoped Write contract.
+description: Dispatch a Shipyard research task subagent.
 disable-model-invocation: true
 ---
 

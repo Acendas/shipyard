@@ -1,6 +1,6 @@
 ---
 name: ship-discuss
-description: "Feature discovery — from quick idea capture to a full spec with acceptance criteria."
+description: "Discover features from idea to full spec."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, "Bash(shipyard-context:*)"]
 effort: high
 argument-hint: "[topic, feature ID, or quick idea]"

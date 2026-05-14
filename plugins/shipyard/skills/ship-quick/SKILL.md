@@ -1,6 +1,6 @@
 ---
 name: ship-quick
-description: "Land a single self-contained change with Shipyard's quality bar (test-first, one focused commit) without opening a sprint."
+description: "Land a single self-contained change with quality bar."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, AskUserQuestion]
 effort: medium
 argument-hint: "[task description]"

@@ -1,6 +1,6 @@
 ---
 name: discovering-edge-cases
-description: Use during /ship-discuss Phase 1.5b and /ship-sprint planning to surface edge cases, failure modes, NFRs, and adversarial inputs that the happy-path spec missed. Returns a structured findings list the calling skill folds into the feature/task spec. Read-only.
+description: Discover edge cases and adversarial inputs.
 disable-model-invocation: true
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: ship-sprint
-description: "Plan a new sprint (break features into tasks, find the critical path, group into waves) or cancel an active sprint."
+description: "Plan a new sprint or cancel an active one."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 effort: high
 argument-hint: "[--cancel]"

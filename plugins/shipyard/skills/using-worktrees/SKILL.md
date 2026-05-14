@@ -1,6 +1,6 @@
 ---
 name: using-worktrees
-description: Use to give a task or review its own filesystem checkout — /ship-execute per-task isolation so parallel builders never see each other's half-written files, or /ship-review diff scoping where the review subagent inspects only the wave's changes. Returns the worktree path and branch the caller dispatches into.
+description: Give a task its own filesystem checkout.
 disable-model-invocation: true
 ---
 

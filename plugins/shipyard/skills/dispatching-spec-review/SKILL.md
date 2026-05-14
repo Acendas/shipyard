@@ -1,6 +1,6 @@
 ---
 name: dispatching-spec-review
-description: Use to dispatch a fresh-context subagent that maps acceptance criteria from a task or feature spec to actual code, flagging missing implementations and over-building (functionality beyond spec). Read-only review pass; returns structured findings the orchestrator acts on. Used post-task in /ship-execute and during /ship-review.
+description: Dispatch a fresh-context spec review subagent.
 disable-model-invocation: true
 ---
 

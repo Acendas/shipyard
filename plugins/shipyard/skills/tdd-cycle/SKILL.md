@@ -1,6 +1,6 @@
 ---
 name: tdd-cycle
-description: Use when implementing any sprint task, bug fix, hotfix, or quick change that produces production code. Enforces Red → Green → Refactor with the Iron Law of watching the test fail before writing implementation. The contract every Shipyard builder follows; pairs with verifying-completion at task-done time.
+description: Enforce the Red-Green-Refactor TDD cycle.
 disable-model-invocation: true
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: ship-init
-description: "Initialize or update a Shipyard project — configure settings, create the directory structure, and analyze the codebase."
+description: "Initialize or update a Shipyard project."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, Agent, AskUserQuestion, WebSearch, WebFetch]
 effort: medium
 argument-hint: ""

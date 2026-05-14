@@ -1,6 +1,6 @@
 ---
 name: ship-debug
-description: "Systematic debugging with persistent state that survives /clear and session breaks."
+description: "Systematic debugging with persistent cross-session state."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, AskUserQuestion, "Bash(shipyard-context:*)", "Bash(shipyard-logcap:*)", "Bash(shipyard-data:*)"]
 effort: high
 argument-hint: "[description of the problem] [--resume]"

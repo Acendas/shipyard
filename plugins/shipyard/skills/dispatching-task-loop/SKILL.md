@@ -1,6 +1,6 @@
 ---
 name: dispatching-task-loop
-description: Use to execute one Shipyard task (kind:feature, hotfix, or quick) via a fresh-context subagent that loops internally until its acceptance probe passes. The orchestrator's context grows by ~200 tokens per task instead of ~10,000. Pairs verifying-completion + tdd-cycle + acquiring-skill-lock with a structured return contract that makes false completion structurally hard.
+description: Dispatch a fresh-context feature task subagent.
 disable-model-invocation: true
 ---
 

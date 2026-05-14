@@ -1,6 +1,6 @@
 ---
 name: ship-review
-description: "Run multi-agent code review, spec verification, retrospective, and release — auto-fixing findings until clean."
+description: "Run multi-agent review, retrospective, and release."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion]
 effort: high
 argument-hint: "[feature ID] [--demo] [--hotfix ID] [--retro-only] [--skip-code-review]"

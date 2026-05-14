@@ -1,6 +1,6 @@
 ---
 name: dispatching-code-review
-description: Use to dispatch a fresh-context subagent that scans a diff for code-quality issues — security vulns, logic bugs, silent failures, pattern violations, weak tests. Consolidates the six registered review-* agents (security, bugs, silent-failures, patterns, tests, plus optional observability) into one prompt template invoked via general-purpose dispatch. Read-only; returns confidence-scored findings.
+description: Dispatch a fresh-context code review subagent.
 disable-model-invocation: true
 ---
 

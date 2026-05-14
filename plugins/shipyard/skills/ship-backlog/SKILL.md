@@ -1,6 +1,6 @@
 ---
 name: ship-backlog
-description: "View, groom, and prioritize the Shipyard backlog by RICE score."
+description: "View and groom the Shipyard backlog."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 argument-hint: "[groom|rank|approve|bankruptcy]"
 ---

@@ -1,6 +1,6 @@
 ---
 name: dispatching-operational-task
-description: Use to execute one Shipyard task with kind:operational — run a verification command (E2E suite, lint sweep, security scan, build), capture output verbatim, then fix findings in a bounded sub-loop until the verify command exits 0. Different deliverable shape than feature or research tasks.
+description: Dispatch a Shipyard operational task subagent.
 disable-model-invocation: true
 ---
 

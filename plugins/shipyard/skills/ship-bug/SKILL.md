@@ -1,6 +1,6 @@
 ---
 name: ship-bug
-description: "File a bug or production hotfix with minimal ceremony — creates a spec entry and optional fix task."
+description: "File a bug or hotfix with minimal ceremony."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 argument-hint: "[bug description] or --hotfix [description]"
 ---

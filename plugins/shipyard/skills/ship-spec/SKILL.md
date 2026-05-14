@@ -1,6 +1,6 @@
 ---
 name: ship-spec
-description: "View, browse, search, and manage the product spec."
+description: "View, search, and manage the product spec."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 argument-hint: "[feature/epic ID] or [search term] or [subcommand]"
 ---

@@ -1,6 +1,6 @@
 ---
 name: splitting-stories
-description: Use during /ship-discuss (when a feature draft is too big or bundles multiple stories) and /ship-sprint Stage 3 (when a task draft bundles multiple behaviors) to split a story/task into smaller independently-valuable pieces. Walks the INVEST gate, the 11 splitting patterns (workflow, CRUD, rules, data, interface, major effort, simple/complex, defer perf, spike, paths, hypothesis), enforces the no-horizontal-slice rule, and applies the low-value-exposure tiebreaker. Returns a structured list of split candidates the calling skill folds into the spec/task plan. Read-only.
+description: Split a story or task into smaller pieces.
 disable-model-invocation: true
 ---
 

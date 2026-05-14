@@ -1,6 +1,6 @@
 ---
 name: ship-execute
-description: "Execute the current sprint in test-first waves, with solo, subagent, or team modes."
+description: "Execute the current sprint in test-first waves."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, Monitor, TeamCreate, TeamDelete, TaskCreate, TaskUpdate, TaskGet, TaskList, SendMessage]
 effort: medium
 argument-hint: "[--task ID] [--hotfix ID] [--mode solo|subagent|team]"

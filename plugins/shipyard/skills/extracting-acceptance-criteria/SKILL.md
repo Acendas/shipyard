@@ -1,6 +1,6 @@
 ---
 name: extracting-acceptance-criteria
-description: Use during /ship-discuss feature shaping, /ship-spec drafting, or /ship-sprint task decomposition to convert a feature description (or the user's natural language) into a numbered list of atomic, observable, testable acceptance criteria. Each AC becomes a row that authoring-acceptance-probe can probe and dispatching-spec-review can verify. Read-only.
+description: Extract atomic acceptance criteria from a feature.
 disable-model-invocation: true
 ---
 
