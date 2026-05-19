@@ -35,6 +35,8 @@ If project not initialized → "Project not initialized. Run /ship-init to get s
 
 **diagnose section** — when invoked as `/ship-status diagnose`, print only the resolver diagnostic block from the context above (SHIPYARD_DATA, PROJECT_ROOT, PROJECT_HASH, env vars, .auto-approve.log tail). This is the self-serve format for filing actionable bug reports about permission prompts or state divergence. Include a one-line interpretation note: if `AUTO_APPROVE_LOG=(does not exist)` the auto-approve hook has never fired for this project; if `CLAUDE_PLUGIN_DATA=(unset)` the resolver is using its discovery probe or legacy fallback.
 
+**Pipeline cursors.** `/ship-status` reads `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR.md` and `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` if present and renders their state in the PIPELINE section of the dashboard (see Step 2). Each cursor records where its pipeline (`ship-execute` or `ship-review`) is in the multi-stage flow, whether it's terminal, and whether stuck detection has fired. Schema details live in `<repo>/plugins/shipyard/skills/ship-execute/references/pipeline-cursor.md` and the matching ship-review reference; this skill only reads them.
+
 ---
 
 ## Step 1: Validate & Auto-Fix (silent)
@@ -96,6 +98,20 @@ State files use the soft-delete sentinel pattern: overwrite with a "cleared" mar
 - Stale `<SHIPYARD_DATA>/.compaction-count` file (legacy — the counter now lives on the execution lock) → use the Bash tool to `rm` it if present; it's dead state from an older plugin version.
 - `<SHIPYARD_DATA>/.active-execution.json` — Read it, parse JSON. If `cleared` is set, ignore. Otherwise: if `started` is >2h old, Write the cleared sentinel automatically; if <2h, show it in the dashboard and AskUserQuestion: "Execution lock found ([skill], started [time]). Still running? (yes, leave it / no, clear it)". On clear, Write the cleared sentinel (which also clears any `compaction_count` field on the old lock).
 
+### Check 7a: Pipeline Cursor Health
+
+Read `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR.md` and `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` if either exists. Validate the frontmatter:
+
+- Required fields present: `pipeline`, `sprint`, `stage`, `iteration`, `last_advance_at`, `loop_owner`, `status`, `terminal`, `stuck_counter`, `hard_ceiling`.
+- `terminal` is a boolean; `iteration` and `stuck_counter` are non-negative integers; `hard_ceiling` is 50 by default.
+- `last_advance_at` is an ISO 8601 timestamp.
+
+Detection rules:
+
+- **Stale cursor** — `last_advance_at` older than 2 hours and `terminal: false` and `status: in_progress`: surface a warning in the STATE section. Do NOT auto-clear; the user may be debugging or paused. If `loop_owner: "/loop"` and stale: emit `pipeline_stuck` via `shipyard-data events emit pipeline_stuck pipeline=<name> sprint=<id> stage=<stage> reason=stale-cursor` and flag in PIPELINE section.
+- **Terminal stale** — `terminal: true` cursors left in `current/` after sprint archival should not exist (archive rotates `current/` to `sprint-NNN/`). If a `terminal: true` cursor sits in `current/` AND SPRINT.md is missing or `status: completed`, this is reconciliation drift; surface a warning.
+- **Corrupted frontmatter** — refuse to render PIPELINE section; surface "PIPELINE cursor unreadable, run /ship-status --repair" warning.
+
 ### Check 7: File Size Health
 
 - `metrics.md` > 300 lines → quarterly rollover. Read the file, split off the older content, use Write to create `<SHIPYARD_DATA>/memory/metrics-[quarter].md`, then use Edit to truncate the original `metrics.md` to the current quarter only.
@@ -132,6 +148,15 @@ State files use the soft-delete sentinel pattern: overwrite with a "cleared" mar
   Blocked: [N] ([task IDs + reasons])
   Time: ~[N]hrs elapsed | ~[M]hrs remaining (at [X] pts/hr)
 
+ PIPELINE (per-tick cursor state)
+  Execute: stage=<stage_id> wave=<N>/<M> iter=<I> loop_owner=<owner> terminal=<bool> last=<ISO>
+    next: <next_action one-liner from cursor body>
+    ⚠ stuck_counter=<N> (since <ISO>) — pipeline_stuck has fired   [only if applicable]
+  Review:  stage=<stage_id> iter=<I> loop_owner=<owner> terminal=<bool> last=<ISO>
+    next: <next_action one-liner from cursor body>
+    ⚠ stuck_counter=<N> — review pipeline_stuck has fired   [only if applicable]
+  (omit either line if its cursor file doesn't exist; render "PIPELINE: no active cursors" if both absent)
+
  CARRY-OVER (from previous sprints)
   [N] open bugs | [N] blocked tasks | [N] retro items | [N] incomplete features
   (details: /ship-sprint will show these before feature selection)
@@ -165,15 +190,18 @@ State files use the soft-delete sentinel pattern: overwrite with a "cleared" mar
 ## Next Action Priority
 
 Determine the single most important action:
-1. **RESUME** — HANDOFF.md exists → "Run /ship-execute to resume from [task]"
-2. **DEBUG** — active debug sessions → "Run /ship-debug --resume"
-3. **BLOCKER** — blocked task needs human input → "Unblock [task]: [reason]"
-4. **REVIEW** — completed work waiting for approval → "Run /ship-review"
-5. **EXECUTE** — sprint has unstarted tasks → "Run /ship-execute"
-6. **PLAN** — approved features but no sprint → "Run /ship-sprint"
-7. **DISCUSS** — proposed features need refinement → "Run /ship-discuss [ID]"
-8. **GROOM** — backlog health issues → "Run /ship-backlog groom"
-9. **IDLE** — nothing pending → "Run /ship-discuss to explore new features"
+1. **PIPELINE-TERMINAL** — EXECUTE-CURSOR or REVIEW-CURSOR has `terminal: true` AND `current/` not yet archived → "Pipeline complete; /loop should stop. Run /ship-review (or /ship-discuss) for the next cycle."
+2. **PIPELINE-STUCK** — A cursor has `stuck_counter >= 5` or pipeline_stuck event in last 24h → "Stage [X] of [pipeline] hasn't progressed in [N] ticks. Inspect: /ship-status diagnose."
+3. **PIPELINE-IN-FLIGHT** — A cursor exists with `terminal: false` and `last_advance_at` < 30 min ago → "Pipeline [pipeline] is mid-tick at [stage]. Next: [next_action]."
+4. **RESUME** — HANDOFF.md exists → "Run /ship-execute to resume from [task]"
+5. **DEBUG** — active debug sessions → "Run /ship-debug --resume"
+6. **BLOCKER** — blocked task needs human input → "Unblock [task]: [reason]"
+7. **REVIEW** — completed work waiting for approval → "Run /ship-review"
+8. **EXECUTE** — sprint has unstarted tasks → "Run /ship-execute"
+9. **PLAN** — approved features but no sprint → "Run /ship-sprint"
+10. **DISCUSS** — proposed features need refinement → "Run /ship-discuss [ID]"
+11. **GROOM** — backlog health issues → "Run /ship-backlog groom"
+12. **IDLE** — nothing pending → "Run /ship-discuss to explore new features"
 
 ## Rules
 

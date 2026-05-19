@@ -146,5 +146,30 @@
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
     "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+  },
+  {
+    "name": "renders_review_cursor",
+    "type": "contains",
+    "pattern": "REVIEW-CURSOR\\.md"
+  },
+  {
+    "name": "renders_execute_cursor",
+    "type": "contains",
+    "pattern": "EXECUTE-CURSOR\\.md"
+  },
+  {
+    "name": "renders_pipeline_stage",
+    "type": "contains",
+    "pattern": "[Pp]ipeline [Ss]tage|[Cc]urrent [Ss]tage|[Cc]ursor"
+  },
+  {
+    "name": "renders_terminal_state",
+    "type": "contains",
+    "pattern": "terminal:|[Tt]erminal|pipeline_terminal"
+  },
+  {
+    "name": "renders_stuck_warning",
+    "type": "contains",
+    "pattern": "pipeline_stuck|stuck_counter|stuck"
   }
 ]

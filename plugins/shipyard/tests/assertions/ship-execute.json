@@ -685,5 +685,105 @@
     "name": "resume_uses_event_log_as_source_of_truth",
     "type": "contains",
     "pattern": "event log is the source of truth|event log.*authoritative"
+  },
+  {
+    "name": "cursor_schema_referenced",
+    "type": "contains",
+    "pattern": "EXECUTE-CURSOR\\.md"
+  },
+  {
+    "name": "cursor_reference_loaded",
+    "type": "contains",
+    "pattern": "pipeline-cursor\\.md"
+  },
+  {
+    "name": "cursor_read_at_entry",
+    "type": "contains",
+    "pattern": "Read.*EXECUTE-CURSOR\\.md|EXECUTE-CURSOR\\.md.*Read tool|cursor at entry|Read the cursor"
+  },
+  {
+    "name": "terminal_marker_text",
+    "type": "contains",
+    "pattern": "CYCLE COMPLETE"
+  },
+  {
+    "name": "terminal_marker_loop_should_stop",
+    "type": "contains",
+    "pattern": "/loop should stop"
+  },
+  {
+    "name": "tick_marker_loop_continues",
+    "type": "contains",
+    "pattern": "TICK COMPLETE.*[Ll]oop continues|/loop continues"
+  },
+  {
+    "name": "emits_pipeline_terminal_event",
+    "type": "contains",
+    "pattern": "pipeline_terminal"
+  },
+  {
+    "name": "emits_pipeline_tick_started",
+    "type": "contains",
+    "pattern": "pipeline_tick_started"
+  },
+  {
+    "name": "emits_pipeline_tick_completed",
+    "type": "contains",
+    "pattern": "pipeline_tick_completed"
+  },
+  {
+    "name": "emits_pipeline_stuck",
+    "type": "contains",
+    "pattern": "pipeline_stuck"
+  },
+  {
+    "name": "stuck_threshold_five",
+    "type": "contains",
+    "pattern": "stuck_counter.*5|5 ticks without|5 times without|re-entry-without-progress"
+  },
+  {
+    "name": "hard_ceiling_fifty",
+    "type": "contains",
+    "pattern": "hard_ceiling.*50|50 iterations|hard ceiling.*50"
+  },
+  {
+    "name": "stage_id_preflight",
+    "type": "contains",
+    "pattern": "stage.*preflight|preflight stage"
+  },
+  {
+    "name": "stage_id_wave_dispatch",
+    "type": "contains",
+    "pattern": "wave_N_dispatch|wave_\\d+_dispatch"
+  },
+  {
+    "name": "stage_id_terminal_handoff",
+    "type": "contains",
+    "pattern": "terminal_handoff_to_review|terminal stage"
+  },
+  {
+    "name": "noop_already_complete_handled",
+    "type": "contains",
+    "pattern": "sprint_already_complete|already complete|already archived"
+  },
+  {
+    "name": "loop_owner_field",
+    "type": "contains",
+    "pattern": "loop_owner"
+  },
+  {
+    "name": "direct_vs_loop_invocation_documented",
+    "type": "contains",
+    "pattern": "Direct invocation vs|/loop driver|single-tick"
+  },
+  {
+    "name": "preserves_wave_completion_internal_loop",
+    "type": "contains",
+    "pattern": "verifying-wave-completion.*internal|nested|wave_N_gate|wave gate"
+  },
+  {
+    "name": "coexists_with_handoff_md",
+    "type": "contains",
+    "pattern": "HANDOFF\\.md.*cursor|cursor.*HANDOFF\\.md|HANDOFF\\.md.*precedence"
   }
 ]

@@ -32,7 +32,40 @@ $ARGUMENTS
 - `--hotfix B-HOT-001` → Fast-track hotfix review
 - `--retro-only` → Skip review, run only the retrospective (for cancelled sprints or re-running retro)
 - No args → Review all completed tasks in current sprint, then run retrospective
-- No active sprint and no feature ID → AskUserQuestion: "No active sprint found. Which feature would you like to review? (provide a feature ID, or run /ship-sprint first)"
+- No active sprint and no feature ID (sprint already archived: `current/` directory is empty or absent of `SPRINT.md`) → **No-op terminal path.** Emit `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<last-known-or-unknown> outcome=noop reason=sprint_already_archived` and print the terminal marker: `▶ CYCLE COMPLETE — sprint already complete and archived. /loop should stop.` Exit cleanly without invoking AskUserQuestion. (This is the exact path that fired the original /loop bug — there was no terminal signal so /loop kept scheduling wakeups against an archived sprint.)
+
+---
+
+## Cursor + Per-Tick Advance
+
+`/ship-review` is a multi-stage pipeline. To make it `/loop`-friendly, each invocation reads a persistent cursor at `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md`, dispatches to the matching stage handler, writes the cursor for the next tick, and emits structured events. Full cursor schema, stage map, terminal protocol, event vocabulary, and stuck-detection rules live in `references/pipeline-cursor.md` — read it before changing the cursor surface.
+
+**Cursor read at entry.** Begin every invocation with:
+
+1. Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` (use the Read tool).
+   - **If the file exists and `terminal: true`**: print the terminal marker (`▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.`), emit `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<id> outcome=noop reason=cursor_already_terminal`, exit.
+   - **If the file exists and `terminal: false`**: emit `shipyard-data events emit pipeline_tick_started pipeline=ship-review sprint=<id> stage=<cursor.stage> iteration=<cursor.iteration> loop_owner=<owner>`, then dispatch to the handler for `cursor.stage` (per the stage map in `references/pipeline-cursor.md`).
+   - **If the file does NOT exist**: fresh start. Set `stage: preflight`, `iteration: 1`, `terminal: false`, `status: in_progress`. Emit `pipeline_tick_started`. Dispatch to the preflight handler.
+
+2. After the chosen stage's handler returns, use the Write tool to write the cursor for tick N+1 (or for terminal exit). Emit `pipeline_tick_completed` (advancing or self-looping) or `pipeline_terminal` (terminal stage). Print the appropriate marker text.
+
+The cursor write uses the Write tool against the literal SHIPYARD_DATA path (auto-approved by the PreToolUse hook). The marker text is load-bearing — `/loop` drivers (and the loop-driving model) read `CYCLE COMPLETE` + `/loop should stop` as the structural signal to refrain from scheduling another wakeup.
+
+**Direct invocation vs /loop driver.** The same skill body serves both callers:
+
+- **Direct invocation** (user runs `/ship-review` or `/ship-review F-NNN` from the prompt): after a handler returns, if the next stage is non-terminal AND non-blocking (no `AskUserQuestion` required AND no expensive long-running operation), the dispatcher MAY chain into it within the same invocation. Bound the chain by an approximate wall-clock budget of **~3 minutes** per invocation to keep ticks responsive and interruptible.
+- **`/loop` driver** (the invocation is one tick of a `/loop` schedule): each tick is exactly one handler. After writing the cursor and emitting `pipeline_tick_completed`, exit. The chain-within-invocation logic is suppressed when `loop_owner == "/loop"`. The next `/loop` wakeup picks up from the cursor's `stage:`.
+
+**`loop_owner` detection.** Determine the caller by reading the most recent `pipeline_tick_completed` event from `<SHIPYARD_DATA>/.shipyard-events.jsonl` (a 30-minute lookback window): if its `next_stage` matches the current cursor's `stage` AND its timestamp is within the last 30 minutes, treat the current invocation as a `/loop` re-entry and set `loop_owner: "/loop"`. Otherwise treat as a direct user invocation (`loop_owner: "user"`). A user explicitly passing `--single-tick` forces `/loop` semantics — this is the override for "I want one tick now and that's it."
+
+### Self-looping stages: stuck detection
+
+Two stages can self-loop until they converge by data: `code_review_iter_N` (Stage 0 — scanner clean signal) and `gap_analysis` (Stages 4 + 4.5 — checklist stable signal). There is no arbitrary iteration cap; convergence is data-driven. Stuck detection works as follows:
+
+- Each self-loop tick increments `stuck_counter:` if state did NOT change since the previous tick. For `code_review_iter_N`, state = the (must_fix, should_fix) tuple from the most recent scanner pass. For `gap_analysis`, state = the gap list (set-equal).
+- If `stuck_counter >= 5` (5 ticks without state change), emit `shipyard-data events emit pipeline_stuck pipeline=ship-review sprint=<id> stage=<id> iterations=<N> reason=no-state-change` AND surface a non-blocking one-line warning in the user-facing text: `⚠ Stage [X] has run [N] times without state change. /ship-status to inspect; consider manual intervention.` The loop keeps running — the warning is informational.
+- Reset `stuck_counter` to 0 on the first tick where state changes.
+- `hard_ceiling: 50` is the absolute safety stop. If a self-loop stage reaches `iteration: 50`, write `status: escalated`, `terminal: true`, emit `pipeline_terminal pipeline=ship-review outcome=escalated reason=hard_ceiling_stage_<id>`, and halt. In practice the 5-tick warning surfaces intervention long before the ceiling is reached; the ceiling exists only as a backstop against a runaway loop with broken state-change detection.
 
 ---
 
@@ -40,12 +73,13 @@ $ARGUMENTS
 
 If you lose context mid-review (e.g., after auto-compaction):
 
-1. Use Glob `<SHIPYARD_DATA>/verify/*-verdict.md` to find existing verdict files — these features are already reviewed
-2. Read SPRINT.md — get the list of features to review
-3. Skip features with verdict files where `complete: true`. If a verdict has `complete: false`, that review was interrupted — re-run the pipeline for that feature
-4. **Staleness check**: read the feature spec file to find its `tasks:` list, then read each task file's Technical Notes for source file paths. If the most recent commit touching those source/test files (`git log -1 --format=%ci -- [paths]`) is newer than the verdict's `reviewed_at`, re-run the review — code has changed since the verdict was written
-5. Resume the review pipeline from the first feature without a valid verdict
-6. For sprint-level review: aggregate results from verdict files when presenting the summary
+1. **Cursor is authoritative.** Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` first. The `stage:` field tells you exactly where to resume; PROGRESS.md and verdict files are confirmatory only.
+2. Use Glob `<SHIPYARD_DATA>/verify/*-verdict.md` to find existing verdict files — these features are already reviewed
+3. Read SPRINT.md — get the list of features to review
+4. Skip features with verdict files where `complete: true`. If a verdict has `complete: false`, that review was interrupted — re-run the pipeline for that feature
+5. **Staleness check**: read the feature spec file to find its `tasks:` list, then read each task file's Technical Notes for source file paths. If the most recent commit touching those source/test files (`git log -1 --format=%ci -- [paths]`) is newer than the verdict's `reviewed_at`, re-run the review — code has changed since the verdict was written
+6. Resume the review pipeline from the cursor's `stage:` and the first feature without a valid verdict
+7. For sprint-level review: aggregate results from verdict files when presenting the summary
 
 Do not re-run the full test suite for features that already have valid (complete + fresh) verdict files.
 
@@ -53,7 +87,7 @@ Do not re-run the full test suite for features that already have valid (complete
 
 ## Review Pipeline
 
-### Pre-flight: Branch Check
+### Pre-flight: Branch Check (stage_id: preflight)
 
 Verify we're on the working branch from SPRINT.md frontmatter:
 
@@ -62,29 +96,39 @@ Verify we're on the working branch from SPRINT.md frontmatter:
 
 This ensures review and any patch fixes happen on the correct branch.
 
+- **Cursor write**: on success, write `stage: code_review_iter_1` (or `stage: tests` if `--skip-code-review`, or `stage: retro_step_1` if `--retro-only`), `iteration: 1`, `terminal: false`, `next_action: "Run Stage 0 code review iteration 1"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed pipeline=ship-review sprint=<id> stage=preflight outcome=advanced next_stage=<next>` and print `▶ TICK COMPLETE — pipeline at stage [next_stage]. /loop continues.` then exit. When direct invocation: chain into the next stage's handler (subject to the ~3-minute wall-clock budget).
+
 ---
 
 For each feature/task being reviewed:
 
-### Stage 0: Code Review Loop (sprint completion)
+### Stage 0: Code Review Loop (stage_id: code_review_iter_N) (sprint completion)
 
 Skip if `--skip-code-review` is passed or reviewing a hotfix.
 
 Run the multi-agent code review on the sprint's diff before tests and spec compliance — 6 parallel scanners + an opus investigator (orchestration logic in `references/code-review-orchestration.md`) catch bugs, security issues, silent failures, and pattern violations, then the `shipyard:dispatching-task-loop` fixer addresses must-fix and should-fix items.
 
-**Goal-mode default — run until scanners come back clean or the iteration cap is hit.** This loop is /goal-shaped: keep dispatching the fixer against the residual findings without user interruption until either the scanners report zero must-fix items or 3 iterations elapse. Do NOT pause mid-loop to ask the user whether to keep going — that pre-empts the convergence signal that the cap is designed to surface. Emit a structured `code_review_iteration` event per pass via `shipyard-data events emit code_review_iteration sprint=<id> iteration=<N> must_fix=<count> should_fix=<count>` so the user (and `/ship-status`) can see the loop's trajectory without a prompt.
+**Goal-mode default — run until scanners come back clean.** This loop is /goal-shaped: keep dispatching the fixer against the residual findings without user interruption. Loop until the scanners report zero must-fix items. There is no arbitrary iteration cap — convergence is data-driven. Do NOT pause mid-loop to ask the user whether to keep going — that pre-empts the convergence signal. Emit a structured `code_review_iteration` event per pass via `shipyard-data events emit code_review_iteration sprint=<id> iteration=<N> must_fix=<count> should_fix=<count>` so the user (and `/ship-status`) can see the loop's trajectory without a prompt.
 
-On exit-with-remaining-must-fix after the cap, emit `code_review_escalated` with the residual finding counts, write `B-CR-*` bugs, and surface ONCE via AskUserQuestion: *"Code review hit its iteration cap with [N] must-fix items remaining. (a) write B-CR bugs and proceed to demo, (b) hand back without demo so I can investigate manually."* Recommended: (a). Out-of-scope scanner findings become IDEAs (see Stage 4 protocol). Full mechanics — checkpoint tags, fixer parameters, PROGRESS.md table format, scope guard — in `references/scanner-dispatch.md`.
+**Stuck detection (replaces the prior hard iteration limit):** `pipeline_stuck` warns when `stuck_counter >= 5` (5 consecutive ticks with no change in the (must_fix, should_fix) tuple) — non-blocking, the loop keeps running. The absolute safety stop is `hard_ceiling: 50` iterations; in practice the 5-tick stuck warning surfaces intervention much sooner. See the "Self-looping stages" section above for the full protocol.
 
-### Stage 0.5: Code Simplification
+**At hard ceiling only** (`iteration == 50`): emit `shipyard-data events emit code_review_escalated sprint=<id> must_fix_remaining=<count> should_fix_remaining=<count>`, write `B-CR-*` bugs for the residual findings, write the cursor with `status: escalated`, `terminal: true`, and surface ONCE via AskUserQuestion: *"Code review hit its hard ceiling of 50 iterations with [N] must-fix items remaining. (a) write B-CR bugs and proceed to demo, (b) hand back without demo so I can investigate manually."* Recommended: (a). Out-of-scope scanner findings become IDEAs (see Stage 4 protocol). Full mechanics — checkpoint tags, fixer parameters, PROGRESS.md table format, scope guard — in `references/scanner-dispatch.md`.
+
+- **Cursor write**: on iteration completing with `must_fix > 0`: write `stage: code_review_iter_<N+1>`, increment `iteration`, update `stuck_counter` (increment if state unchanged, reset to 0 if changed), `terminal: false`, `next_action: "Re-scan after fixer iteration <N+1>"`. Emit `pipeline_tick_completed outcome=self_loop next_stage=code_review_iter_<N+1>` and print `▶ TICK COMPLETE — pipeline at stage [code_review_iter_<N+1>]. /loop continues.` On iteration completing with `must_fix == 0 && should_fix == 0`: advance to `stage: simplify`, emit `pipeline_tick_completed outcome=advanced next_stage=simplify`. On hard ceiling (`iteration == 50`): emit `pipeline_terminal outcome=escalated reason=hard_ceiling_stage_code_review_iter` and print `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.`
+
+### Stage 0.5: Code Simplification (stage_id: simplify)
 
 Skip if `--skip-code-review` is passed (same gate as Stage 0).
 
 After Stage 0 exits clean, spawn the `code-simplifier:code-simplifier` agent against the sprint diff to clean up quick patches the fixer may have introduced. Scope-guarded to sprint-diff files only — reverts via `git reset --hard HEAD~1` if the simplifier touches unexpected files. Mechanics in `references/scanner-dispatch.md`.
 
-### Stage 1: Run Tests & Spec Verification
+- **Cursor write**: on completion (success or logged-and-continue), write `stage: tests`, `terminal: false`, `next_action: "Run Stage 1a full test suite via dispatching-operational-task"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=tests` and print `▶ TICK COMPLETE — pipeline at stage [tests]. /loop continues.` then exit. Direct invocation: chain into the next stage.
+
+### Stage 1: Run Tests & Spec Verification (stage_id: tests, then spec_review)
 
 **1a. Run all tests** — invoke the **`shipyard:dispatching-operational-task` capability skill** to avoid polluting the review context with raw test output. Pass `verify_command` resolved to each tier from `<SHIPYARD_DATA>/config.md` (`test_commands.unit`, `test_commands.integration`, `test_commands.e2e`); the capability skill captures output to `<SHIPYARD_DATA>/captures/` and returns the structured verdict (PASS/FAIL counts in `LAST_LINES:`). One operational dispatch per tier, or one combined dispatch if your project supports a single command. Use the returned verdicts for Stages 3–5 — do not re-run tests yourself.
+
+- **Cursor write (after 1a)**: write `stage: spec_review`, `terminal: false`, `next_action: "Run Stage 1b spec review per feature"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=spec_review` and print `▶ TICK COMPLETE — pipeline at stage [spec_review]. /loop continues.` then exit. Direct invocation: chain.
 
 **1b. Spec review via specialized scanner** — invoke the **`shipyard:dispatching-spec-review` capability skill** with `scope: "feature"` and `target_ids: [FEATURE_ID]`. The capability skill:
 
@@ -106,7 +150,9 @@ Pass to the capability skill:
 
 Use the capability skill's structured findings (`STATUS: PASS` or `STATUS: FINDINGS` with classification) in Stages 3–5. Security, bugs, silent failures, patterns, and tests are NOT this skill's job — those went through `dispatching-code-review` in Stage 0.
 
-### Stage 2: Visual Verification (UI tasks)
+- **Cursor write (after 1b)**: write `stage: visual` if any feature has UI components, else `stage: goal_verify`, `terminal: false`, `next_action: "Run Stage 2 visual verification"` (or `"Run Stage 3 goal verification"`). When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=<next>` and print `▶ TICK COMPLETE — pipeline at stage [next_stage]. /loop continues.` then exit. Direct invocation: chain.
+
+### Stage 2: Visual Verification (stage_id: visual) (UI tasks)
 
 If the feature has UI components:
 1. Ensure dev server is running (auto-start if needed)
@@ -116,7 +162,9 @@ If the feature has UI components:
 
 **Live-capture the dev server and E2E runs.** Anything you run here to observe behavior (dev server startup logs, E2E runner output, `curl` sanity checks against the running app) goes through `shipyard-logcap run <name> --max-size <S> --max-files <N> -- <command>` unless the command already writes its own log file. Review re-runs are the most expensive kind — Opus-level reasoning burning tokens on output you already saw. If the first run surfaces something you want to inspect more closely, `shipyard-logcap grep` the existing capture with a different pattern **before** re-running the thing. Full guide and decision table for picking bounds: `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/live-capture.md`.
 
-### Stage 3: Did We Actually Achieve the Goal?
+- **Cursor write**: write `stage: goal_verify`, `terminal: false`, `next_action: "Run Stage 3 goal verification"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=goal_verify` and print `▶ TICK COMPLETE — pipeline at stage [goal_verify]. /loop continues.` then exit. Direct invocation: chain.
+
+### Stage 3: Did We Actually Achieve the Goal? (stage_id: goal_verify)
 
 Tests passing is necessary but not sufficient. A component can pass its own tests but never be imported anywhere. This stage checks whether the *feature actually works end-to-end*, not just whether individual tasks completed.
 
@@ -175,7 +223,9 @@ Check each operational task:
 
 Any operational task that fails any of these is a **critical gap** — automatically upgraded to must-fix regardless of what the acceptance criteria say, because the task's deliverable was running a command and we have no evidence the command ran. If you find a silent-pass, also recommend the user add the task to `ship-sprint`'s carry-over scan (Step 1.5, check #5) as a safety net for the next sprint.
 
-### Stage 4: Surface Gap Analysis
+- **Cursor write**: write `stage: gap_analysis`, `terminal: false`, `next_action: "Run Stages 4 + 4.5 surface-gap + self-review"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=gap_analysis` and print `▶ TICK COMPLETE — pipeline at stage [gap_analysis]. /loop continues.` then exit. Direct invocation: chain.
+
+### Stage 4: Surface Gap Analysis (stage_id: gap_analysis, part 1)
 
 Additionally detect:
 - **Untested scenarios** — acceptance scenarios without end-to-end tests
@@ -192,7 +242,7 @@ For each gap, classify into one of three destinations — this is a decision tre
 
 **Capture Out-of-Scope Gaps as IDEAs.** Out-of-scope gaps are real defects but don't belong in the current feature's patch-task list or debug session. Allocate an ID via `shipyard-data next-id ideas` (never `ls`-and-guess), then Write `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with `source: review-gap/<sprint-id>`, `found_during: surface-gap-stage-4` (or `code-review-stage-0`), and `feature_reviewed: <feature-id>`. **Hard cap: 5 per stage** (Stage 0 and Stage 4 budgets are independent); on overflow, write one `overflow: true` summary IDEA. **Hard rule — out-of-scope only:** in-scope must-fix → `B-CR-*` bugs, in-scope complex → debug session, in-scope simple → patch task. Full IDEA frontmatter schema, capture-vs-skip criteria, and frontmatter template in `references/scanner-dispatch.md`.
 
-### Stage 4.5: Quality Gate (self-review loop)
+### Stage 4.5: Quality Gate (stage_id: gap_analysis, part 2) (self-review loop)
 
 Before writing the verdict, review your own review. Re-read the feature spec and your findings:
 
@@ -209,15 +259,19 @@ Before writing the verdict, review your own review. Re-read the feature spec and
 | 9 | **Security basics** | Auth/validation/input sanitization specified in spec but not verified |
 | 10 | **Anti-patterns clean** | TODOs, console.log, empty catches still present in sprint diff |
 
-Iterate the checklist against your findings. If any check reveals a missed gap, add it to the gap list and re-run. Max 3 iterations; if it keeps finding new gaps, flag: "Review found [N] gaps across [M] iterations — this feature may need another pass before approval." **Hold the table in mind across iterations — emit only per-iteration deltas (which gaps were added). Do not re-print the table on each pass.** Proceed to verdict when the checklist stabilizes or max iterations reached.
+Iterate the checklist against your findings. If any check reveals a missed gap, add it to the gap list and re-run. **There is no arbitrary iteration cap** — loop until the checklist stabilizes (no new gaps added in a pass). Stuck detection: `pipeline_stuck` warns when `stuck_counter >= 5` (5 ticks with the same gap-list set), non-blocking, the loop keeps running. Hard ceiling: `hard_ceiling: 50` is the absolute safety stop — in practice the 5-tick warning surfaces intervention much sooner. See the "Self-looping stages" section near the top for the protocol. **Hold the table in mind across iterations — emit only per-iteration deltas (which gaps were added). Do not re-print the table on each pass.** Proceed to verdict (`stage: critic`) when the checklist stabilizes.
 
-### Stage 4.6: Critic Challenge
+- **Cursor write**: on iteration completing with a non-empty gap-list delta: write `stage: gap_analysis`, increment `iteration`, update `stuck_counter` (increment if gap-list set unchanged, reset if changed), `terminal: false`, `next_action: "Re-run self-review iteration <N+1>"`. Emit `pipeline_tick_completed outcome=self_loop next_stage=gap_analysis` and print `▶ TICK COMPLETE — pipeline at stage [gap_analysis]. /loop continues.` On iteration completing with the gap-list stable: advance to `stage: critic`, emit `pipeline_tick_completed outcome=advanced next_stage=critic`. On hard ceiling: emit `pipeline_terminal outcome=escalated reason=hard_ceiling_stage_gap_analysis`.
+
+### Stage 4.6: Critic Challenge (stage_id: critic)
 
 After the self-review loop stabilizes, dispatch a **`general-purpose`** subagent in critic mode to challenge the review findings. The critic reads the feature spec, implementation, and the review's results to find what the reviewer missed — blind spots, false positives, and false negatives. Anti-sycophancy + pre-mortem framing; read-only.
 
 The full subagent prompt template (with `<SHIPYARD_DATA>`, `[FEATURE_ID]`, stakes, and findings substitutions) and the consumption protocol live in `references/critic-prompt.md`. The critic returns a structured `STATUS: CHALLENGES` or `STATUS: NO_CHALLENGES` report — Stage 4.7 processes the findings with one surgical pass.
 
-### Stage 4.7: Final Review Pass
+- **Cursor write**: write `stage: final_pass`, `terminal: false`, `next_action: "Run Stage 4.7 final pass on critic findings"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=final_pass` and print `▶ TICK COMPLETE — pipeline at stage [final_pass]. /loop continues.` then exit. Direct invocation: chain.
+
+### Stage 4.7: Final Review Pass (stage_id: final_pass)
 
 Process the critic's findings with **one** targeted pass — no iteration loop:
 
@@ -228,7 +282,9 @@ Process the critic's findings with **one** targeted pass — no iteration loop:
 
 Do not re-run the full review pipeline. This is a surgical pass on the critic's specific findings only. Update the gap counts and classifications, then proceed to the verdict.
 
-### Checkpoint: Write Verdict
+- **Cursor write**: write `stage: verdict`, `terminal: false`, `next_action: "Write verdict file"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=verdict` and print `▶ TICK COMPLETE — pipeline at stage [verdict]. /loop continues.` then exit. Direct invocation: chain.
+
+### Checkpoint: Write Verdict (stage_id: verdict)
 
 Use the Write tool to write `<SHIPYARD_DATA>/verify/[feature-ID]-verdict.md` with structured results:
 
@@ -248,7 +304,9 @@ recommendation: approve|issues|changes
 
 Body: test summary, goal verification results (observable truths, artifacts, wiring), and gap list. After Stage 5 (Demo) completes, update the verdict: set `complete: true`. This file persists as a review artifact — no cleanup needed. Incomplete verdicts (from interrupted sessions) are re-entered at the review pipeline.
 
-### Stage 4.8: Demo-Path Verification
+- **Cursor write**: write `stage: demo_probe`, `terminal: false`, `next_action: "Run Stage 4.8 demo probe per feature"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=demo_probe` and print `▶ TICK COMPLETE — pipeline at stage [demo_probe]. /loop continues.` then exit. Direct invocation: chain.
+
+### Stage 4.8: Demo-Path Verification (stage_id: demo_probe)
 
 Before advancing to user approval, **run each feature's `demo_probe` end-to-end** to prove the cross-task wiring actually works. This catches the failure mode where every per-task probe passed in isolation but the feature's user-facing flow doesn't compose.
 
@@ -276,7 +334,9 @@ sprint-level full test suite →  regression / integration proof (Stage 1)
 
 Mid-tier failures (passing tasks, failing demo) are exactly the bug class the customer-reported "review rubber-stamps stubs" complaint described — the task tests passed against properly wired code, but the cross-task user flow was broken because nobody ever ran it end-to-end.
 
-### Stage 5: Demo to User
+- **Cursor write**: on all probes PASS (or skip-with-reason): write `stage: demo_user`, `terminal: false`, `next_action: "Present results, AskUserQuestion approval"`. Emit `pipeline_tick_completed outcome=advanced next_stage=demo_user` and print `▶ TICK COMPLETE — pipeline at stage [demo_user]. /loop continues.` On any FAIL/TIMEOUT: handler routes to AskUserQuestion (blocking) — write the cursor with `stage: demo_probe`, `status: paused`, `next_action: "Awaiting user decision on demo failure"` before invoking AskUserQuestion.
+
+### Stage 5: Demo to User (stage_id: demo_user)
 
 After all features are reviewed and verdicts written, present the complete review results as text.
 
@@ -306,7 +366,9 @@ Then use `AskUserQuestion` for approval:
 - **Refine** — give feedback on specific features, iterate
 - **Fix first** — create patch tasks, show: "/ship-execute --task [patch task ID]"
 
-### Stage 6: Process Decision
+- **Cursor write**: after the user answers, write `stage: process_approved` / `process_issues` / `process_changes` based on the answer, `terminal: false`, `next_action: "Process Stage 6 decision branch"`. Emit `pipeline_tick_completed outcome=advanced next_stage=<branch>` and print `▶ TICK COMPLETE — pipeline at stage [<branch>]. /loop continues.`
+
+### Stage 6: Process Decision (stage_id: process_approved | process_issues | process_changes)
 
 Based on the approval:
 - **Approved** → Update feature statuses to `done` in feature frontmatter. Proceed to Sprint Retrospective (below).
@@ -317,6 +379,8 @@ Based on the approval:
     /ship-execute --task [patch task ID]
     (tip: /clear first for a fresh context window)
   ```
+
+- **Cursor write**: on `process_approved` → write `stage: retro_step_1`, `terminal: false`. Emit `pipeline_tick_completed outcome=advanced next_stage=retro_step_1`. On `process_issues` → write `stage: terminal_issues`, `status: escalated`, `terminal: true`, emit `pipeline_terminal outcome=issues reason=user_flagged_issues` and print `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` On `process_changes` → write `stage: terminal_changes`, `status: escalated`, `terminal: true`, emit `pipeline_terminal outcome=changes reason=user_requested_changes` and print the terminal marker.
 
 ## Hotfix Review
 
@@ -334,10 +398,12 @@ After sprint approval (or when `--retro-only` is passed), run the retrospective.
 
 The retro runs in four steps with compaction recovery via `RETRO-DATA.md`'s `step` frontmatter field. Full mechanics — data-gathering source files, throughput computation, IDEA allocation/frontmatter, metrics rollover, anti-pattern flags — in `references/retro-and-release.md`.
 
-### Retro Step 1: Gather Data
+### Retro Step 1: Gather Data (stage_id: retro_step_1)
 Compute planned-vs-delivered, velocity, carry-over, bugs, blocked time, swaps, patch tasks, estimate accuracy, throughput from SPRINT.md + task/feature files. Write to `RETRO-DATA.md` (`step: data_gathered`) and present the summary block.
 
-### Retro Step 2: Facilitate Discussion
+- **Cursor write**: write `stage: retro_step_2`, `terminal: false`, `next_action: "Facilitate retro discussion (3× AskUserQuestion)"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=retro_step_2` and print `▶ TICK COMPLETE — pipeline at stage [retro_step_2]. /loop continues.` then exit. Direct invocation: chain.
+
+### Retro Step 2: Facilitate Discussion (stage_id: retro_step_2)
 Three sequential AskUserQuestion calls — lead each with the data-driven observation, then ask:
 1. **What went well?**
 2. **What didn't go well?**
@@ -345,11 +411,17 @@ Three sequential AskUserQuestion calls — lead each with the data-driven observ
 
 Append responses to `RETRO-DATA.md` under `## Team Feedback`. Update frontmatter: `step: feedback_collected`.
 
-### Retro Step 3: Create Action Items
+- **Cursor write**: after all three AskUserQuestion responses are collected: write `stage: retro_step_3`, `terminal: false`, `next_action: "Create IDEA action items"`. Emit `pipeline_tick_completed outcome=advanced next_stage=retro_step_3` and print `▶ TICK COMPLETE — pipeline at stage [retro_step_3]. /loop continues.`
+
+### Retro Step 3: Create Action Items (stage_id: retro_step_3)
 For each actionable improvement, allocate an ID via `shipyard-data next-id ideas` (never `ls`-and-guess) and Write `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with `source: retro/<sprint-id>` (slash form — matches the carry-over scan regex). Update `RETRO-DATA.md`: `step: action_items_created`.
 
-### Retro Step 4: Update Metrics
+- **Cursor write**: write `stage: retro_step_4`, `terminal: false`, `next_action: "Update metrics"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=retro_step_4` and print `▶ TICK COMPLETE — pipeline at stage [retro_step_4]. /loop continues.` then exit. Direct invocation: chain.
+
+### Retro Step 4: Update Metrics (stage_id: retro_step_4)
 Append velocity, carry-over rate, bug rate, estimate accuracy, anti-pattern flags to `<SHIPYARD_DATA>/memory/metrics.md` (quarterly rollover at 300 lines). Save key insights to memory.
+
+- **Cursor write**: write `stage: release_step_1`, `terminal: false`, `next_action: "Present release plan, AskUserQuestion approval"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=release_step_1` and print `▶ TICK COMPLETE — pipeline at stage [release_step_1]. /loop continues.` then exit. Direct invocation: chain.
 
 ### Shipyard Plugin Issue Detection
 
@@ -381,7 +453,7 @@ Use `AskUserQuestion` to offer:
 
 After retro completes, generate the release record. This is a changelog + status tracker — Shipyard does not create git tags, push, or create GitHub releases. Full mechanics — release-plan output format, frontmatter writes, archive command, status dashboard — in `references/retro-and-release.md`.
 
-### Release Step 1: Present Release Plan
+### Release Step 1: Present Release Plan (stage_id: release_step_1)
 Read all `status: done` features from this sprint. Output the release plan as text — CHANGELOG block, STATUS CHANGES, RETRO HIGHLIGHTS, FILES WRITTEN. Release is the most irreversible action in the workflow; surface everything before confirming.
 
 Then use `AskUserQuestion` for approval:
@@ -389,16 +461,28 @@ Then use `AskUserQuestion` for approval:
 - **Edit changelog** — adjust changelog text, then re-approve
 - **Skip release** — skip release record, still archive sprint
 
-### Release Step 2: Write Release Record
+- **Cursor write**: on **Release** → write `stage: release_step_2`, `terminal: false`. Emit `pipeline_tick_completed outcome=advanced next_stage=release_step_2` and print `▶ TICK COMPLETE — pipeline at stage [release_step_2]. /loop continues.` On **Skip release** → write `stage: archive`, `terminal: false`. Emit `pipeline_tick_completed outcome=advanced next_stage=archive`. On **Edit changelog** → write `stage: release_step_1`, increment `iteration`, `next_action: "Re-present after changelog edit"`. Emit `pipeline_tick_completed outcome=self_loop next_stage=release_step_1`.
+
+### Release Step 2: Write Release Record (stage_id: release_step_2)
 Update feature frontmatter (`status: released`, `released_at: [date]`) and prepend the new entry to `CHANGELOG.md` in the **project root** (not plugin data — this is a project deliverable that belongs in git).
 
-### Release Step 3: Archive Sprint
+- **Cursor write**: write `stage: release_step_3`, `terminal: false`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=release_step_3` and print `▶ TICK COMPLETE — pipeline at stage [release_step_3]. /loop continues.` then exit. Direct invocation: chain.
+
+### Release Step 3: Archive Sprint (stage_id: release_step_3)
 Run `shipyard-data archive-sprint sprint-NNN` from Bash. This atomically renames `current/` → `sprint-NNN/` and recreates an empty `current/`. Do NOT synthesize raw `cp`/`mv`/`mkdir` against the plugin data dir — they're not portable and not atomic.
+
+- **Cursor write**: the archive operation rotates `current/` so the cursor file goes with it. Advance to `stage: terminal` semantically — the next handler runs the terminal wrap-up against the now-archived sprint context.
 
 ### Final: Run Status
 After archiving, run `/ship-status` to give the user a clean project health snapshot and auto-fix any state issues before the next cycle.
 
-### Wrap Up
+### Wrap Up (stage_id: terminal | archive)
+
+The skip-release path (`stage: archive`) and the full-release path (after `release_step_3`) both converge here. Run the terminal protocol:
+
+1. Emit the terminal event: `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<id> outcome=success reason=cycle_complete`.
+2. Use the Write tool to write the cursor with `terminal: true`, `status: complete`, `stage: terminal`, `next_action: "Pipeline complete — no further work."` (Note: the cursor file may already have rotated into the archived sprint directory after `archive-sprint`; if the new `current/` is empty, skip the cursor write — the terminal event is the canonical signal.)
+3. Print the sprint-complete banner:
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -409,12 +493,16 @@ After archiving, run `/ship-status` to give the user a clean project health snap
  Retro: [velocity] pts | [throughput] pts/hr | [N] improvements captured
  Release: changelog written to CHANGELOG.md (project root, appended)
 
+▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.
+
 ▶ NEXT UP: Start the next cycle
   /ship-discuss — explore new features
   /ship-sprint — plan next sprint (if backlog has approved features)
   (tip: /clear first for a fresh context window)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
+
+The marker line `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` is load-bearing — `/loop` drivers read it as the structural signal to refrain from scheduling another wakeup.
 
 ---
 

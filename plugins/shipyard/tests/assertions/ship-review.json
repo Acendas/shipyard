@@ -316,5 +316,110 @@
     "name": "code_review_no_mid_loop_pause",
     "type": "not_contains",
     "pattern": "diminishing-returns AskUserQuestion at iteration 2"
+  },
+  {
+    "name": "cursor_schema_referenced",
+    "type": "contains",
+    "pattern": "REVIEW-CURSOR\\.md"
+  },
+  {
+    "name": "cursor_reference_loaded",
+    "type": "contains",
+    "pattern": "pipeline-cursor\\.md"
+  },
+  {
+    "name": "cursor_read_at_entry",
+    "type": "contains",
+    "pattern": "Read.*REVIEW-CURSOR\\.md|REVIEW-CURSOR\\.md.*Read tool|cursor at entry|Read the cursor"
+  },
+  {
+    "name": "terminal_marker_text",
+    "type": "contains",
+    "pattern": "CYCLE COMPLETE"
+  },
+  {
+    "name": "terminal_marker_loop_should_stop",
+    "type": "contains",
+    "pattern": "/loop should stop"
+  },
+  {
+    "name": "tick_marker_loop_continues",
+    "type": "contains",
+    "pattern": "TICK COMPLETE.*[Ll]oop continues|/loop continues"
+  },
+  {
+    "name": "emits_pipeline_terminal_event",
+    "type": "contains",
+    "pattern": "pipeline_terminal"
+  },
+  {
+    "name": "emits_pipeline_tick_started",
+    "type": "contains",
+    "pattern": "pipeline_tick_started"
+  },
+  {
+    "name": "emits_pipeline_tick_completed",
+    "type": "contains",
+    "pattern": "pipeline_tick_completed"
+  },
+  {
+    "name": "emits_pipeline_stuck",
+    "type": "contains",
+    "pattern": "pipeline_stuck"
+  },
+  {
+    "name": "stuck_threshold_five",
+    "type": "contains",
+    "pattern": "stuck_counter.*5|5 ticks without|5 times without"
+  },
+  {
+    "name": "hard_ceiling_fifty",
+    "type": "contains",
+    "pattern": "hard_ceiling.*50|50 iterations|hard ceiling.*50"
+  },
+  {
+    "name": "stage_id_preflight",
+    "type": "contains",
+    "pattern": "stage.*preflight|preflight stage"
+  },
+  {
+    "name": "stage_id_code_review_iter",
+    "type": "contains",
+    "pattern": "code_review_iter"
+  },
+  {
+    "name": "stage_id_terminal",
+    "type": "contains",
+    "pattern": "stage.*terminal|terminal stage"
+  },
+  {
+    "name": "noop_already_archived_handled",
+    "type": "contains",
+    "pattern": "sprint_already_archived|already complete and archived|already archived"
+  },
+  {
+    "name": "loop_owner_field",
+    "type": "contains",
+    "pattern": "loop_owner"
+  },
+  {
+    "name": "direct_vs_loop_invocation_documented",
+    "type": "contains",
+    "pattern": "Direct invocation vs|/loop driver|single-tick"
+  },
+  {
+    "name": "no_stage_zero_three_iter_cap_authoritative",
+    "type": "not_contains",
+    "pattern": "max 3 iterations|cap of 3|3-iteration cap"
+  },
+  {
+    "name": "code_review_escalated_event_documented",
+    "type": "contains",
+    "pattern": "code_review_escalated"
+  },
+  {
+    "name": "scheduled_wakeup_not_invented",
+    "type": "not_contains",
+    "pattern": "ScheduleWakeup.*REVIEW-CURSOR|ScheduleWakeup.*ship-review"
   }
 ]
