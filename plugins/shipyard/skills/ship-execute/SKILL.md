@@ -57,7 +57,14 @@ If the planning lock is held by a live different session, print the HARD BLOCK m
    - **Cursor exists and `terminal: false`** → emit `shipyard-data events emit pipeline_tick_started pipeline=ship-execute sprint=<id> stage=<stage> wave=<N> iteration=<N> loop_owner=<owner>` and dispatch to the handler for the `stage:` field.
    - **Cursor absent AND HANDOFF.md absent** → fresh start. Set `stage: preflight`, `iteration: 1`, `terminal: false`, `status: in_progress`, emit `pipeline_tick_started`, begin from Pre-flight.
    - **Cursor absent AND HANDOFF.md present** → graceful resume from HANDOFF.md (existing path). After HANDOFF.md is consumed and deleted, write the cursor at the documented `wave_N_dispatch` stage and continue.
-3. After the chosen stage's handler returns, write the cursor for tick N+1 (or write the terminal cursor on a terminal stage). Emit `pipeline_tick_completed` (or `pipeline_terminal`). Print the appropriate marker.
+3. **No-op terminal sweep (MANDATORY — load-bearing for /loop safety).** Even if the cursor passed step 2 as non-terminal, verify the sprint is actually alive by checking all THREE conditions from the No-op terminal section below:
+   - cursor exists with `terminal: true` (already covered in step 2; re-checking here is belt-and-braces)
+   - `<SHIPYARD_DATA>/sprints/current/SPRINT.md` frontmatter has `status: completed`
+   - There is no active sprint in `<SHIPYARD_DATA>/sprints/current/` (already archived — no SPRINT.md present)
+
+   If ANY of these hold: emit `shipyard-data events emit pipeline_terminal pipeline=ship-execute sprint=<id> outcome=noop reason=sprint_already_complete`, print `▶ CYCLE COMPLETE — sprint already complete. /loop should stop.`, exit cleanly. NEVER skip this sweep — it is the exact protection that closed the original `/loop` wakeup-leak bug. The auto-loop bootstrap in step 4 explicitly depends on this sweep having run with no exit triggered.
+4. **Auto-loop bootstrap check** (described in detail below). PRECONDITION: step 3 must have completed without exit. If the user invoked directly and the eligibility conditions hold, write the sentinel + call `Skill(skill: "loop", ...)` + return. The bootstrap path short-circuits the rest of this recipe — `/loop` will re-fire `/shipyard:ship-execute` immediately and that re-entry does the real work.
+5. After the chosen stage's handler returns, write the cursor for tick N+1 (or write the terminal cursor on a terminal stage). Emit `pipeline_tick_completed` (or `pipeline_terminal`). Print the appropriate marker.
 
 The cursor write is via the Write tool — auto-approved for SHIPYARD_DATA paths. Use the literal absolute path from `shipyard-context path`.
 
@@ -65,9 +72,30 @@ The cursor write is via the Write tool — auto-approved for SHIPYARD_DATA paths
 
 **loop_owner detection.** Read the last `pipeline_tick_completed` event from `<SHIPYARD_DATA>/.shipyard-events.jsonl`. If the most recent matching event is within the last 30 minutes AND its `next_stage` matches the cursor's current `stage:`, set `loop_owner: "/loop"`. Otherwise `loop_owner: "user"`. The `--single-tick` argument forces `loop_owner: "/loop"` semantics regardless of detection (used for testing per-tick behavior from a direct invocation).
 
+**Auto-loop bootstrap (run AFTER loop_owner detection AND the no-op terminal sweep, BEFORE the dispatch contract).** When a user invokes `/ship-execute` directly, this skill self-bootstraps the `/loop` driver so the user never needs to type `/loop` themselves. Eligibility (ALL must hold — checked in this order so the cheapest predicates fail-fast):
+
+- `loop_owner == "user"` (no `/loop` already driving — checked above).
+- Mode is not `--task` and not `--hotfix` (those are single-tick by design).
+- Cursor exists and `terminal: false`.
+- Cursor's `auto_loop_attempted` field is not `true`.
+- **Sprint-liveness re-check (defense in depth):** `<SHIPYARD_DATA>/sprints/current/SPRINT.md` exists AND its frontmatter `status` is NOT `completed`. The recipe step 3 sweep should have already exited if either is false — this re-check guards against a refactor that moves the sweep, since bootstrapping against a dead sprint is the exact precondition for the v2.2.0 wakeup-leak regression. If this re-check fires, emit `pipeline_terminal pipeline=ship-execute sprint=<id> outcome=noop reason=sprint_dead_at_bootstrap` and print the standard `▶ CYCLE COMPLETE — sprint already complete. /loop should stop.` marker, then exit. Never bootstrap `/loop` against a dead sprint.
+
+When eligible, in this exact order:
+
+1. Use the Write tool to update the cursor: preserve every existing field, set `auto_loop_attempted: true`. This MUST land before the `Skill(loop, ...)` call — `/loop` fires its iteration 1 immediately and re-enters this skill, and that re-entry must see the sentinel so it skips this block and proceeds to real work.
+2. Emit `shipyard-data events emit pipeline_loop_bootstrap pipeline=ship-execute sprint=<id> via=auto`.
+3. Invoke `Skill(skill: "loop", args: "/shipyard:ship-execute")`. `/loop` will set up dynamic-mode self-pacing AND immediately fire `/shipyard:ship-execute` as iteration 1. The re-entry sees `auto_loop_attempted: true`, skips this bootstrap, and does the current tick's actual stage work. `/loop`'s pacer then schedules subsequent ticks via `ScheduleWakeup`.
+4. Return from this outer invocation as soon as the `Skill` call returns. Do NOT do tick work in this outer frame — the re-entry owns it. Print the one-line marker `▶ AUTO-LOOP STARTED — /shipyard:ship-execute is now driven by /loop. Subsequent waves will fire automatically.` so the user sees what happened.
+
+When not eligible, skip the bootstrap block entirely and proceed to the dispatch contract below.
+
+**Sentinel cleanup.** When writing a terminal cursor (`terminal: true`, regardless of outcome — success, escalated, aborted), do NOT carry `auto_loop_attempted` forward. The next sprint's first `/ship-execute` re-evaluates eligibility from scratch. The `current/` archive at sprint completion drops the cursor along with the rest of sprint state, so this is mostly a belt-and-braces rule.
+
+**Fallback if `/loop` goes silent.** If a tick re-enters with `loop_owner == "user"` AND `auto_loop_attempted == true` AND the last `pipeline_tick_completed` event from this pipeline is older than 5 minutes (i.e., `/loop` accepted the bootstrap but stopped firing), call `CronCreate(cron: "*/2 * * * *", prompt: "/shipyard:ship-execute", recurring: false)` to nudge the next tick, then proceed with this tick's work. Emit `shipyard-data events emit pipeline_loop_bootstrap_fallback pipeline=ship-execute sprint=<id> method=cron reason=loop_silent`. This path exists for resilience; in normal operation `/loop` keeps firing and the fallback never triggers.
+
 **Direct invocation vs /loop driver — the dispatch contract.**
 
-- **`loop_owner: "user"` (direct invocation):** the handler for the current stage runs, and on success it CHAINS into the next stage's handler within the same invocation. Continue chaining until either a user-input gate (AskUserQuestion), the terminal stage, or a ~3-minute wall-clock budget is exhausted. The FULL SPRINT Execution mandate below (sprint-start to sprint-done without per-wave hand-off) is the direct-invocation behavior — do not change it.
+- **`loop_owner: "user"` (direct invocation):** the handler for the current stage runs, and on success it CHAINS into the next stage's handler within the same invocation. Continue chaining until either a user-input gate (AskUserQuestion), the terminal stage, or a ~10-minute wall-clock budget is exhausted. The FULL SPRINT Execution mandate below (sprint-start to sprint-done without per-wave hand-off) is the direct-invocation behavior — do not change it.
 - **`loop_owner: "/loop"`:** the handler for the current stage runs, writes the cursor for the next stage, emits `pipeline_tick_completed`, prints the tick marker, and exits. /loop schedules the next wakeup; the next tick re-enters this skill and reads the cursor again. One stage per tick.
 
 Both paths share the SAME stage handlers and the SAME cursor. The only difference is whether the skill chains within an invocation or exits between stages.
@@ -239,6 +267,38 @@ Before spawning any agent for a task, read the task file frontmatter and check `
 
 **Note — builders may write IDEA files during task execution.** Up to 3 `IDEA-*` files to `<SHIPYARD_DATA>/spec/ideas/` for deferred unknowns and scope-adjacent rot discovered while building. Committed atomically with the task. IDEAs surface in `/ship-sprint`'s carry-over scan and `/ship-backlog`'s IDEAS section. The capture-deferred-unknowns rules are inlined in `dispatching-task-loop`'s subagent prompt template.
 
+#### Live progress streaming (wrap the dispatch)
+
+`dispatching-task-loop`'s subagents already emit `task_loop_iteration` events per iteration (`shipyard-data events emit task_loop_iteration task=<id> iteration=<N> probe_exit=<code>`) from inside their own contexts — see `dispatching-task-loop/SKILL.md`. By default the orchestrator does NOT surface mid-loop work, leaving the user with a long silence (minutes per wave) while subagents churn. To close that gap, wrap each wave's per-task dispatch with a backgrounded `tail -f` on the event log and attach `Monitor` so events surface in the user's chat as they fire.
+
+Pattern, immediately before dispatching the first task of the wave:
+
+```
+# Start the live-progress streamer. Captures events appended to the log during this wave's dispatch.
+bg = Bash(
+    run_in_background: true,
+    command: "tail -f -n 0 <SHIPYARD_DATA>/.shipyard-events.jsonl | "
+             "grep --line-buffered -E '(task_loop_iteration|subagent_dispatched|subagent_returned|wave_check_passed|wave_check_failed)'"
+)
+Monitor(bg.task_id)   # each matching JSONL line surfaces as a notification
+```
+
+After the wave's dispatch returns (all task verdicts collected):
+
+```
+TaskStop(bg.task_id)  # ends the tail-f and the Monitor together
+```
+
+Apply this wrap at every stage that dispatches subagents:
+
+- `wave_<N>_dispatch`
+- `wave_<N>_redispatch_iter_<K>`
+- `sprint_tests_fix_iter_<K>` (sprint-level test-fix re-dispatch)
+
+Skip for stages without subagent dispatch (preflight, salvage, load, readiness, boundary, refactor, tests, verify, gate). The `verify` and `tests` stages already have their own Monitor wired via `dispatching-operational-task` for stream-vs-capture verify runs (commit `de5c0c8`) — do not double-wrap.
+
+The streamer is cheap: `tail -f -n 0` starts at EOF (no historical replay), `grep --line-buffered` flushes line-by-line, the JSONL events are tens of bytes each. Negligible per tick.
+
 #### Per-task dispatch (solo + subagent modes — kind: feature only)
 
 For each task in the wave, **invoke the `shipyard:dispatching-task-loop` capability skill** — do NOT construct an Agent dispatch inline. The capability skill owns the prompt template (with the three Iron Laws inlined), the structured-return contract, the orchestrator-side gate (sha verification + probe re-execution + anti-stub-scan), the iteration cap, and the single-redispatch rule.
@@ -334,7 +394,7 @@ Between waves:
 - Item 6 → `stage: wave_<N>_tests`. On success → `wave_<N>_verify`. On failure → `wave_<N>_tests_fix_iter_1` (single re-dispatch via `dispatching-task-loop`).
 - Item 7 → `stage: wave_<N>_verify`. On success → `wave_<N>_gate`. FINDINGS → `wave_<N>_redispatch_iter_1` per failing task.
 
-Under `/loop`, each item writes its own cursor + emits `pipeline_tick_completed` + prints the tick marker + exits. Under direct invocation, items chain through within the ~3-minute wall-clock budget; on budget exhaustion, write the cursor at the next pending stage and exit so the next invocation resumes cleanly.
+Under `/loop`, each item writes its own cursor + emits `pipeline_tick_completed` + prints the tick marker + exits. Under direct invocation, items chain through within the ~10-minute wall-clock budget; on budget exhaustion, write the cursor at the next pending stage and exit so the next invocation resumes cleanly.
 
 ### Compaction Recovery
 

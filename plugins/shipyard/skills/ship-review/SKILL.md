@@ -47,16 +47,44 @@ $ARGUMENTS
    - **If the file exists and `terminal: false`**: emit `shipyard-data events emit pipeline_tick_started pipeline=ship-review sprint=<id> stage=<cursor.stage> iteration=<cursor.iteration> loop_owner=<owner>`, then dispatch to the handler for `cursor.stage` (per the stage map in `references/pipeline-cursor.md`).
    - **If the file does NOT exist**: fresh start. Set `stage: preflight`, `iteration: 1`, `terminal: false`, `status: in_progress`. Emit `pipeline_tick_started`. Dispatch to the preflight handler.
 
-2. After the chosen stage's handler returns, use the Write tool to write the cursor for tick N+1 (or for terminal exit). Emit `pipeline_tick_completed` (advancing or self-looping) or `pipeline_terminal` (terminal stage). Print the appropriate marker text.
+2. **No-op terminal sweep (MANDATORY — load-bearing for /loop safety).** Even if step 1 read a non-terminal cursor (or no cursor at all), verify the sprint is actually alive by checking all THREE conditions:
+   - cursor exists with `terminal: true` (already covered in step 1; re-checking here is belt-and-braces)
+   - `<SHIPYARD_DATA>/sprints/current/SPRINT.md` frontmatter has `status: completed`
+   - There is no active sprint in `<SHIPYARD_DATA>/sprints/current/` (already archived — `current/` directory empty or absent of SPRINT.md)
+
+   If ANY of these hold AND no feature ID was passed as an argument: emit `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<id-or-unknown> outcome=noop reason=sprint_already_archived`, print `▶ CYCLE COMPLETE — sprint already complete and archived. /loop should stop.`, exit cleanly. NEVER skip this sweep — it is the exact protection that closed the original `/loop` wakeup-leak bug. The auto-loop bootstrap below explicitly depends on this sweep having run with no exit triggered.
+
+3. After the chosen stage's handler returns, use the Write tool to write the cursor for tick N+1 (or for terminal exit). Emit `pipeline_tick_completed` (advancing or self-looping) or `pipeline_terminal` (terminal stage). Print the appropriate marker text.
 
 The cursor write uses the Write tool against the literal SHIPYARD_DATA path (auto-approved by the PreToolUse hook). The marker text is load-bearing — `/loop` drivers (and the loop-driving model) read `CYCLE COMPLETE` + `/loop should stop` as the structural signal to refrain from scheduling another wakeup.
 
 **Direct invocation vs /loop driver.** The same skill body serves both callers:
 
-- **Direct invocation** (user runs `/ship-review` or `/ship-review F-NNN` from the prompt): after a handler returns, if the next stage is non-terminal AND non-blocking (no `AskUserQuestion` required AND no expensive long-running operation), the dispatcher MAY chain into it within the same invocation. Bound the chain by an approximate wall-clock budget of **~3 minutes** per invocation to keep ticks responsive and interruptible.
+- **Direct invocation** (user runs `/ship-review` or `/ship-review F-NNN` from the prompt): after a handler returns, if the next stage is non-terminal AND non-blocking (no `AskUserQuestion` required AND no expensive long-running operation), the dispatcher MAY chain into it within the same invocation. Bound the chain by an approximate wall-clock budget of **~10 minutes** per invocation to keep ticks responsive and interruptible.
 - **`/loop` driver** (the invocation is one tick of a `/loop` schedule): each tick is exactly one handler. After writing the cursor and emitting `pipeline_tick_completed`, exit. The chain-within-invocation logic is suppressed when `loop_owner == "/loop"`. The next `/loop` wakeup picks up from the cursor's `stage:`.
 
 **`loop_owner` detection.** Determine the caller by reading the most recent `pipeline_tick_completed` event from `<SHIPYARD_DATA>/.shipyard-events.jsonl` (a 30-minute lookback window): if its `next_stage` matches the current cursor's `stage` AND its timestamp is within the last 30 minutes, treat the current invocation as a `/loop` re-entry and set `loop_owner: "/loop"`. Otherwise treat as a direct user invocation (`loop_owner: "user"`). A user explicitly passing `--single-tick` forces `/loop` semantics — this is the override for "I want one tick now and that's it."
+
+**Auto-loop bootstrap (run AFTER loop_owner detection AND the no-op terminal sweep, BEFORE the dispatch contract).** When a user invokes `/ship-review` directly, this skill self-bootstraps the `/loop` driver so the user never needs to type `/loop` themselves. Eligibility (ALL must hold — checked in this order so the cheapest predicates fail-fast):
+
+- `loop_owner == "user"` (no `/loop` already driving — checked above).
+- Cursor exists and `terminal: false`.
+- Cursor's `auto_loop_attempted` field is not `true`.
+- Mode is not `--retro-only` (single-pass retro, no looping needed).
+- **Sprint-liveness re-check (defense in depth):** `<SHIPYARD_DATA>/sprints/current/SPRINT.md` exists AND its frontmatter `status` is NOT `completed`. The step 2 sweep should have already exited if either is false — this re-check guards against a refactor that moves the sweep, since bootstrapping against a dead sprint is the exact precondition for the v2.2.0 wakeup-leak regression. If this re-check fires, emit `pipeline_terminal pipeline=ship-review sprint=<id> outcome=noop reason=sprint_dead_at_bootstrap` and print the standard `▶ CYCLE COMPLETE — sprint already complete and archived. /loop should stop.` marker, then exit. Never bootstrap `/loop` against a dead sprint.
+
+When eligible, in this exact order:
+
+1. Use the Write tool to update the cursor: preserve every existing field, set `auto_loop_attempted: true`. This MUST land before the `Skill(loop, ...)` call — `/loop` fires its iteration 1 immediately and re-enters this skill, and that re-entry must see the sentinel so it skips this block and proceeds to real work.
+2. Emit `shipyard-data events emit pipeline_loop_bootstrap pipeline=ship-review sprint=<id> via=auto`.
+3. Invoke `Skill(skill: "loop", args: "/shipyard:ship-review")`. `/loop` will set up dynamic-mode self-pacing AND immediately fire `/shipyard:ship-review` as iteration 1. The re-entry sees `auto_loop_attempted: true`, skips this bootstrap, and does the current tick's actual stage work. `/loop`'s pacer then schedules subsequent ticks via `ScheduleWakeup`.
+4. Return from this outer invocation as soon as the `Skill` call returns. Do NOT do tick work in this outer frame — the re-entry owns it. Print the one-line marker `▶ AUTO-LOOP STARTED — /shipyard:ship-review is now driven by /loop. Subsequent stages will fire automatically.`
+
+When not eligible, skip the bootstrap block entirely and proceed to the dispatch contract above.
+
+**Sentinel cleanup.** When writing a terminal cursor (`terminal: true`, regardless of outcome), do NOT carry `auto_loop_attempted` forward. The next review's first `/ship-review` re-evaluates eligibility from scratch.
+
+**Fallback if `/loop` goes silent.** If a tick re-enters with `loop_owner == "user"` AND `auto_loop_attempted == true` AND the last `pipeline_tick_completed` event from this pipeline is older than 5 minutes (i.e., `/loop` accepted the bootstrap but stopped firing), call `CronCreate(cron: "*/2 * * * *", prompt: "/shipyard:ship-review", recurring: false)` to nudge the next tick, then proceed with this tick's work. Emit `shipyard-data events emit pipeline_loop_bootstrap_fallback pipeline=ship-review sprint=<id> method=cron reason=loop_silent`. This path exists for resilience; in normal operation `/loop` keeps firing and the fallback never triggers.
 
 ### Self-looping stages: stuck detection
 
@@ -96,7 +124,7 @@ Verify we're on the working branch from SPRINT.md frontmatter:
 
 This ensures review and any patch fixes happen on the correct branch.
 
-- **Cursor write**: on success, write `stage: code_review_iter_1` (or `stage: tests` if `--skip-code-review`, or `stage: retro_step_1` if `--retro-only`), `iteration: 1`, `terminal: false`, `next_action: "Run Stage 0 code review iteration 1"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed pipeline=ship-review sprint=<id> stage=preflight outcome=advanced next_stage=<next>` and print `▶ TICK COMPLETE — pipeline at stage [next_stage]. /loop continues.` then exit. When direct invocation: chain into the next stage's handler (subject to the ~3-minute wall-clock budget).
+- **Cursor write**: on success, write `stage: code_review_iter_1` (or `stage: tests` if `--skip-code-review`, or `stage: retro_step_1` if `--retro-only`), `iteration: 1`, `terminal: false`, `next_action: "Run Stage 0 code review iteration 1"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed pipeline=ship-review sprint=<id> stage=preflight outcome=advanced next_stage=<next>` and print `▶ TICK COMPLETE — pipeline at stage [next_stage]. /loop continues.` then exit. When direct invocation: chain into the next stage's handler (subject to the ~10-minute wall-clock budget).
 
 ---
 

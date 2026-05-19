@@ -421,5 +421,110 @@
     "name": "scheduled_wakeup_not_invented",
     "type": "not_contains",
     "pattern": "ScheduleWakeup.*REVIEW-CURSOR|ScheduleWakeup.*ship-review"
+  },
+  {
+    "name": "direct_invocation_budget_bumped_to_10_min",
+    "type": "contains",
+    "pattern": "~10 minutes? per invocation|~10 minutes? wall-clock|10-minute wall-clock budget"
+  },
+  {
+    "name": "direct_invocation_budget_no_longer_3_min",
+    "type": "not_contains",
+    "pattern": "~3 minutes? per invocation|~3-minute wall-clock budget|approximately 3 minutes"
+  },
+  {
+    "name": "documents_auto_loop_bootstrap",
+    "type": "contains",
+    "pattern": "Auto-loop bootstrap"
+  },
+  {
+    "name": "auto_loop_uses_skill_loop_invocation",
+    "type": "contains",
+    "pattern": "Skill\\(skill: \"loop\""
+  },
+  {
+    "name": "auto_loop_writes_sentinel_to_cursor",
+    "type": "contains",
+    "pattern": "auto_loop_attempted: true"
+  },
+  {
+    "name": "auto_loop_emits_bootstrap_event",
+    "type": "contains",
+    "pattern": "pipeline_loop_bootstrap pipeline=ship-review"
+  },
+  {
+    "name": "auto_loop_skill_invocation_targets_ship_review",
+    "type": "contains",
+    "pattern": "Skill\\(skill: \"loop\", args: \"/shipyard:ship-review\"\\)"
+  },
+  {
+    "name": "auto_loop_cleanup_on_terminal",
+    "type": "contains",
+    "pattern": "do NOT carry .?auto_loop_attempted"
+  },
+  {
+    "name": "auto_loop_has_cron_fallback",
+    "type": "contains",
+    "pattern": "CronCreate.*shipyard:ship-review|pipeline_loop_bootstrap_fallback pipeline=ship-review"
+  },
+  {
+    "name": "auto_loop_skips_in_retro_only_mode",
+    "type": "contains",
+    "pattern": "not .--retro-only"
+  },
+  {
+    "name": "wakeup_leak_protection_noop_terminal_sweep_documented",
+    "type": "contains",
+    "pattern": "No-op terminal sweep \\(MANDATORY"
+  },
+  {
+    "name": "wakeup_leak_protection_three_conditions_named",
+    "type": "contains",
+    "pattern": "all THREE conditions"
+  },
+  {
+    "name": "wakeup_leak_protection_sprint_md_completed_checked",
+    "type": "contains",
+    "pattern": "SPRINT\\.md.*frontmatter.*has .status: completed.|status: completed"
+  },
+  {
+    "name": "wakeup_leak_protection_archived_current_checked",
+    "type": "contains",
+    "pattern": "no active sprint in"
+  },
+  {
+    "name": "wakeup_leak_protection_emits_pipeline_terminal_on_noop",
+    "type": "contains",
+    "pattern": "pipeline_terminal pipeline=ship-review sprint=.+? outcome=noop reason=sprint_already_archived"
+  },
+  {
+    "name": "wakeup_leak_protection_prints_cycle_complete_marker",
+    "type": "contains",
+    "pattern": "CYCLE COMPLETE — sprint already complete and archived\\. /loop should stop\\."
+  },
+  {
+    "name": "wakeup_leak_protection_references_v2_2_0_lesson",
+    "type": "contains",
+    "pattern": "original .?/loop.? wakeup-leak|original /loop bug"
+  },
+  {
+    "name": "bootstrap_runs_after_noop_terminal_sweep",
+    "type": "contains",
+    "pattern": "Auto-loop bootstrap \\(run AFTER loop_owner detection AND the no-op terminal sweep"
+  },
+  {
+    "name": "bootstrap_has_sprint_liveness_re_check",
+    "type": "contains",
+    "pattern": "Sprint-liveness re-check"
+  },
+  {
+    "name": "bootstrap_refuses_dead_sprint",
+    "type": "contains",
+    "pattern": "Never bootstrap .?/loop.? against a dead sprint"
+  },
+  {
+    "name": "bootstrap_dead_sprint_emits_terminal",
+    "type": "contains",
+    "pattern": "pipeline_terminal pipeline=ship-review sprint=.+? outcome=noop reason=sprint_dead_at_bootstrap"
   }
 ]

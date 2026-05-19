@@ -149,7 +149,7 @@ The cursor write is via the Write tool (auto-approved for SHIPYARD_DATA). Use th
 
 ## Direct invocation vs /loop driver
 
-Same as ship-review. Direct invocation chains handlers within a single invocation up to a ~3-minute wall-clock budget; `/loop` driver runs one handler per tick. Detection via the most recent `pipeline_tick_completed` event in `.shipyard-events.jsonl`: within 30 minutes + matching `next_stage` → `/loop` re-entry. Override via `--single-tick`.
+Same as ship-review. Direct invocation chains handlers within a single invocation up to a ~10-minute wall-clock budget; `/loop` driver runs one handler per tick. Detection via the most recent `pipeline_tick_completed` event in `.shipyard-events.jsonl`: within 30 minutes + matching `next_stage` → `/loop` re-entry. Override via `--single-tick`.
 
 ## Interplay with verifying-wave-completion
 

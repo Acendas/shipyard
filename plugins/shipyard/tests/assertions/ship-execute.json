@@ -785,5 +785,135 @@
     "name": "coexists_with_handoff_md",
     "type": "contains",
     "pattern": "HANDOFF\\.md.*cursor|cursor.*HANDOFF\\.md|HANDOFF\\.md.*precedence"
+  },
+  {
+    "name": "direct_invocation_budget_bumped_to_10_min",
+    "type": "contains",
+    "pattern": "~10-minute wall-clock budget"
+  },
+  {
+    "name": "direct_invocation_budget_no_longer_3_min",
+    "type": "not_contains",
+    "pattern": "~3-minute wall-clock budget"
+  },
+  {
+    "name": "documents_auto_loop_bootstrap",
+    "type": "contains",
+    "pattern": "Auto-loop bootstrap"
+  },
+  {
+    "name": "auto_loop_uses_skill_loop_invocation",
+    "type": "contains",
+    "pattern": "Skill\\(skill: \"loop\""
+  },
+  {
+    "name": "auto_loop_writes_sentinel_to_cursor",
+    "type": "contains",
+    "pattern": "auto_loop_attempted: true"
+  },
+  {
+    "name": "auto_loop_sentinel_written_before_skill_call",
+    "type": "contains",
+    "pattern": "MUST land before the .Skill\\(loop, \\.\\.\\.\\). call|MUST happen before invoking /loop|MUST happen before the .Skill"
+  },
+  {
+    "name": "auto_loop_emits_bootstrap_event",
+    "type": "contains",
+    "pattern": "pipeline_loop_bootstrap"
+  },
+  {
+    "name": "auto_loop_skips_in_task_and_hotfix_modes",
+    "type": "contains",
+    "pattern": "not --task and not --hotfix|--task.*--hotfix.*single-tick"
+  },
+  {
+    "name": "auto_loop_cleanup_on_terminal",
+    "type": "contains",
+    "pattern": "do NOT carry .?auto_loop_attempted"
+  },
+  {
+    "name": "auto_loop_has_cron_fallback",
+    "type": "contains",
+    "pattern": "CronCreate.*shipyard:ship-execute|pipeline_loop_bootstrap_fallback"
+  },
+  {
+    "name": "live_progress_monitor_pattern_documented",
+    "type": "contains",
+    "pattern": "Live progress streaming"
+  },
+  {
+    "name": "live_progress_uses_tail_f_on_events_jsonl",
+    "type": "contains",
+    "pattern": "tail -f -n 0 <SHIPYARD_DATA>/\\.shipyard-events\\.jsonl"
+  },
+  {
+    "name": "live_progress_filters_task_loop_iteration",
+    "type": "contains",
+    "pattern": "task_loop_iteration"
+  },
+  {
+    "name": "live_progress_attaches_monitor_tool",
+    "type": "contains",
+    "pattern": "Monitor\\(bg\\.task_id\\)|attach.*Monitor"
+  },
+  {
+    "name": "live_progress_skips_double_wrap_on_verify",
+    "type": "contains",
+    "pattern": "do not double-wrap"
+  },
+  {
+    "name": "wakeup_leak_protection_noop_terminal_sweep_documented",
+    "type": "contains",
+    "pattern": "No-op terminal sweep \\(MANDATORY"
+  },
+  {
+    "name": "wakeup_leak_protection_three_conditions_named",
+    "type": "contains",
+    "pattern": "all THREE conditions"
+  },
+  {
+    "name": "wakeup_leak_protection_sprint_md_completed_checked",
+    "type": "contains",
+    "pattern": "SPRINT\\.md.*frontmatter.*has .status: completed.|status: completed"
+  },
+  {
+    "name": "wakeup_leak_protection_archived_current_checked",
+    "type": "contains",
+    "pattern": "no active sprint in"
+  },
+  {
+    "name": "wakeup_leak_protection_emits_pipeline_terminal_on_noop",
+    "type": "contains",
+    "pattern": "pipeline_terminal pipeline=ship-execute sprint=.+? outcome=noop reason=sprint_already_complete"
+  },
+  {
+    "name": "wakeup_leak_protection_prints_cycle_complete_marker",
+    "type": "contains",
+    "pattern": "CYCLE COMPLETE — sprint already complete\\. /loop should stop\\."
+  },
+  {
+    "name": "wakeup_leak_protection_references_v2_2_0_lesson",
+    "type": "contains",
+    "pattern": "original .?/loop.? wakeup-leak"
+  },
+  {
+    "name": "bootstrap_runs_after_noop_terminal_sweep",
+    "type": "contains",
+    "pattern": "Auto-loop bootstrap \\(run AFTER loop_owner detection AND the no-op terminal sweep"
+  },
+  {
+    "name": "bootstrap_has_sprint_liveness_re_check",
+    "type": "contains",
+    "pattern": "Sprint-liveness re-check"
+  },
+  {
+    "name": "bootstrap_refuses_dead_sprint",
+    "type": "contains",
+    "pattern": "Never bootstrap .?/loop.? against a dead sprint"
+  },
+  {
+    "name": "bootstrap_dead_sprint_emits_terminal",
+    "type": "contains",
+    "pattern": "pipeline_terminal pipeline=ship-execute sprint=.+? outcome=noop reason=sprint_dead_at_bootstrap"
   }
 ]

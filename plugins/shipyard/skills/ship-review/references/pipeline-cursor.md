@@ -148,7 +148,7 @@ The cursor write is via the Write tool (auto-approved for SHIPYARD_DATA). Use th
 
 The same skill body serves both callers:
 
-- **Direct invocation** (user runs `/ship-review` or `/ship-review F-NNN`): after a handler returns, if the next stage is non-terminal AND non-blocking (no AskUserQuestion required AND no expensive operation), the dispatcher MAY chain into it within the same invocation, bounded by a wall-clock budget of approximately 3 minutes per invocation. This preserves the "user runs `/ship-review` and it does as much as it can" UX.
+- **Direct invocation** (user runs `/ship-review` or `/ship-review F-NNN`): after a handler returns, if the next stage is non-terminal AND non-blocking (no AskUserQuestion required AND no expensive operation), the dispatcher MAY chain into it within the same invocation, bounded by a wall-clock budget of approximately 10 minutes per invocation. This preserves the "user runs `/ship-review` and it does as much as it can" UX.
 - **/loop driver**: each tick is exactly one handler. The dispatcher exits after writing the cursor and emitting `pipeline_tick_completed`. The chain-within-invocation logic is suppressed when `loop_owner == "/loop"`.
 
 Detect the caller by checking whether the invocation is inside a `/loop` re-entry. The most reliable signal: read the immediately-preceding `pipeline_tick_completed` event from `.shipyard-events.jsonl`; if it was emitted within the last 30 minutes and `next_stage` matches the current cursor's `stage`, treat as `/loop` re-entry. Otherwise treat as direct invocation. (A user explicitly passing `--single-tick` forces /loop semantics; this is the override.)
