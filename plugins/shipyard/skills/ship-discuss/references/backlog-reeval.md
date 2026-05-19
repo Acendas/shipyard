@@ -10,7 +10,23 @@ Read all backlog feature files. For each, verify:
 - Are `dependencies` still accurate? Does the new feature unlock or block anything?
 - Are there now implied ordering constraints that weren't explicit before? (e.g., new F010 must ship before F003 to make F003 useful)
 
-If dependency changes are found, update affected feature files silently. Surface only non-obvious ones to the user as plain text: "FYI: F003 now depends on F010 — updated."
+**Cross-feature dependency edges are user-facing changes — NEVER apply them silently.** The historical "update affected feature files silently" pattern (pre-v2.4.0) wrote dependency mutations into OTHER features' frontmatter without the user's knowledge. That landed phantom edges in BACKLOG ordering and downstream sprint planning, and was flagged as HIGH-risk in the v2.4.0 audit.
+
+The rule is:
+- **Current-feature mutations** (the feature being discussed in this `/ship-discuss` session) — fine to apply directly without per-edit confirmation; the user is approving this feature via the Phase 5 gate.
+- **Other-feature mutations** (any change to a feature file the user did not invoke this discussion to edit) — REQUIRE `AskUserQuestion` confirmation before the Edit. Present the proposed change with the source feature, the target feature, the edge type (depends-on / unlocks / overlaps), and the model's evidence for inferring the edge:
+
+```
+  Cross-feature edge proposed:
+    Source:    F012 (this discussion)
+    Target:    F003 (existing backlog feature)
+    Edge:      F003 depends on F012
+    Evidence:  F003's acceptance scenarios reference [data model X],
+               which F012 introduces. Without F012 shipped first,
+               F003's scenarios can't execute.
+```
+
+Then `AskUserQuestion`: "Add F003 depends on F012? (yes / no / refine the evidence)". Batch multiple proposed edges into themed AskUserQuestion groups if there are several (≤4 per group). Apply each Edit only after explicit user approval.
 
 ## Step 2: Re-score RICE where affected
 

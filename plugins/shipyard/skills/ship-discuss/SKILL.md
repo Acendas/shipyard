@@ -66,14 +66,23 @@ This file is the active-skill mutex (see the `acquiring-skill-lock` capability s
 
 ## Detect Mode
 
+Auto-route ONLY on unambiguous inputs. Heuristic classifications must be confirmed with the user before proceeding — wrong-mode-by-default is a high-impact failure (CAPTURE mode demotes a meaty idea to a stub without acceptance criteria; NEW mode interrogates a brainstorm the user wanted to stash). See the per-input rules below.
+
+**Unambiguous (auto-route, no confirmation needed):**
+
 - If input is an **epic ID** (E001) → **EPIC mode** (refine epic scope, cascade changes to features)
 - If input is an **idea ID** (IDEA-NNN) → **IDEA mode** (convert idea to feature — see below)
 - If input is a **feature ID** (F001) → **REFINE mode** (load existing, gather updates)
-- If input is a **triage phrase** — phrases like "anything requires discussion", "anything requires discussion?", "what's open", "what needs discussion", "what needs attention", "what's pending", "what needs refinement", "anything else", "discuss anything", "what else", "any ideas", "any ideas to discuss", "what ideas" → **TRIAGE mode** (see below)
-- If input is a **short one-liner** (under ~20 words, no questions, no detail) → **CAPTURE mode** (quick idea, zero ceremony)
-- If input describes something **large** (multiple features implied, a whole product area) → offer: "This sounds like an epic — multiple features under one initiative. Discuss as an epic, or start with the first feature? (epic / feature)"
-- If input is a **detailed topic** or the user is asking questions → **NEW mode** (start fresh conversation)
+- If input is a **triage phrase** — exact phrase match against: "anything requires discussion", "anything requires discussion?", "what's open", "what needs discussion", "what needs attention", "what's pending", "what needs refinement", "anything else", "discuss anything", "what else", "any ideas", "any ideas to discuss", "what ideas" → **TRIAGE mode** (see below)
 - If no input → AskUserQuestion: "What would you like to discuss?"
+
+**Heuristic-classified (REQUIRES confirmation before routing):** Any input that does not match the unambiguous list above MUST be confirmed with the user even if the heuristic strongly suggests a mode. Compose a one-line summary of the input, the inferred mode, and the mode's outcome, and use `AskUserQuestion` to confirm. Default-recommend the inferred mode but always offer the cheaper-to-recover-from neighbor:
+
+- **Short one-liner heuristic** (under ~20 words, no questions, no detail) → inferred CAPTURE mode. Ask: "This looks like a quick capture — file as IDEA-NNN (zero ceremony) or open a full feature discussion?" Default: CAPTURE.
+- **Large-initiative heuristic** (multiple features implied, a whole product area) → inferred EPIC mode. Ask: "This sounds like an epic — multiple features under one initiative. Discuss as an epic, or start with the first feature? (epic / feature)". Default: epic.
+- **Detailed-topic heuristic** (the user is describing a single feature in more than a few words OR asking questions about a single behavior) → inferred NEW mode. Ask: "Open a full discussion (~6 phases, produces a spec) or stash as an IDEA for later?" Default: NEW.
+
+The confirmation step is two sentences max — do not turn it into a full Phase 1 question. Its only purpose is to catch wrong-mode-by-default before the skill commits to a flow that's hard to back out of (CAPTURE writes an IDEA file; NEW writes a feature; EPIC cascades changes). After confirmation, route to the chosen mode.
 
 ### TRIAGE Mode: Surface what needs discussion
 
@@ -106,9 +115,12 @@ If you lose context mid-discussion (e.g., after auto-compaction):
 
 1. Use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md`. If it exists, parse its frontmatter — if `obsolete: true` is set, treat it as absent (skip to step 2). Otherwise:
    - If found and `topic:` matches → research and challenge phases completed. Read it for findings. Resume from Phase 2 (Viability Gate)
-   - If found but its `topic:` doesn't match the current discussion topic → AskUserQuestion: "A previous discussion left unfinished research on '[topic]'. Mark it obsolete and start fresh on your current topic? (mark obsolete / keep and resume that topic instead)"
-     - **mark obsolete**: use Edit to set `obsolete: true` in the draft's frontmatter, proceed fresh into Phase 1.5 (Research) for the current topic
-     - **keep**: Switch to the old topic. Read `topic:` from `.research-draft.md`, load its research findings, and resume from Phase 2 (Viability Gate) for that topic. Inform the user: "Resuming discussion on [old topic]. To discuss [new topic], run /ship-discuss [new topic] in a new session."
+   - If found but its `topic:` doesn't match the current discussion topic → topic-mismatch fork. The user just typed `/ship-discuss [new topic]`, but stale research exists for `[old topic]`. The default behavior MUST favor the user's most recent intent (the new topic) — abandoning a fresh request to resume stale research is the wrong-by-default semantics that surfaced as HIGH-risk in the v2.4.0 audit (user picks "keep" thinking it means "keep my new topic", silently discards the new request). Use `AskUserQuestion` with options labeled by the topic they refer to, NOT by abstract verbs like "keep" or "discard":
+     - **"Continue with the new topic '[new topic]' (recommended)"** → use Edit to set `obsolete: true` in the draft's frontmatter (preserving the old research as a soft-deleted record), proceed fresh into Phase 1.5 (Research) for the current topic. This is the default and should be presented first.
+     - **"Resume the old discussion on '[old topic]' instead"** → switch to the old topic. Read `topic:` from `.research-draft.md`, load its research findings, and resume from Phase 2 (Viability Gate) for that topic. Inform the user: "Resuming discussion on [old topic]. To discuss [new topic], run /ship-discuss [new topic] in a new session." Only choose this if the user explicitly picks it — never default to it.
+     - **"Resume the old topic AND archive the old research before starting the new one"** (when the user wants both) → first finalize the old discussion to Phase 6 in a quick wrap-up pass, then start fresh on the new topic.
+
+   Never present this as a generic "keep / discard" pair without naming which topic each refers to — that's the exact source of the v2.4.0 wrong-by-default report. Both topic strings must appear in the option labels.
 2. Check for feature file matching the topic: use Glob `<SHIPYARD_DATA>/spec/features/F*-*.md` to enumerate, then Read each and match by title against the current topic.
    - If found with empty acceptance criteria → Phase 3 incomplete, resume Phase 3
    - If found with acceptance criteria and `status: proposed` → Phase 3 done, resume from Phase 3.5 (Impact Analysis)
@@ -200,7 +212,7 @@ Idea: IDEA-NNN — [title]
 
 Pass the idea content as context into the full NEW mode flow (Phases 1 → 6), starting at Phase 1. The idea's description pre-answers some of Phase 1's questions — skip what's already clear, focus AskUserQuestion on genuine unknowns.
 
-Run all phases in sequence: Phase 1 (Understand) → Phase 1.5 (Research) → Phase 1.5b (Challenge & Surface) → Phase 2 (Viability Gate) → Phase 3 (Write to Spec as FNNN) → **Phase 3.5 (Impact Analysis)** → **Phase 3.7 (Simplification Scan)** → Phase 4 (Capture tangential ideas) → Phase 5 (Spec Approval Gate) → Phase 6 (Finalize).
+Run all phases in sequence: Phase 1 (Understand) → Phase 1.5 (Research) → Phase 1.5b (Challenge & Surface) → Phase 2 (Viability Gate) → Phase 3 (Write to Spec as FNNN) → **Phase 3.5 (Impact Analysis)** → **Phase 3.7 (Simplification Scan)** → Phase 4 (Capture tangential ideas) → Phase 4.5 (Backlog Re-evaluation) → Phase 4.9 (Quality Gate) → Phase 4.95 (Adversarial Critique) → **Phase 4.97 (Scope-Drift Check)** → Phase 5 (Spec Approval Gate) → Phase 6 (Finalize).
 
 Impact Analysis (Phase 3.5) runs as normal — it scans existing features for dependencies, overlaps, conflicts, and invalidations caused by the new feature, and uses AskUserQuestion to confirm what to apply.
 
@@ -261,13 +273,28 @@ Once you have a reasonable understanding of the feature, **proactively challenge
 
 ### Phase 2: Viability Gate
 
-Before writing to spec, silently evaluate each feature:
+Before writing to spec, evaluate each feature against the 5 gates AND echo the verdicts to the user. The historical "silently evaluate" pattern hid model misjudgments — USER VALUE, SCOPED, and TESTABLE are judgment calls the user has standing on, and silent-pass leaves no feedback channel when the model reads the feature wrong.
+
+**The gates:**
 
 1. **USER VALUE** — Can we articulate who wants this and why? → KILL if no clear user story
 2. **DEFINABLE** — Can we write testable acceptance criteria (Given/When/Then)? → KILL if too vague
 3. **BUILDABLE** — Can we decompose into executable tasks? → KILL if impossible constraints
 4. **TESTABLE** — Can we verify with automated tests + demo? → KILL if purely subjective
 5. **SCOPED** — Is it one feature, not three in a trench coat? → SPLIT if multiple stories
+
+**Verdict echo (MANDATORY — even on PASS).** After running the gates, surface the verdicts in a compact block before continuing:
+
+```
+  Viability read:
+    USER VALUE  ✓  [one-line summary of who + why, as the model read it]
+    DEFINABLE   ✓  [acceptance theme — what the criteria will test]
+    BUILDABLE   ✓  [task-decomposition shape — small/medium/large]
+    TESTABLE    ✓  [verification approach — auto-test + demo path]
+    SCOPED      ✓  [N feature(s) — if N>1, list the split]
+```
+
+Then `AskUserQuestion`: "I'm reading this as one feature, scoped to [scope], with these acceptance themes: [themes]. Does this match your intent? (looks right / refine the read / split into multiple features)". Default-recommend "looks right" only when all five gates pass cleanly. If the user picks "refine the read" or "split into multiple features", go back to Phase 1 for re-clarification before writing to spec. Do NOT skip this echo step — the v2.4.0 audit flagged silent-pass as a HIGH-risk gap because users have no way to catch a model misjudgment about USER VALUE / TESTABLE / SCOPED otherwise.
 
 When SPLIT fires (or BUILDABLE/SCOPED fails on size grounds), invoke the **`shipyard:splitting-stories` capability skill** with `level: feature`, the draft text, the AC list, and `domain_hints` inferred from the discussion. The skill returns split candidates with cited patterns and `acceptance_hint`s. Present them as an AskUserQuestion: "This looks like [N] stories, not one — split it? (split as suggested / pick which children to keep / capture as-is and refine later)". Reject any candidate that fails the skill's horizontal-slice check before presenting (the skill flags these in `horizontal_rejections` — re-prompt the skill if it returned any).
 
@@ -339,6 +366,29 @@ After the quality gate passes, spawn a `general-purpose` critic subagent (inline
 
 Process the critic's findings: fix what's fixable without user input, batch judgment calls into a single AskUserQuestion with the critic's evidence and your recommendation, log CONCERN items in the Decision Log, make silent assumptions explicit in the spec. **Do NOT re-run the critic after fixes.** One round only.
 
+### Phase 4.97: Scope-Drift Check ("did we drop something?")
+
+Before assembling the Phase 5 approval summary, run an explicit drift check with the user. The discussion entered Phase 1 with one shape (the user's initial topic, idea, or feature request) and may have evolved through challenge, viability, impact, and critique — sometimes losing scope on the way. Up to this point in the skill, there is no checkpoint that asks the user whether the spec they're about to approve still covers everything they originally wanted. Phase 4 captures NEW tangents that come up; this phase asks about OLD intent that may have been dropped.
+
+Run this check exactly once per discussion, regardless of mode (NEW, IDEA-graduated-to-NEW, REFINE). Skip only on CAPTURE mode (which doesn't write acceptance criteria at all).
+
+Compose a two-column diff in plain text:
+
+```
+  Started with:                          Landed at:
+    "[paraphrase of user's initial         F012 — [title]
+     topic from Phase 1 / the                  • [scenario 1 one-liner]
+     IDEA file / the REFINE prompt]"          • [scenario 2 one-liner]
+                                              • [scenario 3 one-liner]
+                                              (RICE [score], [complexity])
+                                          IDEA-007 — [title of tangent captured during Phase 4]
+                                          IDEA-009 — [title of tangent captured during Phase 4]
+```
+
+Then `AskUserQuestion`: "We started with [paraphrase] and landed at the spec above. Did anything important from the original idea NOT make it into the spec? (nothing dropped — proceed to approval / something is missing — let me add it / a piece I wanted got captured as an IDEA instead — promote it)". Default-recommend "nothing dropped" only if the spec's acceptance themes cover every noun/verb in the user's initial topic (paraphrase from Phase 1's first AskUserQuestion). If the user picks "something is missing", re-enter Phase 1 with the dropped concern as the new seed, and re-run Phases 1.5b → 2 → 3 to incorporate it. If the user picks "promote an IDEA", inline-merge the IDEA's content back into the feature spec (or split it into a sibling feature), then return to this phase for re-confirmation.
+
+This phase has zero existing coverage anywhere else in the skill — until v2.4.0, there was no point where the user was asked "what did we cut?" Scope creep prevention was implicit in the model's judgment, which means it was silent and unrecoverable. The audit flagged this as a HIGH-risk gap.
+
 ### Phase 5: Spec Approval Gate (NOT an Implementation Plan)
 
 Feature files are already written with `status: proposed`. This is a spec approval summary — implementation belongs to `/ship-execute` after `/ship-sprint` plans the work. It is never this skill's job.
@@ -354,13 +404,16 @@ The summary is *past-tense outcomes only*. What was discovered, decided, and wri
 Output the discussion outcome as text. Use these sections only — describe what already exists in the spec files, not what should be built:
 
 - **FEATURES DEFINED** — per feature: ID, title, points, RICE, complexity, one-line user story, acceptance-scenario count, NFRs, high-RPN failure modes, edge cases, dependencies
+- **ACCEPTANCE SCENARIOS (VERBATIM)** — for each feature, list **every acceptance scenario in full Given/When/Then text** exactly as it was written to the spec file. Do not paraphrase, do not summarize, do not list "N scenarios" without showing them. These scenarios are the test contract that `/ship-execute` will treat as authoritative — the user must read the actual text, not approve on a count.
 - **IDEAS CAPTURED** — tangential ideas filed during discussion
 - **EPIC** — if assigned, show epic with all features
 - **IMPACTS** — cross-feature changes already applied to spec files
 - **BACKLOG EFFECT** — re-estimation notes, priority shifts
 - **UNRESOLVED** — quality-gate items flagged for follow-up
 
-Then use `AskUserQuestion` for approval:
+**Acceptance-criteria sign-off gate (run BEFORE the approval AskUserQuestion below).** Before asking for overall approval, run an AC-only review using `AskUserQuestion`. Quote each scenario verbatim in the question text (or batch into groups of ≤4 scenarios per question if there are many). For each scenario set, ask: "Are these acceptance scenarios correct as written? (looks good / edit a scenario / a scenario is wrong / missing a scenario)". If the user picks anything other than "looks good", surface the specific scenario and use a follow-up AskUserQuestion to capture the correction, then update the feature file and re-present that scenario set for re-confirmation. Loop until all scenario sets read "looks good". **Do not skip this gate.** Approving a count is not the same as approving the criteria — the v2.4.0 audit flagged this as the single largest risk surface in `/ship-discuss` because wrong-by-default ACs become the test contract that `/ship-execute` enforces downstream and there is no other point in the pipeline where the user is shown the actual scenario text for sign-off.
+
+Then use `AskUserQuestion` for overall approval:
 - **Approve (Recommended)** — proceed to Phase 6 (Finalize). The discussion is not complete until Phase 6 runs in full.
 - **Refine** — stay in discussion, iterate on flagged features, re-enter Phase 5 when ready. Do not touch `.active-session.json`.
 - **Reject** — leave features at `status: proposed`, stop. User can resume later with `/ship-discuss [ID]`. Do not touch `.active-session.json`.

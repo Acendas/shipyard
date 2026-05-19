@@ -79,11 +79,14 @@ You are READ-ONLY: no edits, no commits, no spawning subagents.
 **Process the critic's findings:**
 
 1. Read the `PRIORITY ACTIONS` section — these are mandatory fixes
-2. For each FAIL item and HIGH-risk assumption:
-   - If fixable without user input → fix the feature file directly (update acceptance criteria, add missing error states, clarify ambiguous text, add noted dependencies)
-   - If requires user judgment → collect into a single AskUserQuestion with the critic's evidence and your recommendation
-3. For CONCERN items: note them in the feature's `## Decision Log` as "Critic flagged — [summary]. Accepted because: [your reasoning]" or fix if quick
+2. For each FAIL item and HIGH-risk assumption, classify by fix-shape (the classification determines routing, not the critic's confidence):
+   - **Mechanical / non-semantic fix** — pure formatting (Given/When/Then restructuring of existing-text scenarios with no semantic change), typo correction, missing-citation backfill, internal-link repair. Apply directly to the feature file.
+   - **Semantic / policy-shaped fix** — anything that ADDS a new acceptance criterion, MAKES an implicit assumption explicit in the spec, ADDS a noted dependency edge, CHANGES error-handling behavior, INTRODUCES a rate limit / timeout / retry policy, or otherwise encodes a product decision. **These MUST go through `AskUserQuestion`** even when the model judges them "obvious" or "standard practice." Adding `rate-limit at 5/min` looks mechanical from the model's perspective but is a policy decision the user has standing on. The v2.4.0 audit flagged silent auto-fixes of this shape as HIGH-risk because they encode wrong-by-default product policy under the cover of "the critic said to fix it."
+   - **Ambiguous case** — if it's unclear whether a fix is mechanical or semantic, route through `AskUserQuestion`. Cheap to ask, expensive to silently encode a wrong policy.
+
+   Batch the policy-shaped fixes into a single AskUserQuestion (or themed groups of ≤4) with the critic's evidence inlined and your recommendation. Do not present the critic's findings as questions for the user to interpret — present them as: "Critic flagged [issue]. Recommend [fix]. Apply? (apply / modify / skip — log as accepted-risk)".
+3. For CONCERN items: note them in the feature's `## Decision Log` as "Critic flagged — [summary]. Accepted because: [your reasoning]" or fix if quick (mechanical only — semantic CONCERNs go through AskUserQuestion per the rule above).
 4. For RECONSIDER verdicts from Pass 3 (steel-man challenges): AskUserQuestion with both options and the critic's reasoning, plus your recommendation
-5. If the critic identified assumptions that the spec relies on silently, make them explicit in the spec — add them to acceptance criteria or Technical Notes
+5. If the critic identified assumptions that the spec relies on silently, **do NOT make them explicit in the spec silently.** Making an assumption explicit IS a policy decision (you're committing the spec to a specific reading the user may not have intended). AskUserQuestion: "Critic flagged silent assumption: [text]. Apply as explicit acceptance criterion / Apply as Technical Notes line / Decline (assumption may not be load-bearing)". Default-recommend "Apply as Technical Notes line" — that's the lowest-commitment way to surface the assumption without baking it into the test contract.
 
 **Do NOT re-run the critic after fixes.** One round only. Address what you can, ask the user about the rest, and proceed.

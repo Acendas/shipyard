@@ -296,5 +296,125 @@
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
     "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+  },
+  {
+    "name": "h1_mode_detection_requires_confirmation",
+    "type": "contains",
+    "pattern": "Heuristic-classified \\(REQUIRES confirmation"
+  },
+  {
+    "name": "h1_mode_detection_unambiguous_list_documented",
+    "type": "contains",
+    "pattern": "Unambiguous \\(auto-route, no confirmation needed\\)"
+  },
+  {
+    "name": "h1_mode_short_oneliner_confirms_before_capture",
+    "type": "contains",
+    "pattern": "Short one-liner heuristic.*inferred CAPTURE mode"
+  },
+  {
+    "name": "h2_viability_gate_echo_mandatory",
+    "type": "contains",
+    "pattern": "Verdict echo \\(MANDATORY"
+  },
+  {
+    "name": "h2_viability_gate_no_silent_pass",
+    "type": "contains",
+    "pattern": "silent-pass.*HIGH-risk|silent-pass leaves no feedback channel"
+  },
+  {
+    "name": "h2_viability_gate_asks_user_to_confirm_read",
+    "type": "contains",
+    "pattern": "I'm reading this as one feature, scoped to"
+  },
+  {
+    "name": "h3_phase5_quotes_ac_scenarios_verbatim",
+    "type": "contains",
+    "pattern": "ACCEPTANCE SCENARIOS \\(VERBATIM\\)"
+  },
+  {
+    "name": "h3_phase5_ac_signoff_gate_exists",
+    "type": "contains",
+    "pattern": "Acceptance-criteria sign-off gate"
+  },
+  {
+    "name": "h3_phase5_ac_signoff_gate_must_not_skip",
+    "type": "contains",
+    "pattern": "Do not skip this gate"
+  },
+  {
+    "name": "h3_phase5_ac_signoff_loops_until_clean",
+    "type": "contains",
+    "pattern": "Loop until all scenario sets read"
+  },
+  {
+    "name": "h4_critic_classifies_fixes_by_shape",
+    "type": "contains",
+    "pattern": "Mechanical / non-semantic fix"
+  },
+  {
+    "name": "h4_critic_semantic_fixes_must_ask_user",
+    "type": "contains",
+    "pattern": "MUST go through .{1,5}AskUserQuestion.{1,5} even when the model judges them"
+  },
+  {
+    "name": "h4_critic_ambiguous_routes_to_user",
+    "type": "contains",
+    "pattern": "Cheap to ask, expensive to silently encode a wrong policy"
+  },
+  {
+    "name": "h4_silent_assumption_promotion_disallowed",
+    "type": "contains",
+    "pattern": "do NOT make them explicit in the spec silently"
+  },
+  {
+    "name": "h5_compaction_recovery_labels_topics_in_options",
+    "type": "contains",
+    "pattern": "Both topic strings must appear in the option labels"
+  },
+  {
+    "name": "h5_compaction_recovery_defaults_to_new_topic",
+    "type": "contains",
+    "pattern": "Continue with the new topic"
+  },
+  {
+    "name": "h5_compaction_recovery_never_defaults_to_old",
+    "type": "contains",
+    "pattern": "never default to it"
+  },
+  {
+    "name": "h6_backlog_reeval_other_feature_mutations_require_ask",
+    "type": "contains",
+    "pattern": "Other-feature mutations.*REQUIRE .AskUserQuestion"
+  },
+  {
+    "name": "h6_backlog_reeval_no_silent_apply_documented",
+    "type": "contains",
+    "pattern": "NEVER apply them silently"
+  },
+  {
+    "name": "h6_backlog_reeval_evidence_required_in_question",
+    "type": "contains",
+    "pattern": "Evidence:.*acceptance scenarios reference|model's evidence for inferring the edge"
+  },
+  {
+    "name": "bonus_high_scope_drift_check_exists",
+    "type": "contains",
+    "pattern": "Phase 4\\.97: Scope-Drift Check"
+  },
+  {
+    "name": "bonus_high_scope_drift_asks_about_dropped_intent",
+    "type": "contains",
+    "pattern": "Did anything important from the original idea NOT make it into the spec"
+  },
+  {
+    "name": "bonus_high_scope_drift_runs_exactly_once",
+    "type": "contains",
+    "pattern": "Run this check exactly once per discussion"
+  },
+  {
+    "name": "v240_audit_lesson_referenced",
+    "type": "contains",
+    "pattern": "v2\\.4\\.0 audit"
   }
 ]
