@@ -80,5 +80,55 @@
     "type": "contains",
     "pattern": "design_ambiguity.*AskUserQuestion",
     "dotall": true
+  },
+  {
+    "name": "v250_dispatch_mode_input_documented",
+    "type": "contains",
+    "pattern": "dispatch_mode. .{1,5} .sync. or .background"
+  },
+  {
+    "name": "v250_sprint_id_input_documented",
+    "type": "contains",
+    "pattern": "sprint_id.+?id:.+?SPRINT\\.md"
+  },
+  {
+    "name": "v250_wave_number_input_documented",
+    "type": "contains",
+    "pattern": "wave_number.+?wave number for event-log scoping"
+  },
+  {
+    "name": "v250_subagent_writes_capture_file",
+    "type": "contains",
+    "pattern": "Write the capture file \\(MANDATORY\\)"
+  },
+  {
+    "name": "v250_capture_file_path_canonical",
+    "type": "contains",
+    "pattern": "sprints/current/\\.subagent-returns"
+  },
+  {
+    "name": "v250_subagent_emits_completion_event",
+    "type": "contains",
+    "pattern": "shipyard-data events emit subagent_completed"
+  },
+  {
+    "name": "v250_completion_event_includes_capture_file",
+    "type": "contains",
+    "pattern": "capture_file=.+?\\.subagent-returns"
+  },
+  {
+    "name": "v250_background_dispatch_section_exists",
+    "type": "contains",
+    "pattern": "## Background dispatch \\(v2\\.5\\.0\\+\\)"
+  },
+  {
+    "name": "v250_background_mode_preserves_iron_laws",
+    "type": "contains",
+    "pattern": "Iron Laws inside the subagent prompt are identical"
+  },
+  {
+    "name": "v250_background_mode_preserves_gate",
+    "type": "contains",
+    "pattern": "orchestrator-side gate is identical"
   }
 ]

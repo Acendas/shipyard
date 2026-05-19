@@ -31,6 +31,9 @@ Invoke this capability skill from a command skill (`ship-execute`, `ship-quick`,
 - `acceptance_probe` — the smoke command from the task frontmatter (required; if missing, halt and surface to the user — the task is unauthorable without one)
 - `data_dir` — literal `<SHIPYARD_DATA>` path
 - `worktree_path` — only when worktree-isolating (subagent/team mode); else null
+- `sprint_id` — sprint ID for event-log scoping (the `id:` from `SPRINT.md` frontmatter)
+- `wave_number` — wave number for event-log scoping (current value of cursor `wave_number`)
+- `dispatch_mode` — `sync` or `background`. `sync` = today's behavior, orchestrator parses Agent return value. `background` = orchestrator dispatches via `Agent(run_in_background: true)` and recovers the structured return from `.shipyard-events.jsonl` + capture file. Default `sync` for backward compatibility.
 
 ## The Subagent Prompt Template
 
@@ -98,7 +101,33 @@ Loop until the acceptance probe passes AND no stubs remain. Do not exit otherwis
    remains, fix it and re-probe. Otherwise commit.
 7. **Commit atomically:** `feat({{task_id}}): <one-line>` with the probe output tail
    in the commit body.
-8. **Return** the structured response below.
+8. **Write the capture file (MANDATORY).** Use the Bash tool to write your full
+   structured return (the same text you'll inline below) to:
+       {{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.txt
+   The orchestrator reads this file when running in background mode — see the
+   "Background dispatch" section in the orchestrator notes below. Create the
+   parent directory with `mkdir -p` if it doesn't exist. Use heredoc with a
+   unique terminator (`SUBAGENT_RETURN_EOF`) to preserve newlines exactly.
+9. **Emit the completion event (MANDATORY, LAST action before the inline return).**
+   Use the Bash tool to run:
+       shipyard-data events emit subagent_completed \
+           pipeline=ship-execute \
+           sprint={{sprint_id}} \
+           wave={{wave_number}} \
+           task={{task_id}} \
+           status=<COMPLETE|BLOCKED> \
+           commit_sha=<sha-or-empty> \
+           probe_exit_code=<code> \
+           capture_file={{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.txt
+   This event is the orchestrator's authoritative wake signal in background-
+   dispatch mode. The orchestrator never relies on the Agent tool's return
+   value being read (the iteration that spawned you may have exited before
+   you finished); it reads this event from `.shipyard-events.jsonl` and
+   matches `task=` against the cursor's `pending_subagents` list.
+10. **Return** the structured response below. This is still required (for sync-
+    dispatch callers and for users reading the conversation), but in background
+    mode the orchestrator only uses the inline return for diagnostic context —
+    the authoritative source is the capture file referenced in the event.
 
 You may iterate as many times as needed within this subagent. Your context is yours
 to spend; the orchestrator only sees your final return.
@@ -168,6 +197,51 @@ After the Agent call returns, parse the reply:
    - If the reason indicates an implementation difficulty (e.g., "the existing API doesn't expose what the spec needs"), apply the **single redispatch rule**: redispatch ONCE with the prior reason inlined as `Previous attempt blocked at: <reason>; please retry with this context`. If the second attempt also returns BLOCKED, mark the task `needs-attention`, log to PROGRESS.md deviations, and continue to the next task. Do NOT redispatch a third time on the same task within one wave — that's the failure mode the cap exists to prevent.
 
 4. **Always invoke `verifying-completion` mentally** before flipping the task to `done`. The Iron Law applies at the orchestrator boundary too: "subagent said COMPLETE" is not by itself evidence; the sha-existence check, probe-output presence, and anti-stub-clean check are.
+
+## Background dispatch (v2.5.0+)
+
+When the orchestrator invokes `dispatching-task-loop` with `dispatch_mode: background`, the dispatch shape changes from synchronous to asynchronous:
+
+**Sync mode (default, today's behavior):**
+1. Orchestrator calls `Agent(subagent_type: "general-purpose", prompt: <template>)`.
+2. Agent blocks the orchestrator's iteration until the subagent returns.
+3. Orchestrator reads the Agent's return value, parses the structured contract inline, runs the gate (sha verify + probe re-execution + anti-stub-scan), advances.
+
+**Background mode (v2.5.0+):**
+1. Orchestrator calls `Agent(subagent_type: "general-purpose", run_in_background: true, prompt: <template>)`. Returns immediately with a task handle.
+2. Orchestrator writes the cursor with `stage: wave_<N>_waiting` and adds `task_id` to `pending_subagents` list. Arms a Monitor on the event log for `subagent_completed` events. Exits.
+3. The subagent runs through its internal cycle in the background. At the end:
+   - Writes the full structured return text to `{{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.txt` (step 8 of the Cycle).
+   - Emits `subagent_completed` event with task / status / commit_sha / probe_exit_code / capture_file fields (step 9 of the Cycle).
+   - Returns the inline structured response (step 10) — for sync-mode parity, but no orchestrator iteration reads it in background mode.
+4. The Monitor armed by step 2 wakes /loop the moment the event lands in the log.
+5. On the next /loop iteration, the orchestrator (ship-execute under `stage: wave_<N>_waiting`) sees the event, reads the capture file referenced in `capture_file=`, parses the structured contract from there, and runs the SAME orchestrator-side gate (sha verify + probe re-execution + anti-stub-scan). Removes `task_id` from `pending_subagents`. When `pending_subagents` is empty for the wave, advances cursor to `wave_<N>_boundary`.
+
+**Key invariants preserved across both modes:**
+- The structured-return contract is identical (STATUS / COMMIT / PROBE_EXIT / PROBE_OUTPUT_TAIL).
+- The orchestrator-side gate is identical (sha cat-file + probe re-execution + anti-stub-scan).
+- The Iron Laws inside the subagent prompt are identical.
+
+The ONLY difference is **who reads the return**: the spawning iteration (sync) or a future iteration via event-log + capture file (background). This means background mode can be flipped on per-call without changing the subagent prompt template or the gate logic.
+
+**When to use background mode:**
+- Wave dispatch in `/ship-execute` (the primary use case — eliminates the 5–10 min wall-clock per wave from blocking the orchestrator iteration).
+- Sprint-end test-fix re-dispatch (`sprint_tests_fix_iter_<K>`).
+
+**When to use sync mode:**
+- Single-task mode (`/ship-execute --task <id>`) — there's only one task, no parallelism win.
+- Hotfix mode (`/ship-execute --hotfix`) — same reason.
+- Manual one-shot redispatch outside the normal pipeline.
+
+**Failure modes specific to background mode:**
+
+1. **Subagent dies without emitting the event.** The capture file may also be absent. The orchestrator's `wave_<N>_recovery` handler watches per-task spawned_at timestamps; if `now - spawned_at > max_execution_minutes` (default 60, configurable via task frontmatter) AND no `subagent_completed` event AND no recent `task_loop_iteration` event for that task → presume dead, mark task `status: needs-attention`, log to PROGRESS.md, advance.
+
+2. **Capture file missing but event present.** Contract violation — orchestrator treats as BLOCKED and follows the single-redispatch rule.
+
+3. **Event present but malformed (missing fields).** Contract violation — orchestrator treats as BLOCKED. The `shipyard-data events emit` CLI enforces key=value parsing so this should be rare.
+
+4. **Multiple subagents writing the event log concurrently.** `shipyard-data events emit` uses file locking (see `bin/_hook_lib.mjs`) so concurrent appends serialize correctly. Order on disk may not match dispatch order; orchestrator matches by `task=` field, not by order.
 
 ## Why This Beats Per-Iteration Stop Hooks
 

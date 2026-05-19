@@ -314,10 +314,26 @@ Pass these parameters to `dispatching-task-loop`:
 | `acceptance_probe` | `acceptance_probe:` from the task's frontmatter (HALT and surface to user if missing — task is unauthorable without one) |
 | `data_dir` | Literal SHIPYARD_DATA path |
 | `worktree_path` | null in solo mode; absolute worktree path in subagent/team mode |
+| `sprint_id` | `id:` from SPRINT.md frontmatter — used by the subagent to scope its `subagent_completed` event |
+| `wave_number` | Current wave number from the cursor — used by the subagent to scope its `subagent_completed` event |
+| `dispatch_mode` | `background` for wave-dispatch and sprint-test-fix-redispatch stages; `sync` for `--task`/`--hotfix` modes. **See "Background dispatch" below.** |
 
 In **subagent/team mode**, the capability skill internally dispatches with `isolation: "worktree"` (per `using-worktrees` — Anthropic's stable primitive). In **solo mode**, no isolation. The skill handles both transparently.
 
-The skill returns a structured verdict (`STATUS: COMPLETE` + `COMMIT: <sha>` + `PROBE_OUTPUT_TAIL` after orchestrator-side verification, or `STATUS: BLOCKED` with reason). Use the verdict to mark the task done, log progress, or escalate. **Do not parse subagent output yourself** — the capability skill has already validated it.
+**Background dispatch (the default for wave-dispatch in v2.5.0+).**
+
+When `dispatch_mode: background`, the orchestrator does NOT block waiting for the subagent's structured return. Instead:
+
+1. The Agent call uses `run_in_background: true`. Returns immediately with a task handle.
+2. The orchestrator writes the cursor with `stage: wave_<N>_waiting`, populates `pending_subagents: [{ task_id, spawned_at, max_execution_minutes }]` (one entry per spawned subagent), arms a persistent Monitor on `<SHIPYARD_DATA>/.shipyard-events.jsonl` filtered for `subagent_completed` events with matching `sprint=` and `wave=`.
+3. The orchestrator exits. The current `/loop` iteration ends.
+4. Each subagent runs its internal Cycle in the background. As its final actions (per the `dispatching-task-loop` contract), it writes the full structured return to `<SHIPYARD_DATA>/sprints/current/.subagent-returns/<task_id>.txt` and emits the `subagent_completed` event.
+5. The Monitor armed in step 2 fires `<task-notification>` envelopes to `/loop` each time a `subagent_completed` event lands. `/loop` wakes the moment any matching event arrives, regardless of the fallback `ScheduleWakeup` delay.
+6. On the next `/loop` iteration, the orchestrator reads the cursor at `stage: wave_<N>_waiting`, dispatches to the `wave_<N>_recovery` handler (see Step 4 below), which reads each task's capture file, runs the orchestrator-side gate (sha verify + probe re-execution + anti-stub-scan), removes completed task_ids from `pending_subagents`, and either advances to `wave_<N>_boundary` (all done + all gates pass) or to `wave_<N>_redispatch_iter_1` (any BLOCKED or any gate failure).
+
+The orchestrator never reads the Agent tool's return value in background mode. The structured-return contract is preserved via the capture file; the wake signal is the event log.
+
+The skill returns a structured verdict (`STATUS: COMPLETE` + `COMMIT: <sha>` + `PROBE_OUTPUT_TAIL` after orchestrator-side verification, or `STATUS: BLOCKED` with reason) — in **sync mode** this comes from the Agent's return value, in **background mode** it's reconstructed from the capture file referenced in the `subagent_completed` event. The downstream gate logic and re-dispatch rule are identical in both modes. **Do not parse subagent output yourself** — the capability skill (or the capture file in background mode) has already validated it.
 
 Capabilities used per task: `shipyard:dispatching-task-loop` (which internally uses `shipyard:verifying-completion`, `shipyard:tdd-cycle`, `shipyard:running-acceptance-probe`, `shipyard:anti-stub-scan`, and `shipyard:using-worktrees`).
 
@@ -340,7 +356,33 @@ Most kind-specific gating already lives inside the dispatching-* capability skil
 
 This is the last line of defense against silent-pass regression. Capability-skill gates plus these orchestrator-side checks together cover the failure modes: false completion, stub commits, missing capture, missing findings doc, out-of-scope writes.
 
-**Cursor write (stage_id: wave_N_dispatch).** On all dispatched tasks returning `STATUS: COMPLETE`: write the cursor with `stage: wave_<N>_boundary`. On any `STATUS: BLOCKED` returns: write the cursor with `stage: wave_<N>_redispatch_iter_1`, increment `iteration`. After the single re-dispatch attempt (still BLOCKED): mark the task `status: needs-attention`, write the cursor with `stage: wave_<N>_boundary`, log to PROGRESS.md, continue. Under `/loop`: emit `pipeline_tick_completed pipeline=ship-execute sprint=<id> stage=wave_<N>_dispatch outcome=advanced next_stage=<next>`, print `▶ TICK COMPLETE — wave <N>/<M>, stage wave_<N>_dispatch, next: <next>. /loop continues.`, exit. Under direct: chain into Step 4 (boundary) or the re-dispatch handler.
+**Cursor write (stage_id: wave_N_dispatch) — background mode (default).** After spawning all subagents in the background, write the cursor with `stage: wave_<N>_waiting`, populated `pending_subagents` list (one entry per dispatched task: `{ task_id, spawned_at: <iso>, max_execution_minutes: <from task frontmatter or 60 default> }`), arm the Monitor on the event log filtered for `subagent_completed pipeline=ship-execute sprint=<id> wave=<N>`. Emit `wave_<N>_dispatched_bg pipeline=ship-execute sprint=<id> wave=<N> task_ids=<csv>` and `pipeline_tick_completed pipeline=ship-execute sprint=<id> stage=wave_<N>_dispatch outcome=advanced next_stage=wave_<N>_waiting`. Print `▶ TICK COMPLETE — wave <N>/<M> dispatched (background), waiting on [<task_ids>]. /loop continues.`, exit. The next `/loop` iteration that fires (Monitor-driven or fallback-timer-driven) reads the cursor at `wave_<N>_waiting` and routes to the recovery handler below.
+
+**Cursor write (stage_id: wave_N_dispatch) — sync mode (`--task`/`--hotfix` only).** On all dispatched tasks returning `STATUS: COMPLETE`: write the cursor with `stage: wave_<N>_boundary`. On any `STATUS: BLOCKED` returns: write the cursor with `stage: wave_<N>_redispatch_iter_1`, increment `iteration`. After the single re-dispatch attempt (still BLOCKED): mark the task `status: needs-attention`, write the cursor with `stage: wave_<N>_boundary`, log to PROGRESS.md, continue. Under `/loop`: emit `pipeline_tick_completed pipeline=ship-execute sprint=<id> stage=wave_<N>_dispatch outcome=advanced next_stage=<next>`, print `▶ TICK COMPLETE — wave <N>/<M>, stage wave_<N>_dispatch, next: <next>. /loop continues.`, exit. Under direct: chain into Step 4 (boundary) or the re-dispatch handler.
+
+#### Wave waiting handler (stage_id: wave_N_waiting)
+
+When `/loop` re-enters with `cursor.stage == wave_<N>_waiting`:
+
+1. **Read the event log.** Use Read on `<SHIPYARD_DATA>/.shipyard-events.jsonl`. Filter (with Grep or in-process) for `subagent_completed pipeline=ship-execute sprint=<cursor.sprint_id> wave=<N>` events. Build a map of `task_id → event payload`.
+2. **Match against `pending_subagents`.** Each entry in `pending_subagents` either:
+   - Has a matching event in the map → mark as COMPLETED, queue for gate-verification in step 4.
+   - Has no matching event AND `now - spawned_at < max_execution_minutes` → still in flight, leave in `pending_subagents`.
+   - Has no matching event AND `now - spawned_at >= max_execution_minutes` → TIMED OUT. Mark task `status: needs-attention`, log to PROGRESS.md ("task TIMED OUT in background dispatch after N minutes; no `subagent_completed` event emitted"), remove from `pending_subagents`, emit `subagent_timeout pipeline=ship-execute sprint=<id> wave=<N> task=<id> minutes=<N>` event, advance past this task.
+3. **If `pending_subagents` is still non-empty after step 2** (some subagents still in flight, none timed out): re-write the cursor with `stage: wave_<N>_waiting` (unchanged), update the pending list to remove TIMED OUT entries if any. Emit `pipeline_tick_completed pipeline=ship-execute sprint=<id> stage=wave_<N>_waiting outcome=partial pending=<csv>`, print `▶ TICK COMPLETE — wave <N>/<M>, still waiting on [<task_ids>]. /loop continues.`, exit. The Monitor remains armed (or re-arm if absent).
+4. **If `pending_subagents` is now empty** (all subagents accounted for via completion or timeout): advance to `stage: wave_<N>_recovery` so the next tick runs the orchestrator gate. Disarm the Monitor (TaskStop on the armed Bash task). Emit `pipeline_tick_completed ... next_stage=wave_<N>_recovery`. Continue to the recovery handler (chain under direct invocation; exit and re-enter under /loop).
+
+#### Wave recovery handler (stage_id: wave_N_recovery)
+
+When all subagents have completed (or timed out) for the wave, this handler reads their capture files and runs the orchestrator-side gate:
+
+1. **For each completed subagent**, read the capture file referenced in the `subagent_completed` event (`capture_file=<path>` field). The file should contain the same structured-return text the subagent would have returned inline in sync mode (STATUS / COMMIT / PROBE_EXIT / PROBE_OUTPUT_TAIL).
+2. **Run the orchestrator-side gate** per task (sha cat-file verify, probe re-execution per `tdd-cycle`, anti-stub-scan on the diff). This is the IDENTICAL logic that runs in sync mode at the end of `dispatching-task-loop` — moved to the recovery handler because in background mode the gate runs on a different iteration than the dispatch.
+3. **Decide cursor next-stage based on aggregate results:**
+   - All tasks `STATUS: COMPLETE` + all gates pass → `stage: wave_<N>_boundary`.
+   - Any task `STATUS: BLOCKED` or any gate fails → `stage: wave_<N>_redispatch_iter_1`, increment `iteration`. The redispatch is itself a sync dispatch (single attempt; doesn't go back through background).
+   - Any task TIMED OUT in the waiting handler is already marked `needs-attention` — no re-dispatch for those.
+4. **Write the cursor** + emit `pipeline_tick_completed ... next_stage=<chosen>` + print the tick marker + exit (under /loop) or chain (under direct).
 
 ### Step 3: Per-Task Execution (implementation only)
 

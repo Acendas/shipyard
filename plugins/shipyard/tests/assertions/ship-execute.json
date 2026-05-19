@@ -915,5 +915,80 @@
     "name": "bootstrap_dead_sprint_emits_terminal",
     "type": "contains",
     "pattern": "pipeline_terminal pipeline=ship-execute sprint=.+? outcome=noop reason=sprint_dead_at_bootstrap"
+  },
+  {
+    "name": "v250_background_dispatch_documented",
+    "type": "contains",
+    "pattern": "Background dispatch \\(the default for wave-dispatch in v2\\.5\\.0\\+\\)"
+  },
+  {
+    "name": "v250_dispatch_mode_param_documented",
+    "type": "contains",
+    "pattern": "dispatch_mode.*background.*for wave-dispatch"
+  },
+  {
+    "name": "v250_pending_subagents_cursor_field",
+    "type": "contains",
+    "pattern": "pending_subagents: \\[\\{ task_id, spawned_at, max_execution_minutes \\}\\]"
+  },
+  {
+    "name": "v250_wave_waiting_stage_documented",
+    "type": "contains",
+    "pattern": "Wave waiting handler \\(stage_id: wave_N_waiting\\)"
+  },
+  {
+    "name": "v250_wave_recovery_stage_documented",
+    "type": "contains",
+    "pattern": "Wave recovery handler \\(stage_id: wave_N_recovery\\)"
+  },
+  {
+    "name": "v250_background_uses_run_in_background_true",
+    "type": "contains",
+    "pattern": "run_in_background: true"
+  },
+  {
+    "name": "v250_background_arms_event_log_monitor",
+    "type": "contains",
+    "pattern": "arms a persistent Monitor on .{1,3}SHIPYARD_DATA.{1,3}/\\.shipyard-events\\.jsonl"
+  },
+  {
+    "name": "v250_background_capture_file_path_canonical",
+    "type": "contains",
+    "pattern": "\\.subagent-returns/.task_id.\\.txt|\\.subagent-returns/<task_id>\\.txt"
+  },
+  {
+    "name": "v250_subagent_completed_event_filter",
+    "type": "contains",
+    "pattern": "subagent_completed pipeline=ship-execute sprint="
+  },
+  {
+    "name": "v250_orchestrator_never_reads_agent_return_in_bg",
+    "type": "contains",
+    "pattern": "orchestrator never reads the Agent tool's return value in background mode"
+  },
+  {
+    "name": "v250_recovery_runs_identical_gate_logic",
+    "type": "contains",
+    "pattern": "IDENTICAL logic that runs in sync mode|same orchestrator-side gate"
+  },
+  {
+    "name": "v250_timeout_marks_needs_attention",
+    "type": "contains",
+    "pattern": "TIMED OUT.*needs-attention|max_execution_minutes.*needs-attention"
+  },
+  {
+    "name": "v250_redispatch_is_sync_not_background",
+    "type": "contains",
+    "pattern": "redispatch is itself a sync dispatch|Redispatch is always SYNC"
+  },
+  {
+    "name": "v250_sync_mode_for_task_and_hotfix",
+    "type": "contains",
+    "pattern": "sync. for .--task./.--hotfix. modes|--task./.--hotfix. only"
+  },
+  {
+    "name": "v250_background_emits_dispatched_event",
+    "type": "contains",
+    "pattern": "wave_<N>_dispatched_bg pipeline=ship-execute"
   }
 ]

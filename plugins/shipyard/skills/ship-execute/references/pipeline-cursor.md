@@ -32,8 +32,18 @@ stuck_counter: 0
 hard_ceiling: 50
 mode: subagent                           # solo | subagent | team
 working_branch: main                     # from SPRINT.md frontmatter
+auto_loop_attempted: true                # v2.3.0+ auto-loop bootstrap sentinel
+pending_subagents:                       # v2.5.0+ background-dispatch tracking
+  - task_id: T-007
+    spawned_at: 2026-05-18T17:58:12Z
+    max_execution_minutes: 60
+  - task_id: T-008
+    spawned_at: 2026-05-18T17:58:12Z
+    max_execution_minutes: 60
 ---
 ```
+
+**`pending_subagents` field semantics (v2.5.0+).** Populated when entering `wave_<N>_waiting` (background-dispatch mode). Each entry tracks one in-flight subagent. The `wave_<N>_waiting` handler drains entries as their `subagent_completed` events arrive in `.shipyard-events.jsonl`. When the list is empty, the cursor advances to `wave_<N>_recovery` for orchestrator-side gate verification. `max_execution_minutes` defaults to 60; override per task via `max_execution_minutes:` in the task's frontmatter. On expiry without an event, the task is marked `needs-attention` and removed from the list. Absent or empty in sync-mode (`--task`/`--hotfix`) cursors and in v2.4.0-or-older cursors — backward-compatible.
 
 Body (one paragraph max):
 
@@ -47,8 +57,10 @@ Body (one paragraph max):
 | `salvage` | Step 0 — worktree salvage from interrupted sessions | `load` | escalate |
 | `load` | Step 1 — load sprint plan, detect session type (fresh / resume / crash recovery) | `readiness` (fresh) or `wave_N_dispatch` (resume / recovery) | — |
 | `readiness` | Step 1.5 — readiness check + AskUserQuestion (fresh-start only) | `wave_1_dispatch` | abort |
-| `wave_N_dispatch` | Step 2 — dispatch all tasks in wave N via `dispatching-task-loop` / `dispatching-operational-task` / `dispatching-research-task` per kind; wait for all to return | `wave_N_boundary` | `wave_N_redispatch_iter_K` for any `BLOCKED` returns |
-| `wave_N_redispatch_iter_K` | Single-redispatch rule per task; K ∈ {1} | `wave_N_boundary` | `wave_N_needs_attention` (after K=1, mark needs-attention and continue) |
+| `wave_N_dispatch` | Step 2 — dispatch all tasks in wave N. **Background mode (default v2.5.0+)**: spawn each `dispatching-task-loop` via `Agent(run_in_background: true)`, populate `pending_subagents`, arm Monitor on event log → `wave_N_waiting`. **Sync mode (`--task`/`--hotfix`)**: spawn synchronously, wait for all to return → `wave_N_boundary` (success) or `wave_N_redispatch_iter_K` (any BLOCKED) | `wave_N_waiting` (bg) / `wave_N_boundary` (sync) | `wave_N_redispatch_iter_K` for any `BLOCKED` returns (sync) |
+| `wave_N_waiting` | v2.5.0+ — re-entered by each `/loop` tick while subagents run in background. Reads `.shipyard-events.jsonl` for `subagent_completed` events; drains `pending_subagents` as they arrive. Timeouts move tasks to `needs-attention`. | `wave_N_recovery` (when `pending_subagents` empty) | re-enter `wave_N_waiting` (partial), or `wave_N_recovery` (all done/timed-out) |
+| `wave_N_recovery` | v2.5.0+ — reads each completed subagent's capture file, runs orchestrator-side gate (sha verify + probe re-execution + anti-stub-scan), aggregates verdicts. | `wave_N_boundary` (all clean) | `wave_N_redispatch_iter_K` (any BLOCKED or gate failure) |
+| `wave_N_redispatch_iter_K` | Single-redispatch rule per task; K ∈ {1}. Redispatch is always SYNC (not background) — only one task, no parallelism win. | `wave_N_boundary` | `wave_N_needs_attention` (after K=1, mark needs-attention and continue) |
 | `wave_N_boundary` | Step 4 (1–3) — rebase, ff-merge worktree branches, clean orchestrator branch, update PROGRESS.md `current_wave` | `wave_N_build` | escalate |
 | `wave_N_build` | Step 4 (4) — wave-scoped build via `dispatching-operational-task` | `wave_N_refactor` | `wave_N_build_fix_iter_K` (bounded by capability skill's cap) |
 | `wave_N_refactor` | Step 4 (5) — wave REFACTOR + MUTATE | `wave_N_tests` | log + continue (not a wave blocker) |
