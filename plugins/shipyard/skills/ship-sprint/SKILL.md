@@ -19,7 +19,7 @@ Plan a new sprint by pulling features from the backlog and decomposing into wave
 !`shipyard-context view metrics`
 !`shipyard-context view codebase 30`
 
-**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). The only Shipyard binary you may invoke from Bash is `shipyard-data archive-sprint <id>`. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files** — use the Write tool, which is auto-approved for SHIPYARD_DATA and avoids permission prompts. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
+**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Shipyard binaries you may invoke from Bash: `shipyard-data archive-sprint <id>` and `shipyard-data init-sprint <id>` (Step 11.1). **Never use `echo`, `printf`, or shell redirects (`>`) to write state files** — use the Write tool for arbitrary frontmatter (auto-approved for SHIPYARD_DATA) or the `init-sprint` CLI for SPRINT.md / PROGRESS.md creation (template-canonical). When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
 
 ## Input
 
@@ -276,9 +276,9 @@ Include a `## Risks` section derived from: critical path tasks, external deps, k
 
 ### Step 9.5: Quality Gate (self-review loop)
 
-Before presenting the plan, review your own output. Re-read each task file and the sprint draft against a 20-check table covering files-to-modify, architecture, dependency integrity, prescriptive strategy, cleanup, no-cycles, AC clarity, effort, critical path, wave/dep alignment, test strategy, cross-cutting, risks, MoSCoW, PERT, kind-specific required fields (`verify_command`, `research_scope`, `First failing test:`), no nested operational loops, and no "and"-titles in feature tasks.
+Before presenting the plan, review your own output. Re-read each task file and the sprint draft against a 21-check table covering files-to-modify, architecture, dependency integrity, prescriptive strategy, cleanup, no-cycles, AC clarity, effort, critical path, wave/dep alignment, test strategy, cross-cutting, risks, MoSCoW, PERT, kind-specific required fields (`verify_command`, `research_scope`, `First failing test:`), no nested operational loops, no "and"-titles in feature tasks, and Technical Notes deliverable → task mapping.
 
-See `references/spec-validation.md` § "Step 9.5" for the full 20-row checklist with fail criteria. Iterate up to 3 times, fixing failures and re-running. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag any remaining gaps in the sprint plan summary as "Planning gaps — review during execution". Then proceed to Step 9.7.
+See `references/spec-validation.md` § "Step 9.5" for the full 21-row checklist with fail criteria. **Check 21 (Technical Notes → task mapping)** is load-bearing: a feature's Technical Notes section can name concrete artifacts that never become anyone's deliverable — F002's "Author must write a Playwright spec covering the demo-schema golden path" was such an artifact in the v2.5.0 confedit incident; the sprint shipped with `tests/e2e/` empty because no task owned the deliverable. Iterate up to 3 times, fixing failures and re-running. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag any remaining gaps in the sprint plan summary as "Planning gaps — review during execution". Then proceed to Step 9.7.
 
 ### Step 9.7: Adversarial Critique
 
@@ -329,10 +329,11 @@ Then use `AskUserQuestion` for approval:
 
 If approved:
 
-1. Use Edit to set `status: superseded` in SPRINT-DRAFT.md frontmatter (the soft-deleted record stays in place; physical removal is manual for now — do not physically delete). Use Write to create SPRINT.md and PROGRESS.md.
-2. Update feature statuses to `in-progress` in feature frontmatter
-3. Remove pulled feature IDs from BACKLOG.md
-4. **Record working branch** — capture the user's current branch: `git branch --show-current`. Write `branch: <current branch>` to SPRINT.md frontmatter. Shipyard works on whatever branch the user is already on — it does not create sprint branches.
+1. Use Edit to set `status: superseded` in SPRINT-DRAFT.md frontmatter (the soft-deleted record stays in place; physical removal is manual for now — do not physically delete). Run `shipyard-data init-sprint <sprint-id>` (Bash) to atomically create SPRINT.md and PROGRESS.md from the canonical templates at `project-files/templates/`. **Do not Write SPRINT.md or PROGRESS.md from memory** — schema drift between an improvised file and the canonical template is the cause of `/ship-review` "state inconsistent" alarms. The CLI substitutes `id:` and `created:` only; everything else stays at template defaults and gets filled in via Edit below.
+2. Use Edit on SPRINT.md to fill the frontmatter (`goal`, `capacity`, `features`, `execution_mode`) and body sections (Goal, Waves, Critical Path, Risks, Swap Log) from the approved plan.
+3. Update feature statuses to `in-progress` in feature frontmatter.
+4. Remove pulled feature IDs from BACKLOG.md.
+5. **Record working branch** — capture the user's current branch: `git branch --show-current`. Use Edit to write `branch: <current branch>` into SPRINT.md frontmatter. Shipyard works on whatever branch the user is already on — it does not create sprint branches.
 
 **Clean up active-skill mutex:** Use the Write tool to overwrite `<SHIPYARD_DATA>/.active-session.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel — the mutex pattern treats `skill: null` as inactive). Planning is complete.
 

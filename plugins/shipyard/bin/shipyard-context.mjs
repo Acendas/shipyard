@@ -45,6 +45,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import { getDataDir, getProjectHash, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
+import { evaluateExecuteTerminal, evaluateReviewTerminal } from "./terminal-gate.mjs";
 
 /**
  * Validate a user-supplied relative path and join it to base. Returns the
@@ -644,11 +645,43 @@ function main() {
       }
       break;
     }
+    case "terminal-gate": {
+      // Diagnostic: inspect what the terminal-cursor gate would say about
+      // the current data dir. Users run this when they hit a deny from the
+      // auto-approve hook and want a readable list of what's still missing.
+      //
+      // Usage: shipyard-context terminal-gate <pipeline> [terminal_stage]
+      //   pipeline: ship-execute | ship-review
+      //   terminal_stage (review only): terminal_approved | terminal_changes | terminal_issues
+      //                                  defaults to terminal_approved
+      const pipeline = args[0];
+      if (!pipeline) {
+        die("Usage: shipyard-context terminal-gate <ship-execute|ship-review> [terminal_stage]");
+      }
+      let verdict;
+      if (pipeline === "ship-execute") {
+        verdict = evaluateExecuteTerminal({ dataDir: sd });
+      } else if (pipeline === "ship-review") {
+        const stage = args[1] || "terminal_approved";
+        verdict = evaluateReviewTerminal({ dataDir: sd, terminalStage: stage });
+      } else {
+        die(`terminal-gate: unknown pipeline "${pipeline}". Expected: ship-execute | ship-review`);
+      }
+      if (verdict.allowed) {
+        out("ALLOW — terminal cursor write would succeed.");
+        process.exit(0);
+      }
+      out("DENY — terminal cursor write would be refused. Missing evidence:");
+      for (const reason of verdict.reasons) {
+        out(`  - ${reason}`);
+      }
+      process.exit(1);
+    }
     default:
       die(
         "Usage: shipyard-context {path|spec-counts|status-counts|debug-count|" +
           "view|list|count-of|reference|version|project-claude-md|diagnose|" +
-          "check-commit-exists|scan-events|check-dirty-worktrees}",
+          "check-commit-exists|scan-events|check-dirty-worktrees|terminal-gate}",
       );
   }
 }

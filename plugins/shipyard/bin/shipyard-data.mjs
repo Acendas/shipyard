@@ -11,13 +11,17 @@
  *   shipyard-data init                         → creates the directory tree
  *   shipyard-data with-lock <key> -- <cmd>     → fcntl-style locking primitive
  *   shipyard-data archive-sprint <id> [--force]→ atomic sprint rename
+ *   shipyard-data init-sprint <id>             → copy canonical templates into sprints/current/
  *   shipyard-data events emit <type> [k=v ...] → structured event log append
  *   shipyard-data next-id <kind>               → atomic ID allocator
+ *   shipyard-data link-data-dir [--force]      → create <projectRoot>/.shipyard
+ *                                                symlink (POSIX) or junction
+ *                                                (Windows) → SHIPYARD_DATA
  */
 
 import { execFileSync } from "node:child_process";
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
 import { getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
@@ -285,6 +289,86 @@ function archiveSprint(sprintId, opts = {}) {
 
 
 /**
+ * Atomically create sprints/current/SPRINT.md and sprints/current/PROGRESS.md
+ * from the canonical templates at <plugin-root>/project-files/templates/.
+ *
+ * Eliminates the schema-drift failure mode where /ship-sprint Step 11.1
+ * told the model to "Use Write to create SPRINT.md and PROGRESS.md" with no
+ * template-read instruction — the model improvised non-canonical schemas
+ * (Tasks Completed lists, Wave Status tables) that drift from
+ * project-files/templates/PROGRESS.md and trigger /ship-review drift alarms.
+ *
+ * Contract:
+ *   - Substitutes `id:` and `created:` in SPRINT.md frontmatter only.
+ *   - All other frontmatter fields (goal, capacity, branch, status, etc.)
+ *     stay at template defaults; the model fills them via Edit after this
+ *     runs.
+ *   - PROGRESS.md is written byte-for-byte from the template (it has no
+ *     id-specific fields — current_wave starts at 1, body sections empty).
+ *   - Refuses to overwrite an existing SPRINT.md or PROGRESS.md (use
+ *     archive-sprint first if you're starting a new sprint).
+ *   - Strict sprint-id validation (`sprint-NNN` with NNN ≥ 3 digits) — same
+ *     pattern archive-sprint enforces.
+ */
+function initSprint(sprintId) {
+  if (!sprintId) {
+    process.stderr.write(
+      "shipyard-data init-sprint: missing sprint ID\n" +
+      "  Usage: shipyard-data init-sprint <sprint-id>\n" +
+      "  Sprint ID must match: sprint-NNN (3+ digits)\n"
+    );
+    process.exit(1);
+  }
+  if (!/^sprint-[0-9]{3,}$/.test(sprintId)) {
+    process.stderr.write(
+      `shipyard-data init-sprint: invalid sprint ID ${JSON.stringify(sprintId)}\n` +
+      `  Expected format: sprint-NNN (e.g. sprint-001, sprint-042)\n`
+    );
+    process.exit(1);
+  }
+
+  const dataDir = getDataDir({ silent: true });
+  const currentDir = join(dataDir, "sprints", "current");
+  mkdirSync(currentDir, { recursive: true });
+
+  const sprintPath = join(currentDir, "SPRINT.md");
+  const progressPath = join(currentDir, "PROGRESS.md");
+  if (existsSync(sprintPath) || existsSync(progressPath)) {
+    process.stderr.write(
+      `shipyard-data init-sprint: sprints/current/ already contains SPRINT.md or PROGRESS.md.\n` +
+      `  Refusing to overwrite. Archive the previous sprint first:\n` +
+      `    shipyard-data archive-sprint <previous-sprint-id>\n`
+    );
+    process.exit(1);
+  }
+
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const pluginRoot = dirname(__dirname);
+  const templatesSrc = join(pluginRoot, "project-files", "templates");
+  const sprintTemplate = readFileSync(join(templatesSrc, "SPRINT.md"), "utf8");
+  const progressTemplate = readFileSync(join(templatesSrc, "PROGRESS.md"), "utf8");
+
+  const isoDate = new Date().toISOString().slice(0, 10);
+  const sprintContent = sprintTemplate
+    .replace(/^id:\s*sprint-\d+\s*$/m, `id: ${sprintId}`)
+    .replace(/^created:\s*null\s*$/m, `created: ${isoDate}`);
+
+  // Atomic write via temp + rename. The lockfile pattern isn't needed here
+  // because we already refused-on-exist above — a concurrent call would
+  // race on existsSync, but the rename-into-place is itself atomic and the
+  // second writer would clobber the first's content, not corrupt it.
+  // For belt-and-braces atomicity, write tmp + rename anyway.
+  const sprintTmp = sprintPath + ".tmp";
+  const progressTmp = progressPath + ".tmp";
+  writeFileSync(sprintTmp, sprintContent, "utf8");
+  writeFileSync(progressTmp, progressTemplate, "utf8");
+  renameSync(sprintTmp, sprintPath);
+  renameSync(progressTmp, progressPath);
+
+  process.stdout.write(currentDir + "\n");
+}
+
+/**
  * Reap markdown files marked obsolete or terminally-statused after retention.
  *
  * Soft-delete sentinels are written by skill bodies (Edit frontmatter to
@@ -507,6 +591,76 @@ function nextIdCmd(args) {
   process.stdout.write(padded + "\n");
 }
 
+/**
+ * Create (or repoint) a `<projectRoot>/.shipyard` symlink that points at the
+ * resolved Shipyard data dir. Gives users a stable, in-project breadcrumb to
+ * the otherwise-hidden plugin data area without committing machine-specific
+ * paths to git.
+ *
+ * Cross-platform contract:
+ *   - POSIX (macOS, Linux): regular directory symlink via symlinkSync(target, link, 'dir').
+ *   - Windows: NTFS junction via symlinkSync(target, link, 'junction'). Junctions
+ *     work without admin rights or Developer Mode (real symlinks on Windows
+ *     require SeCreateSymbolicLinkPrivilege), only support directory targets
+ *     (which is exactly what we want), and resolve transparently for both
+ *     Node fs and Win32 file APIs. Same drive only — fine because
+ *     CLAUDE_PLUGIN_DATA is always local.
+ *
+ * Idempotency:
+ *   - No existing entry → create.
+ *   - Existing symlink/junction pointing at the correct target → no-op.
+ *   - Existing symlink/junction with wrong target → unlink + recreate.
+ *   - Existing real file or directory → refuse unless --force (which deletes
+ *     the entry first). Default-refuse protects accidentally-clobbering a
+ *     user-created .shipyard/ directory holding real content.
+ *
+ * Stdout: the link path on success.
+ */
+function linkDataDir(opts = {}) {
+  const projectRoot = getProjectRoot();
+  const dataDir = pathResolve(getDataDir({ projectRoot, silent: true }));
+  const linkPath = join(projectRoot, ".shipyard");
+
+  let existing = null;
+  try {
+    existing = lstatSync(linkPath);
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+  }
+
+  if (existing) {
+    if (existing.isSymbolicLink()) {
+      let current = "";
+      try {
+        current = readlinkSync(linkPath);
+      } catch { /* unreadable link — treat as broken, recreate */ }
+      // Compare resolved absolute paths so a relative-target symlink still
+      // matches when pointing at the right place.
+      const currentAbs = current ? pathResolve(projectRoot, current) : "";
+      if (currentAbs === dataDir) {
+        process.stdout.write(linkPath + "\n");
+        return;
+      }
+      unlinkSync(linkPath);
+    } else if (opts.force) {
+      rmSync(linkPath, { recursive: true, force: true });
+    } else {
+      process.stderr.write(
+        `shipyard-data link-data-dir: refusing — ${linkPath} exists and is not a symlink/junction.\n` +
+        `  Re-run with --force to replace it (destructive: removes the existing entry first).\n`
+      );
+      process.exit(1);
+    }
+  }
+
+  // Node's symlink type matters on Windows (junction vs file vs dir) and is
+  // ignored on POSIX. 'junction' is the only Windows symlink type that
+  // doesn't require elevation / Developer Mode.
+  const type = process.platform === "win32" ? "junction" : "dir";
+  symlinkSync(dataDir, linkPath, type);
+  process.stdout.write(linkPath + "\n");
+}
+
 function main() {
   const command = process.argv[2] ?? "";
   switch (command) {
@@ -528,6 +682,10 @@ function main() {
       archiveSprint(sprintId, { force });
       break;
     }
+    case "init-sprint": {
+      initSprint(process.argv[3]);
+      break;
+    }
     case "events": {
       eventsCmd(process.argv.slice(3));
       break;
@@ -536,11 +694,16 @@ function main() {
       nextIdCmd(process.argv.slice(3));
       break;
     }
+    case "link-data-dir": {
+      const rest = process.argv.slice(3);
+      linkDataDir({ force: rest.includes("--force") });
+      break;
+    }
     // For project-id / project-root use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash|project-root`.
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | events emit <type> [k=v ...] | next-id <kind>\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force]\n`,
       );
       process.exit(1);
   }

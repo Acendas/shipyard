@@ -45,6 +45,9 @@ Grouped by emitter. Within each group, listed alphabetically.
 |---|---|---|---|
 | `code_review_iteration` | Each pass of the Stage 0 multi-scanner + fixer loop | `sprint` (str), `iteration` (int), `must_fix` (int), `should_fix` (int) | `/ship-status` |
 | `code_review_escalated` | Iteration cap hit with residual must-fix items | `sprint` (str), `residual_must_fix` (int) | User-visible via AskUserQuestion |
+| `stage_0_skipped` | Stage 0 cannot run for a documented reason (empty diff, explicit flag) | `sprint` (str), `reason` (str) | Terminal-gate diagnostic; retro |
+| `patch_task_created` | Stage 4 / Stage 6 files a patch task for the user to pick up | `sprint` (str), `task_id` (str), `feature` (str), `source` (str) | Terminal-gate (review path: terminal_changes / terminal_issues require ≥1) |
+| `bug_created` | `/ship-review` Stage 6 records an in-scope bug entry | `sprint` (str), `bug_id` (str), `feature` (str) | Terminal-gate (same as patch_task_created) |
 
 ### Emitted by `verifying-wave-completion`
 
@@ -72,6 +75,9 @@ Grouped by emitter. Within each group, listed alphabetically.
 |---|---|---|---|
 | `sprint_goal_preflight_failed` | Any /goal pre-flight gate refuses entry | `gate` (str), `sprint` (str) | User-visible halt message |
 | `verify_flaky_suspected` | Subagent returns `ESCALATION_CODE: verify_flaky` | `task` (str), `probe_output_first` (str), `probe_output_second` (str) | `bisect-flaky`-style narrowing, retro |
+| `pipeline_tick_completed` | Each pipeline-cursor stage transition completes a tick | `pipeline` (str — "ship-execute" or "ship-review"), `sprint` (str), `stage` (str — current stage_id), `outcome` (str — "advanced" \| "self_loop"), `next_stage` (str) | Terminal-gate (execute: requires per-wave `wave_<N>_gate` ticks; review: requires `demo_user` tick) |
+| `pipeline_terminal` | Pipeline writes its terminal cursor (success or escalated) | `pipeline` (str), `sprint` (str), `outcome` (str — "success" \| "issues" \| "changes" \| "escalated"), `reason` (str) | Loop-stop signal; retro |
+| `acceptance_probe_completed` | After every probe invocation (per-task or per-feature) by `running-acceptance-probe`'s caller | `feature` (str, optional — set for demo probes), `task` (str, optional — set for task probes), `probe_type` ("task" \| "demo"), `exit_code` (int), `verdict` ("PASS" \| "FAIL" \| "TIMEOUT" \| "ERROR"), `skipped` (bool, optional, true for `skip-with-reason`) | `evaluating-sprint-complete` Invariant 8; `/ship-review` Stage 4.8 skip-if-already-passed preflight |
 
 ### Emitted by hooks (`auto-approve-data`, `worktree-branch`)
 

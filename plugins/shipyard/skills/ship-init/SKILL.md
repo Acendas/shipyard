@@ -201,6 +201,16 @@ shipyard-data init
 ```
 This creates all directories in the plugin data area (outside the project — no git noise).
 
+Then create the in-project navigation breadcrumb:
+```bash
+shipyard-data link-data-dir
+```
+This creates `<projectRoot>/.shipyard` — a directory symlink on POSIX (macOS, Linux) or an NTFS directory junction on Windows — pointing at the resolved Shipyard data dir. Junctions are the Windows fallback because real symlinks there require admin or Developer Mode; junctions work for any user, support directory targets, and resolve transparently for Finder/Explorer, terminal `cd`, and editor file pickers.
+
+**This link is purely a human-navigation convenience.** It exists so the user can `cd .shipyard`, browse sprint state in their editor, or `cat .shipyard/sprints/current/SPRINT.md` from the project root without remembering where the plugin data dir lives on their machine. Shipyard itself (skills, hooks, CLIs) must NOT reference paths through `.shipyard/...`; everything internal continues to resolve `SHIPYARD_DATA` via `shipyard-resolver.mjs`. Treating the breadcrumb as a load-bearing path would create a silent dependency on a machine-local symlink that may not exist (older projects, user deleted it, Windows without permission to create junctions).
+
+The subcommand is idempotent and safe to re-run.
+
 **Do NOT install rules into the project.** Rules are NOT copied into `.claude/rules/shipyard-*.md` — every project-level `.claude/rules/` file gets loaded into every session's system prompt regardless of whether Shipyard is in use, leaking discipline into non-Shipyard work.
 
 Skills that need a rule `Read` it directly from `${CLAUDE_PLUGIN_ROOT}/project-files/rules/<rule-name>.md` at the moment they need it (or `@`-import in the skill body where supported). Plugin updates ship rule changes automatically; no re-`/ship-init` required. The rules are scoped to active `/ship-*` skill invocations only.
@@ -219,9 +229,11 @@ After init, write these via the Write tool (auto-approved for files inside the d
 .claude/projects/
 # Shipyard task worktrees (temporary, created by builder subagents)
 .claude/worktrees/
+# Shipyard in-project data-dir breadcrumb (machine-local symlink/junction)
+.shipyard
 ```
 
-Note: Shipyard data lives in `${CLAUDE_PLUGIN_DATA}` (outside the project), so no `.shipyard/` gitignore entries needed. Worktrees DO live inside the project (`<repo>/.claude/worktrees/<name>`) and must be ignored to keep them out of git status.
+The `.shipyard` entry covers the symlink/junction created by `shipyard-data link-data-dir`. The link target lives outside the repo and is per-user/per-machine; committing it would point other contributors' clones at a path that doesn't exist on their machines. Worktrees DO live inside the project (`<repo>/.claude/worktrees/<name>`) and must be ignored to keep them out of git status.
 
 ### Step 3: Analyze Codebase
 
@@ -626,7 +638,13 @@ Regenerate `<SHIPYARD_DATA>/codebase-context.md`:
 
 Check for any directories in the standard structure that don't exist yet (new versions may add directories like `debug/`, `spec/references/`). Create them silently.
 
-**Update .gitignore** — append any missing entries (same list as fresh install). This is idempotent — skip entries already present. If `.gitignore` does not exist, create it. Specifically ensure both `.claude/projects/` (machine-specific Claude memory) and `.claude/worktrees/` (Shipyard task worktrees) are present. Both were added in recent Shipyard versions.
+**Ensure the in-project data-dir link exists** — run:
+```bash
+shipyard-data link-data-dir
+```
+The subcommand is idempotent: it's a no-op if `<projectRoot>/.shipyard` already points at the correct data dir, repoints stale links (e.g., after the user moved the project), and refuses (without `--force`) if a real file or directory occupies the path. This catches projects initialized on a Shipyard version before the breadcrumb existed.
+
+**Update .gitignore** — append any missing entries (same list as fresh install). This is idempotent — skip entries already present. If `.gitignore` does not exist, create it. Specifically ensure `.claude/projects/` (machine-specific Claude memory), `.claude/worktrees/` (Shipyard task worktrees), and `.shipyard` (in-project data-dir breadcrumb) are present. All three were added in recent Shipyard versions.
 
 ### Step 4b: Constitution Advisor (if no strong rules exist)
 

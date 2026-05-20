@@ -61,9 +61,41 @@ After the code review loop exits clean, run a simplification pass on the sprint'
      Commit your changes as: refactor: simplify sprint code)
    ```
 3. Verify a commit exists after the agent returns. If no commit → the simplifier found nothing to improve (clean pass).
-4. Log in PROGRESS.md: `Simplification: [N files touched | no changes needed]`
+4. Emit `task_status_changed type=simplification files=<N>` (PROGRESS.md auto-renders the entry).
 
 **Scope guard:** The simplifier only touches files in the sprint diff. It must not modify files outside the diff scope. If the agent's commit touches unexpected files, revert with `git reset --hard HEAD~1` and proceed without simplification.
+
+## Stage 4 — Existing-code Inline Fix Path (v2.6.0)
+
+Before classifying a Stage 4 gap as a patch task, evaluate whether it fits the **existing-code one-line / template defect** boundary. If so, route through `dispatching-task-loop` for an inline fix instead of filing manual work for the user.
+
+### Boundary criteria (all must hold)
+
+1. **Diff size ≤5 lines.** Anything larger means more state to verify; bias toward patch-task.
+2. **Files exist on the working branch.** No new file creation, no new modules. The gap is "this thing was wired wrong," not "this thing was never built."
+3. **No new dependencies / no new test scaffolding.** Importing a new lib or setting up a new test runner is patch-task work, not inline-fix.
+4. **Regression test exists or can be added in ≤30 lines.** A real probe must demonstrate the fix works. Without one we're just shipping a hopeful change.
+
+### Shape examples (route inline)
+
+- Missing `liveValidate` prop on an existing `<Form>` — one prop add, existing tests already render the form.
+- `cloneElement(child, {aria-describedby})` failing on `React.Fragment` — replace with a guard in the existing template, regression test ≤20 lines.
+- Forgotten `await` before an async call returning a Promise that the caller treats as the resolved value — one keyword add, existing test detects the type mismatch.
+- Missing null guard on a known-nullable input where the test fixture already includes the null case but didn't fail because the bug short-circuits another way.
+
+### Shape examples (do NOT route inline, file patch-task)
+
+- Missing Playwright e2e spec entirely (`tests/e2e/` empty, no Playwright config) — new test scaffolding, new dependency surface.
+- Missing API endpoint (`POST /api/foo` returns 404 because route is unwired) — needs route registration, controller, request schema, tests — multi-file change.
+- Behavior bug where the fix requires algorithmic changes (>5 lines diff in the implementation) — too much state to verify inline.
+
+### Inline-fix dispatch
+
+For a gap matching the boundary, allocate a patch task ID via `shipyard-data next-id tasks`, write the synthetic task file with `kind: patch`, `source: review-inline-fix`, `acceptance_probe:` populated with the regression test command, and `First failing test:` describing the gap. Then invoke `shipyard:dispatching-task-loop` with the synthetic task. The capability skill enforces the same structured-return contract as a Stage 0 fixer dispatch.
+
+After the dispatched commit lands, re-enter `gap_analysis_iter_<N+1>` on the patched diff. If the same gap reappears, fall through to patch-task — the inline fix failed and the user needs to inspect.
+
+Emit `patch_task_created task_id=<id> feature=<F> source=review-inline-fix verdict=<outcome>` for observability.
 
 ## Stage 4 — Out-of-Scope Gap Capture (IDEA mechanics)
 

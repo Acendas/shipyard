@@ -448,5 +448,26 @@
     "type": "contains",
     "pattern": "trace back.*acceptance criterion|infrastructure.*cleanup.*spike",
     "dotall": true
+  },
+  {
+    "name": "uses_init_sprint_cli",
+    "type": "contains",
+    "pattern": "shipyard-data init-sprint"
+  },
+  {
+    "name": "step11_does_not_write_sprint_or_progress_from_memory",
+    "type": "not_contains",
+    "pattern": "Use Write to create SPRINT.md and PROGRESS.md"
+  },
+  {
+    "name": "quality_gate_has_21_checks",
+    "type": "contains",
+    "pattern": "21-check table|21-row checklist"
+  },
+  {
+    "name": "quality_gate_references_technical_notes_mapping",
+    "type": "contains",
+    "pattern": "Technical Notes.*deliverable|Technical Notes.*task mapping",
+    "dotall": true
   }
 ]

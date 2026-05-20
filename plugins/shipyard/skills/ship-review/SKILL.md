@@ -101,7 +101,7 @@ Two stages can self-loop until they converge by data: `code_review_iter_N` (Stag
 
 If you lose context mid-review (e.g., after auto-compaction):
 
-1. **Cursor is authoritative.** Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` first. The `stage:` field tells you exactly where to resume; PROGRESS.md and verdict files are confirmatory only.
+1. **Cursor is authoritative.** Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` first. The `stage:` field tells you exactly where to resume; verdict files are the secondary cross-check. PROGRESS.md is a rendered artifact (auto-regenerated from the event log on every cursor write) — never reconcile against it as if it were authoritative state, and never Write or Edit it.
 2. Use Glob `<SHIPYARD_DATA>/verify/*-verdict.md` to find existing verdict files — these features are already reviewed
 3. Read SPRINT.md — get the list of features to review
 4. Skip features with verdict files where `complete: true`. If a verdict has `complete: false`, that review was interrupted — re-run the pipeline for that feature
@@ -126,13 +126,15 @@ This ensures review and any patch fixes happen on the correct branch.
 
 - **Cursor write**: on success, write `stage: code_review_iter_1` (or `stage: tests` if `--skip-code-review`, or `stage: retro_step_1` if `--retro-only`), `iteration: 1`, `terminal: false`, `next_action: "Run Stage 0 code review iteration 1"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed pipeline=ship-review sprint=<id> stage=preflight outcome=advanced next_stage=<next>` and print `▶ TICK COMPLETE — pipeline at stage [next_stage]. /loop continues.` then exit. When direct invocation: chain into the next stage's handler (subject to the ~10-minute wall-clock budget).
 
+**Anti-improvisation assertion (v2.6.0).** Stage 0 (multi-agent code review) MUST run whenever `/ship-review` is invoked WITHOUT one of `--skip-code-review`, `--hotfix`, or `--retro-only`. The sprint's frontmatter `status:` field (`completed`, `in-progress`, `approved`, …) DOES NOT affect this — code review runs on the diff regardless of how upstream pipelines have annotated the sprint. If Stage 0 genuinely cannot run on this invocation (e.g., the diff is empty because the working branch matches the base), emit a structured `stage_0_skipped reason=<short reason>` event via `shipyard-data events emit ...` and continue to `stage: tests`. Do NOT improvise a `notes:` field in the cursor body to justify skipping stages — the cursor body is free-form narrative per the schema in `references/pipeline-cursor.md`, and structured claims about which stages ran or didn't run live in the event log, not in cursor prose. **Why this is load-bearing:** in the v2.5.0 confedit incident, the review-side model wrote `"Running review pipeline directly with --skip-code-review semantics (Stages 0/0.5/4.6/4.7 deferred — not run)"` into the cursor body to justify skipping Stage 0 because the sprint had `status: completed`. There is no documented code path for that decision; the model invented it. With Stage 0 skipped, three real defects (T-P001 missing `liveValidate`, T-P002 `aria-describedby` clone, T-P003 missing Playwright spec) were filed as manual patch tasks instead of being auto-fixed by the Stage 0 → `dispatching-task-loop` pipeline.
+
 ---
 
 For each feature/task being reviewed:
 
 ### Stage 0: Code Review Loop (stage_id: code_review_iter_N) (sprint completion)
 
-Skip if `--skip-code-review` is passed or reviewing a hotfix.
+Skip if `--skip-code-review` is passed or reviewing a hotfix. **Do not skip based on sprint frontmatter status** — see the anti-improvisation assertion in the Preflight section.
 
 Run the multi-agent code review on the sprint's diff before tests and spec compliance — 6 parallel scanners + an opus investigator (orchestration logic in `references/code-review-orchestration.md`) catch bugs, security issues, silent failures, and pattern violations, then the `shipyard:dispatching-task-loop` fixer addresses must-fix and should-fix items.
 
@@ -262,9 +264,10 @@ Additionally detect:
 - **Security concerns** — hardcoded values, missing input validation
 - **Anti-patterns** — TODO comments, console.log left in, empty catch blocks
 
-For each gap, classify into one of three destinations — this is a decision tree, not a menu, and the classification determines which persistence target the gap lands in:
+For each gap, classify into one of four destinations — this is a decision tree, not a menu, and the classification determines which persistence target the gap lands in:
 
-- **Simple and in-scope** (missing test for this feature, TODO left in this feature's files, missing validation on this feature's inputs) → **patch task** for builder. Use the existing patch-task creation flow.
+- **Existing-code one-line / template defect** (v2.6.0) → **inline-fix** via `dispatching-task-loop` with a synthetic patch task. Mirrors Stage 0's auto-fix pattern. Boundary criteria: fix is ≤5 lines of diff, touches files already on the working branch, needs no new dependencies/modules/test scaffolding, and the regression test either exists or can be written in ≤30 lines. Concrete shape: a missing prop on an existing component, a faulty `cloneElement` in an existing template, a forgotten `await`, a missing null guard with an existing test that already exercises the path. After the synthetic task lands its commit, re-enter Stage 4 once (`gap_analysis_iter_<N+1>`) on the patched diff — the gap should no longer appear. If the boundary check is uncertain or the inline fix introduces a new gap, fall through to the **patch task** classification below; the asymmetric cost (missed inline-fix is one extra `/ship-execute --task` invocation, wrong inline-fix is a bad commit landing without user approval) biases toward safety. Emit `patch_task_created task_id=<id> feature=<F> source=review-inline-fix` for traceability.
+- **Simple and in-scope, new functionality** (missing test for this feature, missing endpoint, missing widget, TODO left in this feature's files, missing validation on this feature's inputs) → **patch task** for builder. Use the existing patch-task creation flow. Hand off to the user via Stage 5's `Fix first` branch ("run `/ship-execute --task <id>`").
 - **Complex and in-scope** (feature doesn't work but tests pass, wiring broken within this feature, behavior contradicts this feature's spec) → **debug session**. Use the Write tool to create `<SHIPYARD_DATA>/debug/[feature-id]-[gap].md` with the symptoms and evidence from the review.
 - **Out-of-scope** (real defect or smell that isn't in the feature being reviewed — e.g., while reviewing the payments feature, the scanner flagged a race condition in the auth middleware) → **IDEA file**. Capture the observation as an idea so it doesn't vanish, without polluting the current feature's review. See "Capture Out-of-Scope Gaps as IDEAs" below.
 
@@ -336,15 +339,17 @@ Body: test summary, goal verification results (observable truths, artifacts, wir
 
 ### Stage 4.8: Demo-Path Verification (stage_id: demo_probe)
 
-Before advancing to user approval, **run each feature's `demo_probe` end-to-end** to prove the cross-task wiring actually works. This catches the failure mode where every per-task probe passed in isolation but the feature's user-facing flow doesn't compose.
+**v2.6.0 sequencing change.** `/ship-execute` now runs demo_probes at its `sprint_demo_probes` stage (Step 5 item 3), before flipping SPRINT.md to `status: completed`. By the time `/ship-review` reaches this stage, the demo probes have usually already passed. This stage's job is to **re-verify on freshly-checked-out HEAD** as a sanity check (defends against "passed during execute, broken at merge" race conditions), with a skip-if-already-passed preflight to keep review fast on the happy path.
 
-For each feature in scope:
+**Preflight.** Scan the event log for `acceptance_probe_completed feature=<F> probe_type=demo exit_code=0` per feature within the sprint window. If every feature in scope has a passing event, emit `stage_4_8_skipped reason=already_passed_in_execute` and advance straight to `stage: demo_user` — no need to re-run probes that just passed. Otherwise (some feature's probe wasn't run in execute, OR the user is reviewing a sprint that pre-dates v2.6.0), run the full sequence below.
+
+For each feature whose probe wasn't already verified:
 
 1. Read the feature's frontmatter `demo_probe:` field.
 2. **If `demo_probe` is missing**: refuse to advance to Stage 5. Surface to user via AskUserQuestion: *"Feature [F-NNN] has no `demo_probe`. Approval is gated on a feature-level smoke test that exercises the cross-task user flow. (a) author one now via /ship-discuss [F-NNN], (b) skip with explicit reason, (c) abort review."* Recommended: (a).
 3. **If `demo_probe: skip-with-reason`** with a `demo_probe_skip_reason` populated: include the reason in the per-feature summary (Stage 5) as a known limitation. Allow approval to proceed.
 4. **Otherwise**: invoke the **`shipyard:running-acceptance-probe` capability skill** with `probe_command: <feature.demo_probe>`, `cwd: <repo root>`, `timeout_seconds: 120`. The capability skill runs the probe in a fresh shell and returns the structured verdict.
-5. Record the verdict in PROGRESS.md's review table and include it in the Stage 5 per-feature summary:
+5. Emit `acceptance_probe_completed feature=<F> probe_type=demo exit_code=<n>` to the event log via `shipyard-data events emit ...` and include the verdict in the Stage 5 per-feature summary (PROGRESS.md auto-renders the verdict from the event):
    - **PASS** → ✅ Demo verified (last 5 lines of output captured below)
    - **FAIL** → ❌ Demo failed; demo probe doesn't exit 0 against the merged feature
    - **TIMEOUT** → ⚠ Demo exceeded 120s; probe is too broad — split or narrow it
@@ -409,6 +414,8 @@ Based on the approval:
   ```
 
 - **Cursor write**: on `process_approved` → write `stage: retro_step_1`, `terminal: false`. Emit `pipeline_tick_completed outcome=advanced next_stage=retro_step_1`. On `process_issues` → write `stage: terminal_issues`, `status: escalated`, `terminal: true`, emit `pipeline_terminal outcome=issues reason=user_flagged_issues` and print `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` On `process_changes` → write `stage: terminal_changes`, `status: escalated`, `terminal: true`, emit `pipeline_terminal outcome=changes reason=user_requested_changes` and print the terminal marker.
+
+- **Terminal-gate enforcement (v2.6.0).** Every terminal cursor write (`stage: terminal_approved | terminal_changes | terminal_issues` with `terminal: true`) is structurally gated by the auto-approve PreToolUse hook. The gate refuses the write unless: (1) `pipeline_tick_completed pipeline=ship-review stage=demo_user` is in the event log (proving the user-approval step ran); (2) for `terminal_approved`, every feature in SPRINT.md has a `verify/<F>-verdict.md` with `recommendation: approve`; (3) for `terminal_changes` / `terminal_issues`, at least one `patch_task_created` or `bug_created` event was emitted in this review window. Skipping `process_changes`'s cursor write — leaving the cursor at an intermediate stage while editing feature/backlog files — leaves the cursor inconsistent with the work done. Either emit the events the gate needs and write the terminal cursor cleanly, or don't claim terminal at all. Run `shipyard-context terminal-gate ship-review` to inspect what would block a terminal write right now.
 
 ## Hotfix Review
 

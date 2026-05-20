@@ -401,5 +401,129 @@ class TestShipyardDataNextId(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(ideas_dir, '.id-seq')))
 
 
+class TestShipyardDataLinkDataDir(unittest.TestCase):
+    """Tests for `shipyard-data link-data-dir`.
+
+    The subcommand creates `<projectRoot>/.shipyard` as a directory symlink
+    (POSIX) or NTFS junction (Windows) pointing at the resolved Shipyard
+    data dir. The link is purely a human-navigation convenience — Shipyard
+    internals never resolve through it — so the tests pin idempotency,
+    repoint-on-stale, and refuse-on-real-entry semantics.
+
+    Windows junction creation is exercised by the same code path
+    (`symlinkSync(target, link, 'junction')`); CI runs on POSIX so the
+    behavioral coverage is symlink-side.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-link-test-')
+        self.plugin_data = os.path.join(self.tmp, 'plugin-data')
+        self.project_dir = os.path.join(self.tmp, 'project')
+        os.makedirs(self.plugin_data)
+        os.makedirs(self.project_dir)
+        self.env = {
+            'CLAUDE_PROJECT_DIR': self.project_dir,
+            'CLAUDE_PLUGIN_DATA': self.plugin_data,
+        }
+        # Resolve the actual data dir via the CLI — getDataDir nests under
+        # projects/<hash>/ when CLAUDE_PLUGIN_DATA is given, so we can't
+        # assume plugin_data IS the data dir.
+        out, _, code = run_cli([], env_extra=self.env)
+        self.assertEqual(code, 0)
+        self.expected_target = os.path.realpath(out.strip())
+        self.expected_link = os.path.join(
+            os.path.realpath(self.project_dir), '.shipyard'
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_creates_symlink_pointing_at_data_dir(self):
+        out, err, code = run_cli(['link-data-dir'], env_extra=self.env)
+        self.assertEqual(code, 0, f'link failed: {err}')
+        link_path = os.path.join(self.project_dir, '.shipyard')
+        self.assertTrue(os.path.islink(link_path),
+            '.shipyard should be a symlink')
+        # readlink may be relative or absolute — resolve through the link
+        # via realpath, which is what every consumer (cd, editors, hooks)
+        # actually sees.
+        self.assertEqual(os.path.realpath(link_path), self.expected_target)
+        # Stdout reports the link path so callers can pipe / log it.
+        self.assertIn('.shipyard', out)
+
+    def test_idempotent_on_correct_target(self):
+        """Second call is a no-op — same link, same target, exit 0."""
+        run_cli(['link-data-dir'], env_extra=self.env)
+        link_path = os.path.join(self.project_dir, '.shipyard')
+        # Record the inode of the link itself (lstat, not stat) so we can
+        # confirm it wasn't recreated.
+        link_stat_before = os.lstat(link_path)
+        _, err, code = run_cli(['link-data-dir'], env_extra=self.env)
+        self.assertEqual(code, 0, f'second call failed: {err}')
+        link_stat_after = os.lstat(link_path)
+        self.assertEqual(link_stat_before.st_ino, link_stat_after.st_ino,
+            'idempotent call should not recreate the symlink')
+
+    def test_repoints_stale_symlink(self):
+        """If .shipyard points at a stale target, repoint to the current data dir."""
+        link_path = os.path.join(self.project_dir, '.shipyard')
+        stale_target = os.path.join(self.tmp, 'old-plugin-data')
+        os.makedirs(stale_target)
+        os.symlink(stale_target, link_path)
+        # Sanity: stale link is in place
+        self.assertEqual(os.path.realpath(link_path),
+            os.path.realpath(stale_target))
+
+        _, err, code = run_cli(['link-data-dir'], env_extra=self.env)
+        self.assertEqual(code, 0, f'repoint failed: {err}')
+        # Now points at the real data dir
+        self.assertEqual(os.path.realpath(link_path), self.expected_target)
+
+    def test_refuses_when_real_directory_at_path(self):
+        """A user-created real .shipyard/ must not be silently clobbered."""
+        link_path = os.path.join(self.project_dir, '.shipyard')
+        os.makedirs(link_path)
+        sentinel = os.path.join(link_path, 'user-content.md')
+        with open(sentinel, 'w') as f:
+            f.write('do not delete\n')
+
+        _, err, code = run_cli(['link-data-dir'], env_extra=self.env)
+        self.assertEqual(code, 1, 'should refuse without --force')
+        self.assertIn('refusing', err)
+        self.assertIn('--force', err)
+        # User content survived
+        self.assertTrue(os.path.isfile(sentinel),
+            'real directory contents must not be touched')
+
+    def test_refuses_when_real_file_at_path(self):
+        """Same refuse-without-force for a plain file at .shipyard."""
+        link_path = os.path.join(self.project_dir, '.shipyard')
+        with open(link_path, 'w') as f:
+            f.write('user notes\n')
+
+        _, err, code = run_cli(['link-data-dir'], env_extra=self.env)
+        self.assertEqual(code, 1, 'should refuse without --force')
+        self.assertIn('refusing', err)
+        # File survived
+        self.assertTrue(os.path.isfile(link_path))
+        with open(link_path) as f:
+            self.assertEqual(f.read(), 'user notes\n')
+
+    def test_force_replaces_real_directory(self):
+        """With --force, a real .shipyard/ is removed and replaced with the symlink.
+        Destructive — the operator explicitly opted in.
+        """
+        link_path = os.path.join(self.project_dir, '.shipyard')
+        os.makedirs(link_path)
+        with open(os.path.join(link_path, 'user-content.md'), 'w') as f:
+            f.write('will be deleted\n')
+
+        _, err, code = run_cli(['link-data-dir', '--force'], env_extra=self.env)
+        self.assertEqual(code, 0, f'--force failed: {err}')
+        self.assertTrue(os.path.islink(link_path),
+            'after --force, .shipyard should be a symlink')
+        self.assertEqual(os.path.realpath(link_path), self.expected_target)
+
+
 if __name__ == '__main__':
     unittest.main()

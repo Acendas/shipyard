@@ -1,6 +1,6 @@
 # Sprint-Complete Invariants — Detailed Reference
 
-Seven invariants, each evaluated as PASS or FAIL. Unlike wave-completion (which has RECOVERABLE plus retry), sprint-complete halts cleanly on any FAIL — recovery is the user's call at this layer.
+Eight invariants, each evaluated as PASS or FAIL. Unlike wave-completion (which has RECOVERABLE plus retry), sprint-complete halts cleanly on any FAIL — recovery is the user's call at this layer.
 
 The deterministic primitives backing these checks live in the `shipyard-context` CLI — use them instead of inline git/jq prose so the predicate is script-verifiable.
 
@@ -90,13 +90,36 @@ shipyard-context check-dirty-worktrees
 
 **Verdict.** PASS = verdict recommends approve or issues. FAIL = recommends changes, OR `review_verdict_path` is null (the latter is only "FAIL" at the post-review invocation; the pre-review call expects this).
 
+## Invariant 8 — Every shipped feature's `demo_probe` ran and passed in the sprint window
+
+**What it checks.** This is the cross-task user-flow proof — added in v2.6.0 after the confedit/sprint-001 incident demonstrated that "all unit tests pass + all per-task probes pass" does NOT imply "the feature's user-facing flow works." Per-task probes test isolated wiring; the per-feature `demo_probe` tests the integrated flow (e.g., "load schema → fill form → see validation → download data" rather than just "the download component renders").
+
+For each `feature_id` in SPRINT.md:
+
+- Read the feature file's frontmatter `demo_probe:` field.
+- **Absent / null** → FAIL with `missing-demo_probe` for the feature.
+- **`skip-with-reason` + populated `demo_probe_skip_reason`** → PASS-with-warning. The warning is surfaced in the verdict but doesn't block.
+- **Otherwise** → scan the event log for `acceptance_probe_completed feature=<feature_id> probe_type=demo exit_code=0` with `ts >= sprint.started_at`. PASS if found; FAIL otherwise.
+
+**Primitive.**
+
+```text
+shipyard-context scan-events --tail 2000 acceptance_probe_completed
+```
+
+Filter the returned events by `feature`, `probe_type=demo`, and `exit_code=0` within the sprint window.
+
+**Verdict.** PASS = every feature has a passing demo probe (or explicit skip-with-reason). FAIL = one or more features missing a passing probe.
+
+**Why this is sprint-complete, not just review.** Before v2.6.0, demo_probe ran only in `/ship-review` Stage 4.8 — AFTER `/ship-execute` had already flipped SPRINT.md to `status: completed`. So a sprint with broken cross-task wiring could be declared complete by execute, and the user had to wait for review to discover the breakage. Moving demo_probe into the sprint-complete predicate inverts the sequence: execute halts at `sprint_demo_probes` stage on probe failure, SPRINT.md stays `in-progress` until the wiring works, and the "Sprint complete" report becomes a real claim instead of a wishful one.
+
 ## Aggregation
 
 Sprint-complete does NOT do recovery. The aggregation is simple:
 
 ```text
-All seven PASS → STATUS: COMPLETE
+All eight PASS → STATUS: COMPLETE
 Any FAIL       → STATUS: INCOMPLETE with the failing-invariant list
 ```
 
-The user (not the skill) decides next action on FAIL — re-dispatch a task, fix a missing AC, re-run review.
+The user (not the skill) decides next action on FAIL — re-dispatch a task, fix a missing AC, fix a missing demo_probe, re-run review.

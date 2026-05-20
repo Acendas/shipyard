@@ -34,6 +34,8 @@ Body (one paragraph max):
 
 > Free-form narrative of the last tick's outcome — what ran, what was decided, what the next tick should focus on. Read by the next tick's handler at entry. Keep under ~200 words; this is for hand-off, not history.
 
+**Anti-improvisation rule (v2.6.0).** The body is free-form narrative ONLY. Do NOT invent structured `notes:` fields or any other ad-hoc claim format inside the body that future ticks might parse as authoritative state — particularly do not write `notes:` lines that justify skipping documented stages (e.g., *"Running review pipeline directly with --skip-code-review semantics (Stages 0/0.5/4.6/4.7 deferred — not run)"*). Structured claims about stage execution live in the event log via `shipyard-data events emit stage_0_skipped reason=<r>` (or similar), and stage skipping is allowed only via documented CLI flags (`--skip-code-review`, `--hotfix`, `--retro-only`). Improvised cursor-body claims violated the schema in the v2.5.0 confedit incident and effectively let the model self-grant a skip that has no code path.
+
 ## Stage map for ship-review
 
 | stage | What runs | On success → | On dirty / issue → |

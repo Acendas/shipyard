@@ -259,3 +259,148 @@ test("auto-approve: breadcrumb log written on pass (file outside data dir)", asy
     }
   });
 });
+
+// --- Terminal-cursor gate integration (v2.6.0) -------------------------
+//
+// The gate fires only on Write/Edit to EXECUTE-CURSOR.md or REVIEW-CURSOR.md
+// when the proposed final content is a "claim of success" terminal. These
+// tests cover the hook ↔ gate wiring; the gate logic itself is exercised
+// in test_terminal_gate.mjs.
+
+import { mkdirSync as mkdirSyncFs, writeFileSync as writeFileSyncFs } from "node:fs";
+
+function writeSprintFixture(sd, opts = {}) {
+  const sprintsCurrent = join(sd, "sprints", "current");
+  mkdirSyncFs(sprintsCurrent, { recursive: true });
+  const waves = opts.waves ?? [{ wave: 1, tasks: ["T001"] }];
+  const waveBlock = waves
+    .map((w) => `### Wave ${w.wave}\nTasks: [${w.tasks.join(", ")}]\n`)
+    .join("\n");
+  writeFileSyncFs(
+    join(sprintsCurrent, "SPRINT.md"),
+    `---\nid: sprint-001\nstatus: in-progress\nfeatures: [F001]\nstarted_at: 2026-05-19T00:00:00Z\n---\n\n## Waves\n\n${waveBlock}\n`,
+  );
+}
+
+function writeEventsFixture(sd, events) {
+  const lines = events.map((e) => JSON.stringify({ ts: new Date().toISOString(), ...e })).join("\n") + "\n";
+  writeFileSyncFs(join(sd, ".shipyard-events.jsonl"), lines);
+}
+
+test("terminal gate: non-terminal cursor Write passes through to allow", async () => {
+  await withTempDir(async (sd) => {
+    writeSprintFixture(sd);
+    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
+    const { stdout, code } = await runWithEnv(
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: cursorPath,
+          content: `---\npipeline: ship-execute\nstage: wave_1_dispatch\nterminal: false\nstatus: in_progress\n---\n\nbody`,
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    assert.equal(code, 0);
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "allow");
+  });
+});
+
+test("terminal gate: success terminal Write without evidence is DENIED", async () => {
+  await withTempDir(async (sd) => {
+    writeSprintFixture(sd);
+    // No events log → gate denies
+    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
+    const { stdout, code } = await runWithEnv(
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: cursorPath,
+          content: `---\npipeline: ship-execute\nstage: terminal_handoff_to_review\nterminal: true\nstatus: complete\n---\n\nSprint complete.`,
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    assert.equal(code, 0);
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /missing required event-log evidence/i);
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /wave_1_gate/);
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /sprint_complete_passed/);
+  });
+});
+
+test("terminal gate: escalated terminal Write bypasses gate", async () => {
+  await withTempDir(async (sd) => {
+    writeSprintFixture(sd);
+    // status: escalated is NOT a success claim — gate must not fire
+    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
+    const { stdout, code } = await runWithEnv(
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: cursorPath,
+          content: `---\npipeline: ship-execute\nstage: wave_1_redispatch_iter_1\nterminal: true\nstatus: escalated\n---\n\nEscalated for review.`,
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    assert.equal(code, 0);
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "allow");
+  });
+});
+
+test("terminal gate: complete evidence allows success terminal Write", async () => {
+  await withTempDir(async (sd) => {
+    writeSprintFixture(sd);
+    writeEventsFixture(sd, [
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_1_gate" },
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task: "T001" },
+      { type: "sprint_complete_passed", sprint_id: "sprint-001" },
+    ]);
+    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
+    const { stdout, code } = await runWithEnv(
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: cursorPath,
+          content: `---\npipeline: ship-execute\nstage: terminal_handoff_to_review\nterminal: true\nstatus: complete\n---\n\nDone.`,
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    assert.equal(code, 0);
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "allow");
+  });
+});
+
+test("terminal gate: Edit on cursor file uses post-edit content for evaluation", async () => {
+  await withTempDir(async (sd) => {
+    writeSprintFixture(sd);
+    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
+    // Pre-existing cursor at non-terminal state
+    writeFileSyncFs(
+      cursorPath,
+      `---\npipeline: ship-execute\nstage: wave_1_dispatch\nterminal: false\nstatus: in_progress\n---\n\nbody`,
+    );
+    // Edit flips terminal: false → true + status: in_progress → complete
+    const { stdout, code } = await runWithEnv(
+      {
+        tool_name: "Edit",
+        tool_input: {
+          file_path: cursorPath,
+          old_string: `terminal: false\nstatus: in_progress`,
+          new_string: `terminal: true\nstatus: complete`,
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    assert.equal(code, 0);
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny",
+      "Edit that flips cursor to terminal: true status: complete without evidence must be denied");
+  });
+});

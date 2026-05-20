@@ -25,6 +25,21 @@
     "pattern": "templates are copied into plugin data by `shipyard-data init`|copied into plugin data by `shipyard-data init`"
   },
   {
+    "name": "creates_in_project_data_dir_breadcrumb",
+    "type": "contains",
+    "pattern": "shipyard-data link-data-dir"
+  },
+  {
+    "name": "breadcrumb_is_user_navigation_only",
+    "type": "contains",
+    "pattern": "purely a human-navigation convenience|navigation convenience|navigation breadcrumb"
+  },
+  {
+    "name": "gitignores_shipyard_breadcrumb",
+    "type": "contains",
+    "pattern": "\\.shipyard\\b"
+  },
+  {
     "name": "no_merge_strategy_config",
     "type": "not_contains",
     "pattern": "merge.strategy|merge_strategy"
