@@ -539,6 +539,16 @@
     "pattern": "git worktree prune"
   },
   {
+    "name": "step0_runs_clean_worktrees",
+    "type": "contains",
+    "pattern": "clean-worktrees"
+  },
+  {
+    "name": "wave_boundary_runs_clean_worktrees",
+    "type": "contains",
+    "pattern": "clean-worktrees.*sweep|sweep.*clean-worktrees"
+  },
+  {
     "name": "task_kind_routing_in_step3",
     "type": "contains",
     "pattern": "Task Kind Routing|kind: operational.*operational-tasks\\.md",

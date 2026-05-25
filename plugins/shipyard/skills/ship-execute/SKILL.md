@@ -164,9 +164,11 @@ If checks 1-2 fail → run `git init` (if needed), then `git add -A && git commi
 
 ### Step 0: Worktree Salvage (stage_id: salvage) (always runs first)
 
-Run `git worktree prune` (portable across macOS/Linux/Windows; only removes admin metadata for already-deleted directories), then `git worktree list`. If no `shipyard/wt-*` paths appear, skip to Step 1.
+**First:** run `shipyard-data clean-worktrees` to remove any worktrees whose branches are already merged into the working branch or whose remote tracking is `[gone]`. This catches orphans from prior crashed sprints where the wave-boundary cleanup never ran. The CLI also cleans orphaned `shipyard/wt-*` branches with no corresponding worktree directory.
 
-Otherwise, for each leftover `shipyard/wt-*` worktree:
+**Then:** run `git worktree list`. If no `shipyard/wt-*` paths remain, skip to Step 1.
+
+Otherwise, for each leftover `shipyard/wt-*` worktree (these are ones with unmerged commits — the merged ones were already cleaned above):
 
 1. **Salvage uncommitted work** if present: `git -C <worktree> add -A` then `git -C <worktree> commit -m "wip(TASK_ID): salvage from interrupted session"`. Task ID is the branch suffix.
 2. **Rebase + ff-merge** the worktree branch onto the working branch. Conflicts → keep the branch; emit `shipyard-data events emit task_blocked task=<id> reason="shipyard/wt-X has conflicts — manual merge needed"` (PROGRESS.md is auto-rendered from events; do NOT Write/Edit PROGRESS.md) and skip the merge.
@@ -412,7 +414,7 @@ Each numbered item below maps to a distinct stage ID; the cursor advances stage-
 
 Between waves:
 
-1. **Rebase + ff-merge** task branches one at a time, in order. For each `shipyard/wt-*` branch: `git rebase <working-branch>` → `git checkout <working-branch>` → `git merge --ff-only` → `git worktree remove` → `git branch -d`. Conflicts → AskUserQuestion with details; never fall back to a regular merge (creates fork lines).
+1. **Rebase + ff-merge** task branches one at a time, in order. For each `shipyard/wt-*` branch: `git rebase <working-branch>` → `git checkout <working-branch>` → `git merge --ff-only` → `git worktree remove` → `git branch -d`. Conflicts → AskUserQuestion with details; never fall back to a regular merge (creates fork lines). After all merges, run `shipyard-data clean-worktrees` as a sweep to catch any worktrees or orphaned branches the per-branch cleanup missed.
 2. **Clean orchestrator branch.** `git status --porcelain` must be empty after all merges. Legitimate state changes (task status frontmatter) → commit `chore(shipyard): wave [N] state update`. Unexpected source-file changes → AskUserQuestion. PROGRESS.md is auto-rendered from the event log on every cursor write — never include manual PROGRESS.md edits in this commit; do not Write or Edit PROGRESS.md.
 3. **Emit `wave_check_passed wave=<N>`** via `shipyard-data events emit` — that's the structural signal that the wave completed cleanly. The PostToolUse render-progress hook picks it up on the next cursor write and updates PROGRESS.md `current_wave` automatically.
 4. **Wave-scoped build** (if `build_commands.scoped` or `build_commands.full` configured): invoke `shipyard:dispatching-operational-task` with the build command. Failure → re-dispatch the same capability skill to drive a bounded fix loop.

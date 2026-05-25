@@ -416,5 +416,25 @@
     "name": "v240_audit_lesson_referenced",
     "type": "contains",
     "pattern": "v2\\.4\\.0 audit"
+  },
+  {
+    "name": "has_idea_capture_mode",
+    "type": "contains",
+    "pattern": "IDEA-CAPTURE [Mm]ode|IDEA-CAPTURE mode"
+  },
+  {
+    "name": "idea_flag_in_detect_mode",
+    "type": "contains",
+    "pattern": "--idea"
+  },
+  {
+    "name": "idea_capture_no_questions",
+    "type": "contains",
+    "pattern": "No.*AskUserQuestion|No clarifying questions|zero friction"
+  },
+  {
+    "name": "idea_capture_releases_mutex",
+    "type": "contains",
+    "pattern": "Release the session mutex|mutex.*Done"
   }
 ]

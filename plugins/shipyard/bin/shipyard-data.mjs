@@ -17,10 +17,13 @@
  *   shipyard-data link-data-dir [--force]      → create <projectRoot>/.shipyard
  *                                                symlink (POSIX) or junction
  *                                                (Windows) → SHIPYARD_DATA
+ *   shipyard-data clean-worktrees [--dry-run]  → remove merged/gone worktrees
+ *                                 [--force]      under .claude/worktrees/
+ *                                 [--all]
  */
 
 import { execFileSync } from "node:child_process";
-import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
@@ -391,6 +394,280 @@ function initSprint(sprintId) {
  * Logged to .data-ops.log per file removed.
  */
 /**
+ * Clean up stale Shipyard worktrees whose branches have been merged or
+ * whose remote tracking branch is gone.
+ *
+ * Enumerates `git worktree list` for `shipyard/wt-*` entries. For each:
+ *   1. Check if the branch is already merged into the working branch
+ *      (via `git merge-base --is-ancestor`).
+ *   2. Check if the branch's remote tracking is `[gone]`.
+ *   3. If merged or gone: `git worktree remove` + `git branch -d`.
+ *   4. If unmerged with real commits: report but don't delete.
+ *
+ * Emits a structured event for each removal so the event log tracks
+ * what was cleaned and why.
+ *
+ * Options:
+ *   --dry-run    List what would be removed without removing
+ *   --force      Also remove unmerged worktrees (destructive)
+ *   --all        Clean ALL .claude/worktrees/* entries, not just shipyard/wt-*
+ *
+ * Usage: shipyard-data clean-worktrees [--dry-run] [--force] [--all]
+ */
+function cleanWorktrees(opts = {}) {
+  const projectRoot = getProjectRoot();
+  const worktreesDir = join(projectRoot, ".claude", "worktrees");
+
+  if (!existsSync(worktreesDir)) {
+    process.stdout.write("No .claude/worktrees/ directory found — nothing to clean.\n");
+    return;
+  }
+
+  // Run git worktree prune first to clean stale admin metadata
+  try {
+    execFileSync("git", ["worktree", "prune"], { cwd: projectRoot, stdio: "pipe" });
+  } catch { /* non-fatal */ }
+
+  // Parse `git worktree list --porcelain` for structured output
+  let porcelainOutput;
+  try {
+    porcelainOutput = execFileSync("git", ["worktree", "list", "--porcelain"], {
+      cwd: projectRoot,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch (err) {
+    process.stderr.write(`clean-worktrees: failed to list worktrees: ${err.message}\n`);
+    process.exit(1);
+  }
+
+  // Parse porcelain output into worktree entries
+  const entries = [];
+  let current = {};
+  for (const line of porcelainOutput.split("\n")) {
+    if (line === "") {
+      if (current.worktree) entries.push(current);
+      current = {};
+      continue;
+    }
+    if (line.startsWith("worktree ")) current.worktree = line.slice(9);
+    else if (line.startsWith("branch refs/heads/")) current.branch = line.slice(18);
+    else if (line === "detached") current.detached = true;
+    else if (line === "prunable") current.prunable = true;
+  }
+  if (current.worktree) entries.push(current);
+
+  // Filter to shipyard worktrees (or all, with --all)
+  const realWorktreesDir = (() => {
+    try { return realpathSync(worktreesDir); } catch { return worktreesDir; }
+  })();
+  const candidates = entries.filter((e) => {
+    if (!e.worktree || !e.branch) return false;
+    // Must live under .claude/worktrees/
+    const inClaudeWorktrees = e.worktree.startsWith(worktreesDir) ||
+                              e.worktree.startsWith(realWorktreesDir);
+    if (!inClaudeWorktrees) return false;
+    if (opts.all) return true;
+    return e.branch.startsWith("shipyard/wt-");
+  });
+
+  // Determine working branch
+  let workingBranch;
+  try {
+    workingBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: projectRoot,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+  } catch {
+    workingBranch = "HEAD";
+  }
+
+  let removed = 0;
+  let skipped = 0;
+  const results = [];
+
+  for (const entry of candidates) {
+    const { worktree, branch } = entry;
+    const shortPath = worktree.replace(projectRoot + "/", "");
+
+    // Check if merged into working branch
+    let isMerged = false;
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", branch, workingBranch], {
+        cwd: projectRoot,
+        stdio: "pipe",
+      });
+      isMerged = true;
+    } catch {
+      // exit code 1 = not ancestor = not merged
+    }
+
+    // Check if remote tracking branch is gone
+    let isGone = false;
+    try {
+      const trackInfo = execFileSync(
+        "git", ["for-each-ref", "--format=%(upstream:track)", `refs/heads/${branch}`],
+        { cwd: projectRoot, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+      ).trim();
+      isGone = trackInfo === "[gone]";
+    } catch { /* no tracking info = local-only, fine */ }
+
+    // Check for uncommitted changes
+    let hasUncommitted = false;
+    try {
+      const status = execFileSync("git", ["-C", worktree, "status", "--porcelain"], {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
+      hasUncommitted = status.length > 0;
+    } catch { /* can't check = assume dirty */ hasUncommitted = true; }
+
+    const reason = isMerged ? "merged" : isGone ? "gone" : null;
+    const canRemove = reason !== null || opts.force;
+
+    if (!canRemove) {
+      results.push({ shortPath, branch, action: "skip", reason: "unmerged" });
+      skipped++;
+      continue;
+    }
+
+    if (hasUncommitted && !opts.force) {
+      results.push({ shortPath, branch, action: "skip", reason: "uncommitted changes" });
+      skipped++;
+      continue;
+    }
+
+    if (opts.dryRun) {
+      results.push({ shortPath, branch, action: "would-remove", reason: reason ?? "force" });
+      removed++;
+      continue;
+    }
+
+    // Remove the worktree
+    try {
+      execFileSync("git", ["worktree", "remove", "--force", worktree], {
+        cwd: projectRoot,
+        stdio: "pipe",
+      });
+    } catch {
+      // Fallback: if git worktree remove fails, try manual cleanup
+      try {
+        rmSync(worktree, { recursive: true, force: true });
+        execFileSync("git", ["worktree", "prune"], { cwd: projectRoot, stdio: "pipe" });
+      } catch {
+        results.push({ shortPath, branch, action: "error", reason: "remove failed" });
+        skipped++;
+        continue;
+      }
+    }
+
+    // Delete the branch
+    try {
+      execFileSync("git", ["branch", "-D", branch], {
+        cwd: projectRoot,
+        stdio: "pipe",
+      });
+    } catch { /* branch may already be gone */ }
+
+    // Emit event for observability
+    try {
+      const dataDir = getDataDir({ silent: true });
+      logEvent(dataDir, "worktree_cleaned", {
+        branch,
+        reason: reason ?? "force",
+        path: shortPath,
+      });
+    } catch { /* non-fatal — don't fail cleanup because of event logging */ }
+
+    results.push({ shortPath, branch, action: "removed", reason: reason ?? "force" });
+    removed++;
+  }
+
+  // Also clean orphaned branches — shipyard/wt-* branches with no worktree
+  const worktreeBranches = new Set(entries.map((e) => e.branch).filter(Boolean));
+  let orphanedBranches;
+  try {
+    const branchOutput = execFileSync("git", ["branch", "--format=%(refname:short)"], {
+      cwd: projectRoot,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    orphanedBranches = branchOutput.split("\n")
+      .map((b) => b.trim())
+      .filter((b) => {
+        if (!b) return false;
+        if (opts.all) return b.startsWith("worktree-");
+        return b.startsWith("shipyard/wt-");
+      })
+      .filter((b) => !worktreeBranches.has(b));
+  } catch { orphanedBranches = []; }
+
+  for (const branch of orphanedBranches) {
+    let isMerged = false;
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", branch, workingBranch], {
+        cwd: projectRoot,
+        stdio: "pipe",
+      });
+      isMerged = true;
+    } catch { /* not merged */ }
+
+    const canRemove = isMerged || opts.force;
+    if (!canRemove) {
+      results.push({ shortPath: "(no worktree)", branch, action: "skip", reason: "orphaned branch, unmerged" });
+      skipped++;
+      continue;
+    }
+
+    if (opts.dryRun) {
+      results.push({ shortPath: "(no worktree)", branch, action: "would-remove", reason: "orphaned branch" + (isMerged ? ", merged" : "") });
+      removed++;
+      continue;
+    }
+
+    try {
+      execFileSync("git", ["branch", "-D", branch], {
+        cwd: projectRoot,
+        stdio: "pipe",
+      });
+    } catch {
+      results.push({ shortPath: "(no worktree)", branch, action: "error", reason: "branch delete failed" });
+      skipped++;
+      continue;
+    }
+
+    try {
+      const dataDir = getDataDir({ silent: true });
+      logEvent(dataDir, "worktree_cleaned", { branch, reason: "orphaned_branch", merged: isMerged });
+    } catch { /* non-fatal */ }
+
+    results.push({ shortPath: "(no worktree)", branch, action: "removed", reason: "orphaned branch" + (isMerged ? ", merged" : "") });
+    removed++;
+  }
+
+  // Report
+  if (results.length === 0) {
+    process.stdout.write("No stale worktrees or orphaned branches found.\n");
+    return;
+  }
+
+  if (opts.dryRun) {
+    process.stdout.write("DRY RUN — no changes made.\n\n");
+  }
+
+  for (const r of results) {
+    const icon = r.action === "removed" ? "✓" :
+                 r.action === "would-remove" ? "~" :
+                 r.action === "skip" ? "·" : "✗";
+    process.stdout.write(`  ${icon} ${r.branch} (${r.reason})\n`);
+  }
+
+  const verb = opts.dryRun ? "would remove" : "removed";
+  process.stdout.write(`\n${removed} ${verb}, ${skipped} skipped.\n`);
+}
+
+/**
  * `shipyard-data events` — query and emit structured events from
  * `$SHIPYARD_DATA/.shipyard-events.jsonl`. The events log is the primary
  * cross-cutting diagnostic for bug reports — see `_hook_lib.mjs::logEvent`
@@ -699,11 +976,20 @@ function main() {
       linkDataDir({ force: rest.includes("--force") });
       break;
     }
+    case "clean-worktrees": {
+      const rest = process.argv.slice(3);
+      cleanWorktrees({
+        dryRun: rest.includes("--dry-run"),
+        force: rest.includes("--force"),
+        all: rest.includes("--all"),
+      });
+      break;
+    }
     // For project-id / project-root use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash|project-root`.
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force]\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all]\n`,
       );
       process.exit(1);
   }
