@@ -596,7 +596,8 @@ function main() {
       for (let i = start; i < lines.length; i++) {
         try {
           const ev = JSON.parse(lines[i]);
-          if (typeSet.has(ev.type)) {
+          const evType = ev.type || ev.event;
+          if (typeSet.has(evType)) {
             out(lines[i]);
           }
         } catch {

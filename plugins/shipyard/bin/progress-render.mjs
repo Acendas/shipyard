@@ -80,7 +80,11 @@ function readEvents(dataDir) {
   for (const line of content.split("\n")) {
     if (!line) continue;
     try {
-      events.push(JSON.parse(line));
+      const ev = JSON.parse(line);
+      if (!ev.type && ev.event) {
+        ev.type = ev.event;
+      }
+      events.push(ev);
     } catch {
       // Skip malformed tail
     }

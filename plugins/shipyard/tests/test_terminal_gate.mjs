@@ -159,6 +159,31 @@ Tasks: T003
   ]);
 });
 
+test("parseWaves handles bullet-point task lists", () => {
+  const waves = parseWaves(`## Waves
+
+### Wave 1 (Foundation — parallel)
+- T015
+- T020
+
+### Wave 2 (Core Behavior — parallel)
+- T016
+- T021
+
+### Wave 3 (Integration — parallel)
+- T017
+- T018
+
+## Critical Path
+T015 → T016
+`);
+  assert.deepEqual(waves, [
+    { wave: 1, tasks: ["T015", "T020"] },
+    { wave: 2, tasks: ["T016", "T021"] },
+    { wave: 3, tasks: ["T017", "T018"] },
+  ]);
+});
+
 // --- Execute terminal gate ----------------------------------------------
 
 test("execute terminal: allows when all evidence present", () => {
@@ -403,6 +428,25 @@ body`,
     });
     assert.equal(v.allowed, false);
     assert.ok(v.reasons.some((r) => r.includes("demo_user")));
+  });
+});
+
+test("execute terminal: allows when events use 'event' key instead of 'type'", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, {});
+    // Simulate events emitted via raw bash (using "event" key, no "type")
+    const events = [
+      { event: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_1_gate" },
+      { event: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_2_gate" },
+      { event: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T001" },
+      { event: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T002" },
+      { event: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T003" },
+      { event: "sprint_complete_passed" },
+    ];
+    const lines = events.map((e) => JSON.stringify({ ts: new Date().toISOString(), ...e })).join("\n") + "\n";
+    writeFileSync(join(dataDir, ".shipyard-events.jsonl"), lines);
+    const v = evaluateExecuteTerminal({ dataDir });
+    assert.equal(v.allowed, true, `expected allow with 'event' key; got reasons: ${v.reasons.join("; ")}`);
   });
 });
 

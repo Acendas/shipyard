@@ -78,10 +78,13 @@ function frontmatterBool(value) {
 
 /**
  * Parse the `## Waves` section of SPRINT.md to extract wave numbers and
- * their task IDs. Tolerates the common templating variants — Markdown
- * `### Wave N` followed by `Tasks: [T001, T002]` or
- * `Tasks: T001, T002`. Wave numbers extracted from the heading; task IDs
- * from the first `Tasks:` line within five lines after each heading.
+ * their task IDs. Tolerates both templating variants:
+ *   1. `Tasks: [T001, T002]` or `Tasks: T001, T002` on a single line
+ *   2. Bullet lists: `- T015` entries following the heading
+ *
+ * Wave numbers extracted from the heading; task IDs from either the first
+ * `Tasks:` line or from consecutive bullet lines within the wave block.
+ * A wave block ends at the next `###` heading or `##` heading.
  */
 export function parseWaves(sprintContent) {
   if (!sprintContent) return [];
@@ -92,7 +95,8 @@ export function parseWaves(sprintContent) {
     if (!headingMatch) continue;
     const waveNum = parseInt(headingMatch[1], 10);
     let tasks = [];
-    for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+    for (let j = i + 1; j < lines.length; j++) {
+      if (/^##/.test(lines[j])) break;
       const taskLine = lines[j].match(/Tasks:\s*\[?([^\]]+)\]?/i);
       if (taskLine) {
         tasks = taskLine[1]
@@ -100,6 +104,10 @@ export function parseWaves(sprintContent) {
           .map((s) => s.trim().replace(/[\[\]]/g, ""))
           .filter((s) => /^T-?[A-Za-z0-9]+/.test(s));
         break;
+      }
+      const bulletMatch = lines[j].match(/^\s*[-*]\s+(T-?[A-Za-z0-9]+)/);
+      if (bulletMatch) {
+        tasks.push(bulletMatch[1]);
       }
     }
     waves.push({ wave: waveNum, tasks });
@@ -122,6 +130,12 @@ function readSprintMd(dataDir) {
  * The events file is JSONL — one event per line. Malformed lines are
  * silently skipped (the log is append-only with bounded rotation, so the
  * tail can have a partial write that becomes whole on the next emit).
+ *
+ * Normalizes each entry so `ev.type` is always the event-type discriminator,
+ * regardless of whether the emitter used `"type"` or `"event"` as the key.
+ * This matters because skill bodies sometimes emit events via raw bash
+ * (producing `{"event":"..."}`) instead of `shipyard-data events emit`
+ * (which produces `{"type":"..."}`). The gate must accept both.
  */
 export function readEvents(dataDir, tail = 5000) {
   const eventsPath = join(dataDir, ".shipyard-events.jsonl");
@@ -137,7 +151,11 @@ export function readEvents(dataDir, tail = 5000) {
   const events = [];
   for (let i = start; i < lines.length; i++) {
     try {
-      events.push(JSON.parse(lines[i]));
+      const ev = JSON.parse(lines[i]);
+      if (!ev.type && ev.event) {
+        ev.type = ev.event;
+      }
+      events.push(ev);
     } catch {
       // skip malformed tail
     }
