@@ -19,7 +19,7 @@ Plan a new sprint by pulling features from the backlog and decomposing into wave
 !`shipyard-context view metrics`
 !`shipyard-context view codebase 30`
 
-**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Shipyard binaries you may invoke from Bash: `shipyard-data archive-sprint <id>` and `shipyard-data init-sprint <id>` (Step 11.1). **Never use `echo`, `printf`, or shell redirects (`>`) to write state files** — use the Write tool for arbitrary frontmatter (auto-approved for SHIPYARD_DATA) or the `init-sprint` CLI for SPRINT.md / PROGRESS.md creation (template-canonical). When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
+**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Shipyard binaries you may invoke from Bash: `shipyard-data archive-sprint <id>` and `shipyard-data init-sprint <id>` (Step 11.1). **Never `cd` into the data directory before running `shipyard-data` commands** — they resolve the data directory internally via git and env vars; `cd`-ing into a non-git directory breaks the resolver. Just run the command bare from the project root. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files** — use the Write tool for arbitrary frontmatter (auto-approved for SHIPYARD_DATA) or the `init-sprint` CLI for SPRINT.md / PROGRESS.md creation (template-canonical). When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
 
 ## Input
 
@@ -329,7 +329,7 @@ Then use `AskUserQuestion` for approval:
 
 If approved:
 
-1. Use Edit to set `status: superseded` in SPRINT-DRAFT.md frontmatter (the soft-deleted record stays in place; physical removal is manual for now — do not physically delete). Run `shipyard-data init-sprint <sprint-id>` (Bash) to atomically create SPRINT.md and PROGRESS.md from the canonical templates at `project-files/templates/`. **Do not Write SPRINT.md or PROGRESS.md from memory** — schema drift between an improvised file and the canonical template is the cause of `/ship-review` "state inconsistent" alarms. The CLI substitutes `id:` and `created:` only; everything else stays at template defaults and gets filled in via Edit below.
+1. Use Edit to set `status: superseded` in SPRINT-DRAFT.md frontmatter (the soft-deleted record stays in place; physical removal is manual for now — do not physically delete). Run `shipyard-data init-sprint <sprint-id> --data-dir <SHIPYARD_DATA>` (Bash) to atomically create SPRINT.md and PROGRESS.md from the canonical templates at `project-files/templates/`. The `--data-dir` flag bypasses the git-based resolver — use it with the literal SHIPYARD_DATA path from the context block. **If init-sprint fails, STOP and surface the error to the user — do NOT fall back to Write.** Writing SPRINT.md or PROGRESS.md from memory causes schema drift (missing `started_at: null` comments, wrong default `status`, extra sections not in the template) that breaks downstream invariants. The CLI substitutes `id:` and `created:` only; everything else stays at template defaults and gets filled in via Edit below.
 2. Use Edit on SPRINT.md to fill the frontmatter (`goal`, `capacity`, `features`, `execution_mode`) and body sections (Goal, Waves, Critical Path, Risks, Swap Log) from the approved plan.
 3. Update feature statuses to `in-progress` in feature frontmatter.
 4. Remove pulled feature IDs from BACKLOG.md.

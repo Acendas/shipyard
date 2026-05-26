@@ -225,10 +225,19 @@ export function getDataDir(opts = {}) {
 
   // 3. Fail loud if nothing resolved.
   if (!pluginData) {
-    const message =
+    const cwdInDataDir =
+      projectRoot.includes(`${sep}plugins${sep}data${sep}`) ||
+      projectRoot.includes(`${sep}.claude-work${sep}plugins${sep}`);
+    let message =
       `shipyard-resolver: cannot resolve plugin data directory.\n` +
       `  CLAUDE_PLUGIN_DATA env var is not set.\n` +
-      `  No breadcrumb at ${breadcrumbPath}.\n` +
+      `  No breadcrumb at ${breadcrumbPath}.\n`;
+    if (cwdInDataDir) {
+      message +=
+        `  Likely cause: cwd is inside the plugin data directory, not a git repo.\n` +
+        `  Don't cd into the data dir before running shipyard-data — run it from the project root.\n`;
+    }
+    message +=
       `Set CLAUDE_PLUGIN_DATA or upgrade Claude Code to a version that sets it automatically.\n`;
     if (opts.silent) {
       throw new ShipyardResolverError(message);

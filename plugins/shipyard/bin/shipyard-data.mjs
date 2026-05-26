@@ -11,7 +11,7 @@
  *   shipyard-data init                         → creates the directory tree
  *   shipyard-data with-lock <key> -- <cmd>     → fcntl-style locking primitive
  *   shipyard-data archive-sprint <id> [--force]→ atomic sprint rename
- *   shipyard-data init-sprint <id>             → copy canonical templates into sprints/current/
+ *   shipyard-data init-sprint <id> [--data-dir] → copy canonical templates into sprints/current/
  *   shipyard-data events emit <type> [k=v ...] → structured event log append
  *   shipyard-data next-id <kind>               → atomic ID allocator
  *   shipyard-data link-data-dir [--force]      → create <projectRoot>/.shipyard
@@ -313,11 +313,11 @@ function archiveSprint(sprintId, opts = {}) {
  *   - Strict sprint-id validation (`sprint-NNN` with NNN ≥ 3 digits) — same
  *     pattern archive-sprint enforces.
  */
-function initSprint(sprintId) {
+function initSprint(sprintId, opts = {}) {
   if (!sprintId) {
     process.stderr.write(
       "shipyard-data init-sprint: missing sprint ID\n" +
-      "  Usage: shipyard-data init-sprint <sprint-id>\n" +
+      "  Usage: shipyard-data init-sprint <sprint-id> [--data-dir <path>]\n" +
       "  Sprint ID must match: sprint-NNN (3+ digits)\n"
     );
     process.exit(1);
@@ -330,7 +330,18 @@ function initSprint(sprintId) {
     process.exit(1);
   }
 
-  const dataDir = getDataDir({ silent: true });
+  let dataDir;
+  if (opts.dataDir) {
+    if (!existsSync(opts.dataDir)) {
+      process.stderr.write(
+        `shipyard-data init-sprint: --data-dir path does not exist: ${opts.dataDir}\n`
+      );
+      process.exit(1);
+    }
+    dataDir = opts.dataDir;
+  } else {
+    dataDir = getDataDir({ silent: true });
+  }
   const currentDir = join(dataDir, "sprints", "current");
   mkdirSync(currentDir, { recursive: true });
 
@@ -960,7 +971,17 @@ function main() {
       break;
     }
     case "init-sprint": {
-      initSprint(process.argv[3]);
+      const initSprintArgs = process.argv.slice(3);
+      const ddIdx = initSprintArgs.indexOf("--data-dir");
+      let initSprintDataDir;
+      let initSprintId;
+      if (ddIdx !== -1) {
+        initSprintDataDir = initSprintArgs[ddIdx + 1];
+        initSprintId = initSprintArgs.find((_a, i) => i !== ddIdx && i !== ddIdx + 1);
+      } else {
+        initSprintId = initSprintArgs[0];
+      }
+      initSprint(initSprintId, { dataDir: initSprintDataDir });
       break;
     }
     case "events": {
@@ -989,7 +1010,7 @@ function main() {
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all]\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all]\n`,
       );
       process.exit(1);
   }
