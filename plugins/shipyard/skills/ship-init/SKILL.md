@@ -156,6 +156,15 @@ Scan the project first — auto-detect as much as possible. Only ask what you ca
 
    **`operational_tasks.max_iterations`** (default `3`) and **`operational_tasks.max_patch_tasks`** (default `5`) are the fix-findings loop budget and scope-creep guard for `kind: operational` tasks. See `skills/ship-sprint/references/task-kinds.md` for the full semantics. Override per-task with `verify_max_iterations:` in task frontmatter.
 
+   **Quality gates** — standing gates applied to every sprint. Auto-detect from the project:
+   - CI config (coverage thresholds, lint checks, type checks)
+   - Existing quality scripts (`npm run lint`, `npm run typecheck`, `cargo clippy`)
+   - Package.json scripts with quality-related names
+
+   AskUserQuestion if detectable: "I found these quality checks in your project. Make them standing sprint gates? (yes / pick / skip)"
+
+   Default: empty (`quality_gates.standing: []`). Quality gates are opt-in. Write accepted gates to `config.md` under `quality_gates.standing`. Each gate is a free-text description — verification type is inferred during sprint planning.
+
 **Auto-detect these (confirm, don't ask):**
 Scan the project and present findings: "I detected [X]. Correct?" Only ask if detection fails.
 5. **Project type** — infer from stack (Next.js → web-app, Express → api, etc.)

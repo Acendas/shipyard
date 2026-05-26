@@ -1,0 +1,84 @@
+[
+  {
+    "name": "has_touch_surface_detection",
+    "type": "contains",
+    "pattern": "Touch Surface|touch.surface"
+  },
+  {
+    "name": "has_gap_analysis",
+    "type": "contains",
+    "pattern": "Gap Analysis|gap.analysis"
+  },
+  {
+    "name": "has_taxonomy_reference",
+    "type": "contains",
+    "pattern": "e2e-taxonomy"
+  },
+  {
+    "name": "has_output_shape",
+    "type": "contains",
+    "pattern": "## Output Shape"
+  },
+  {
+    "name": "has_tier_field",
+    "type": "contains",
+    "pattern": "\"tier\""
+  },
+  {
+    "name": "has_e2e_category_field",
+    "type": "contains",
+    "pattern": "e2e_category"
+  },
+  {
+    "name": "has_verification_type_field",
+    "type": "contains",
+    "pattern": "verification_type"
+  },
+  {
+    "name": "has_read_only_contract",
+    "type": "contains",
+    "pattern": "Read.Only"
+  },
+  {
+    "name": "has_skip_conditions",
+    "type": "contains",
+    "pattern": "[Ss]kip"
+  },
+  {
+    "name": "has_backfill_mention",
+    "type": "contains",
+    "pattern": "[Bb]ackfill"
+  },
+  {
+    "name": "has_disable_model_invocation",
+    "type": "frontmatter_field",
+    "field": "disable-model-invocation",
+    "value": "true"
+  },
+  {
+    "name": "has_correct_name",
+    "type": "frontmatter_field",
+    "field": "name",
+    "value": "validating-e2e-coverage"
+  },
+  {
+    "name": "has_correct_description_length",
+    "type": "contains",
+    "pattern": "description:"
+  },
+  {
+    "name": "has_activated_categories_output",
+    "type": "contains",
+    "pattern": "activated_categories"
+  },
+  {
+    "name": "has_gap_status_types",
+    "type": "contains",
+    "pattern": "COVERED|GAP|PARTIAL"
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
+    "pattern": "subagent_type.*shipyard:shipyard-"
+  }
+]

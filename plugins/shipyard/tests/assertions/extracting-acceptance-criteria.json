@@ -53,5 +53,25 @@
     "name": "no_dead_reference_links",
     "type": "not_contains",
     "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  },
+  {
+    "name": "has_tier_field",
+    "type": "contains",
+    "pattern": "\"tier\".*\"core\".*\"e2e\""
+  },
+  {
+    "name": "has_e2e_category_field",
+    "type": "contains",
+    "pattern": "e2e_category"
+  },
+  {
+    "name": "has_verification_type_field",
+    "type": "contains",
+    "pattern": "verification_type.*probe.*tool.*manual"
+  },
+  {
+    "name": "has_backward_compat_defaults",
+    "type": "contains",
+    "pattern": "default|absent"
   }
 ]

@@ -101,7 +101,7 @@ If you lose context mid-planning (e.g., after auto-compaction):
 
 1. Use the Read tool on `<SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md` (substitute the literal SHIPYARD_DATA path).
    - If draft exists, check staleness: read `created` from frontmatter. If the draft is from a previous session (more than a few hours old) → AskUserQuestion: "A sprint draft from [date] exists with features [list]. Resume it, or start fresh (the existing draft will be overwritten)? (resume / start fresh)"
-   - If current/resumed → load it, skip to Step 10 (Present Plan and Confirm)
+   - If current/resumed → load it, skip to Step 11 (Present Plan and Confirm)
    - If "start fresh" → use the Write tool to overwrite SPRINT-DRAFT.md with the new draft content (no separate delete step needed; Write replaces).
 2. If no draft, use Grep with `pattern: ^status: approved`, `path: <SHIPYARD_DATA>/spec/tasks`, `glob: T*.md`, `output_mode: files_with_matches` to find recently-created task files
    - Group by parent feature (each task has `feature:` in frontmatter)
@@ -270,7 +270,7 @@ created: [ISO date]
 ---
 ```
 
-Body: wave structure (task IDs per wave), critical path, risk register. This is NOT the approved sprint — it's recoverable state. The user must still approve before the sprint is created. Step 11 overwrites this with the approved SPRINT.md.
+Body: wave structure (task IDs per wave), critical path, risk register. This is NOT the approved sprint — it's recoverable state. The user must still approve before the sprint is created. Step 12 overwrites this with the approved SPRINT.md.
 
 Include a `## Risks` section derived from: critical path tasks, external deps, knowledge gaps, spec uncertainty, and technical debt (format from `planning-checklists.md`).
 
@@ -286,7 +286,15 @@ After the self-review quality gate passes, spawn the critic agent to challenge t
 
 See `references/spec-validation.md` § "Step 9.7" for the full critic dispatch prompt and the findings-processing rules (PRIORITY_ACTIONS, TASK_GAPS, WAVE_CONFLICTS, ESTIMATE_RISKS, ASSUMPTION_RISKS). For RECONSIDER verdicts on implementation decisions, AskUserQuestion with both options + critic's reasoning + your recommendation. **Do NOT re-run the critic after fixes.** One round only.
 
-### Step 10: Present Sprint Plan
+### Step 10: Generate Quality Gate Manifest
+
+**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/quality-manifest.md`
+
+Generate `<SHIPYARD_DATA>/sprints/current/QUALITY-GATE.md` from two sources: Standing Gates (from `config.md` `quality_gates.standing`) and Sprint-Specific Gates (from sprint features' E2E AC categories, deduplicated across features). Add Integration Gates for any epic integration AC referencing this sprint's features.
+
+**Skip if:** config has no standing gates AND no selected feature has E2E AC AND no epic integration AC reference this sprint's features.
+
+### Step 11: Present Sprint Plan
 
 Output the complete sprint plan as text. SPRINT-DRAFT.md and task files are already written as compaction checkpoints — no statuses change and no features move from backlog until the user approves.
 
@@ -320,12 +328,17 @@ Then for each wave: task IDs + titles, execution (sequential/parallel), dependen
 **DECISIONS MADE** — from Step 3.7: key implementation choices and reasoning
 **QUALITY GATE RESULTS** — from Step 9.5: all checks passed, or flagged gaps
 
+**QUALITY GATES** (if QUALITY-GATE.md was generated):
+- Standing: [N] gates ([M] probe, [K] manual)
+- Sprint-specific: [N] gates from [M] E2E categories
+- Integration: [N] gates from epic seams
+
 Then use `AskUserQuestion` for approval:
-- **Approve (Recommended)** — create the sprint and proceed to Step 11
+- **Approve (Recommended)** — create the sprint and proceed to Step 12
 - **Refine** — give feedback on specific tasks/waves, iterate
 - **Cancel** — cancel the sprint draft (sets `status: cancelled` in SPRINT-DRAFT.md and task files, clears `tasks:` arrays in feature frontmatter; the soft-deleted record stays in place)
 
-### Step 11: Create Sprint (after approval)
+### Step 12: Create Sprint (after approval)
 
 If approved:
 
@@ -407,6 +420,7 @@ Never reorder or modify already-completed waves. Only add to the current wave (i
 3. Update feature statuses to `in-progress` in feature frontmatter
 4. Remove new feature IDs from BACKLOG.md
 5. Log in SPRINT.md swap log: `| [date] | [added IDs] | — | Mid-sprint extension |`
+6. After extending scope, regenerate QUALITY-GATE.md to reflect updated features (see `references/quality-manifest.md` § EXTEND Mode).
 
 Then show:
 ```

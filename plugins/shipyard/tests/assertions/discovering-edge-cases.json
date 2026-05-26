@@ -58,5 +58,10 @@
     "name": "no_dead_reference_links",
     "type": "not_contains",
     "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  },
+  {
+    "name": "e2e_taxonomy_ref_exists",
+    "type": "file_exists",
+    "path": "skills/discovering-edge-cases/references/e2e-taxonomy.md"
   }
 ]

@@ -92,7 +92,10 @@ Return a structured list. Each entry:
   "polarity": "positive" | "negative",
   "observable": "<what changes / what's returned / what's logged — the thing a probe can check>",
   "owner_layer": "frontend" | "backend" | "db" | "infra" | "cross-cutting",
-  "domain_tags": ["<from domain_hints, if applicable>"]
+  "domain_tags": ["<from domain_hints, if applicable>"],
+  "tier": "core" | "e2e",
+  "e2e_category": "<taxonomy slug from e2e-taxonomy.md, e.g. 'timeout', 'idempotency'>" | null,
+  "verification_type": "probe" | "tool" | "manual"
 }
 ```
 
@@ -111,6 +114,7 @@ Before returning, run each AC through:
 - [ ] **No vague qualifiers** — replace "fast", "user-friendly", "secure" with measurable bounds.
 - [ ] **Negative companion present** — every positive AC has a "shall not" partner where applicable.
 - [ ] **Owner layer assigned** — knowing which layer owns it helps `/ship-sprint` distribute tasks.
+- [ ] **Tier assigned** — `tier` is `"core"` or `"e2e"`; `e2e_category` populated if and only if `tier` is `"e2e"`.
 
 ## Hard Cases
 
@@ -118,6 +122,29 @@ Before returning, run each AC through:
 - **Security ACs.** Phrase as observable absences: "The signup response shall not contain the user's password hash, salt, or any field of the `User.private` namespace." Observable = response body.
 - **UX ACs.** "User-friendly" → "The signup form shows an inline error within 200ms of an invalid email field losing focus, and the error references the specific field name." Observable = DOM state.
 - **Backward compatibility ACs.** "Existing v1 clients that POST to `/api/users` continue to receive the v1 response shape (no new required fields)." Observable = response schema diff.
+
+## E2E Acceptance Criteria Tiers
+
+AC are organized into two tiers:
+
+- **`tier: "core"`** — happy-path and edge-case scenarios derived from the feature discussion. These cover the feature's own logic. Default for all AC produced by the three-pass extraction above.
+- **`tier: "e2e"`** — outer-bound operational scenarios derived from the E2E taxonomy (see `${CLAUDE_PLUGIN_ROOT}/skills/discovering-edge-cases/references/e2e-taxonomy.md`). These cover what happens at system boundaries: timeouts, idempotency, graceful degradation, privilege escalation, etc. Added by the `validating-e2e-coverage` capability skill during `/ship-discuss` Phase 3.7.
+
+The `e2e_category` field is `null` for core AC and populated with a taxonomy slug (e.g., `"timeout"`, `"idempotency"`, `"privilege-escalation"`) for e2e AC.
+
+The `verification_type` field determines how the AC is verified during sprint review:
+- `"probe"` (default) — a shell command that exits 0 on pass. Standard for most AC.
+- `"tool"` — requires a specific testing tool (e.g., Playwright, k6, lighthouse). Still a shell command but invokes specialized tooling.
+- `"manual"` — requires human judgment (e.g., "degraded mode messaging is user-friendly"). Presented as a checklist item during review.
+
+### Backward Compatibility
+
+When reading AC that lack `tier`, `e2e_category`, or `verification_type` fields (pre-existing features), apply these defaults:
+- `tier`: `"core"`
+- `e2e_category`: `null`
+- `verification_type`: `"probe"`
+
+These defaults preserve full backward compatibility — existing features work unchanged. New fields are only populated explicitly by the extraction or validation skills.
 
 ## Output Discipline
 

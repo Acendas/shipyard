@@ -180,7 +180,17 @@ Pass to the capability skill:
 
 Use the capability skill's structured findings (`STATUS: PASS` or `STATUS: FINDINGS` with classification) in Stages 3–5. Security, bugs, silent failures, patterns, and tests are NOT this skill's job — those went through `dispatching-code-review` in Stage 0.
 
-- **Cursor write (after 1b)**: write `stage: visual` if any feature has UI components, else `stage: goal_verify`, `terminal: false`, `next_action: "Run Stage 2 visual verification"` (or `"Run Stage 3 goal verification"`). When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=<next>` and print `▶ TICK COMPLETE — pipeline at stage [next_stage]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor write (after 1b)**: write `stage: quality_gates`, `terminal: false`, `next_action: "Run Stage 1.5 quality gate enforcement"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=quality_gates` and print `▶ TICK COMPLETE — pipeline at stage [quality_gates]. /loop continues.` then exit. Direct invocation: chain.
+
+### Stage 1.5: Quality Gate Enforcement (stage_id: `quality_gates`)
+
+**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-review/references/quality-gate-enforcement.md`
+
+Read `<SHIPYARD_DATA>/sprints/current/QUALITY-GATE.md`. For each probe/tool gate, dispatch via `shipyard:dispatching-operational-task`. Collect manual gates into a checklist for Stage 5. Write results back to QUALITY-GATE.md. If >50% of gates fail, AskUserQuestion: continue or abort.
+
+**Skip if:** QUALITY-GATE.md doesn't exist or is empty.
+
+- **Cursor write**: on completion, write `stage: visual` (or `stage: goal_verify` if no UI), `terminal: false`. Emit `pipeline_tick_completed outcome=advanced next_stage=<next>`.
 
 ### Stage 2: Visual Verification (stage_id: visual) (UI tasks)
 
@@ -388,6 +398,14 @@ After all features are reviewed and verdicts written, present the complete revie
 - Average coverage
 - Gaps found across all features
 - Tests-first violations
+
+**Quality Gate Results** (if QUALITY-GATE.md exists):
+- Standing gates: [N] pass / [M] fail
+- Sprint-specific gates: [N] pass / [M] fail
+- Integration gates: [N] pass / [M] fail
+- **Manual verification checklist** — for each manual gate:
+  Present via AskUserQuestion: "[Gate description]. Verified? (yes / no / not applicable)"
+  Review cannot auto-approve if manual gates remain unverified.
 
 **Recommended action** per feature:
 - ✅ Approve — all checks passed

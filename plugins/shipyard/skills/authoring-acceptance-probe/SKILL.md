@@ -105,6 +105,41 @@ node -e 'const c = require("./config/loaded.json"); if (c.newKey !== "expected")
 | Anything that takes >5 minutes | Probe is too broad. Split the task or narrow the probe. |
 | `! command_that_fails_today` | "Negative" probes that pass *because* something is broken are ambiguous after a fix lands. |
 
+## Verification Type Routing
+
+E2E acceptance criteria have a `verification_type` field that determines how they are verified. The authoring approach differs per type:
+
+### verification_type: "probe" (default)
+
+Standard probe authoring — same as all patterns above. The probe is a shell command that exits 0 on pass. This covers all core AC and most E2E AC.
+
+### verification_type: "tool"
+
+The AC requires a specific testing tool for verification (e.g., Playwright for visual checks, k6 for load testing, lighthouse for accessibility). The probe is still a shell command, but it invokes a specialized tool binary. Author the probe normally, but note the tool dependency in the task file:
+
+```yaml
+acceptance_probe: |
+  npx playwright test e2e/timeout-handling.spec.ts --reporter=line
+verification_tool: playwright
+```
+
+The `verification_tool` field is informational — it tells the reviewer what tooling is needed. The probe itself must still be self-contained and exit 0 on pass.
+
+### verification_type: "manual"
+
+The AC requires human judgment and cannot be meaningfully automated (e.g., "degraded mode messaging is user-friendly", "admin dashboard layout is intuitive"). **Do not author a probe.** Instead, write a verification checklist in the task file's Technical Notes:
+
+```markdown
+## Manual Verification
+- [ ] [What to observe — concrete, specific]
+- [ ] [Expected behavior — what "correct" looks like]
+- [ ] [How to trigger the scenario]
+```
+
+Manual verification items are presented as a checklist during `/ship-review` Stage 5. The reviewer must confirm each item before the sprint can be approved.
+
+**When to convert manual to probe:** If you can describe the check as "run X, expect Y", it's a probe — even if it requires a browser automation tool. Reserve `manual` for genuinely subjective checks: visual aesthetics, copy quality, workflow intuitiveness, accessibility judgment calls.
+
 ## Quality Checklist Before Saving
 
 Before writing the probe to the task file, confirm:

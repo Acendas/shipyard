@@ -231,7 +231,7 @@ When the input is an epic ID (E001) or the user describes a large initiative.
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/epic-mode.md`
 
-Six steps in sequence: **EP1 Load Epic Context** (Glob the epic file, Grep features by `^epic: E00N`, present a summary block of features + points + scenarios); **EP2 Epic-Level Discussion** (AskUserQuestion about scope, new/removed features, business context shifts, cross-feature concerns); **EP3 Cascade Changes to Features** (propagate scope changes, new dependencies, priority shifts, acceptance criteria changes, additions/removals/invalidations to each affected feature file — full change-type table in reference; flag sprint-active features before mutating them); **EP4 Create New Features** (run NEW mode Phase 1→5 inline with epic pre-assigned, bundle related features so dependencies are clear); **EP5 Quality Gate** (5 checks: all features have acceptance criteria, no orphan features, consistent dependencies, no duplicates, coherent epic scope); **EP6 Wrap Up** (present changed-state summary, AskUserQuestion: "Approve these changes? (yes / adjust / revert all)").
+Seven steps in sequence: **EP1 Load Epic Context** (Glob the epic file, Grep features by `^epic: E00N`, present a summary block of features + points + scenarios); **EP2 Epic-Level Discussion** (AskUserQuestion about scope, new/removed features, business context shifts, cross-feature concerns); **EP3 Cascade Changes to Features** (propagate scope changes, new dependencies, priority shifts, acceptance criteria changes, additions/removals/invalidations to each affected feature file — full change-type table in reference; flag sprint-active features before mutating them); **EP4 Create New Features** (run NEW mode Phase 1→5 inline with epic pre-assigned, bundle related features so dependencies are clear); **EP5 Quality Gate** (5 checks: all features have acceptance criteria, no orphan features, consistent dependencies, no duplicates, coherent epic scope); **EP6 Wrap Up** (present changed-state summary, AskUserQuestion: "Approve these changes? (yes / adjust / revert all)"); **EP7 Integration AC** (cross-feature seam-level E2E criteria — see `references/epic-integration-ac.md`).
 
 ---
 
@@ -257,7 +257,7 @@ Idea: IDEA-NNN — [title]
 
 Pass the idea content as context into the full NEW mode flow (Phases 1 → 6), starting at Phase 1. The idea's description pre-answers some of Phase 1's questions — skip what's already clear, focus AskUserQuestion on genuine unknowns.
 
-Run all phases in sequence: Phase 1 (Understand) → Phase 1.5 (Research) → Phase 1.5b (Challenge & Surface) → Phase 2 (Viability Gate) → Phase 3 (Write to Spec as FNNN) → **Phase 3.5 (Impact Analysis)** → **Phase 3.7 (Simplification Scan)** → Phase 4 (Capture tangential ideas) → Phase 4.5 (Backlog Re-evaluation) → Phase 4.9 (Quality Gate) → Phase 4.95 (Adversarial Critique) → **Phase 4.97 (Scope-Drift Check)** → Phase 5 (Spec Approval Gate) → Phase 6 (Finalize).
+Run all phases in sequence: Phase 1 (Understand) → Phase 1.5 (Research) → Phase 1.5b (Challenge & Surface) → Phase 2 (Viability Gate) → Phase 3 (Write to Spec as FNNN) → **Phase 3.5 (Impact Analysis)** → **Phase 3.7 (E2E AC Validation)** → **Phase 3.8 (Simplification Scan)** → Phase 4 (Capture tangential ideas) → Phase 4.5 (Backlog Re-evaluation) → Phase 4.9 (Quality Gate) → Phase 4.95 (Adversarial Critique) → **Phase 4.97 (Scope-Drift Check)** → Phase 5 (Spec Approval Gate) → Phase 6 (Finalize).
 
 Impact Analysis (Phase 3.5) runs as normal — it scans existing features for dependencies, overlaps, conflicts, and invalidations caused by the new feature, and uses AskUserQuestion to confirm what to apply.
 
@@ -369,7 +369,17 @@ For each well-defined feature: generate the next FNNN ID, determine the epic (ex
 
 Skip if Glob `<SHIPYARD_DATA>/spec/features/F*.md` returns no results.
 
-### Phase 3.7: Simplification Opportunity Scan
+### Phase 3.7: E2E AC Validation
+
+**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-e2e-validation.md`
+
+After impact analysis, validate the feature's acceptance criteria against the E2E taxonomy. Invoke `shipyard:validating-e2e-coverage` with the feature file path, existing AC, and domain hints. The skill detects touch surfaces from the spec content, maps to the 83-type taxonomy, and returns coverage gaps with draft scenarios.
+
+**Skip if:** feature is trivial (`story_points <= 2` AND `complexity == "low"`) or no touch surfaces detected.
+
+Present gaps via AskUserQuestion in groups of ≤4. For accepted gaps, write to the feature file under `### E2E AC` within `## Acceptance Criteria`. If adding E2E AC would push the file over 200 lines, extract to `<SHIPYARD_DATA>/spec/references/FNNN-e2e-ac.md`.
+
+### Phase 3.8: Simplification Opportunity Scan
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/simplification-scan.md`
 
@@ -449,7 +459,10 @@ The summary is *past-tense outcomes only*. What was discovered, decided, and wri
 Output the discussion outcome as text. Use these sections only — describe what already exists in the spec files, not what should be built:
 
 - **FEATURES DEFINED** — per feature: ID, title, points, RICE, complexity, one-line user story, acceptance-scenario count, NFRs, high-RPN failure modes, edge cases, dependencies
-- **ACCEPTANCE SCENARIOS (VERBATIM)** — for each feature, list **every acceptance scenario in full Given/When/Then text** exactly as it was written to the spec file. Do not paraphrase, do not summarize, do not list "N scenarios" without showing them. These scenarios are the test contract that `/ship-execute` will treat as authoritative — the user must read the actual text, not approve on a count.
+- **ACCEPTANCE SCENARIOS (VERBATIM)** — for each feature, list **every acceptance scenario in full Given/When/Then text** exactly as it was written to the spec file.
+  For each feature, group scenarios by tier:
+  - **Core AC** — happy path + edge cases
+  - **E2E AC** — taxonomy-validated scenarios (show `[category]` tag for context) Do not paraphrase, do not summarize, do not list "N scenarios" without showing them. These scenarios are the test contract that `/ship-execute` will treat as authoritative — the user must read the actual text, not approve on a count.
 - **IDEAS CAPTURED** — tangential ideas filed during discussion
 - **EPIC** — if assigned, show epic with all features
 - **IMPACTS** — cross-feature changes already applied to spec files
@@ -534,6 +547,8 @@ Based on what Phase 1.5 surfaced, use AskUserQuestion (never plain text) to gath
 2. **Recalculate estimates** — scope likely changed after surfacing gaps
 3. **Re-run viability gate** — feature may now be better defined (or need splitting)
 4. **Backlog**: If estimates changed, no need to update BACKLOG.md — it only stores IDs. The updated data will be read from the feature file next time the backlog is displayed.
+
+**E2E AC Backfill:** After challenge, check if the feature has any `tier: "e2e"` AC (look for `### E2E AC` section). If not, invoke Phase 3.7 (E2E AC Validation) as backfill. Present as: "This feature predates E2E taxonomy validation." See `references/phase-e2e-validation.md` § Backfill Protocol.
 
 ### Step 4.5: Impact Analysis
 

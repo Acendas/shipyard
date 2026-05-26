@@ -48,5 +48,15 @@
     "name": "no_dead_reference_links",
     "type": "not_contains",
     "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  },
+  {
+    "name": "has_verification_type_routing",
+    "type": "contains",
+    "pattern": "[Vv]erification [Tt]ype [Rr]outing|verification_type"
+  },
+  {
+    "name": "has_manual_verification_section",
+    "type": "contains",
+    "pattern": "[Mm]anual.*[Vv]erification|verification_type.*manual"
   }
 ]

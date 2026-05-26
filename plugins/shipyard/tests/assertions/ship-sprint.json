@@ -469,5 +469,25 @@
     "type": "contains",
     "pattern": "Technical Notes.*deliverable|Technical Notes.*task mapping",
     "dotall": true
+  },
+  {
+    "name": "has_quality_manifest_step",
+    "type": "contains",
+    "pattern": "Quality Gate Manifest|QUALITY-GATE"
+  },
+  {
+    "name": "quality_manifest_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-sprint/references/quality-manifest.md"
+  },
+  {
+    "name": "has_standing_gates",
+    "type": "contains",
+    "pattern": "[Ss]tanding [Gg]ate"
+  },
+  {
+    "name": "has_sprint_specific_gates",
+    "type": "contains",
+    "pattern": "[Ss]print.Specific [Gg]ate"
   }
 ]

@@ -47,19 +47,27 @@ As a [user], I want [capability] so that [benefit].
 
 ## Acceptance Criteria
 
-```gherkin
-Feature: [Title]
+### Core AC
 
-  Scenario: [Happy path]
+```gherkin
+Feature: {{title}}
+
+  Scenario: Happy path
     Given [context]
     When [action]
     Then [expected result]
 
-  Scenario: [Error/edge case]
+  Scenario: Error / edge case
     Given [context]
     When [action]
     Then [expected result]
 ```
+
+### E2E AC
+
+<!-- Taxonomy-validated scenarios added by Phase 3.7 (E2E AC Validation). -->
+<!-- Each scenario is tagged with its category: [timeout], [idempotency], etc. -->
+<!-- Remove this section if no E2E AC apply to this feature. -->
 
 ## Interface
 

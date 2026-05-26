@@ -526,5 +526,25 @@
     "name": "bootstrap_dead_sprint_emits_terminal",
     "type": "contains",
     "pattern": "pipeline_terminal pipeline=ship-review sprint=.+? outcome=noop reason=sprint_dead_at_bootstrap"
+  },
+  {
+    "name": "has_quality_gate_stage",
+    "type": "contains",
+    "pattern": "Stage 1\\.5.*[Qq]uality|quality_gates"
+  },
+  {
+    "name": "quality_gate_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-review/references/quality-gate-enforcement.md"
+  },
+  {
+    "name": "has_manual_gate_checklist",
+    "type": "contains",
+    "pattern": "[Mm]anual.*checklist|[Mm]anual.*verification"
+  },
+  {
+    "name": "has_gate_failure_handling",
+    "type": "contains",
+    "pattern": "gate.*[Ff]ail|[Ff]ail.*gate"
   }
 ]

@@ -36,6 +36,19 @@ operational_tasks:
   max_patch_tasks: 5          # scope-creep guard — escalate if cumulative patch tasks > this
 execution:
   max_parallel_agents: 3      # max concurrent builder subagents per wave (1-4, hard ceiling 4)
+quality_gates:
+  standing: []              # standing gates applied to every sprint release
+  # Examples of standing gates:
+  #   - "All unit tests pass (test_commands.unit)"
+  #   - "All E2E tests pass (test_commands.e2e)"
+  #   - "No TODO/FIXME in sprint diff"
+  #   - "Code coverage >= 80% on new code"
+  #   - "No console.log in production code"
+  # Gate format: free-text description. Each gate becomes a line item in
+  # sprints/current/QUALITY-GATE.md. verification_type is auto-inferred:
+  #   - References a test_commands key -> probe (uses that command)
+  #   - References a specific tool -> tool
+  #   - Otherwise -> manual (human checklist item during review)
 ---
 
 # Project Configuration

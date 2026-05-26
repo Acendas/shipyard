@@ -68,7 +68,7 @@
   {
     "name": "has_simplification_scan_phase",
     "type": "contains",
-    "pattern": "Phase 3\\.7.*[Ss]implification"
+    "pattern": "Phase 3\\.8.*[Ss]implification"
   },
   {
     "name": "simplification_scan_ref_exists",
@@ -88,7 +88,7 @@
   {
     "name": "simplification_scan_in_idea_sequence",
     "type": "contains",
-    "pattern": "Phase 3\\.7.*[Ss]implification.*Phase 4",
+    "pattern": "Phase 3\\.8.*[Ss]implification.*Phase 4",
     "dotall": true
   },
   {
@@ -436,5 +436,40 @@
     "name": "idea_capture_releases_mutex",
     "type": "contains",
     "pattern": "Release the session mutex|mutex.*Done"
+  },
+  {
+    "name": "has_e2e_validation_phase",
+    "type": "contains",
+    "pattern": "Phase 3\\.7.*E2E|Phase 3\\.7.*e2e"
+  },
+  {
+    "name": "e2e_validation_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-discuss/references/phase-e2e-validation.md"
+  },
+  {
+    "name": "has_tiered_ac_sections",
+    "type": "contains",
+    "pattern": "Core AC.*E2E AC|### Core AC"
+  },
+  {
+    "name": "has_epic_integration_ac",
+    "type": "contains",
+    "pattern": "Integration Acceptance Criteria|EP7"
+  },
+  {
+    "name": "epic_integration_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-discuss/references/epic-integration-ac.md"
+  },
+  {
+    "name": "has_refine_backfill",
+    "type": "contains",
+    "pattern": "[Bb]ackfill.*[Ee]2[Ee]|[Ee]2[Ee].*[Bb]ackfill"
+  },
+  {
+    "name": "simplification_scan_renumbered",
+    "type": "contains",
+    "pattern": "Phase 3\\.8.*[Ss]implification"
   }
 ]
