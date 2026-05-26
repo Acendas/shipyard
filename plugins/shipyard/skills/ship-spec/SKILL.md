@@ -307,9 +307,28 @@ IDEAS — [N] pending discussion
 
   **External references:** Preserve `external_refs` during sync — never overwrite or clear. When generating sync output, include external refs so the user's session knows which external issues to update.
 
-`/ship-spec sync F001` — Sync a specific feature only.
+`/ship-spec sync F001` — Sync a specific feature by Shipyard ID. Runs the same Steps 1-5 above but scoped to one feature. After syncing to the user's product spec, also push to external systems:
 
-`/ship-spec sync --dry-run` — Show what would be synced without making changes.
+  **External system push (opportunistic):** If the feature has `external_refs` and the session has matching MCP tools (Jira, GitHub, Linear, etc.):
+  1. For each external ref, check if a write tool is available (e.g., `jira_update_issue`, `jira_add_comment`, `update_issue`, `add_issue_comment`)
+  2. If a comment tool exists: post a sync comment to the external issue:
+     ```
+     Shipyard sync — F001: [title]
+     Status: [status]
+     Acceptance criteria: [N] scenarios ([M] met)
+     Sprint: [sprint-id or "not yet planned"]
+     ```
+  3. If a status-update tool exists and the feature is `done`/`deployed`/`released`: offer to transition the external issue too. AskUserQuestion: "F001 is [status]. Update SYS-123 status in your tracker? (yes / no)"
+  4. If no write tools available: skip silently — the sync output already includes external refs for the user to act on manually.
+
+`/ship-spec sync SYS-123` — Sync by external issue key. Resolves the key to a Shipyard feature by grepping `external_refs` across all feature files, then runs the `sync F001` flow above.
+
+  - Grep `<SHIPYARD_DATA>/spec/features/F*.md` for the literal string `SYS-123` in frontmatter `external_refs` arrays
+  - If exactly one feature matches → sync it
+  - If multiple features match → AskUserQuestion: "SYS-123 is linked to [F001: Title] and [F005: Title]. Sync which? (F001 / F005 / both)"
+  - If no feature matches → "No Shipyard feature is linked to SYS-123. Run `/ship-discuss SYS-123` to create one, or `/ship-spec absorb F001 SYS-123` to link it to an existing feature."
+
+`/ship-spec sync --dry-run` — Show what would be synced without making changes. Includes external system actions that would be taken.
 
 ## Valid Status Transitions
 
