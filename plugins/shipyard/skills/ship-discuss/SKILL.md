@@ -3,7 +3,7 @@ name: ship-discuss
 description: "Discover features from idea to full spec."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, "Bash(shipyard-context:*)"]
 effort: high
-argument-hint: "[topic | feature ID | --idea <description>]"
+argument-hint: "[topic | feature ID | issue key | --idea <description>]"
 ---
 
 # Shipyard: Feature Discussion
@@ -74,6 +74,7 @@ Auto-route ONLY on unambiguous inputs. Heuristic classifications must be confirm
 - If input is an **epic ID** (E001) → **EPIC mode** (refine epic scope, cascade changes to features)
 - If input is an **idea ID** (IDEA-NNN) → **IDEA mode** (convert idea to feature — see below)
 - If input is a **feature ID** (F001) → **REFINE mode** (load existing, gather updates)
+- If input matches an **external issue key** pattern (`[A-Z]+-\d+` but NOT a Shipyard ID like F001/E001/T001/IDEA-NNN) → **EXTERNAL mode**. Fetch context from the user's session MCP tools and seed a NEW mode discussion. See `references/external-issue-fetch.md` for the full protocol. Examples: `JIRA-123`, `SYS-456`, `ENG-789`.
 - If input is a **triage phrase** — exact phrase match against: "anything requires discussion", "anything requires discussion?", "what's open", "what needs discussion", "what needs attention", "what's pending", "what needs refinement", "anything else", "discuss anything", "what else", "any ideas", "any ideas to discuss", "what ideas" → **TRIAGE mode** (see below)
 - If no input → AskUserQuestion: "What would you like to discuss?"
 
