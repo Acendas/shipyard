@@ -104,6 +104,28 @@ Before writing any spec file, check: will the main feature file exceed 200 lines
   - rice_score: number (calculated, not manual)
   - dependencies: array of IDs
 
+## External References
+
+Features, epics, and tasks may carry an `external_refs` array in frontmatter for linking to external issue trackers, project management tools, or any external system:
+
+```yaml
+external_refs:
+  - "JIRA-123"
+  - "GH-456"
+  - "https://linear.app/team/issue/ENG-789"
+```
+
+Each entry is a free-form string — an issue key, URL, or any identifier meaningful in the user's tooling. Shipyard never interprets or calls these references; they exist so the user's session (via their own MCP tools like Jira, GitHub, Linear) can cross-reference Shipyard specs with external systems.
+
+**Conventions:**
+- Issue keys (e.g., `JIRA-123`, `GH-456`) are preferred over full URLs when the project has a single tracker — shorter and scannable.
+- Full URLs when linking to systems without short keys or when multiple trackers are in use.
+- Empty array `[]` is the default. Never `null`.
+
+**`/ship-spec absorb` and `/ship-spec sync` behavior:**
+- `absorb`: if the absorbed document mentions an external issue key (detected by patterns like `[A-Z]+-\d+`), offer to add it to `external_refs`.
+- `sync`: preserve `external_refs` during sync — never overwrite or clear them. When syncing back to an external system, the user's session can read `external_refs` to know which external issue to update.
+
 ## E2E Acceptance Criteria Schema
 
 Feature acceptance criteria are organized into two tiers:

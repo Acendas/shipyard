@@ -23,6 +23,7 @@ Before presenting to the user, review your own output. Re-read each feature file
 | 13 | **Failure modes analyzed** | Write operations exist but no failure mode table |
 | 14 | **EARS syntax used** | Acceptance criteria use vague language instead of WHEN/WHILE/IF patterns |
 | 15 | **All states covered** | Missing empty state, error state, loading state, or offline state |
+| 16 | **Architecture diagrams present when applicable** | Feature touches 2+ services/components or has 3+ interacting parts but `## Flows` section is missing or empty. If Phase 1.5 Step 4 triggers applied, at least one Mermaid diagram (C4, sequence, or state machine) must exist in the Flows section. |
 
 Iterate the checklist on each feature file, fixing failures (AskUserQuestion when input is needed) and re-running. Max 3 iterations. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag remaining gaps as "Unresolved — needs follow-up in /ship-discuss [ID]". Then proceed to Phase 4.95.
 

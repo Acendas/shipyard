@@ -15,6 +15,7 @@ rice_score: 0
 feasibility: 0
 dependencies: []
 references: []  # full relative paths: $(shipyard-data)/spec/references/FNNN-slug.md
+external_refs: []           # links to external systems: "JIRA-123", "GH-456", "https://..."
 children: []
 tasks: []
 created: null

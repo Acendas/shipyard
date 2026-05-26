@@ -199,7 +199,8 @@ IDEAS — [N] pending discussion
      - If the source file has no YAML frontmatter: prepend `---\nfeature: F001\nsource: <original-path>\n---\n` then the full content.
      - If the source file already has YAML frontmatter (starts with `---`): merge `feature: F001` and `source: <original-path>` into the existing frontmatter block rather than prepending a second one.
   5. Use Edit to add the full path `<SHIPYARD_DATA>/spec/references/F001-<slug>.md` to the `references:` array in F001's frontmatter. Always store full relative paths, not bare filenames.
-  6. Confirm: "Absorbed [filename] → <SHIPYARD_DATA>/spec/references/F001-<slug>.md and linked to F001."
+  6. **External reference detection:** If the absorbed document mentions issue keys matching common patterns (`[A-Z]+-\d+` for Jira/Linear, `#\d+` for GitHub/GitLab), offer to add them to the feature's `external_refs` array via AskUserQuestion: "Document references [KEY]. Link it to this feature? (yes / no)"
+  7. Confirm: "Absorbed [filename] → <SHIPYARD_DATA>/spec/references/F001-<slug>.md and linked to F001."
   If F001 doesn't exist yet, AskUserQuestion: "F001 not found. Create it first with /ship-discuss, then absorb."
 
 `/ship-spec absorb <path>` (no feature ID) — Absorb an external document and auto-match or create a feature for it.
@@ -303,6 +304,8 @@ IDEAS — [N] pending discussion
   - **Apply sync (Recommended)** — apply patches to the user's spec files, set `synced_at: [date]` in each feature's frontmatter
   - **Edit** — adjust specific patches, then re-approve
   - **Skip** — don't sync, features remain unsynced for next time
+
+  **External references:** Preserve `external_refs` during sync — never overwrite or clear. When generating sync output, include external refs so the user's session knows which external issues to update.
 
 `/ship-spec sync F001` — Sync a specific feature only.
 

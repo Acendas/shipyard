@@ -5,6 +5,7 @@ type: epic
 status: proposed
 created: null
 updated: null
+external_refs: []           # links to external systems: "JIRA-123", "GH-456", "https://..."
 ---
 <!-- Epic membership is derived from feature files (epic: field). Do NOT add a features: array here. -->
 

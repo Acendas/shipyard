@@ -14,6 +14,18 @@ Walk this in order. **Use LSP first** for code navigation; fall back to Grep/Rea
 
 3. **How others solve it.** WebSearch how established products handle this same problem, the standard UX patterns users expect, and open-source implementations to study. WebSearch common user complaints about existing solutions to learn from their mistakes. WebSearch best practices and security pitfalls for the domain (include the current year for currency). WebFetch official docs for mentioned libraries/APIs.
 
+4. **Architecture visualization.** Before moving to findings, generate diagrams that make the feature's scope and interaction visible. This is mandatory when the triggers below apply — not optional polish.
+
+   **C4 diagram** — generate when the feature spans 2+ services, touches external APIs, or affects multiple architecture layers. Use C4 Context level for broad scope, Container level for service-to-service detail. Show the feature's new/changed elements highlighted against the existing landscape.
+
+   **Sequence diagram** — generate when 3+ components communicate in sequence, when order of operations matters, or when async/callback/retry patterns are involved. Show the happy path first, then add error/timeout branches as alt blocks.
+
+   **State machine diagram** — generate when the feature introduces or modifies entity lifecycle states (e.g., order status, approval workflow, subscription state). Show all states, valid transitions, and terminal states.
+
+   **Skip criteria:** features that live entirely within one component with no external interaction and no state lifecycle changes. If in doubt, generate the diagram — it costs one paragraph and saves hours of miscommunication.
+
+   Show diagrams inline in the conversation using ASCII box-drawing (see `references/communication-design.md` for patterns). Phase 3 will convert them to Mermaid for the spec file. Present each diagram with a one-sentence setup: "Here's where this feature fits in the current architecture:" or "Here's the interaction flow for the happy path:".
+
 ## Where findings go
 
 **Write findings to the feature file `## Technical Notes`** (after Phase 3 creates it) with this structure:
@@ -52,4 +64,4 @@ Fold findings into the conversation naturally before challenging: "I looked into
 
 ## Visual context
 
-If the feature spans multiple services, external APIs, or touches multiple parts of the architecture, show a C4 diagram (Context or Container level) so the user can see where it fits. If it involves 3+ components communicating in sequence, show a sequence diagram to make the interaction flow visible. See `references/communication-design.md` for C4 and sequence diagram patterns. Skip for features that live entirely within one component.
+See **Step 4 (Architecture visualization)** in the order of operations above. That step is the mandatory checkpoint — diagrams are generated there, shown inline during conversation, and persisted to the `## Flows` section in Phase 3.

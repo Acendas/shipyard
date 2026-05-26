@@ -7,6 +7,7 @@ feature: ""
 status: approved       # pending|in-progress|done|blocked|needs-attention — see ship-status/SKILL.md
 effort: ""
 dependencies: []
+external_refs: []           # links to external systems: "JIRA-123", "GH-456", "https://..."
 created: null
 # For kind: feature — REQUIRED at Definition-of-Ready (Shipyard 2.0):
 # acceptance_probe: |
