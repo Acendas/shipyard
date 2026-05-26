@@ -471,5 +471,68 @@
     "name": "simplification_scan_renumbered",
     "type": "contains",
     "pattern": "Phase 3\\.8.*[Ss]implification"
+  },
+  {
+    "name": "has_architecture_visualization_step",
+    "type": "contains",
+    "pattern": "[Aa]rchitecture [Vv]isualization|Step 4.*visualization|step 4.*diagram"
+  },
+  {
+    "name": "has_c4_diagram_instruction",
+    "type": "contains",
+    "pattern": "C4.*diagram|C4.*Context|C4.*Container"
+  },
+  {
+    "name": "has_sequence_diagram_instruction",
+    "type": "contains",
+    "pattern": "[Ss]equence diagram|sequenceDiagram"
+  },
+  {
+    "name": "has_state_machine_diagram_instruction",
+    "type": "contains",
+    "pattern": "[Ss]tate machine|stateDiagram"
+  },
+  {
+    "name": "has_mermaid_persistence",
+    "type": "contains",
+    "pattern": "[Mm]ermaid.*persist|persist.*[Mm]ermaid|[Mm]ermaid.*Flows|convert.*[Mm]ermaid"
+  },
+  {
+    "name": "has_diagram_quality_gate_check",
+    "type": "contains",
+    "pattern": "[Aa]rchitecture diagrams present|Flows.*missing.*empty|diagram.*quality gate",
+    "target": "ref:phase-quality-and-critique.md"
+  },
+  {
+    "name": "phase_1_research_has_step_4",
+    "type": "contains",
+    "pattern": "4\\..*[Aa]rchitecture [Vv]isualization|4\\..*[Dd]iagram",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "phase_3_write_spec_has_flows_mermaid",
+    "type": "contains",
+    "pattern": "Flows.*[Mm]ermaid|[Mm]ermaid.*Flows|convert.*[Mm]ermaid",
+    "target": "ref:phase-3-write-spec.md"
+  },
+  {
+    "name": "external_issue_fetch_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-discuss/references/external-issue-fetch.md"
+  },
+  {
+    "name": "has_external_mode_detection",
+    "type": "contains",
+    "pattern": "EXTERNAL [Mm]ode|external issue key|\\[A-Z\\]\\+-\\\\d\\+"
+  },
+  {
+    "name": "has_external_refs_linking",
+    "type": "contains",
+    "pattern": "external_refs"
+  },
+  {
+    "name": "has_mcp_tool_discovery",
+    "type": "contains",
+    "pattern": "MCP tool|MCP.*available|session.*MCP|tracker.*MCP"
   }
 ]

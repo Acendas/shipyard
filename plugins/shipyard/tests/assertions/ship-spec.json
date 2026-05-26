@@ -89,5 +89,30 @@
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
     "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+  },
+  {
+    "name": "has_external_refs_field",
+    "type": "contains",
+    "pattern": "external_refs"
+  },
+  {
+    "name": "has_sync_by_external_key",
+    "type": "contains",
+    "pattern": "sync.*SYS-123|sync.*\\[A-Z\\]|sync.*external.*key"
+  },
+  {
+    "name": "has_sync_external_push",
+    "type": "contains",
+    "pattern": "push.*external|external.*push|comment.*external|tracker.*MCP"
+  },
+  {
+    "name": "has_absorb_external_detection",
+    "type": "contains",
+    "pattern": "absorb.*external|absorb.*issue.*key|absorb.*detect"
+  },
+  {
+    "name": "sync_preserves_external_refs",
+    "type": "contains",
+    "pattern": "[Pp]reserve.*external_refs|external_refs.*[Pp]reserve|never overwrite.*external"
   }
 ]
