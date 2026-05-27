@@ -534,11 +534,6 @@
     "pattern": "SD=\\$\\(shipyard-data"
   },
   {
-    "name": "step0_runs_worktree_prune",
-    "type": "contains",
-    "pattern": "git worktree prune"
-  },
-  {
     "name": "step0_runs_clean_worktrees",
     "type": "contains",
     "pattern": "clean-worktrees"

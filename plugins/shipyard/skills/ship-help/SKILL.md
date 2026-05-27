@@ -74,17 +74,22 @@ You talk.  Shipyard plans.  Claude builds.  You approve.
 
 1. `/ship-discuss`  — Describe what you want. Shipyard researches, challenges,
                       and writes the spec. You approve.
+                      • Generates Core AC (happy path) + E2E AC (taxonomy-validated)
+                      • Architecture diagrams auto-generated when complexity warrants
+                      • Pass an issue key (`/ship-discuss SYS-123`) to seed from Jira/GitHub
 
 2. `/ship-backlog`  — See everything planned. Prioritize. Cut what doesn't matter.
 
 3. `/ship-sprint`   — Pick features, Shipyard breaks them into tasks and waves.
                       You approve the plan.
+                      • Generates QUALITY-GATE.md (standing + sprint-specific gates)
 
 4. `/ship-execute`  — Shipyard builds it. Tests first, then code. Fully automatic.
                       Type "pause" to stop cleanly. Crash? Run again to recover.
 
 5. `/ship-review`   — Shipyard verifies everything works. You approve. Retro runs.
                       Changelog generated. Sprint archived.
+                      • Stage 1.5 enforces quality gates (probe/tool/manual)
 
 6. Done! Start again with `/ship-discuss`.
 
@@ -94,6 +99,8 @@ You talk.  Shipyard plans.  Claude builds.  You approve.
   /ship-bug     — Report a bug. Hotfixes go straight to execution.
   /ship-debug   — Systematic investigation. Survives /clear.
   /ship-spec    — Browse your spec. Sync with your product docs.
+                  sync SYS-123 = sync by external issue key
+                  absorb = pull docs in (auto-detects issue keys to link)
   /ship-status  — Dashboard. Progress bars. "What should I do next?"
   /ship-help    — You're here.
   /ship-init    — First-time setup (run once per project).
@@ -116,6 +123,67 @@ You talk.  Shipyard plans.  Claude builds.  You approve.
   ✅ Auto-pauses before quota runs out
   ✅ Bugs and retro items tracked and surface in next sprint
 ```
+
+## Feature Reference
+
+When the user asks about any of these, explain with project-specific context.
+
+### E2E Acceptance Criteria
+
+`/ship-discuss` Phase 3.7 validates spec coverage against a taxonomy of 83 operational test types (timeout, idempotency, graceful degradation, etc.).
+
+| AC Tier | What | Where |
+|---------|------|-------|
+| **Core AC** | Happy path + edge cases | Feature `### Core AC` section |
+| **E2E AC** | Taxonomy-validated outer-bound scenarios | Feature `### E2E AC` section |
+| **Epic Integration AC** | Cross-feature seam tests (EP7) | Epic-level, after all features spec'd |
+
+Each E2E AC is tagged with its category and a `verification_type`:
+
+| Type | Meaning | When run |
+|------|---------|----------|
+| `probe` | Shell command, exit 0 = pass | Automated during review |
+| `tool` | Requires specific tooling (Playwright, k6, etc.) | Automated if tool available |
+| `manual` | Human judgment | Checklist in review Stage 5 |
+
+### External Issue Linking
+
+Features, epics, and tasks support `external_refs` in frontmatter:
+```yaml
+external_refs: ["JIRA-123", "GH-456"]
+```
+
+| Action | Command |
+|--------|---------|
+| Discuss from issue | `/ship-discuss SYS-123` — fetches context via MCP (Jira/GitHub/Linear) |
+| Sync by issue key | `/ship-spec sync SYS-123` — resolves to linked feature, pushes comment back |
+| Auto-detect on absorb | `/ship-spec absorb` — detects issue keys and offers to link |
+
+Requires MCP tools in the session (e.g., atlassian-suite, GitHub). Falls back to paste if unavailable.
+
+### Architecture Diagrams
+
+`/ship-discuss` Phase 1.5 Step 4 generates diagrams when:
+- Feature spans **2+ services** → C4 diagram
+- Involves **3+ components** → sequence diagram
+- Introduces **lifecycle states** → state machine
+
+Diagrams persist as Mermaid in the feature's `## Flows` section. Quality Gate check #16 enforces they exist when triggers apply.
+
+### Sprint Quality Gates
+
+`/ship-sprint` Step 10 generates `QUALITY-GATE.md` with:
+
+| Section | Source | Example |
+|---------|--------|---------|
+| **Standing Gates** | Project config (`config.md quality_gates.standing`) | "All E2E tests pass" |
+| **Sprint-Specific Gates** | Derived from features' E2E AC categories | "Timeout handling for payment feature" |
+
+Configure standing gates during `/ship-init` or edit `config.md quality_gates.standing`.
+
+`/ship-review` Stage 1.5 reads the manifest:
+- `probe` / `tool` gates → dispatched as operational tasks
+- `manual` gates → collected as checklist for Stage 5 approval
 
 ## Rules
 - Always use AskUserQuestion when the request is ambiguous
