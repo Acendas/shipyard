@@ -23,11 +23,11 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
-import { getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
+import { ensureDataDirLink, getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -909,28 +909,20 @@ function linkDataDir(opts = {}) {
   const dataDir = pathResolve(getDataDir({ projectRoot, silent: true }));
   const linkPath = join(projectRoot, ".shipyard");
 
+  // CLI-only policy for a real (non-symlink) entry: protect user content by
+  // refusing unless --force. The shared writer (ensureDataDirLink) would just
+  // report 'blocked' and leave it; the explicit CLI surfaces that as an error,
+  // or clobbers it when the operator opts in. Symlink create/repoint/no-op is
+  // delegated to the single writer so there's no second copy of the
+  // junction-on-Windows logic to drift.
   let existing = null;
   try {
     existing = lstatSync(linkPath);
   } catch (err) {
     if (err.code !== "ENOENT") throw err;
   }
-
-  if (existing) {
-    if (existing.isSymbolicLink()) {
-      let current = "";
-      try {
-        current = readlinkSync(linkPath);
-      } catch { /* unreadable link — treat as broken, recreate */ }
-      // Compare resolved absolute paths so a relative-target symlink still
-      // matches when pointing at the right place.
-      const currentAbs = current ? pathResolve(projectRoot, current) : "";
-      if (currentAbs === dataDir) {
-        process.stdout.write(linkPath + "\n");
-        return;
-      }
-      unlinkSync(linkPath);
-    } else if (opts.force) {
+  if (existing && !existing.isSymbolicLink()) {
+    if (opts.force) {
       rmSync(linkPath, { recursive: true, force: true });
     } else {
       process.stderr.write(
@@ -941,11 +933,7 @@ function linkDataDir(opts = {}) {
     }
   }
 
-  // Node's symlink type matters on Windows (junction vs file vs dir) and is
-  // ignored on POSIX. 'junction' is the only Windows symlink type that
-  // doesn't require elevation / Developer Mode.
-  const type = process.platform === "win32" ? "junction" : "dir";
-  symlinkSync(dataDir, linkPath, type);
+  ensureDataDirLink(projectRoot, dataDir);
   process.stdout.write(linkPath + "\n");
 }
 

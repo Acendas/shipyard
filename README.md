@@ -303,7 +303,7 @@ Python [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) that enforc
 
 ### Project Data
 
-All Shipyard data lives **outside your project** in `${CLAUDE_PLUGIN_DATA}/projects/<hash>/`. Zero git noise — no `.shipyard/` directory in your repo. Only `.claude/rules/shipyard-*.md` files are installed in the project (plugins can't ship rules remotely).
+All Shipyard data lives **outside your project** in `${CLAUDE_PLUGIN_DATA}/projects/<hash>/`. Zero git noise — the only in-repo artifact is a **gitignored `.shipyard` symlink** pointing at that data dir (a navigation convenience that also serves as the resolver's last-resort fallback). Only `.claude/rules/shipyard-*.md` files are installed in the project (plugins can't ship rules remotely).
 
 The hash is derived from the **parent repo root**, so all worktrees of the same project share one data directory. Builder subagents running in `<repo>/.claude/worktrees/<task>` write back to the orchestrator's data dir on `main` — no state divergence across waves.
 

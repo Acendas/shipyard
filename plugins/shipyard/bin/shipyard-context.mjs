@@ -40,11 +40,11 @@
  * so a malicious skill body cannot escape the plugin tree.
  */
 
-import { existsSync, openSync, readdirSync, readFileSync, realpathSync, statSync, closeSync, readSync } from "node:fs";
+import { existsSync, lstatSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, closeSync, readSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
-import { getDataDir, getProjectHash, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
+import { breadcrumbCandidates, getDataDir, getProjectHash, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
 import { evaluateExecuteTerminal, evaluateReviewTerminal } from "./terminal-gate.mjs";
 
 /**
@@ -277,23 +277,29 @@ const SKILL_SLUG_RE = /^ship-[a-z0-9][a-z0-9-]{0,63}$/;
 const REF_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 function main() {
-  let sd;
+  const cmd = process.argv[2] ?? "help";
+  const args = process.argv.slice(3);
+
+  // `diagnose` must run even when the data dir CANNOT be resolved — that's
+  // precisely the failure a user runs diagnose to investigate (e.g. a
+  // breadcrumb stranded by a TMPDIR split). For diagnose we tolerate the
+  // resolution error and report it; every other command fails fast.
+  let sd = null;
+  let resolveError = null;
   try {
     sd = getDataDir({ silent: true });
   } catch (e) {
-    if (e instanceof ShipyardResolverError) {
+    if (!(e instanceof ShipyardResolverError)) throw e;
+    resolveError = e.message;
+    if (cmd !== "diagnose") {
       process.stderr.write(e.message);
       process.exit(1);
     }
-    throw e;
   }
-  if (!sd) {
+  if (!sd && cmd !== "diagnose") {
     process.stderr.write("ERROR: Could not resolve Shipyard data directory\n");
     process.exit(1);
   }
-
-  const cmd = process.argv[2] ?? "help";
-  const args = process.argv.slice(3);
 
   const out = (s) => process.stdout.write(s + "\n");
   const die = (msg) => { process.stderr.write(msg + "\n"); process.exit(1); };
@@ -334,12 +340,61 @@ function main() {
       // Grep-friendly key=value lines plus the breadcrumb log tail.
       const projectRoot = getProjectRoot();
       const projectHash = getProjectHash(projectRoot);
-      out(`SHIPYARD_DATA=${sd}`);
+      out(`SHIPYARD_DATA=${sd ?? "(UNRESOLVED)"}`);
+      if (resolveError) {
+        // The resolution failed — surface why, since this is exactly the
+        // case diagnose exists for. Indent the multi-line message so it
+        // stays one grep-able block.
+        out(`RESOLVE_ERROR:`);
+        for (const line of resolveError.trimEnd().split("\n")) out(`  ${line}`);
+      }
       out(`PROJECT_ROOT=${projectRoot}`);
       out(`PROJECT_HASH=${projectHash}`);
       out(`CLAUDE_PLUGIN_DATA=${process.env.CLAUDE_PLUGIN_DATA ?? "(unset)"}`);
       out(`CLAUDE_PLUGIN_ROOT=${process.env.CLAUDE_PLUGIN_ROOT ?? "(unset)"}`);
       out(`CLAUDE_PROJECT_DIR=${process.env.CLAUDE_PROJECT_DIR ?? "(unset)"}`);
+      out(`TMPDIR=${process.env.TMPDIR ?? "(unset)"}`);
+
+      // Data-dir discovery state — which of the resolver's fallbacks would
+      // fire. This is what makes a TMPDIR-split or a stranded/misplaced
+      // breadcrumb legible at a glance (the 2026-05-28 /ship-discuss failure).
+      // Each breadcrumb candidate: present (and where it points) or missing.
+      for (const cand of breadcrumbCandidates(projectHash)) {
+        let state = "(missing)";
+        try {
+          const value = readFileSync(cand, "utf8").trim();
+          state = existsSync(value) ? `-> ${value}` : `-> ${value} (TARGET MISSING)`;
+        } catch { /* missing/unreadable — keep (missing) */ }
+        out(`BREADCRUMB[${cand}]=${state}`);
+      }
+      // `.shipyard` symlink fallback: present + target + whether it validates
+      // against this project's hash (what readDataDirLink requires).
+      const linkPath = join(projectRoot, ".shipyard");
+      try {
+        const st = lstatSync(linkPath);
+        if (st.isSymbolicLink()) {
+          const raw = (() => { try { return readlinkSync(linkPath); } catch { return "(unreadable)"; } })();
+          let valid = "no";
+          try {
+            const real = realpathSync(linkPath);
+            valid = real.endsWith(`${join("projects", projectHash)}`) ? "yes" : `no (-> ${real})`;
+          } catch { valid = "no (dangling)"; }
+          out(`SHIPYARD_LINK=${linkPath} -> ${raw} (valid-for-hash: ${valid})`);
+        } else {
+          out(`SHIPYARD_LINK=${linkPath} (exists but NOT a symlink — blocked)`);
+        }
+      } catch {
+        out(`SHIPYARD_LINK=(absent)`);
+      }
+
+      // The remaining sections read files under the data dir, so they only
+      // apply when resolution succeeded. When it didn't, the discovery state
+      // above is the actionable part of the report.
+      if (!sd) {
+        out("AUTO_APPROVE_LOG=(skipped — data dir unresolved)");
+        out("SHIPYARD_EVENTS_LOG=(skipped — data dir unresolved)");
+        break;
+      }
 
       const logPath = join(sd, ".auto-approve.log");
       if (existsSync(logPath)) {

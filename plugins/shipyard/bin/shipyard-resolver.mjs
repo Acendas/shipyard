@@ -19,9 +19,19 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  symlinkSync,
+  unlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
+
+const IS_WINDOWS = process.platform === "win32";
 
 /**
  * Run a git command and return stdout, or null on failure.
@@ -178,7 +188,12 @@ export function getProjectHash(projectRoot) {
  * Discovery order:
  *   1. CLAUDE_PLUGIN_DATA env var (Claude Code's official surface).
  *   2. Tmpdir breadcrumb written by the SessionStart hook (bridges skill
- *      `!` backtick subprocesses where the env var isn't exported).
+ *      `!` backtick subprocesses where the env var isn't exported). Probed
+ *      across all `breadcrumbCandidates()` because the hook and the skill
+ *      subprocess can disagree on TMPDIR.
+ *   3. `<projectRoot>/.shipyard` symlink (created by ship-init via
+ *      `shipyard-data link-data-dir`), validated against the project hash.
+ *      Env/TMPDIR-independent — the last resort before failing.
  *
  * If neither produces a usable path, fail loud: exit non-zero with a message
  * naming the env var. Never silently fall back to a phantom path.
@@ -195,6 +210,164 @@ export class ShipyardResolverError extends Error {
   }
 }
 
+/**
+ * Candidate breadcrumb paths for a project hash, most-specific first.
+ *
+ * SINGLE SOURCE OF TRUTH for breadcrumb locations — both the writer
+ * (plugin-data-breadcrumb SessionStart hook) and the reader (getDataDir
+ * below) call this so they can never drift.
+ *
+ * Why a *list* and not a single `tmpdir()` path: Claude Code does not give
+ * the SessionStart hook process and the skill `!` backtick subprocess the
+ * same TMPDIR. Observed on macOS (2026-05-28): the hook ran with the default
+ * user tmpdir (`/var/folders/.../T`) while the skill subprocess had
+ * `TMPDIR=/tmp/claude-501`. `os.tmpdir()` honors TMPDIR, so the hook wrote
+ * the breadcrumb where the skill never looked, and every `shipyard-context`
+ * backtick failed with "cannot resolve plugin data directory" even though a
+ * valid breadcrumb existed. POSIX `/tmp` is the shared meeting ground: it is
+ * TMPDIR-independent, so writing AND reading there closes the gap regardless
+ * of how Claude Code sets TMPDIR per subprocess.
+ *
+ * Order matters: `tmpdir()` first (private/uid-scoped, preferred), then bare
+ * `/tmp` (world-writable fallback — see readBreadcrumb's owner check). On
+ * Windows there is no `/tmp` and no observed TMPDIR split, so the list is
+ * just `tmpdir()`.
+ */
+export function breadcrumbCandidates(projectHash) {
+  const name = `shipyard-${projectHash}.plugindata`;
+  const dirs = [tmpdir()];
+  if (!IS_WINDOWS) dirs.push("/tmp");
+  const seen = new Set();
+  const paths = [];
+  for (const dir of dirs) {
+    const p = join(dir, name);
+    if (!seen.has(p)) {
+      seen.add(p);
+      paths.push(p);
+    }
+  }
+  return paths;
+}
+
+/**
+ * Read a breadcrumb path safely and return the CLAUDE_PLUGIN_DATA value it
+ * points at, or null. Because one candidate is world-writable `/tmp`, an
+ * attacker could pre-plant a file to redirect Shipyard's data dir. Defenses:
+ *  - reject anything that isn't a plain regular file (no symlink following);
+ *  - on POSIX, reject files not owned by the current euid;
+ *  - require the referenced path to actually exist before trusting it.
+ */
+function readBreadcrumb(path) {
+  try {
+    const st = lstatSync(path);
+    if (!st.isFile()) return null;
+    if (!IS_WINDOWS && typeof process.geteuid === "function") {
+      if (st.uid !== process.geteuid()) return null;
+    }
+    const value = readFileSync(path, "utf8").trim();
+    if (value && existsSync(value)) return value;
+  } catch {
+    // Missing, unreadable, or raced away — caller falls through.
+  }
+  return null;
+}
+
+/**
+ * Resolve the data dir from the `<projectRoot>/.shipyard` symlink, or null.
+ *
+ * This is the env/TMPDIR-independent fallback: `.shipyard` is created (and
+ * repointed) by `shipyard-data link-data-dir`, which `/ship-init` runs, so an
+ * established project carries an in-tree pointer straight at its data dir.
+ * Locating it needs only the git-based project root — it does NOT depend on
+ * CLAUDE_PLUGIN_DATA or the breadcrumb, which is exactly why it survives the
+ * TMPDIR-split failure that strands the breadcrumb (see breadcrumbCandidates).
+ *
+ * The "never resolve through .shipyard" rule (DECISIONS / dev notes) is about
+ * not scattering symlink reads across skills/hooks/CLIs — the resolver staying
+ * the single source of truth. Reading it *here*, inside the resolver, honors
+ * that. Drift is the real hazard: a symlink is a cached absolute path that can
+ * go stale or (for a copied worktree) point at the wrong project. We defuse it
+ * by validating the target's shape against the freshly-computed hash: it must
+ * be `<something>/projects/<projectHash>`. A mismatch is rejected, so a stale
+ * or misclassified link can never silently redirect writes — it just falls
+ * through to the fail-loud path. Last resort by ordering: only consulted when
+ * both the env var and the breadcrumb are absent.
+ */
+function readDataDirLink(projectRoot, projectHash) {
+  const linkPath = join(projectRoot, ".shipyard");
+  try {
+    // realpathSync follows the symlink/junction and throws if it dangles.
+    const target = realpathSync(linkPath);
+    // Validate the target belongs to THIS project: <pluginData>/projects/<hash>.
+    // Structural check, not an isSymbolicLink() gate — a real dir a user left
+    // at .shipyard realpaths to itself (basename ".shipyard") and fails here,
+    // which keeps the check cross-platform (Windows junctions included).
+    if (basename(target) !== projectHash) return null;
+    if (basename(dirname(target)) !== "projects") return null;
+    return target;
+  } catch {
+    // Missing, dangling, or unreadable — caller falls through.
+    return null;
+  }
+}
+
+/**
+ * Create or repoint `<projectRoot>/.shipyard` -> dataDir, idempotently.
+ *
+ * The single symlink-writer, shared by two callers:
+ *   - `shipyard-data link-data-dir` (the explicit CLI) — layers --force /
+ *     refuse-on-real-entry semantics on top, for an operator who ran it.
+ *   - the `plugin-data-breadcrumb` SessionStart hook — calls it best-effort so
+ *     every session of an initialized project re-establishes the
+ *     env/TMPDIR-independent fallback that `readDataDirLink` consumes, instead
+ *     of relying on a one-time `/ship-init`. Closes the chicken-and-egg gap
+ *     where the link only existed after init.
+ *
+ * Keeping one writer here (next to the reader) avoids the drifting-copies
+ * anti-pattern. Best-effort and non-throwing for the expected cases; never
+ * calls process.exit and never writes stdout, so a hook can call it safely.
+ * Returns `{ status, linkPath }`:
+ *   - 'ok'        — a correct symlink already existed; NOT recreated (inode
+ *                   preserved, so idempotent callers don't churn the link)
+ *   - 'created'   — no entry; symlink created
+ *   - 'repointed' — symlink existed with a stale target; unlinked + recreated
+ *   - 'blocked'   — a real (non-symlink) file/dir occupies the path; left
+ *                   untouched (the CLI decides whether --force should clobber)
+ * Throws only on unexpected fs errors; callers that must not fail wrap it.
+ */
+export function ensureDataDirLink(projectRoot, dataDir) {
+  const linkPath = join(projectRoot, ".shipyard");
+  const target = resolve(dataDir);
+  const type = IS_WINDOWS ? "junction" : "dir";
+
+  let existing = null;
+  try {
+    existing = lstatSync(linkPath);
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+  }
+
+  if (existing) {
+    if (!existing.isSymbolicLink()) return { status: "blocked", linkPath };
+    let current = "";
+    try {
+      current = readlinkSync(linkPath);
+    } catch {
+      /* unreadable link — treat as stale, recreate below */
+    }
+    // Compare resolved absolute paths so a relative-target symlink still
+    // matches when it points at the right place.
+    const currentAbs = current ? resolve(projectRoot, current) : "";
+    if (currentAbs === target) return { status: "ok", linkPath };
+    unlinkSync(linkPath);
+    symlinkSync(target, linkPath, type);
+    return { status: "repointed", linkPath };
+  }
+
+  symlinkSync(target, linkPath, type);
+  return { status: "created", linkPath };
+}
+
 export function getDataDir(opts = {}) {
   const projectRoot = opts.projectRoot ?? getProjectRoot();
   const projectHash = getProjectHash(projectRoot);
@@ -208,22 +381,32 @@ export function getDataDir(opts = {}) {
   //    Claude Code exports CLAUDE_PLUGIN_DATA to hook subprocesses but NOT
   //    consistently to skill `!` backtick subprocesses (varies by version).
   //    The plugin-data-breadcrumb SessionStart hook writes the value to
-  //    $TMPDIR/shipyard-<hash>.plugindata so that backtick-spawned resolver
-  //    calls can find it. Per-project (keyed by project hash); survives
-  //    skill invocations within a session; mode 0600 in tmpdir.
-  const breadcrumbPath = join(tmpdir(), `shipyard-${projectHash}.plugindata`);
+  //    shipyard-<hash>.plugindata in each candidate tmp dir so that
+  //    backtick-spawned resolver calls can find it even when the hook and the
+  //    skill subprocess disagree on TMPDIR. Per-project (keyed by project
+  //    hash); survives skill invocations within a session; mode 0600.
+  const candidates = breadcrumbCandidates(projectHash);
   if (!pluginData) {
-    try {
-      const value = readFileSync(breadcrumbPath, "utf8").trim();
-      if (value && existsSync(value)) {
+    for (const candidate of candidates) {
+      const value = readBreadcrumb(candidate);
+      if (value) {
         pluginData = value;
+        break;
       }
-    } catch {
-      // Breadcrumb doesn't exist or is unreadable — fall through.
     }
   }
 
-  // 3. Fail loud if nothing resolved.
+  // 3. `<projectRoot>/.shipyard` symlink fallback. Env/TMPDIR-independent —
+  //    needs only the git-based project root, so it survives the case where a
+  //    valid breadcrumb was stranded in a tmp dir the reader can't see. The
+  //    target is already the full data dir (`…/projects/<hash>`), validated by
+  //    readDataDirLink against the freshly-computed hash, so return it as-is.
+  if (!pluginData) {
+    const viaLink = readDataDirLink(projectRoot, projectHash);
+    if (viaLink) return viaLink;
+  }
+
+  // 4. Fail loud if nothing resolved.
   if (!pluginData) {
     const cwdInDataDir =
       projectRoot.includes(`${sep}plugins${sep}data${sep}`) ||
@@ -231,7 +414,8 @@ export function getDataDir(opts = {}) {
     let message =
       `shipyard-resolver: cannot resolve plugin data directory.\n` +
       `  CLAUDE_PLUGIN_DATA env var is not set.\n` +
-      `  No breadcrumb at ${breadcrumbPath}.\n`;
+      `  No breadcrumb at: ${candidates.join(", ")}.\n` +
+      `  No valid <projectRoot>/.shipyard symlink at ${join(projectRoot, ".shipyard")}.\n`;
     if (cwdInDataDir) {
       message +=
         `  Likely cause: cwd is inside the plugin data directory, not a git repo.\n` +

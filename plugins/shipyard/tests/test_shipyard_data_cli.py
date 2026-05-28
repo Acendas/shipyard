@@ -406,9 +406,11 @@ class TestShipyardDataLinkDataDir(unittest.TestCase):
 
     The subcommand creates `<projectRoot>/.shipyard` as a directory symlink
     (POSIX) or NTFS junction (Windows) pointing at the resolved Shipyard
-    data dir. The link is purely a human-navigation convenience — Shipyard
-    internals never resolve through it — so the tests pin idempotency,
-    repoint-on-stale, and refuse-on-real-entry semantics.
+    data dir. It serves human navigation AND is the resolver's last-resort,
+    env/TMPDIR-independent data-dir fallback (read only inside
+    shipyard-resolver.mjs::readDataDirLink, validated against the project
+    hash). These tests pin idempotency, repoint-on-stale, and
+    refuse-on-real-entry semantics.
 
     Windows junction creation is exercised by the same code path
     (`symlinkSync(target, link, 'junction')`); CI runs on POSIX so the

@@ -572,5 +572,69 @@ class TestCheckDirtyWorktrees(NamedSubcommandBase):
         self.assertNotIn('user-worktree', out)
 
 
+class TestDiagnoseResolutionFailure(unittest.TestCase):
+    """`diagnose` must produce a useful report even when the data dir CANNOT
+    be resolved — that's the exact failure (e.g. a breadcrumb stranded by a
+    TMPDIR split) a user runs diagnose to investigate. Every other subcommand
+    fails fast; diagnose tolerates the error and dumps the discovery state.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-diag-fail-')
+        self.project_dir = os.path.join(self.tmp, 'project')
+        self.fake_home = os.path.join(self.tmp, 'home')
+        self.fake_tmp = os.path.join(self.tmp, 'tmpdir')
+        os.makedirs(self.project_dir)
+        os.makedirs(self.fake_home)
+        os.makedirs(self.fake_tmp)
+        subprocess.run(['git', 'init', '-q'], cwd=self.project_dir, check=True)
+        # No CLAUDE_PLUGIN_DATA; isolate tmp so no breadcrumb is reachable; a
+        # fresh git project has no .shipyard link and a unique hash (so the
+        # hardcoded /tmp breadcrumb candidate can't collide).
+        self.env = {
+            'CLAUDE_PROJECT_DIR': self.project_dir,
+            'HOME': self.fake_home,
+            'USERPROFILE': self.fake_home,
+            'TMPDIR': self.fake_tmp,
+            'TMP': self.fake_tmp,
+            'TEMP': self.fake_tmp,
+        }
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_diagnose_survives_unresolved_and_reports_discovery_state(self):
+        out, err, code = run_cli(['diagnose'], env_extra=self.env, cwd=self.project_dir)
+        # Produces a report (does not abort like other commands do on failure).
+        self.assertEqual(code, 0, f'diagnose should still exit 0; err={err!r}')
+        self.assertIn('SHIPYARD_DATA=(UNRESOLVED)', out)
+        self.assertIn('RESOLVE_ERROR:', out)
+        self.assertIn('PROJECT_HASH=', out)
+        # Discovery state: every breadcrumb candidate is reported (and missing).
+        self.assertIn('BREADCRUMB[', out)
+        self.assertIn('(missing)', out)
+        # .shipyard fallback reported as absent for a fresh project.
+        self.assertIn('SHIPYARD_LINK=(absent)', out)
+
+    def test_diagnose_reports_valid_shipyard_link(self):
+        # Build a data dir of the right shape and link .shipyard at it, with
+        # env + breadcrumb still absent — diagnose should both resolve via the
+        # link AND report it as valid-for-hash.
+        out, _, rc = run_cli(['diagnose'], env_extra=self.env, cwd=self.project_dir)
+        project_hash = next(
+            line[len('PROJECT_HASH='):]
+            for line in out.splitlines() if line.startswith('PROJECT_HASH=')
+        )
+        data_dir = os.path.join(self.tmp, 'plugin-data', 'projects', project_hash)
+        os.makedirs(data_dir)
+        os.symlink(data_dir, os.path.join(self.project_dir, '.shipyard'))
+
+        out, err, code = run_cli(['diagnose'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0, f'err={err!r}')
+        self.assertNotIn('SHIPYARD_DATA=(UNRESOLVED)', out)
+        self.assertIn(os.path.realpath(data_dir), out)
+        self.assertIn('valid-for-hash: yes', out)
+
+
 if __name__ == '__main__':
     unittest.main()

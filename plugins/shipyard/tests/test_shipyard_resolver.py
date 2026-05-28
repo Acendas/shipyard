@@ -313,35 +313,153 @@ class TestShipyardResolver(unittest.TestCase):
 
     def test_resolver_fails_loud_when_no_data_dir(self):
         """R10: With no CLAUDE_PLUGIN_DATA, no plugin-root probe, no legacy
-        dir, and no breadcrumb, the resolver must exit non-zero with an
-        actionable message, not silently fall back to a phantom path.
+        dir, no breadcrumb, and no .shipyard link, the resolver must exit
+        non-zero with an actionable message, not silently fall back to a
+        phantom path.
 
-        Test-isolation note: the resolver also reads a breadcrumb file at
-        `tmpdir() + 'shipyard-<hash>.plugindata'` written by the SessionStart
-        hook. Without isolating TMPDIR, the test inherits any breadcrumb a
-        real Shipyard session left behind on this machine and the resolver
-        succeeds. We isolate TMPDIR/TMP/TEMP to a fresh tempdir so no
-        breadcrumb is reachable for this test process.
+        Hermetic isolation against ALL three discovery mechanisms (this test
+        must defeat each, or it 'passes' only by luck of the runner's cwd):
+          - env var: popped.
+          - breadcrumb: the resolver probes os.tmpdir() AND the hardcoded
+            POSIX `/tmp`. We isolate TMPDIR/TMP/TEMP for the first, and run in
+            a fresh temp git project so the project hash is unique — nothing
+            in `/tmp` can match `shipyard-<unique-hash>.plugindata`.
+          - .shipyard: a brand-new temp project has none.
+        Setting CLAUDE_PROJECT_DIR + cwd to the temp project also pins the
+        project root, so the hash never resolves to the test runner's repo.
         """
-        with tempfile.TemporaryDirectory() as fake_home, \
+        with tempfile.TemporaryDirectory() as proj, \
+             tempfile.TemporaryDirectory() as fake_home, \
              tempfile.TemporaryDirectory() as fake_tmpdir:
+            subprocess.run(['git', 'init', '-q', proj], check=True)
             env = os.environ.copy()
-            for k in ('CLAUDE_PROJECT_DIR', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_PLUGIN_ROOT'):
+            for k in ('CLAUDE_PLUGIN_DATA', 'CLAUDE_PLUGIN_ROOT'):
                 env.pop(k, None)
+            env['CLAUDE_PROJECT_DIR'] = proj
             env['HOME'] = fake_home
             env['USERPROFILE'] = fake_home  # Windows
-            # Isolate Node's os.tmpdir() — covers POSIX (TMPDIR) and Windows
-            # (TMP/TEMP). Without this, breadcrumbs left behind by real
-            # sessions on this machine make the resolver succeed.
             env['TMPDIR'] = fake_tmpdir
             env['TMP'] = fake_tmpdir
             env['TEMP'] = fake_tmpdir
             proc = subprocess.run(
                 ['node', RESOLVER, 'data-dir'],
-                capture_output=True, text=True, env=env,
+                capture_output=True, text=True, env=env, cwd=proj,
             )
             self.assertNotEqual(proc.returncode, 0,
                 f'expected non-zero exit, got {proc.returncode}; stdout={proc.stdout!r}; stderr={proc.stderr!r}')
+            self.assertIn('CLAUDE_PLUGIN_DATA', proc.stderr)
+
+    def test_breadcrumb_found_via_secondary_tmp_candidate(self):
+        """R-tmpdir-split: the SessionStart hook and the skill `!` backtick
+        subprocess can resolve os.tmpdir() to different directories (observed
+        2026-05-28 on macOS: hook -> /var/folders/.../T, skill -> /tmp/claude-501).
+        A breadcrumb written only to the hook's tmpdir is then invisible to the
+        skill and /ship-discuss fails with "cannot resolve plugin data directory".
+
+        The resolver must probe the shared POSIX `/tmp` candidate too, so a
+        breadcrumb reachable there is found even when the reader's TMPDIR points
+        somewhere with no breadcrumb. This reproduces the reader half: TMPDIR is
+        isolated to an empty dir (the hook's tmpdir, from the reader's POV) and
+        the breadcrumb lives only in /tmp.
+        """
+        if sys.platform == 'win32':
+            self.skipTest('the /tmp secondary candidate is POSIX-only')
+
+        with tempfile.TemporaryDirectory() as proj, \
+             tempfile.TemporaryDirectory() as plugin_data, \
+             tempfile.TemporaryDirectory() as empty_tmpdir:
+            subprocess.run(['git', 'init', '-q', proj], check=True)
+
+            # Compute the project hash exactly as the resolver will, with the
+            # same isolated TMPDIR so nothing else interferes.
+            iso = {'CLAUDE_PROJECT_DIR': proj, 'TMPDIR': empty_tmpdir,
+                   'TMP': empty_tmpdir, 'TEMP': empty_tmpdir}
+            project_hash, rc = run_resolver('project-hash', iso, cwd=proj)
+            self.assertEqual(rc, 0)
+
+            breadcrumb = os.path.join('/tmp', f'shipyard-{project_hash}.plugindata')
+            try:
+                # Writer half: breadcrumb lands ONLY in /tmp, not in the
+                # reader's (isolated) os.tmpdir().
+                with open(breadcrumb, 'w') as f:
+                    f.write(plugin_data)
+                os.chmod(breadcrumb, 0o600)
+
+                out, rc = run_resolver('data-dir', iso, cwd=proj)
+                self.assertEqual(
+                    rc, 0,
+                    f'resolver should find the breadcrumb via the /tmp candidate; out={out!r}')
+                self.assertEqual(
+                    out,
+                    os.path.join(plugin_data, 'projects', project_hash))
+            finally:
+                try:
+                    os.remove(breadcrumb)
+                except FileNotFoundError:
+                    pass
+
+    def test_shipyard_symlink_resolves_when_env_and_breadcrumb_absent(self):
+        """R-shipyard-link: `<projectRoot>/.shipyard` (created by ship-init via
+        `shipyard-data link-data-dir`) is an env/TMPDIR-independent fallback.
+        It must resolve the data dir even when CLAUDE_PLUGIN_DATA is unset AND
+        no breadcrumb is reachable — the exact gap that stranded /ship-discuss
+        on 2026-05-28 (breadcrumb written to a tmp dir the reader couldn't see).
+        """
+        with tempfile.TemporaryDirectory() as proj, \
+             tempfile.TemporaryDirectory() as plugin_data, \
+             tempfile.TemporaryDirectory() as empty_tmpdir:
+            subprocess.run(['git', 'init', '-q', proj], check=True)
+            iso = {'CLAUDE_PROJECT_DIR': proj, 'TMPDIR': empty_tmpdir,
+                   'TMP': empty_tmpdir, 'TEMP': empty_tmpdir}
+            project_hash, rc = run_resolver('project-hash', iso, cwd=proj)
+            self.assertEqual(rc, 0)
+
+            # Build the real data dir shape and point .shipyard at it.
+            data_dir = os.path.join(plugin_data, 'projects', project_hash)
+            os.makedirs(data_dir)
+            os.symlink(data_dir, os.path.join(proj, '.shipyard'))
+
+            out, rc = run_resolver('data-dir', iso, cwd=proj)
+            self.assertEqual(
+                rc, 0,
+                f'.shipyard symlink should resolve the data dir; out={out!r}')
+            self.assertEqual(out, os.path.realpath(data_dir))
+
+    def test_shipyard_symlink_with_wrong_hash_is_rejected(self):
+        """R-shipyard-link drift guard: a `.shipyard` whose target does not end
+        in `projects/<this-project-hash>` (stale, or copied from another repo)
+        must be rejected, not silently used — otherwise it could redirect
+        writes to the wrong project's data dir. Resolver falls through to the
+        fail-loud path instead.
+        """
+        with tempfile.TemporaryDirectory() as proj, \
+             tempfile.TemporaryDirectory() as plugin_data, \
+             tempfile.TemporaryDirectory() as fake_home, \
+             tempfile.TemporaryDirectory() as empty_tmpdir:
+            subprocess.run(['git', 'init', '-q', proj], check=True)
+
+            # Point .shipyard at a wrong-hash target that actually EXISTS, so
+            # only the hash-shape validation (not a dangling link) can reject it.
+            wrong_dir = os.path.join(plugin_data, 'projects', 'deadbeefcafe')
+            os.makedirs(wrong_dir)
+            os.symlink(wrong_dir, os.path.join(proj, '.shipyard'))
+
+            env = os.environ.copy()
+            for k in ('CLAUDE_PLUGIN_DATA', 'CLAUDE_PLUGIN_ROOT'):
+                env.pop(k, None)
+            env['CLAUDE_PROJECT_DIR'] = proj
+            env['HOME'] = fake_home
+            env['USERPROFILE'] = fake_home
+            env['TMPDIR'] = empty_tmpdir
+            env['TMP'] = empty_tmpdir
+            env['TEMP'] = empty_tmpdir
+            proc = subprocess.run(
+                ['node', RESOLVER, 'data-dir'],
+                capture_output=True, text=True, env=env, cwd=proj,
+            )
+            self.assertNotEqual(
+                proc.returncode, 0,
+                f'wrong-hash .shipyard must be rejected; stdout={proc.stdout!r}')
             self.assertIn('CLAUDE_PLUGIN_DATA', proc.stderr)
 
     def test_plugin_root_probe_requires_shipyard_subdir(self):
