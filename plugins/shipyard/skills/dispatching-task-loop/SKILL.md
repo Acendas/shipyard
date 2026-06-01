@@ -189,7 +189,10 @@ After the Agent call returns, parse the reply:
    - Extract `PROBE_EXIT: 0`. Anything else → violation.
    - Extract `PROBE_OUTPUT_TAIL:` block. Must be ≥1 non-blank line. Empty tail → violation.
    - Run the orchestrator-side **anti-stub-scan** capability skill on the diff `<base>..<sha>`. If it reports any finding above the confidence threshold → re-dispatch with the findings inline (`Your diff still contains stubs at: <list>; fix them and re-probe`).
-   - All checks pass → mark task `done`, log the probe tail to the wave's progress.
+   - All checks pass → **anchor the commit and record the return BEFORE marking done** (both run regardless of sync vs background mode — this is the single orchestrator choke point):
+     - `shipyard-data anchor-commit <task_id> <sha>` — pins a `shipyard/keep-<task_id>` ref to the verified commit. Insurance: from this moment the commit survives worktree teardown, rebase, and Claude Code worktree-name collisions (#51596), independent of whether `worktreeBranch` ever came back defined. It is also what lets `verify-wave-integrated` tell "integrated" apart from "orphaned."
+     - `shipyard-data events emit task_dispatch_returned pipeline=ship-execute sprint=<sprint_id> wave=<wave_number> task=<task_id> status=complete commit_sha=<sha>` — record the return with the REAL task id and sha. Never emit this with empty/placeholder fields: null `task`/`commit_sha` is what made the v2.8 audit log blind to which commit belonged to which task, and the terminal gate keys off `task=<id> status=complete`.
+     - Then mark task `done` and log the probe tail to the wave's progress.
 
 3. **If `STATUS: BLOCKED`:**
    - **Read `ESCALATION_CODE:` first.** If present, route directly:
@@ -200,6 +203,7 @@ After the Agent call returns, parse the reply:
      - `dispatch_loop_repeated` → mark `needs-attention` immediately; skip the single-redispatch rule below.
    - **If no ESCALATION_CODE**, fall back to prose routing: read `REASON:`. If it indicates a routing / context error (e.g., "feature spec missing", "no test command configured"), surface to the user via AskUserQuestion. Do not auto-redispatch — that loops on a structural blocker.
    - If the reason indicates an implementation difficulty (e.g., "the existing API doesn't expose what the spec needs"), apply the **single redispatch rule**: redispatch ONCE with the prior reason inlined as `Previous attempt blocked at: <reason>; please retry with this context`. If the second attempt also returns BLOCKED, mark the task `needs-attention`, log to PROGRESS.md deviations, and continue to the next task. Do NOT redispatch a third time on the same task within one wave — that's the failure mode the cap exists to prevent.
+   - Whenever a task settles as blocked/needs-attention, emit its return event so the wave gate (invariant 1) sees a return for every dispatched task: `shipyard-data events emit task_dispatch_returned pipeline=ship-execute sprint=<sprint_id> wave=<wave_number> task=<task_id> status=blocked escalation_code=<code-or-empty>`. No `commit_sha` and no anchor for a blocked task — there is no verified commit to pin.
 
 4. **Always invoke `verifying-completion` mentally** before flipping the task to `done`. The Iron Law applies at the orchestrator boundary too: "subagent said COMPLETE" is not by itself evidence; the sha-existence check, probe-output presence, and anti-stub-clean check are.
 

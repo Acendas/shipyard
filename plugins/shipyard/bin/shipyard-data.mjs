@@ -20,6 +20,8 @@
  *   shipyard-data clean-worktrees [--dry-run]  → remove merged/gone worktrees
  *                                 [--force]      under .claude/worktrees/
  *                                 [--all]
+ *   shipyard-data ensure-worktree-baseref      → set worktree.baseRef="head" in
+ *                                                <projectRoot>/.claude/settings.json
  */
 
 import { execFileSync } from "node:child_process";
@@ -937,6 +939,247 @@ function linkDataDir(opts = {}) {
   process.stdout.write(linkPath + "\n");
 }
 
+/**
+ * Ensure <projectRoot>/.claude/settings.json has worktree.baseRef = "head".
+ *
+ * Why at execute, not /ship-init: init runs once and drifts; baseRef must hold
+ * every sprint. A worktree that forks from origin/<default> (Claude Code's
+ * "fresh" default) silently skips earlier waves' local commits. Verifying here
+ * is self-healing — and a backstop for when our WorktreeCreate hook doesn't
+ * fire (so native creation still bases on local HEAD, not origin/default).
+ *
+ * Why a CLI, not a model Edit: settings.json is structured JSON; an LLM-driven
+ * Edit risks corrupting it (cf. the perl-glued frontmatter incident — a regex
+ * substitution ate a newline and welded two YAML keys together). Atomic
+ * read-merge-write preserves every other key and never half-writes.
+ *
+ * Idempotent: no-op (+ event) when already "head". Emits worktree_baseref_ensured.
+ */
+function ensureWorktreeBaseref() {
+  const projectRoot = getProjectRoot();
+  const claudeDir = join(projectRoot, ".claude");
+  const settingsPath = join(claudeDir, "settings.json");
+
+  let settings = {};
+  if (existsSync(settingsPath)) {
+    let raw;
+    try {
+      raw = readFileSync(settingsPath, "utf8");
+    } catch (err) {
+      process.stderr.write(`shipyard-data ensure-worktree-baseref: cannot read ${settingsPath}: ${err.message}\n`);
+      process.exit(1);
+    }
+    try {
+      settings = JSON.parse(raw);
+    } catch (err) {
+      process.stderr.write(
+        `shipyard-data ensure-worktree-baseref: ${settingsPath} is not valid JSON (${err.message}) — refusing to overwrite.\n`,
+      );
+      process.exit(1);
+    }
+    if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
+      process.stderr.write(
+        `shipyard-data ensure-worktree-baseref: ${settingsPath} is not a JSON object — refusing to overwrite.\n`,
+      );
+      process.exit(1);
+    }
+  }
+
+  const prevWorktree =
+    settings.worktree && typeof settings.worktree === "object" && !Array.isArray(settings.worktree)
+      ? settings.worktree
+      : null;
+  const was = prevWorktree ? prevWorktree.baseRef ?? null : null;
+
+  if (was === "head") {
+    try {
+      logEvent(getDataDir({ projectRoot, silent: true }), "worktree_baseref_ensured", { was: "head", now: "head", changed: false });
+    } catch { /* event is best-effort */ }
+    process.stdout.write(`worktree.baseRef already "head" — ${settingsPath}\n`);
+    return;
+  }
+
+  settings.worktree = { ...(prevWorktree ?? {}), baseRef: "head" };
+
+  mkdirSync(claudeDir, { recursive: true });
+  const out = JSON.stringify(settings, null, 2) + "\n";
+  const tmp = settingsPath + ".tmp";
+  writeFileSync(tmp, out, "utf8");
+  renameSync(tmp, settingsPath);
+
+  try {
+    logEvent(getDataDir({ projectRoot, silent: true }), "worktree_baseref_ensured", { was, now: "head", changed: true });
+  } catch { /* event is best-effort */ }
+  process.stdout.write(`worktree.baseRef set to "head" (was: ${was ?? "unset"}) — ${settingsPath}\n`);
+}
+
+// --- worktree-integration git helpers (anchor-commit + verify-wave-integrated) ---
+
+function gitCapture(args, cwd) {
+  try {
+    return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], timeout: 10000 }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function gitIsAncestor(ancestor, descendant, cwd) {
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], { cwd, stdio: "pipe", timeout: 10000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Anchor a subagent's returned commit under a stable ref so it survives
+ * worktree teardown, rebase, and Claude Code worktree-name collisions
+ * (#51596). This is the insurance half of the wave-integration gate: once
+ * anchored, the original SHA can never be GC'd or orphaned, independent of
+ * whether `worktreeBranch` came back undefined.
+ *
+ * shipyard-data anchor-commit <task-id> <sha>
+ */
+function anchorCommit(taskId, sha) {
+  if (!taskId || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(taskId)) {
+    process.stderr.write(
+      `shipyard-data anchor-commit: invalid task id ${JSON.stringify(taskId)} — expected [A-Za-z][A-Za-z0-9_-]{0,63}\n`,
+    );
+    process.exit(1);
+  }
+  if (!sha || !/^[0-9a-fA-F]{7,40}$/.test(sha)) {
+    process.stderr.write(
+      `shipyard-data anchor-commit: invalid sha ${JSON.stringify(sha)} — expected 7-40 hex chars\n`,
+    );
+    process.exit(1);
+  }
+  const projectRoot = getProjectRoot();
+  if (gitCapture(["cat-file", "-e", `${sha}^{commit}`], projectRoot) === null) {
+    process.stderr.write(`shipyard-data anchor-commit: commit ${sha} not found in repo at ${projectRoot}\n`);
+    process.exit(1);
+  }
+  const ref = `shipyard/keep-${taskId}`;
+  if (gitCapture(["branch", "-f", ref, sha], projectRoot) === null) {
+    process.stderr.write(`shipyard-data anchor-commit: failed to create anchor ref ${ref} -> ${sha}\n`);
+    process.exit(1);
+  }
+  try {
+    logEvent(getDataDir({ projectRoot, silent: true }), "task_commit_anchored", { task: taskId, sha, ref });
+  } catch { /* event is best-effort */ }
+  process.stdout.write(`${ref} -> ${sha}\n`);
+}
+
+/**
+ * Wave-integration gate. Before a wave's worktrees are torn down, prove two
+ * invariants over ground truth (git + the structured return contract), never
+ * the unreliable `worktreeBranch` field:
+ *
+ *   A. every live shipyard/wt-* worktree branch is merged into the working
+ *      branch — no un-integrated worktree left to be reaped; AND
+ *   B. every COMPLETE subagent return commit is reachable from the working
+ *      branch, a live worktree branch, or a shipyard/keep-* anchor — no
+ *      dangling/orphaned task commit (the v2.8 incident symptom: 6 task
+ *      commits left dangling after the orchestrator tore down worktrees
+ *      without merging, because it read worktreeBranch=undefined).
+ *
+ * Emits wave_integration_verified on pass (exit 0) or wave_integration_failed
+ * (exit 3, with the offending branches/tasks). Read-only except for the event,
+ * so it is safe to run repeatedly.
+ *
+ * shipyard-data verify-wave-integrated
+ */
+function verifyWaveIntegrated() {
+  const projectRoot = getProjectRoot();
+  const dataDir = getDataDir({ projectRoot, silent: true });
+  const workingBranch = gitCapture(["rev-parse", "--abbrev-ref", "HEAD"], projectRoot) || "HEAD";
+
+  // Live worktree branches (prefix shipyard/wt-) from porcelain ground truth.
+  const porcelain = gitCapture(["worktree", "list", "--porcelain"], projectRoot) || "";
+  const wtBranches = [];
+  for (const line of porcelain.split("\n")) {
+    if (line.startsWith("branch refs/heads/")) {
+      const b = line.slice("branch refs/heads/".length);
+      if (b.startsWith("shipyard/wt-")) wtBranches.push(b);
+    }
+  }
+
+  // Anchor refs created by anchor-commit on return.
+  const keepRaw = gitCapture(["branch", "--list", "shipyard/keep-*", "--format=%(refname:short)"], projectRoot) || "";
+  const keepRefs = keepRaw.split("\n").map((s) => s.trim()).filter(Boolean);
+
+  // Check A — every worktree branch merged into working.
+  const unintegrated = wtBranches.filter((b) => !gitIsAncestor(b, workingBranch, projectRoot));
+
+  // Parse COMPLETE returns from the structured return contract.
+  const returnsDir = join(dataDir, "sprints", "current", ".subagent-returns");
+  const returns = [];
+  if (existsSync(returnsDir)) {
+    for (const name of readdirSync(returnsDir)) {
+      if (!name.endsWith(".txt")) continue;
+      let content;
+      try {
+        content = readFileSync(join(returnsDir, name), "utf8");
+      } catch {
+        continue;
+      }
+      const status = (content.match(/^STATUS:\s*(\S+)/m) || [])[1] || "";
+      const sha = (content.match(/^COMMIT:\s*([0-9a-fA-F]{7,40})/m) || [])[1] || "";
+      returns.push({ task: name.replace(/\.txt$/, ""), status: status.toUpperCase(), sha });
+    }
+  }
+
+  // Check B — every COMPLETE return sha reachable from something tracked.
+  const reachableFrom = [workingBranch, ...wtBranches, ...keepRefs];
+  const dangling = [];
+  for (const r of returns) {
+    if (r.status !== "COMPLETE" || !r.sha) continue;
+    const ok = reachableFrom.some((ref) => gitIsAncestor(r.sha, ref, projectRoot));
+    if (!ok) dangling.push(r);
+  }
+
+  const checked = returns.filter((r) => r.status === "COMPLETE" && r.sha).length;
+  const passed = unintegrated.length === 0 && dangling.length === 0;
+
+  if (passed) {
+    try {
+      logEvent(dataDir, "wave_integration_verified", {
+        working_branch: workingBranch,
+        worktree_branches: wtBranches.length,
+        returns_checked: checked,
+      });
+    } catch { /* event is best-effort */ }
+    process.stdout.write(
+      `✓ wave integration verified — ${wtBranches.length} worktree branch(es) merged into ${workingBranch}; ` +
+        `${checked} return commit(s) reachable.\n`,
+    );
+    return;
+  }
+
+  try {
+    logEvent(dataDir, "wave_integration_failed", {
+      working_branch: workingBranch,
+      unintegrated_branches: unintegrated,
+      dangling_tasks: dangling.map((r) => ({ task: r.task, sha: r.sha })),
+    });
+  } catch { /* event is best-effort */ }
+
+  process.stderr.write(`✗ wave integration gate FAILED — do not tear down worktrees or advance the wave.\n`);
+  if (unintegrated.length) {
+    process.stderr.write(`  Un-integrated worktree branches (commits not in ${workingBranch}):\n`);
+    for (const b of unintegrated) {
+      process.stderr.write(`    - ${b}  → rebase + ff-merge onto ${workingBranch} before teardown\n`);
+    }
+  }
+  if (dangling.length) {
+    process.stderr.write(`  Dangling task commits (reachable from nothing tracked — orphaned):\n`);
+    for (const r of dangling) {
+      process.stderr.write(`    - ${r.task}: ${r.sha}  → 'shipyard-data anchor-commit ${r.task} ${r.sha}' then integrate\n`);
+    }
+  }
+  process.exit(3);
+}
+
 function main() {
   const command = process.argv[2] ?? "";
   switch (command) {
@@ -994,11 +1237,24 @@ function main() {
       });
       break;
     }
+    case "ensure-worktree-baseref": {
+      ensureWorktreeBaseref();
+      break;
+    }
+    case "anchor-commit": {
+      const rest = process.argv.slice(3);
+      anchorCommit(rest[0], rest[1]);
+      break;
+    }
+    case "verify-wave-integrated": {
+      verifyWaveIntegrated();
+      break;
+    }
     // For project-id / project-root use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash|project-root`.
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all]\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated\n`,
       );
       process.exit(1);
   }

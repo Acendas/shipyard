@@ -208,12 +208,12 @@
   {
     "name": "wave_status_progress_bar",
     "type": "contains",
-    "pattern": "█.*░|progress bar"
+    "pattern": "\u2588.*\u2591|progress bar"
   },
   {
     "name": "wave_status_projection",
     "type": "contains",
-    "pattern": "Wave \\[N\\]/\\[M\\]|→ Wave"
+    "pattern": "Wave \\[N\\]/\\[M\\]|\u2192 Wave"
   },
   {
     "name": "uses_shipyard_data_path",
@@ -894,7 +894,7 @@
   {
     "name": "wakeup_leak_protection_prints_cycle_complete_marker",
     "type": "contains",
-    "pattern": "CYCLE COMPLETE — sprint already complete\\. /loop should stop\\."
+    "pattern": "CYCLE COMPLETE \u2014 sprint already complete\\. /loop should stop\\."
   },
   {
     "name": "wakeup_leak_protection_references_v2_2_0_lesson",
@@ -995,5 +995,15 @@
     "name": "v250_background_emits_dispatched_event",
     "type": "contains",
     "pattern": "wave_<N>_dispatched_bg pipeline=ship-execute"
+  },
+  {
+    "name": "step0_ensures_worktree_baseref",
+    "type": "contains",
+    "pattern": "ensure-worktree-baseref"
+  },
+  {
+    "name": "gate_before_teardown",
+    "type": "contains",
+    "pattern": "verify-wave-integrated"
   }
 ]

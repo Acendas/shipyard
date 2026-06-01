@@ -22,25 +22,26 @@ Parse the JSONL output; group by `task` field; for each expected task ID, confir
 - **RECOVERABLE** — one or more task IDs have no return event (subagent died mid-flight, orchestrator timed out). Recovery: dispatch a fresh `dispatching-task-loop` for each missing task with `continuation_note: "previous attempt did not return"`.
 - **ESCALATE** — all builders missing returns despite multiple wakeups; structural problem with subagent dispatch. Halt.
 
-## Invariant 2 — Every claimed commit_sha exists in git
+## Invariant 2 — Every claimed commit is integrated, none orphaned
 
-**What it checks.** For each task with a `task_dispatch_returned` event carrying `status="complete"`, extract `commit_sha` and confirm it's reachable from `wave_head_sha`.
+**What it checks.** Every task that returned `status="complete"` had its commit (a) integrated into the working branch and (b) never left dangling. This is verified through the wave-integration gate rather than a raw `commit_sha ∈ wave_base..wave_head` test: the wave-boundary integration *rebases* worktree branches, which rewrites the returned SHA, so the original SHA is legitimately NOT an ancestor of `wave_head` after a clean integration. Checking the raw SHA would false-positive a re-dispatch on already-integrated work — and miss the real failure (a torn-down worktree whose commit never merged), which is what the v2.8 incident hit.
 
 **Primitive.**
 
 ```text
-shipyard-context check-commit-exists <sha>
-# exit 0 = sha exists; stdout = resolved sha
-# exit 1 = sha missing; stdout = "missing"
+# Evidence the pre-teardown gate passed for this wave (emitted by ship-execute Step 4 item 1):
+shipyard-context scan-events --tail 500 wave_integration_verified wave_integration_failed
+# Fresh cross-check — Check B still holds post-teardown via the shipyard/keep-* anchors:
+shipyard-data verify-wave-integrated   # exit 0 = clean; exit 3 = un-integrated or dangling
 ```
 
-For range membership (sha must be in `wave_base_sha..wave_head_sha`), additionally run `git merge-base --is-ancestor <sha> <wave_head_sha>` and `! git merge-base --is-ancestor <sha> <wave_base_sha>`.
+`verify-wave-integrated` proves, over git ground truth (never the unreliable `worktreeBranch` field): every live `shipyard/wt-*` branch is merged into the working branch, AND every `COMPLETE` subagent-return commit is reachable from the working branch, a live worktree branch, or its `shipyard/keep-*` anchor. The `task_commit_anchored` ref written at dispatch-return is what keeps a rebased or torn-down commit reachable.
 
 **Verdicts.**
 
-- **PASS** — every claimed commit exists in `wave_base_sha..wave_head_sha`.
-- **RECOVERABLE** — one or more commits absent (subagent's worktree was cleaned before merge-back; merge-back missed a commit). Recovery: re-dispatch the affected task.
-- **ESCALATE** — repeated commit-disappearance across recovery attempts indicates a worktree-merge regression. Halt.
+- **PASS** — a `wave_integration_verified` event exists for this wave AND a fresh `verify-wave-integrated` exits 0.
+- **RECOVERABLE** — `verify-wave-integrated` exits 3 naming an un-integrated `shipyard/wt-*` branch (the merge-back didn't run for it). Recovery: rebase + ff-merge the named branch, re-run the gate. If a return SHA is dangling but its task is still in flight, re-check after the next wakeup.
+- **ESCALATE** — `verify-wave-integrated` reports a dangling return commit reachable from nothing tracked (lost work — the v2.8 orphaning symptom), or repeated un-integrated branches across recovery attempts. Halt and surface the task / SHA list.
 
 ## Invariant 3 — Wave-boundary verify-probe passes
 
@@ -90,24 +91,24 @@ Filter the output to events with timestamps after `wave_base_sha`'s correspondin
 - **RECOVERABLE** — a marker with a `task_id` that's still in flight (race: marker emitted while subagent was finishing). Recovery: re-check after the next ScheduleWakeup; the in-flight task will have settled by then.
 - **ESCALATE** — one or more confirmed markers tied to completed tasks. Do NOT advance the wave. Surface marker details to the user via AskUserQuestion.
 
-## Invariant 6 — No uncommitted state in any builder worktree
+## Invariant 6 — No un-integrated or uncommitted builder worktree
 
-**What it checks.** No `shipyard/wt-*` worktree has uncommitted changes after the wave-boundary cleanup ran.
+**What it checks.** After the wave-boundary integration + teardown: (a) no `shipyard/wt-*` worktree branch still carries commits not in the working branch, and (b) no surviving `shipyard/wt-*` worktree has uncommitted changes. Part (a) is the orphaning guard — a worktree torn down before its branch merged is exactly how the v2.8 incident lost six commits; part (b) is the original dirty-tree check.
 
 **Primitive.**
 
 ```text
-shipyard-context check-dirty-worktrees
-# stdout = one absolute path per dirty shipyard/wt-* worktree
-# empty stdout = all clean
-# exit 0 always — output is the result
+shipyard-data verify-wave-integrated     # part (a): every live wt branch merged; exit 3 lists offenders
+shipyard-context check-dirty-worktrees   # part (b): one path per dirty shipyard/wt-* worktree; empty = clean
 ```
+
+Invariants 2 and 6 share the `verify-wave-integrated` primitive — run it once and read its verdict for both: Check A (worktree branches merged) feeds invariant 6(a), Check B (no dangling return commit) feeds invariant 2.
 
 **Verdicts.**
 
-- **PASS** — no leftover worktrees, or leftover worktrees have clean trees.
+- **PASS** — `verify-wave-integrated` exits 0 (or vacuously passes because the worktrees were already torn down past a recorded `wave_integration_verified` event) AND `check-dirty-worktrees` is empty.
 - **RECOVERABLE** — uncommitted state matching a recognized salvage pattern (next session's Step 0 worktree-salvage handles it). Recovery: emit `wave_check_worktree_leftover` and proceed; the next session recovers.
-- **ESCALATE** — uncommitted state that looks like in-flight work, not stale salvage. Halt and surface.
+- **ESCALATE** — an un-integrated worktree branch (Check A fail), or uncommitted state that looks like in-flight work rather than stale salvage. Halt and surface.
 
 ## Aggregation
 

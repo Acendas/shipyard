@@ -33,5 +33,25 @@
     "name": "no_dead_reference_links",
     "type": "not_contains",
     "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  },
+  {
+    "name": "anchors_returned_commits",
+    "type": "contains",
+    "pattern": "anchor-commit"
+  },
+  {
+    "name": "gate_before_teardown",
+    "type": "contains",
+    "pattern": "verify-wave-integrated"
+  },
+  {
+    "name": "never_trust_worktreebranch",
+    "type": "contains",
+    "pattern": "worktreeBranch"
+  },
+  {
+    "name": "baseref_verified_at_execute",
+    "type": "contains",
+    "pattern": "ensure-worktree-baseref"
   }
 ]

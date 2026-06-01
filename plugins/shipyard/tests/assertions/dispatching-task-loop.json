@@ -145,5 +145,15 @@
     "name": "builder_data_guide_is_gated",
     "type": "contains",
     "pattern": "ONLY if this task touches the database"
+  },
+  {
+    "name": "anchors_commit_on_return",
+    "type": "contains",
+    "pattern": "anchor-commit"
+  },
+  {
+    "name": "emits_real_sha_return",
+    "type": "contains",
+    "pattern": "task_dispatch_returned[\\s\\S]*commit_sha=|commit_sha=<sha>"
   }
 ]

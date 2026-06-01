@@ -39,11 +39,11 @@ Detailed per-invariant logic, primitives, and recovery actions live in [referenc
 | # | Invariant | Primitive | Recovery shape |
 |---|---|---|---|
 | 1 | All dispatched builders returned a structured contract | `shipyard-context scan-events --tail 500 task_loop_iteration task_dispatch_returned` | Re-dispatch tasks missing a return event |
-| 2 | Every claimed commit_sha exists in git AND is in `wave_base_sha..wave_head_sha` | `shipyard-context check-commit-exists <sha>` + `git merge-base --is-ancestor` | Re-dispatch the affected task |
+| 2 | Every `COMPLETE` return commit is integrated and none dangling | `shipyard-data verify-wave-integrated` + `wave_integration_verified` event | Rebase + ff-merge the un-integrated branch, re-gate |
 | 3 | Wave-boundary verify-probe exits 0 with non-empty capture showing a real verdict | Read `wave_probe_capture` + the exit code parameter | Re-run via `dispatching-operational-task`; if second run passes with different failure signature, treat as flaky |
 | 4 | Event log shows wave-task-complete events for every task | `shipyard-context scan-events --tail 500 task_loop_completed operational_task_completed` | Self-heal: orchestrator emits the missing event with `recovered=true` |
 | 5 | No silent-failure markers in the wave's event-log window | `shipyard-context scan-events --tail 500 silent_failure loop_detected operational_task_bogus_pass anti_stub_finding` | None — confirmed marker tied to a complete task always ESCALATES |
-| 6 | No uncommitted state across any `shipyard/wt-*` worktree | `shipyard-context check-dirty-worktrees` | None for in-flight-looking work — ESCALATE; stale-salvage pattern self-heals |
+| 6 | No un-integrated or uncommitted `shipyard/wt-*` worktree | `shipyard-data verify-wave-integrated` + `shipyard-context check-dirty-worktrees` | Un-integrated branch → ESCALATE; stale dirty-salvage self-heals |
 
 ## The Loop
 

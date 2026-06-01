@@ -21,9 +21,9 @@
     "pattern": "structured contract|returned a structured"
   },
   {
-    "name": "invariant_2_commits_exist",
+    "name": "invariant_2_commits_integrated",
     "type": "contains",
-    "pattern": "check-commit-exists|git cat-file -e"
+    "pattern": "verify-wave-integrated|wave_integration_verified"
   },
   {
     "name": "invariant_3_wave_probe",
@@ -94,5 +94,10 @@
     "name": "no_registered_shipyard_agent",
     "type": "not_contains",
     "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "invariant_6_references_integration_gate",
+    "type": "contains",
+    "pattern": "verify-wave-integrated"
   }
 ]

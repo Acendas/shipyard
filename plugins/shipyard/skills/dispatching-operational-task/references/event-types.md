@@ -29,7 +29,7 @@ Grouped by emitter. Within each group, listed alphabetically.
 |---|---|---|---|
 | `task_loop_iteration` | Each internal iteration of the per-task /goal loop | `task` (str), `iteration` (int), `probe_exit` (int) | `/ship-status` (trajectory render), `verifying-wave-completion` (invariant 1) |
 | `task_loop_completed` | Subagent returns `STATUS: COMPLETE` | `task` (str), `commit_sha` (str), `iterations_run` (int) | `verifying-wave-completion` (invariant 4), `evaluating-sprint-complete` (invariant 1) |
-| `task_dispatch_returned` | Orchestrator records the structured return regardless of status | `task` (str), `status` ("complete" \| "blocked"), `escalation_code` (str \| null) | `verifying-wave-completion` (invariant 1) |
+| `task_dispatch_returned` | Orchestrator records the structured return regardless of status | `task` (str), `status` ("complete" \| "blocked"), `commit_sha` (str — set for `status=complete`), `sprint` (str), `wave` (int), `escalation_code` (str \| null) | `verifying-wave-completion` (invariant 1), `terminal-gate` (per-task complete evidence) |
 | `subagent_completed` | Background-mode builder subagent finishes (emitted by `dispatching-task-loop`, step 9 of the Cycle) | `task` (str), `status` ("complete" \| "blocked"), `commit_sha` (str), `probe_exit_code` (int), `capture_file` (str) | `/ship-execute` `wave_N_waiting` (Monitor drains `pending_subagents`) |
 
 ### Emitted by `dispatching-operational-task` (subagent context)
@@ -69,6 +69,16 @@ Grouped by emitter. Within each group, listed alphabetically.
 | `sprint_complete_check_started` | At entry | `sprint_id` (str), `base_sha` (str), `head_sha` (str) | `/ship-status` |
 | `sprint_complete_passed` | All eight invariants green | `sprint_id` (str) | `/ship-execute` step 4 (flips sprint to `completed`) |
 | `sprint_complete_failed` | Any invariant red | `sprint_id` (str), `invariants_failed` (array) | User-visible via AskUserQuestion |
+
+### Emitted by `shipyard-data` (CLI — worktree integration)
+
+| Event type | When | Fields | Consumers |
+|---|---|---|---|
+| `worktree_baseref_ensured` | `ensure-worktree-baseref` sets/confirms `worktree.baseRef: "head"` (run at `/ship-execute` Step 0) | `was` (str \| null), `now` ("head"), `changed` (bool) | Retro; `/ship-status` diagnostics |
+| `task_commit_anchored` | `anchor-commit` pins a `shipyard/keep-<task>` ref to a verified return commit (run at the orchestrator gate on every COMPLETE return) | `task` (str), `sha` (str), `ref` (str) | `verify-wave-integrated` (the anchor is the reachability source that keeps a return commit non-dangling through rebase/teardown) |
+| `wave_integration_verified` | `verify-wave-integrated` passes — every live `shipyard/wt-*` branch merged into working AND no `COMPLETE` return commit dangling | `working_branch` (str), `worktree_branches` (int), `returns_checked` (int) | `/ship-execute` Step 4 item 1 (teardown gate), `verifying-wave-completion` (invariants 2 & 6) |
+| `wave_integration_failed` | `verify-wave-integrated` fails (exit 3) — un-integrated worktree branch or dangling return commit | `working_branch` (str), `unintegrated_branches` (array), `dangling_tasks` (array of `{task, sha}`) | `/ship-execute` Step 4 item 1 (HARD STOP), `verifying-wave-completion` (invariants 2 & 6) |
+| `worktree_cleaned` | `clean-worktrees` removes a stale worktree or orphaned `shipyard/wt-*` branch | `branch` (str), `reason` ("merged" \| "gone" \| "force" \| "orphaned_branch"), `path` (str, optional), `merged` (bool, optional) | Retro; next-session salvage |
 
 ### Emitted by `/ship-execute`
 

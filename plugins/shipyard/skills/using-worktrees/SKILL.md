@@ -40,8 +40,8 @@ Claude Code:
 3. Spawns the subagent with cwd = the worktree path.
 4. Subagent edits / commits / runs tests in the worktree.
 5. Subagent returns; Claude Code captures the cwd correctly (no leakage to parent).
-6. Orchestrator rebases + merges the worktree branch back onto the working branch.
-7. Orchestrator removes the worktree (`git worktree remove`) and deletes the merged branch.
+6. Orchestrator **anchors each returned commit** (`shipyard-data anchor-commit <task> <sha>`), then rebases + ff-merges the worktree branch back onto the working branch. It discovers the branch from git ground truth (`git worktree list` → the `shipyard/wt-*` row), **never** from the Agent return's `worktreeBranch` field — that field is undefined/unreliable (Claude Code #51596), and trusting it is what skipped merge-back and orphaned six commits in the v2.8 incident.
+7. Orchestrator runs `shipyard-data verify-wave-integrated` (the pre-teardown gate); only on exit 0 does it remove the worktree (`git worktree remove`) and delete the branch with `git branch -d` (never `-D`).
 
 The orchestrator does **not** need to:
 - Pre-create the worktree manually.
@@ -61,27 +61,26 @@ Shipyard's `WorktreeCreate` hook (`bin/hooks/worktree-branch.mjs`) names the bra
 
 The `shipyard/wt-` prefix is the discriminator: any branch starting with it is a Shipyard-owned worktree branch and may be safely cleaned up by the orchestrator at wave boundaries.
 
+**Discover the branch from git, not the Agent return.** The branch name is deterministic (`shipyard/wt-<worktree-name>`) and visible in `git worktree list --porcelain`. Do NOT read it from the Agent tool's `worktreeBranch` return field: because Shipyard's hook owns branch creation, Claude Code reports `worktreeBranch: undefined` (the #51596 bug), so any logic that keys off it silently no-ops the merge-back. Integrate by the `COMMIT:` SHA from the structured return contract + the `shipyard/wt-*` row from `git worktree list` — both ground truth.
+
 ## Base Ref: `head` for In-Progress Sprints
 
-Shipyard's worktrees should branch from **local HEAD**, not from `origin/<default>`. Sprint work builds on uncommitted-but-local commits from earlier waves; an `origin/<default>` base would lose them.
+Shipyard's worktrees must branch from **local HEAD**, not `origin/<default>`. Sprint work builds on local-only commits from earlier waves; an `origin/<default>` base would silently drop them.
 
-Set in project `.claude/settings.json` (handled by `/ship-init` going forward):
+Set in the project's `.claude/settings.json`:
 
 ```json
-{
-  "worktree": {
-    "baseRef": "head"
-  }
-}
+{ "worktree": { "baseRef": "head" } }
 ```
 
-Without this setting, Anthropic defaults to `fresh` (= `origin/<default>`). Sprint Wave 2's worktrees would skip Wave 1's local commits — silently broken, hard to debug.
+**Verified at execute, not just at init.** `/ship-execute` Step 0 runs `shipyard-data ensure-worktree-baseref`, which sets this idempotently every sprint (atomic JSON merge — never a model hand-edit). Don't rely on `/ship-init` having set it once: it drifts, and a missing setting is silently wrong. The setting is also the backstop for when the `WorktreeCreate` hook doesn't fire — native worktree creation then still bases on local HEAD instead of `fresh` (= `origin/<default>`), which would skip Wave N-1's commits.
 
 ## Cleanup at Wave Boundaries
 
 After all subagents in a wave return:
 
-1. **Rebase each task branch sequentially onto the working branch.** Even if tasks ran in parallel, merge in a deterministic order (task ID ascending) for replayable git history.
+1. **Anchor every returned commit first.** `shipyard-data anchor-commit <task> <sha>` for each `COMPLETE` return pins a `shipyard/keep-<task>` ref to the commit. From here the commit survives rebase, teardown, and worktree-name collisions — the insurance half of the integration gate.
+2. **Rebase each task branch sequentially onto the working branch**, in task-ID order (deterministic, replayable history even though tasks ran in parallel). Discover the branches from `git worktree list` (the `shipyard/wt-*` rows), never from `worktreeBranch`.
    ```
    for branch in shipyard/wt-T-042 shipyard/wt-T-043 ...; do
      git rebase <working-branch> $branch
@@ -89,13 +88,14 @@ After all subagents in a wave return:
      git merge --ff-only $branch
    done
    ```
-2. **If a rebase has conflicts** → `AskUserQuestion` with conflict details. Do NOT fall back to a regular merge — that creates fork lines in the graph.
-3. **Remove the worktree and delete the branch:**
+   Conflicts → `AskUserQuestion` with details. Do NOT fall back to a regular merge — that creates fork lines in the graph.
+3. **Gate before teardown.** `shipyard-data verify-wave-integrated` proves every live `shipyard/wt-*` branch is merged and no return commit is dangling. Exit 3 → HARD STOP: don't remove anything; integrate the named branches and re-run. This is the structural guarantee that teardown can never precede merge-back.
+4. **Remove the worktree and delete the branch — only past the gate:**
    ```
    git worktree remove .claude/worktrees/<id>
-   git branch -d shipyard/wt-<id>
+   git branch -d shipyard/wt-<id>     # -d, never -D: refuses an unmerged branch
    ```
-4. **Verify clean state** — `git worktree list` should show no `shipyard/wt-*` paths after wave merge.
+5. **Verify clean state** — `git worktree list` should show no `shipyard/wt-*` paths after wave merge.
 
 Anthropic's stale-worktree cleanup handles the case where a subagent crashed without committing — leftover worktrees with no uncommitted changes and no unpushed commits get reaped at session start automatically (per Claude Code's `cleanupPeriodDays` setting). Shipyard does not need to duplicate this.
 
@@ -104,6 +104,10 @@ Anthropic's stale-worktree cleanup handles the case where a subagent crashed wit
 ### Subagent's worktree branch doesn't start with `shipyard/wt-*`
 
 This means the `WorktreeCreate` hook didn't fire correctly. Hard-stop the subagent (the prompt template instructs it to refuse to proceed). Investigate the hook before retrying — never let the subagent "fix" by checking out the working branch directly, that bypasses isolation entirely.
+
+### The Agent return shows `worktreeBranch: undefined`
+
+Expected, not an error. Shipyard's `WorktreeCreate` hook owns branch creation, so Claude Code has no branch of its own to report (Claude Code #51596). **Never gate merge-back on this field.** Derive the branch from `git worktree list` and integrate by the `COMMIT:` SHA from the return contract. If you find yourself thinking "I don't know which branch to merge," that's the bug — the branch is `shipyard/wt-<worktree-name>`, sitting in `git worktree list` right now. This exact confusion orphaned six verified commits in the v2.8 incident.
 
 ### Rebase conflicts at wave boundary
 

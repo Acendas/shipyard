@@ -67,6 +67,50 @@ function safeIsDir(p) {
   try { return statSync(p).isDirectory(); } catch { return false; }
 }
 
+/**
+ * Delete a stale `shipyard/wt-<name>` branch before recreating the worktree —
+ * but NEVER force-delete one that carries commits not already contained in the
+ * new base (`baseSha`). Such commits are the Claude Code #51596 case: an
+ * agentId-prefix collision hands us a previously-used worktree name whose
+ * branch still holds a prior agent's un-integrated work. An unconditional
+ * `git branch -D` there silently orphans that work (a real data-loss vector
+ * observed as dangling task commits). Anchor it under a `shipyard/keep-*` ref
+ * first so creation can still proceed without losing anything.
+ */
+function safeDeleteStaleBranch(branchName, baseSha, repoRoot) {
+  const exists = runGit(["rev-parse", "--verify", "--quiet", `refs/heads/${branchName}`], repoRoot);
+  if (!exists) return; // nothing to delete
+
+  // Is the stale branch fully contained in the new base? Then it has no
+  // un-integrated work and is safe to drop. merge-base --is-ancestor exits 1
+  // (→ execFileSync throws) when it is NOT an ancestor.
+  let containedInBase = false;
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", branchName, baseSha], {
+      cwd: repoRoot, stdio: "pipe", timeout: 5000,
+    });
+    containedInBase = true;
+  } catch {
+    containedInBase = false;
+  }
+
+  if (!containedInBase) {
+    const shortSha = runGit(["rev-parse", "--short", branchName], repoRoot) || "unknown";
+    const keepRef = `shipyard/keep-${name_slug(branchName)}-${shortSha}`;
+    runGit(["branch", "-f", keepRef, branchName], repoRoot);
+    process.stderr.write(
+      `shipyard worktree hook: WARNING — stale branch ${branchName} has commits not in the ` +
+        `new base; preserved as ${keepRef} before recreating (possible worktree-name ` +
+        `collision, Claude Code #51596).\n`,
+    );
+  }
+  runGit(["branch", "-D", branchName], repoRoot);
+}
+
+function name_slug(branchName) {
+  return branchName.replace(/^shipyard\/wt-/, "").replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
 export async function run(hookInput, _env) {
   const name = hookInput?.name || "";
   if (!name) {
@@ -125,8 +169,9 @@ export async function run(hookInput, _env) {
       }
 
       const branchName = `shipyard/wt-${name}`;
-      // Delete stale branch if it exists
-      runGit(["branch", "-D", branchName], repoRoot);
+      // Delete stale branch if it exists — but preserve any un-integrated
+      // commits under a keep-ref first (see safeDeleteStaleBranch / #51596).
+      safeDeleteStaleBranch(branchName, currentSha, repoRoot);
 
       const result = runGit(
         ["worktree", "add", "-b", branchName, worktreePath, currentSha],
