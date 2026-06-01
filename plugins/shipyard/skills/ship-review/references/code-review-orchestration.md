@@ -6,7 +6,7 @@ The full contract for code review dispatch lives in the **`shipyard:dispatching-
 
 `/ship-review` Stage 0 runs code review on the sprint's diff via `dispatching-code-review`. The capability skill takes a `concerns` array and activates only the requested concern sections in its prompt:
 
-- `security`, `bugs`, `silent-failures`, `patterns`, `tests`, optional `observability`.
+- `security`, `bugs`, `silent-failures`, `patterns`, `tests`, optional `observability`, and `data` (auto-gating — produces findings only when the diff touches persistence; included by default so DB defects never slip past Stage 0).
 
 `shipyard:dispatching-spec-review` handles spec compliance separately ("did we deliver what was specified?" vs "is the delivery any good?").
 
@@ -15,8 +15,10 @@ The full contract for code review dispatch lives in the **`shipyard:dispatching-
 For release-bound changes or large diffs touching auth/payments/data, `/ship-review` may invoke `dispatching-code-review` multiple times in parallel with non-overlapping `concerns` arrays:
 
 - Subagent A: `concerns: ["security"]`
-- Subagent B: `concerns: ["bugs", "silent-failures"]`
+- Subagent B: `concerns: ["bugs", "silent-failures", "data"]`
 - Subagent C: `concerns: ["patterns", "tests"]`
+
+Assign `data` to exactly one subagent (above it rides with B) so the persistence checklist runs once, not zero or N times.
 
 Each runs in its own context window for concurrent depth. Results merge orchestrator-side. More tokens for better depth — opt-in.
 

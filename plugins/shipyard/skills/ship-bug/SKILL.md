@@ -1,7 +1,7 @@
 ---
 name: ship-bug
 description: "File a bug or hotfix with minimal ceremony."
-allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)", "Bash(shipyard-logcap:*)"]
 argument-hint: "[bug description] or --hotfix [description]"
 ---
 
@@ -97,7 +97,7 @@ created: [today]
 
 Then immediately begin the debug investigation (Step 3 of ship-debug: form hypothesis → test → record → repeat). When root cause is found, fix with TDD (regression test first), commit as `fix(B-HOT-NNN): [description]`.
 
-**Capture the repro.** When running the repro command during investigation, capture its output: `<repro-command> 2>&1 | tee <SHIPYARD_DATA>/captures/bhot-NNN/repro.log`. Bug repros are often flaky — the captured file lets you re-inspect a different signal without re-triggering the bug, which is the most expensive part of debugging. If the first repro run shows something unexpected, grep the capture with a wider pattern before re-running. For long-running repros (dev server, watch mode, `adb logcat`), `shipyard-logcap run bhot-NNN-repro -- <command>` adds rotation + signal forwarding; otherwise plain `tee` is sufficient.
+**Capture the repro.** When running the repro command during investigation, capture its output with `shipyard-logcap run bhot-NNN-repro -- <repro-command>` (rotation + signal forwarding, cross-platform — and the only Bash scope this skill allowlists besides `shipyard-context`). Bug repros are often flaky — the captured file lets you re-inspect a different signal without re-triggering the bug, which is the most expensive part of debugging. If the first repro run shows something unexpected, `shipyard-logcap grep` the capture with a wider pattern before re-running. (Avoid raw `… 2>&1 | tee …` shell pipelines — they aren't portable to Windows and aren't in this skill's allowed-tools.)
 
 ## Rules
 

@@ -25,7 +25,6 @@ A held lock is a JSON object with this shape:
   "started": "2026-05-08T14:23:00Z",
   "session_id": "01HXY1Z2A3B4C5D6E7F8G9H0J1",
   "cleared": null,
-  "tracks_compaction_pressure": true,
   "compaction_count": 0
 }
 ```
@@ -71,8 +70,7 @@ When a skill enters and needs the lock:
    - `started`: current ISO 8601 timestamp.
    - `session_id`: current Claude Code session ID.
    - `cleared`: null.
-   - `tracks_compaction_pressure`: true for `ship-execute` (long-running), else false.
-   - `compaction_count`: 0.
+   - `compaction_count`: 0 — **currently dormant**: initialized but never incremented (the `post-compact` hook that bumped it was retired). Reserved as the re-wire point for a future `PreCompact` hook; until then the `compaction_count ≥ 4` warning in `/ship-execute` never fires.
 
 5. **Cross-lock guard.** Before proceeding, also Read the *other* lock file (planning vs execution). If it shows held with a non-matching session_id and not stale, hard-block as in step 3 — planning and execution are mutually exclusive. If it shows our session, that's the same Claude session re-entering through a different command — usually fine, but flag in the report so the user understands why the previous skill's state may still be present.
 
@@ -104,7 +102,7 @@ When recovering a stale lock:
 
 - Print the one-line recovery message so the user knows what happened.
 - Overwrite the lock with the new session's data (step 4 of acquire).
-- Emit a `stale_lock_recovered` event to the structured event log via `shipyard-data events emit stale_lock_recovered prior_session_id=<id> prior_skill=<skill> prior_age_hours=<N>`. This makes the recovery observable in `/ship-status diagnose`.
+- Emit a `stale_lock_recovered` event to the structured event log via `shipyard-data events emit stale_lock_recovered prior_session_id=<id> prior_skill=<skill> prior_age_hours=<N>`. This makes the recovery observable via `shipyard-context diagnose` (which tails the events log).
 
 If the user wants to use a longer-than-2h skill (rare, but possible for very large sprints), they override by running with explicit consent — that's a future feature; for now, 2h is the bright line.
 

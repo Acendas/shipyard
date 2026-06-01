@@ -60,7 +60,7 @@ Body (one paragraph max):
 | `wave_N_dispatch` | Step 2 — dispatch all tasks in wave N. **Background mode (default v2.5.0+)**: spawn each `dispatching-task-loop` via `Agent(run_in_background: true)`, populate `pending_subagents`, arm Monitor on event log → `wave_N_waiting`. **Sync mode (`--task`/`--hotfix`)**: spawn synchronously, wait for all to return → `wave_N_boundary` (success) or `wave_N_redispatch_iter_K` (any BLOCKED) | `wave_N_waiting` (bg) / `wave_N_boundary` (sync) | `wave_N_redispatch_iter_K` for any `BLOCKED` returns (sync) |
 | `wave_N_waiting` | v2.5.0+ — re-entered by each `/loop` tick while subagents run in background. Reads `.shipyard-events.jsonl` for `subagent_completed` events; drains `pending_subagents` as they arrive. Timeouts move tasks to `needs-attention`. | `wave_N_recovery` (when `pending_subagents` empty) | re-enter `wave_N_waiting` (partial), or `wave_N_recovery` (all done/timed-out) |
 | `wave_N_recovery` | v2.5.0+ — reads each completed subagent's capture file, runs orchestrator-side gate (sha verify + probe re-execution + anti-stub-scan), aggregates verdicts. | `wave_N_boundary` (all clean) | `wave_N_redispatch_iter_K` (any BLOCKED or gate failure) |
-| `wave_N_redispatch_iter_K` | Single-redispatch rule per task; K ∈ {1}. Redispatch is always SYNC (not background) — only one task, no parallelism win. | `wave_N_boundary` | `wave_N_needs_attention` (after K=1, mark needs-attention and continue) |
+| `wave_N_redispatch_iter_K` | Single-redispatch rule per task; K ∈ {1}. Redispatch is always SYNC (not background) — only one task, no parallelism win. | `wave_N_boundary` | `wave_N_boundary` (after K=1, mark the task `status: needs-attention` as a side effect and continue — there is no `needs_attention` stage) |
 | `wave_N_boundary` | Step 4 (1–3) — rebase, ff-merge worktree branches, clean orchestrator branch, update PROGRESS.md `current_wave` | `wave_N_build` | escalate |
 | `wave_N_build` | Step 4 (4) — wave-scoped build via `dispatching-operational-task` | `wave_N_refactor` | `wave_N_build_fix_iter_K` (bounded by capability skill's cap) |
 | `wave_N_refactor` | Step 4 (5) — wave REFACTOR + MUTATE | `wave_N_tests` | log + continue (not a wave blocker) |
@@ -68,8 +68,9 @@ Body (one paragraph max):
 | `wave_N_verify` | Step 4 (7) — `dispatching-spec-review` scope=wave | `wave_N_gate` | `wave_N_redispatch_iter_K` (per failing task, bounded) |
 | `wave_N_gate` | Step 4 (8) — `verifying-wave-completion` (internal ScheduleWakeup state machine, budget 3) | `wave_N+1_dispatch` (if more waves) OR `sprint_full_build` (if last wave) | escalate via AskUserQuestion |
 | `sprint_full_build` | Step 5 (1) — full build via `dispatching-operational-task` | `sprint_full_tests` | escalate |
-| `sprint_full_tests` | Step 5 (2) — full suite | `sprint_complete_gate` | `sprint_tests_fix_iter_K` |
-| `sprint_complete_gate` | Step 5 (3) — `evaluating-sprint-complete` (seven invariants; invariant 7 expected FAIL pre-review by design) | `terminal_handoff_to_review` | escalate (specific invariant failure surfaces details) |
+| `sprint_full_tests` | Step 5 (2) — full suite | `sprint_demo_probes` | `sprint_tests_fix_iter_K` |
+| `sprint_demo_probes` | Step 5 (3) — cross-task demo-probe re-verify on freshly-checked-out HEAD (skip-if-already-passed preflight) | `sprint_complete_gate` | escalate (demo probe failed) |
+| `sprint_complete_gate` | Step 5 (4) — `evaluating-sprint-complete` (eight invariants; invariant 7 expected FAIL pre-review by design) | `terminal_handoff_to_review` | escalate (specific invariant failure surfaces details) |
 | `terminal_handoff_to_review` | Mark SPRINT.md `status: completed`, `completed_at: <ISO>`; print "Sprint complete. /ship-review next." | — | — |
 
 `hotfix` and `single_task` modes bypass the stage map:

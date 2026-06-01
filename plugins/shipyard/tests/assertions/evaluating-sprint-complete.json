@@ -11,9 +11,9 @@
     "pattern": "disable-model-invocation: true"
   },
   {
-    "name": "lists_seven_invariants",
+    "name": "lists_eight_invariants",
     "type": "contains",
-    "pattern": "Seven Invariants|seven invariants"
+    "pattern": "Eight Invariants|eight invariants"
   },
   {
     "name": "invariant_1_commit_sha_exists",

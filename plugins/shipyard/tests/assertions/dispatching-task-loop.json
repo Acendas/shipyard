@@ -130,5 +130,20 @@
     "name": "v250_background_mode_preserves_gate",
     "type": "contains",
     "pattern": "orchestrator-side gate is identical"
+  },
+  {
+    "name": "data_implementation_guide_exists",
+    "type": "file_exists",
+    "path": "project-files/references/data-implementation-guide.md"
+  },
+  {
+    "name": "builder_reads_data_impl_guide",
+    "type": "contains",
+    "pattern": "data-implementation-guide\\.md"
+  },
+  {
+    "name": "builder_data_guide_is_gated",
+    "type": "contains",
+    "pattern": "ONLY if this task touches the database"
   }
 ]

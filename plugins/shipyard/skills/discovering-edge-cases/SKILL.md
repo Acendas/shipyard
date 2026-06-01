@@ -158,4 +158,4 @@ This skill produces findings; it does not edit the feature draft. The calling co
 - Output is concrete cases, not warnings — testable, actionable, non-speculative.
 - Read-only; calling skill folds findings into the spec.
 - Replaces shipyard-discovery-scout agent and several discuss/references files.
-- 13th of 14 capability skills.
+- A capability skill (`disable-model-invocation: true`), invoked from `/ship-discuss` and `/ship-sprint`.

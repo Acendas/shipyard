@@ -17,7 +17,7 @@ Grep for `epic: E00N` across all feature files. For each approved/done feature, 
 - Dependencies array (which features depend on which)
 - Interface section (API endpoints, data contracts)
 - Data Model section (shared entities, schemas)
-- Flows section (sequence diagrams, state machines)
+- Flows section (any persisted Mermaid diagram — sequence, state machine, ER, deployment, data-flow, user journey; the canonical set lives in `phase-3-write-spec.md`)
 
 ### Step 2: Identify Integration Seams
 

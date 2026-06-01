@@ -124,6 +124,7 @@ Before presenting the plan, review your own output. Re-read each task file and t
 | 19 | **Every `kind: feature` task has a `First failing test:` in Technical Notes** | Technical Notes missing this section means the Stage 4 Red step protocol was skipped — the builder has no TDD starting point and may silently invent scope. Re-derive the Red step and add it before approval. |
 | 20 | **No `kind: feature` task title contains "and" joining two independent behaviors** | "Implement X and add Y", "Update X and fix Y" patterns indicate Stage 3 splitting was missed. Split the task; two behaviors means two tasks. |
 | 21 | **Every Technical Notes deliverable maps to a task** | A feature's Technical Notes section names a concrete artifact ("Author must write a Playwright spec covering X", "One Y test covering Z", "Add a Q migration", named files like `tests/e2e/*.spec.ts`) but no task file's "Files to modify" or "Deliverables" references it. Either (a) add a task that owns the artifact, (b) elevate the artifact into an explicit acceptance criterion so it gets decomposed, or (c) capture it as an IDEA and link it (`source: backlog-deferred IDEA-NNN`). Conservative extraction — only flag concrete artifacts (named files, named tools, "must write X" patterns), NOT general guidance like "we should consider Y". Added in v2.6.0 after F002's Technical Notes line 144 explicitly required a Playwright spec but no task in the 14-task sprint owned it. |
+| 22 | **Data work is decomposed (gated — data features only)** | ONLY fires when a feature in scope has a `## Data Model` section (skip entirely for non-data sprints — no false positives on, e.g., a pure-UI sprint). When it fires: the schema/migration the Data Model implies has an owning task; the constraints it names (FK / NOT NULL / UNIQUE / CHECK) are captured rather than left implicit; and an index task exists for any hot-query predicate or new foreign key called out in the feature's Technical Notes. Also flag a Data Model that ships a schema-shape anti-pattern (EAV, OTLT, god table) or a mutable-business-value primary key — those are design defects that should have been caught in discuss; surface for the user. Consult `${CLAUDE_PLUGIN_ROOT}/project-files/references/data-modeling-guide.md`. Fix by adding the missing schema/migration/index/constraint tasks (or routing the anti-pattern back to `/ship-discuss`). |
 
 Iterate the checklist against task files and the sprint draft, fixing failures (update task files, recompute waves) and re-running. Max 3 iterations. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag any remaining gaps in the sprint plan summary as "Planning gaps — review during execution". Then proceed to Step 9.7.
 
@@ -149,6 +150,16 @@ acceptance-scenario coverage gaps, and feasibility issues.
 Apply anti-sycophancy: do not agree with the plan just because it sounds
 reasonable. Pre-mortem the sprint: imagine it shipped two weeks late or
 half-broken — what was the failure mode?
+
+If (and only if) a feature in this sprint persists data (has a `## Data
+Model` section), also challenge whether the decomposition actually captures
+the data work: is there an explicit task for the schema/migration, for the
+constraints (FK / NOT NULL / UNIQUE / CHECK), and for the indexes the hot
+queries need — or are these left implicit inside a behavior task where the
+builder will skip them? Flag missing schema/migration/index/constraint tasks
+under TASK_GAPS. Consult
+${CLAUDE_PLUGIN_ROOT}/project-files/references/data-modeling-guide.md.
+Skip this for sprints with no data-persisting feature.
 
 Mode: sprint-critique
 Stakes: [standard | high]   (high if 10+ tasks, ≥20 story points,
@@ -179,16 +190,13 @@ You are READ-ONLY: no edits, no commits, no spawning subagents.
 
 **Process the critic's findings:**
 
-1. Read the `PRIORITY ACTIONS` section — these are mandatory fixes
-2. For each FAIL item and HIGH-risk assumption:
-   - Task completeness gaps → create missing tasks, update wave structure
-   - Wave conflict risks → re-assign tasks to different waves
-   - Estimate realism concerns → adjust effort estimates, potentially split tasks
-   - Technical Notes gaps → add missing implementation detail
-   - Dependency chain risks → add mitigation to risk register
-   - If requires user judgment → collect into a single AskUserQuestion with the critic's evidence and your recommendation
-3. For CONCERN items: note them in the `## Risks` section of SPRINT-DRAFT.md as "Critic flagged — [summary]. Mitigation: [your plan]" or fix if quick
-4. For RECONSIDER verdicts from Pass 3 (steel-man challenges on implementation decisions): AskUserQuestion with both options and the critic's reasoning, plus your recommendation
-5. If fixes changed the wave structure, re-verify no circular dependencies and no same-wave dependency violations
+1. Read `PRIORITY_ACTIONS` — the mandatory fixes; work them first.
+2. Process each returned section by its fix-shape (the critic emits exactly these sections — there are no per-item FAIL/CONCERN verdicts and no steel-man "RECONSIDER" pass):
+   - `TASK_GAPS` → create the missing tasks and update the wave structure.
+   - `WAVE_CONFLICTS` → re-assign the conflicting tasks to different waves.
+   - `ESTIMATE_RISKS` → adjust effort estimates, potentially splitting tasks.
+   - `ASSUMPTION_RISKS` → if load-bearing, surface via `AskUserQuestion` (critic's evidence + your recommendation); otherwise note it in the `## Risks` section of SPRINT-DRAFT.md as "Critic flagged — [summary]. Mitigation: [your plan]".
+   - Anything that needs a genuine scope/priority call → collect into a single `AskUserQuestion` with the critic's evidence and your recommendation, rather than applying it silently.
+3. If fixes changed the wave structure, re-verify no circular dependencies and no same-wave dependency violations.
 
 **Do NOT re-run the critic after fixes.** One round only. Address what you can, ask the user about the rest, and proceed.

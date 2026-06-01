@@ -97,7 +97,7 @@ For each behavior draft from Stage 1, apply these patterns in order. If any fire
 
 ## The "And" Test
 
-Apply before running the 9 patterns. Any task draft whose title or description contains "and" connecting two independent behaviors is a mandatory split candidate.
+Apply before running the splitting patterns. Any task draft whose title or description contains "and" connecting two independent behaviors is a mandatory split candidate.
 
 **Split:**
 - "Create user **and** send welcome email" → 2 tasks
@@ -148,7 +148,7 @@ PMI's 8/80 rule defines work package size as 8–80 hours. Adapted for the TDD c
 | **L** | 1–2 days | Significant implementation, but one coherent behavior, no splitting pattern fires |
 
 **L-effort confirmation checklist** — answer all three before writing `effort: L`:
-1. All 9 patterns checked, none fired?
+1. All splitting patterns checked, none fired?
 2. Red step covers exactly one behavior?
 3. Task touches one coherent area of the codebase?
 

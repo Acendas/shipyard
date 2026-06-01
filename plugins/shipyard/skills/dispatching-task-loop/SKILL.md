@@ -55,6 +55,11 @@ Reading list (read these files before doing anything else):
 - {{task_file_path}}                         (your task spec — frontmatter + acceptance criteria)
 - {{feature_file_path_or_skip}}              (parent feature spec — Technical Notes, references)
 - {{data_dir}}/codebase-context.md           (project conventions, tech stack)
+- ${CLAUDE_PLUGIN_ROOT}/project-files/references/data-implementation-guide.md
+                                             (ONLY if this task touches the database — migrations,
+                                              schema/DDL, SQL/ORM queries, repositories, indexes.
+                                              Apply its indexing/query/anti-pattern rules. SKIP for
+                                              any task that does not touch persistence.)
 
 # The Iron Laws You Must Follow
 

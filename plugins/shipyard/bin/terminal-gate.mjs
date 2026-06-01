@@ -253,11 +253,18 @@ export function evaluateExecuteTerminal({ dataDir }) {
 /**
  * Review-pipeline gate.
  *
- * Fires only for the affirmative-success path (`terminal_approved`). For
- * `terminal_changes` / `terminal_issues` we still require evidence that
- * the user-approval step actually ran (proving the model didn't skip
- * straight to terminal), but we don't require approve-verdicts — they're
- * by definition NOT approved.
+ * For `terminal_changes` / `terminal_issues` we require evidence that the
+ * user-approval step actually ran (the demo_user tick) plus at least one
+ * patch_task_created / bug_created event — these are the escalation
+ * terminals the skill actually writes, and the gate enforces them.
+ *
+ * The `terminal_approved` branch (approve-verdict enforcement) is a
+ * DEFENSIVE path: the current /ship-review approved-success flow archives
+ * the sprint and emits `pipeline_terminal outcome=approved` rather than
+ * writing a gated `terminal_approved` cursor, so this branch is not reached
+ * by the normal flow. It is kept so that IF a future flow writes a
+ * `terminal_approved` cursor, the approve-verdict check still fires. Per-
+ * feature approve-verdicts are enforced upstream today (verify/<F>-verdict.md).
  */
 export function evaluateReviewTerminal({ dataDir, terminalStage }) {
   const reasons = [];

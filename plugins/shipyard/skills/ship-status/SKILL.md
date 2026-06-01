@@ -2,7 +2,7 @@
 name: ship-status
 description: "Show the Shipyard project dashboard and next steps."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
-argument-hint: "[sprint|backlog|health|spec]"
+argument-hint: "[sprint|backlog|health|spec|diagnose]"
 ---
 
 # Shipyard Status Dashboard
@@ -49,7 +49,7 @@ Use Glob to enumerate every `.md` file under `<SHIPYARD_DATA>/spec/` (substitute
 
 **Feature files** — required: `id` (F+digits), `title` (non-empty), `type` (feature), `epic` (string), `status` (proposed|approved|in-progress|done|deployed|released|cancelled), `story_points` (≥0), `complexity` (low|medium|high|""), `token_estimate` (≥0), `rice_reach` (0-10), `rice_impact` (0-3), `rice_confidence` (0-100), `rice_effort` (>0), `rice_score` (≥0), `dependencies` (list), `references` (list), `tasks` (list), `created` (date)
 
-**Task files** — required: `id` (T+digits), `title` (non-empty), `feature` (valid feature ID), `status` (pending|in-progress|done|blocked|needs-attention), `effort` (S|M|L), `dependencies` (list). The `needs-attention` status is set by the operational fix-findings loop or the research dispatcher when escalation triggers — it means "prior attempt produced a full audit trail but the task did not converge; needs a human decision." Distinct from `blocked` (waiting on an external dependency). See `references/task-kinds.md` for the escalation semantics.
+**Task files** — required: `id` (T+digits), `title` (non-empty), `feature` (valid feature ID), `status` (pending|in-progress|done|blocked|needs-attention), `effort` (S|M|L), `dependencies` (list). The `needs-attention` status is set by the operational fix-findings loop or the research dispatcher when escalation triggers — it means "prior attempt produced a full audit trail but the task did not converge; needs a human decision." Distinct from `blocked` (waiting on an external dependency). See `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-kinds.md` for the escalation semantics.
 
 **Bug files** — required: `id` (B+digits), `title`, `status`, `severity`
 
@@ -95,7 +95,7 @@ State files use the soft-delete sentinel pattern: overwrite with a "cleared" mar
 - Epic files with `features:` arrays → remove the array (membership is derived)
 - Stale `<SHIPYARD_DATA>/.loop-state.json` → Write `{"cleared": "<iso>", "events": []}`
 - Stale `<SHIPYARD_DATA>/.active-session.json` (>24h old) → Write `{"skill": null, "cleared": "<iso>"}`
-- Stale `<SHIPYARD_DATA>/.compaction-count` file (legacy — the counter now lives on the execution lock) → use the Bash tool to `rm` it if present; it's dead state from an older plugin version.
+- Stale `<SHIPYARD_DATA>/.compaction-count` file (legacy) → harmless dead state from an older plugin version; ignore it (no longer written or read). Do not shell out to `rm` — `/ship-status` never invokes `shipyard-data`/`shipyard-context` via bash (see Paths rule above).
 - `<SHIPYARD_DATA>/.active-execution.json` — Read it, parse JSON. If `cleared` is set, ignore. Otherwise: if `started` is >2h old, Write the cleared sentinel automatically; if <2h, show it in the dashboard and AskUserQuestion: "Execution lock found ([skill], started [time]). Still running? (yes, leave it / no, clear it)". On clear, Write the cleared sentinel (which also clears any `compaction_count` field on the old lock).
 
 ### Check 7a: Pipeline Cursor Health
@@ -108,14 +108,14 @@ Read `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR.md` and `<SHIPYARD_DATA>/sp
 
 Detection rules:
 
-- **Stale cursor** — `last_advance_at` older than 2 hours and `terminal: false` and `status: in_progress`: surface a warning in the STATE section. Do NOT auto-clear; the user may be debugging or paused. If `loop_owner: "/loop"` and stale: emit `pipeline_stuck` via `shipyard-data events emit pipeline_stuck pipeline=<name> sprint=<id> stage=<stage> reason=stale-cursor` and flag in PIPELINE section.
+- **Stale cursor** — `last_advance_at` older than 2 hours and `terminal: false` and `status: in_progress`: surface a warning in the STATE section. Do NOT auto-clear; the user may be debugging or paused. If `loop_owner: "/loop"` and stale: flag it in the PIPELINE section. (`/ship-status` only reads and surfaces state — it never emits events; the pipeline itself emits `pipeline_stuck`.)
 - **Terminal stale** — `terminal: true` cursors left in `current/` after sprint archival should not exist (archive rotates `current/` to `sprint-NNN/`). If a `terminal: true` cursor sits in `current/` AND SPRINT.md is missing or `status: completed`, this is reconciliation drift; surface a warning.
 - **Corrupted frontmatter** — refuse to render PIPELINE section; surface "PIPELINE cursor unreadable, run /ship-status --repair" warning.
 
 ### Check 7: File Size Health
 
 - `metrics.md` > 300 lines → quarterly rollover. Read the file, split off the older content, use Write to create `<SHIPYARD_DATA>/memory/metrics-[quarter].md`, then use Edit to truncate the original `metrics.md` to the current quarter only.
-- `BACKLOG.md` > 200 lines → archive completed items by Edit (remove their IDs); the underlying feature files keep their `status: done|released` and are reaped by `reap-obsolete` after retention.
+- `BACKLOG.md` > 200 lines → archive completed items by Edit (remove their IDs); the underlying feature files keep their `status: done|released` on disk.
 - `reconcile-log.md` > 200 lines → Read it, then use Write to overwrite with the last 10 entries.
 
 **All fixes are silent.** The dashboard shows a summary line at the bottom: "Auto-fixed: N items" with a brief list. Only use AskUserQuestion for destructive ambiguous issues (duplicate IDs, tasks referencing deleted features).

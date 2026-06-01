@@ -30,6 +30,7 @@ Grouped by emitter. Within each group, listed alphabetically.
 | `task_loop_iteration` | Each internal iteration of the per-task /goal loop | `task` (str), `iteration` (int), `probe_exit` (int) | `/ship-status` (trajectory render), `verifying-wave-completion` (invariant 1) |
 | `task_loop_completed` | Subagent returns `STATUS: COMPLETE` | `task` (str), `commit_sha` (str), `iterations_run` (int) | `verifying-wave-completion` (invariant 4), `evaluating-sprint-complete` (invariant 1) |
 | `task_dispatch_returned` | Orchestrator records the structured return regardless of status | `task` (str), `status` ("complete" \| "blocked"), `escalation_code` (str \| null) | `verifying-wave-completion` (invariant 1) |
+| `subagent_completed` | Background-mode builder subagent finishes (emitted by `dispatching-task-loop`, step 9 of the Cycle) | `task` (str), `status` ("complete" \| "blocked"), `commit_sha` (str), `probe_exit_code` (int), `capture_file` (str) | `/ship-execute` `wave_N_waiting` (Monitor drains `pending_subagents`) |
 
 ### Emitted by `dispatching-operational-task` (subagent context)
 
@@ -66,7 +67,7 @@ Grouped by emitter. Within each group, listed alphabetically.
 | Event type | When | Fields | Consumers |
 |---|---|---|---|
 | `sprint_complete_check_started` | At entry | `sprint_id` (str), `base_sha` (str), `head_sha` (str) | `/ship-status` |
-| `sprint_complete_passed` | All seven invariants green | `sprint_id` (str) | `/ship-execute` step 4 (flips sprint to `completed`) |
+| `sprint_complete_passed` | All eight invariants green | `sprint_id` (str) | `/ship-execute` step 4 (flips sprint to `completed`) |
 | `sprint_complete_failed` | Any invariant red | `sprint_id` (str), `invariants_failed` (array) | User-visible via AskUserQuestion |
 
 ### Emitted by `/ship-execute`
@@ -79,13 +80,15 @@ Grouped by emitter. Within each group, listed alphabetically.
 | `pipeline_terminal` | Pipeline writes its terminal cursor (success or escalated) | `pipeline` (str), `sprint` (str), `outcome` (str — "success" \| "issues" \| "changes" \| "escalated"), `reason` (str) | Loop-stop signal; retro |
 | `acceptance_probe_completed` | After every probe invocation (per-task or per-feature) by `running-acceptance-probe`'s caller | `feature` (str, optional — set for demo probes), `task` (str, optional — set for task probes), `probe_type` ("task" \| "demo"), `exit_code` (int), `verdict` ("PASS" \| "FAIL" \| "TIMEOUT" \| "ERROR"), `skipped` (bool, optional, true for `skip-with-reason`) | `evaluating-sprint-complete` Invariant 8; `/ship-review` Stage 4.8 skip-if-already-passed preflight |
 
-### Emitted by hooks (`auto-approve-data`, `worktree-branch`)
+### Negative-assertion markers (reserved — no current emitter)
 
-| Event type | When | Fields | Consumers |
+These event types are **defined so the wave/sprint invariant-5 scans can assert their ABSENCE** — the invariant passes precisely when none of them appear in the window. **There is currently no producer**: the detectors/hooks that would write them are not wired (e.g., the `loop-detect` hook was retired in the 2.0 overhaul). The rows document the contract a future guard would emit against, not a live emitter. If one is ever wired, `evaluating-sprint-complete` / `verifying-wave-completion` invariant-5 will catch it.
+
+| Event type | When (if a future guard emits it) | Fields | Consumers (absence-scan) |
 |---|---|---|---|
-| `silent_failure` | Anti-stub-scan or similar guard catches a swallowed error | `task` (str), `pattern` (str) | `evaluating-sprint-complete` (invariant 5), `verifying-wave-completion` (invariant 5) |
-| `loop_detected` | Edit-loop / repeated-fix detector trips | `task` (str), `pattern_count` (int) | Same as above |
-| `anti_stub_finding` | Anti-stub-scan finds a stub in claimed-complete diff | `task` (str), `file` (str), `line` (int), `confidence` (number) | Same as above |
+| `silent_failure` | A guard catches a swallowed error | `task` (str), `pattern` (str) | `evaluating-sprint-complete` (invariant 5), `verifying-wave-completion` (invariant 5) |
+| `loop_detected` | An edit-loop / repeated-fix detector trips | `task` (str), `pattern_count` (int) | Same as above |
+| `anti_stub_finding` | A stub is found in a claimed-complete diff | `task` (str), `file` (str), `line` (int), `confidence` (number) | Same as above |
 
 ## Extending the catalog
 

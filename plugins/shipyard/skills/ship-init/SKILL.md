@@ -461,7 +461,7 @@ Run a quick diagnostic to verify the installation works. Check each item silentl
 
 Run each check using Claude's native tools (substitute the literal SHIPYARD_DATA path from the context block for `<SHIPYARD_DATA>`):
 
-1. **Plugin rules reachable?** Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` and count results. Expected: 7. (Rules live in the plugin and are NOT installed into the project's `.claude/rules/`. Skills Read them on demand.)
+1. **Plugin rules reachable?** Use Glob `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-*.md` and count results. Expected: 4 (`shipyard-ask-user`, `shipyard-data-model`, `shipyard-next-up`, `shipyard-spec`). (Rules live in the plugin and are NOT installed into the project's `.claude/rules/`. Skills Read them on demand.)
 2. **Legacy rule injection?** Use Glob `.claude/rules/shipyard-*.md`. Expected: 0. If non-zero → legacy cleanup step pending; route the user through it.
 3. **Templates installed?** Use Glob `<SHIPYARD_DATA>/templates/*.md` and count results. Expected: 9.
 4. **Config valid?** Use Read on `<SHIPYARD_DATA>/config.md` (limit 3) and confirm `config_version` appears. Expected: yes.
@@ -474,7 +474,7 @@ Report:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  SELF-TEST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ✅ Plugin rules: 7/7 reachable in plugin
+  ✅ Plugin rules: 4/4 reachable in plugin
   ✅ Legacy injection: clean (0 .claude/rules/shipyard-*.md)
   ✅ Templates: 9/9 installed
   ✅ Config: valid (v3)

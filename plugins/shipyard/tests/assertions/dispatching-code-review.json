@@ -53,5 +53,25 @@
     "name": "no_dead_reference_links",
     "type": "not_contains",
     "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  },
+  {
+    "name": "has_gated_data_concern",
+    "type": "contains",
+    "pattern": "data \\(auto-gated|data-implementation-guide\\.md"
+  },
+  {
+    "name": "data_concern_skips_non_db_diffs",
+    "type": "contains",
+    "pattern": "diff touches NO database code, skip|same significance discipline as the other concerns"
+  },
+  {
+    "name": "data_is_in_concerns_array",
+    "type": "contains",
+    "pattern": "\"observability\", \"data\"|\"data\"\\]"
+  },
+  {
+    "name": "wave_verify_fires_on_data",
+    "type": "contains",
+    "pattern": "database/persistence"
   }
 ]

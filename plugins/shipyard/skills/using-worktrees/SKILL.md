@@ -127,8 +127,7 @@ Run this at the start of `/ship-execute` (Step 0). It only removes admin metadat
 
 Anthropic fixed this for `--worktree` and `isolation: worktree` (changelog: "Fixed `WorktreeCreate` and `WorktreeRemove` plugin hooks being silently ignored"), so this should be rare. If it happens:
 
-- Check `shipyard-context diagnose` (or its successor `doctor`) for hook installation status.
-- Verify `plugins/shipyard/hooks/hooks.json` has the `WorktreeCreate` entry.
+- Verify `plugins/shipyard/hooks/hooks.json` has the `WorktreeCreate` entry — hook installation isn't reported by any CLI; check the manifest directly.
 - Check the recent `claude --version` against the changelog requirement.
 
 ## Pairing With Other Skills

@@ -38,7 +38,7 @@ findings doc — no code, no commits, no infrastructure changes.
 
 ID: {{task_id}}
 Task file: {{task_file_path}}
-Parent feature: {{parent_feature_path_or_none}}
+Parent feature: {{parent_feature_path_or_skip}}
 Data dir: {{data_dir}}
 Findings dir: {{findings_dir}}
 Expected output file: {{findings_dir}}/{{expected_findings_filename}}

@@ -170,4 +170,4 @@ This skill produces a structured list; it does NOT edit the feature draft. The c
 - Each AC has a concrete `observable` field — the bridge to probes.
 - No padding, no scope expansion, no implementation leaks.
 - Read-only; calling skill folds output into the spec.
-- 14th of 14 capability skills.
+- A capability skill (`disable-model-invocation: true`), invoked from `/ship-discuss`.

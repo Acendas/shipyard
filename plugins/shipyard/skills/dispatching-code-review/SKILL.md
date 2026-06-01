@@ -13,7 +13,7 @@ The companion to `dispatching-spec-review`. Spec review answers *"is what was as
 | Caller | Scope | Trigger |
 |---|---|---|
 | `/ship-execute` post-task gate | One task | Optional — fires only when `effort: M\|L\|XL`; effort: S skips both spec and code review |
-| `/ship-execute` wave VERIFY | Wave-level diff | Optional — fires when wave touched security-relevant or financial-domain code |
+| `/ship-execute` wave VERIFY | Wave-level diff | Optional — fires when wave touched security-relevant, financial-domain, **or database/persistence** code (migrations, schema, queries, repositories) |
 | `/ship-review` | Sprint or feature | **Required** before user approval |
 | `/ship-quick` | Single-change diff | Optional flag (`--review`) |
 
@@ -24,7 +24,7 @@ Code review is more expensive than spec review (broader concern surface). `/ship
 - `scope` — `"task" | "wave" | "feature" | "sprint"`
 - `target_ids` — list of task / feature IDs (or null when scope is sprint).
 - `base_ref` / `head_ref` — diff range.
-- `concerns` — subset of `["security", "bugs", "silent-failures", "patterns", "tests", "observability"]`. Default: all six. Caller can narrow (e.g., `["security", "bugs"]` for a wave that didn't touch tests).
+- `concerns` — subset of `["security", "bugs", "silent-failures", "patterns", "tests", "observability", "data"]`. Default: all. The **`data`** concern **auto-gates** — it produces findings only when the diff touches persistence (migrations, schema, SQL/ORM, repositories, indexes) and no-ops otherwise, so including it by default is free. Caller can narrow (e.g., `["security", "bugs"]` for a wave that didn't touch tests), but **whenever the diff touches the database, `data` MUST be among the concerns** (it is, under the default). In parallel-split dispatch (see `ship-review/references/code-review-orchestration.md`), assign `data` to exactly one subagent so it isn't dropped or duplicated.
 - `data_dir` — literal `<SHIPYARD_DATA>` path.
 - `project_rules_path` — `.claude/rules/*.md` paths so the patterns scanner has the project's conventions. Shipyard does not inject its own rules into `.claude/rules/`; only project-authored rules pass through here.
 
@@ -43,7 +43,7 @@ Base ref:     {{base_ref}}
 Head ref:     {{head_ref}}
 Concerns:     {{concerns_csv}}
 Data dir:     {{data_dir}}
-Project rules: {{project_rules_files}}
+Project rules: {{project_rules_path}}
 
 # Reading list
 
@@ -103,6 +103,20 @@ Concern definitions follow.
   - Duplication of a function that already exists nearby.
   - Magic numbers / strings without a named constant.
   - Dead code / commented-out blocks.
+
+## data (auto-gated — runs only when the diff touches persistence)
+  Trigger: the touched files include migrations / DDL, SQL or ORM queries,
+  repositories/DAOs, schema, or index changes. If the diff touches NO database
+  code, skip this concern entirely (do not invent database findings on non-DB
+  diffs — same significance discipline as the other concerns).
+  When it triggers, read
+  `${CLAUDE_PLUGIN_ROOT}/project-files/references/data-implementation-guide.md`
+  and flag its §5 checklist items: N+1 query patterns, missing index on a new FK
+  or hot predicate (or a new redundant index), non-SARGable predicates, `SELECT *`
+  in hot paths, unbounded / deep-`OFFSET` pagination, migrations missing
+  FK/`NOT NULL`/`CHECK`/`UNIQUE` or using `FLOAT` for money or timezone-less
+  timestamps, locking/non-reversible migrations on large tables, and schema-shape
+  anti-patterns leaking into code (EAV access, OTLT joins).
 
 ## tests
   - Missing critical-path coverage (touched function with no test).
@@ -194,7 +208,7 @@ For high-stakes reviews (release-bound, large diff, payments/auth/data), `/ship-
 
 ## Bottom Line
 
-- One dispatch, sectioned prompt, six concern domains.
+- One dispatch, sectioned prompt, seven concern domains (the seventh, `data`, auto-gates on persistence-touching diffs).
 - Read-only; structured findings; confidence ≥ 80 to block.
 - Security ≥ 90 auto-redispatches; everything else surfaces for orchestrator/user decision.
 - Post-return git-status check enforces the read-only contract.

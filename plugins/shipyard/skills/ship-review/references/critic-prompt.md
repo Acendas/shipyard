@@ -23,6 +23,17 @@ Apply anti-sycophancy: do not agree with the review's conclusions just
 because they sound reasonable. Pre-mortem the feature: imagine it shipped
 and broke in production — what was the failure mode?
 
+If (and only if) the feature persists or models data, also pre-mortem its
+data-modeling failure modes that the reviewer may have passed over:
+missing constraints (FK / NOT NULL / UNIQUE / CHECK) that let bad data in,
+an unnormalized schema or a fact duplicated and editable in several places,
+N+1 query access, a missing index on a hot predicate or new foreign key, a
+migration that locks or rewrites a large table, FLOAT money / timezone-less
+timestamps, or schema-shape anti-patterns (EAV, OTLT). Reference
+${CLAUDE_PLUGIN_ROOT}/project-files/references/data-implementation-guide.md
+(§5 checklist) and data-modeling-guide.md. Skip this entirely for features
+with no persistence concern — do not invent data findings on non-data work.
+
 Feature: [FEATURE_ID]
 Mode: review-critique
 Stakes: [standard or high — match the feature's complexity]

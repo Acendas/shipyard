@@ -4,14 +4,14 @@ This reference holds the detail for Stage 0 (Code Review Loop) and Stage 0.5 (Si
 
 ## Stage 0 — Code Review Loop (mechanics)
 
-The orchestration logic (6 parallel scanners + an opus investigator) lives in `references/code-review-orchestration.md`. Read that at the start of Stage 0.
+The orchestration logic (one fresh-context code-review subagent over seven concern domains — security, bugs, silent-failures, patterns, tests, observability, data — with optional parallel-split for high-stakes diffs) lives in `references/code-review-orchestration.md`. Read that at the start of Stage 0.
 
-Per iteration (max 3):
+Per iteration (data-driven; **no fixed cap** — convergence is by clean-scanner signal, with stuck-detection at 5 unchanged ticks and an absolute `hard_ceiling: 50`, per SKILL.md Stage 0):
 
 1. **Checkpoint.** `git tag pre-code-review-$(date +%s)` — rollback point for failed fix iterations.
 2. **Orchestrate.** Follow `code-review-orchestration.md` end-to-end. Iteration 1 uses `git diff $(git merge-base HEAD <main_branch>)...HEAD`; iteration 2+ uses the cumulative delta `git diff <pre-code-review-tag>..HEAD`. Phase 5 writes `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md` with VERDICT / COUNTS / ---ACTIONABLE--- sections.
-3. **Evaluate.** Append counts to the Code Review table in PROGRESS.md. Zero must-fix + zero should-fix → clean pass, proceed to Stage 1. Only consider items → acceptable, proceed to Stage 1. Must-fix or should-fix → continue.
-4. **Diminishing returns** (iteration 2+). Read the previous count from PROGRESS.md. If unchanged or increased, AskUserQuestion: "Code review isn't converging — [N] must-fix issues remain after [iteration] fix attempts. Proceed to demo with current state, or investigate manually?"
+3. **Evaluate.** Emit the per-iteration `code_review_iteration` event (must_fix / should_fix counts) — PROGRESS.md is a render-only artifact regenerated from the event log by the `render-progress` hook; never write it directly. Zero must-fix + zero should-fix → clean pass, proceed to Stage 1. Only consider items → acceptable, proceed to Stage 1. Must-fix or should-fix → continue.
+4. **Diminishing returns** (iteration 2+). Read the previous iteration's counts from the event log (`code_review_iteration` events). If unchanged or increased, AskUserQuestion: "Code review isn't converging — [N] must-fix issues remain after [iteration] fix attempts. Proceed to demo with current state, or investigate manually?"
 5. **Fix.** Invoke the **`shipyard:dispatching-task-loop` capability skill** with a synthetic continuation task that points at the CODE-REVIEW.md findings. Pass:
    - `task_id`: a synthetic ID like `CR-FIX-iter-N`
    - `task_file_path`: `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md` (the findings doc serves as the spec — the capability skill's prompt instructs the subagent to skip everything above `---ACTIONABLE---` and fix all M/S items below)
@@ -24,18 +24,11 @@ Per iteration (max 3):
    The capability skill's structured-return + sha verification handle the "verify a new commit exists" check that previously lived inline. If it returns `STATUS: BLOCKED` (no fixes possible), `git reset --hard` to the most recent `pre-code-review-*` tag and flag the iteration as failed (don't count toward the cap).
 6. **Repeat** from step 2.
 
-**Exit:** clean pass → Stage 1. 3 iterations reached with remaining must-fix → use Write to create `<SHIPYARD_DATA>/spec/bugs/B-CR-[slug].md` per finding so they surface in the next sprint, then AskUserQuestion whether to proceed to demo. After exit, delete checkpoint tags: `git tag --list 'pre-code-review-*' | xargs -I {} git tag -d {}`.
+**Exit:** clean pass → Stage 1. Hard ceiling (50 iterations) reached with remaining must-fix → use Write to create `<SHIPYARD_DATA>/spec/bugs/B-CR-[slug].md` per finding so they surface in the next sprint, then AskUserQuestion whether to proceed to demo. (The 5-tick stuck warning surfaces intervention well before the ceiling.) After exit, delete checkpoint tags: `git tag --list 'pre-code-review-*' | xargs -I {} git tag -d {}`.
 
 **Out-of-scope findings in Stage 0 code review.** If any scanner surfaces a concrete defect that is real but *outside the sprint's diff scope* (e.g., while reviewing the auth feature's diff, the silent-failures scanner flagged a swallowed exception in a helper that wasn't touched by the sprint), capture it as an IDEA — not a `B-CR-*` bug. The B-CR bugs are for in-scope code-review findings that need fixing before this sprint ships; out-of-scope findings are for the next sprint's planning to consider. See Stage 4's "Capture Out-of-Scope Gaps as IDEAs" section for the full protocol — it applies to Stage 0 findings too, with `found_during: code-review-stage-0` in the frontmatter instead of `surface-gap-stage-4`. Hard cap: 5 per stage (enforced separately from Stage 4's cap — Stage 0 and Stage 4 have independent budgets).
 
-Log each iteration in PROGRESS.md:
-```
-## Code Review
-| Iteration | Must-fix | Should-fix | Consider | Action |
-| 1         | 3        | 5          | 2        | Fixer addressed 8 findings |
-| 2         | 0        | 1          | 2        | Fixer addressed 1 finding |
-| 3         | 0        | 0          | 2        | Clean — proceeding |
-```
+Each iteration's trajectory is captured by the `code_review_iteration` event (iteration, must_fix, should_fix). The `render-progress` hook renders the Code Review table into PROGRESS.md from those events — do not write the table by hand.
 
 ## Stage 0.5 — Code Simplification (mechanics)
 
@@ -49,8 +42,8 @@ After the code review loop exits clean, run a simplification pass on the sprint'
    ```
 2. Spawn the simplifier agent:
    ```
-   Agent(subagent_type: code-simplifier:code-simplifier, prompt: |
-     Review and simplify the following files that were changed in this sprint.
+   Agent(subagent_type: "general-purpose", prompt: |
+     You are a code simplifier. Review and simplify the following files that were changed in this sprint.
      Focus on: reducing unnecessary complexity, eliminating redundant code,
      improving naming, consolidating related logic, and applying project
      conventions from CLAUDE.md. Preserve all functionality.

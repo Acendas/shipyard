@@ -88,7 +88,7 @@ Feature: {{title}}
 
 ## Flows
 
-<!-- Sequence diagrams, state machines, user journeys — use Mermaid. Remove this section if not applicable. -->
+<!-- C4, sequence, state machine, ER, deployment, data-flow, user journey — use Mermaid. Remove this section if not applicable. -->
 <!-- If this section exceeds ~50 lines, extract to $(shipyard-data)/spec/references/FNNN-flows.md -->
 
 ## Error Handling

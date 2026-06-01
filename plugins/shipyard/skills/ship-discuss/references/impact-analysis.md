@@ -75,6 +75,14 @@ Then AskUserQuestion: "Apply these impacts? (yes / adjust / skip)"
 - **Re-estimation flags** — Do NOT recalculate RICE/points for other features. Add decision log entry: "Re-estimation needed: scope changed due to [ID]." The backlog note in the summary will suggest `/ship-backlog groom`.
 - **Epic reassignment** — Update `epic:` in feature frontmatter only. Epic membership is derived, never stored in epic files.
 - **NEVER reorder BACKLOG.md** — BACKLOG.md is an ordered index managed by `/ship-backlog`. Note in wrap-up summary: "Run `/ship-backlog rank` to re-prioritize."
+- **Impact diagram** — when the impact summary showed an impact diagram (a feature with multiple ripple effects), persist it so the ripple map survives the session. The inline ASCII is ephemeral; convert it to a Mermaid `graph LR` and write it into the new/refined feature's `## Decision Log` (a short "Impact map:" entry). Only persist when **2+ ripple edges** exist — a single dependency is a sentence, not a diagram (per `communication-design.md` "fewer than 3 data points"). Example:
+
+  ```mermaid
+  graph LR
+    F007[F007 new] -->|impacts| F003[F003 criteria change]
+    F007 -->|depends| F001[F001 prerequisite]
+    F007 -->|overlaps| F005[F005 shared model]
+  ```
 
 ### REFINE mode specifics
 

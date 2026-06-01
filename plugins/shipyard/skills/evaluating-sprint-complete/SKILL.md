@@ -1,12 +1,12 @@
 ---
 name: evaluating-sprint-complete
-description: Evaluate the seven-invariant sprint-complete predicate.
+description: Evaluate the eight-invariant sprint-complete predicate.
 disable-model-invocation: true
 ---
 
 # Evaluating Sprint Complete
 
-A sprint is complete only when seven invariants hold simultaneously. This skill is the gate `/ship-execute` runs after the last wave-completion verifier passes and before declaring the sprint shippable. It composes the wave-level guarantees into the sprint-level guarantee.
+A sprint is complete only when eight invariants hold simultaneously. This skill is the gate `/ship-execute` runs after the last wave-completion verifier passes and before declaring the sprint shippable. It composes the wave-level guarantees into the sprint-level guarantee.
 
 ## When to Invoke
 
@@ -71,7 +71,7 @@ The orchestrator parses these lines exactly:
 ```
 STATUS: COMPLETE
 SPRINT: <sprint_id>
-INVARIANTS_PASSED: 1,2,3,4,5,6,7
+INVARIANTS_PASSED: 1,2,3,4,5,6,7,8
 ```
 
 OR:
@@ -112,7 +112,7 @@ This skill closes those gaps. Without it, sprint-level `/goal` would advance pas
 
 ## Bottom Line
 
-- Seven invariants. All PASS for sprint-complete. See [references/invariants.md](references/invariants.md) for detail.
+- Eight invariants. All PASS for sprint-complete. See [references/invariants.md](references/invariants.md) for detail.
 - No recovery — fail cleanly with per-invariant detail. User decides next action.
 - `/ship-execute` Step 5 runs this AFTER existing full-suite test and review pipeline.
 - Composes with `verifying-wave-completion`: wave-level guards wave-to-wave; sprint-level guards declare-done.

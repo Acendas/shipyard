@@ -219,7 +219,7 @@ Velocity (last 5 sprints): ▂▅▇▆█  avg: 18 pts  trending up
   ❓  Cache invalidation strategy TBD  → needs decision before sprint
 ```
 
-**C4 diagrams** — for showing system architecture at different zoom levels during feature discussion. C4 uses four levels: Context (who uses the system), Container (applications/services), Component (internal parts), and Code (class-level). Use ASCII versions in terminal, Mermaid in saved files.
+**C4 diagrams** — for showing system architecture at different zoom levels during feature discussion. C4 defines four levels, but Shipyard specs use only the top three: Context (who uses the system), Container (applications/services), and Component (internal parts). The fourth — Code (class-level) — is **out of scope at spec altitude**: a feature spec describes structure and behavior, not class internals, so class design belongs in the task, not here. Use ASCII versions in terminal, Mermaid in saved files.
 
 Level 1 — Context (how the feature fits in the system):
 ```
@@ -279,18 +279,53 @@ Level 3 — Component (what this feature adds/changes inside a container):
 ```
 
 Use sequence diagrams during discuss when:
-- A feature involves 3+ components communicating
+- 2+ components exchange messages AND the interaction is non-obvious (the raw component count is not the gate)
 - The order of operations matters (auth before payment, etc.)
-- There are async or callback patterns the user should understand
-- Error/retry flows need to be visible
+- There are async, callback, retry, or idempotency patterns the user should understand
+- Error/retry/compensation flows need to be visible — even a 2-party flow (app ↔ external API) qualifies
 
 Use C4 during feature discussion (Phase 1.5 Research, Phase 1.5b Challenge) when:
-- A feature spans multiple services or containers
+- A feature **adds or changes** a structural element: a service/container, an external integration, or an internal component/boundary
 - The user needs to see where the feature fits in the existing architecture
 - There are integration points with external systems
-- The scope of change needs to be visually clear
 
-Don't use C4 for features that live entirely within one component — overkill for a simple endpoint or UI change.
+Pick the C4 level by what changed: Context (a new external system/actor), Container (a new service/datastore/queue), or **Component (the level monoliths need — the feature stays in one container but rewires 3+ internal components)**. Don't fire C4 when the feature just reuses the existing layer path with no new component or boundary.
+
+**ER / data-model diagram** — for showing entities and their relationships when 2+ related entities or a non-trivial schema is on the table. Mermaid `erDiagram` in saved files; ASCII in terminal:
+```
+  ┌────────────┐        ┌─────────────┐        ┌────────────┐
+  │   User     │1      *│   Order     │*      1│  Product   │
+  │────────────│────────│─────────────│────────│────────────│
+  │ id (PK)    │  has   │ id (PK)     │ refs   │ id (PK)    │
+  │ email      │        │ user_id (FK)│        │ sku        │
+  └────────────┘        │ status      │        │ price      │
+                        └─────────────┘        └────────────┘
+```
+Use when the feature introduces/changes 2+ related entities, foreign keys, join tables, or a new data category (PII, tenant-scoped). Skip for adding a single column.
+
+**Deployment / runtime-topology diagram** — for showing *where things run* when the feature adds a runtime unit or crosses a deployment/trust boundary. Mermaid `C4Deployment` or a grouped `graph TD`; ASCII in terminal:
+```
+  ┌─ Edge ──────────┐   ┌─ Origin (us-east) ──────────────┐
+  │  ╭───────────╮  │   │  ╭──────────╮     ╭───────────╮  │
+  │  │ CDN / Fn  │──┼──▶│  │  API svc │────▶│  Worker   │  │
+  │  ╰───────────╯  │   │  ╰──────────╯     ╰─────┬─────╯  │
+  └─────────────────┘   │        │                ▼        │
+                        │   ╭─────▼────╮     ╭───────────╮  │
+                        │   │ Postgres │     │  Queue    │  │
+                        │   ╰──────────╯     ╰───────────╯  │
+                        └─────────────────────────────────┘
+```
+Use when the feature adds a worker, queue, cron, edge function, webhook receiver, or new region. Skip for work that runs entirely inside the existing request path.
+
+**Data-flow diagram (with trust boundaries)** — for showing how data moves and where it crosses a trust boundary. Mermaid `flowchart LR` with `subgraph` lanes; ASCII in terminal:
+```
+  ╎ untrusted ╎              ╎ trusted (app) ╎          ╎ trusted (store) ╎
+  ╎  Client   ╎──PII──▶ Validate ──▶ Redact ──▶ Persist ──▶  Encrypted DB
+  ╎           ╎              ╎               ╎          ╎  Audit log ◀──┘
+```
+Use when PII/tenant-scoped data enters or leaves the system, or data moves through 2+ processing stages/stores. Skip when data stays within one store and one trust zone.
+
+**User-journey diagram** — for showing a multi-step before→during→after flow with abandon/decision points. Mermaid `journey`; ASCII as a labelled flow in terminal. Use for onboarding, checkout, multi-screen wizards. Skip for a single-screen, single-action feature.
 
 ### When NOT to Visualize
 

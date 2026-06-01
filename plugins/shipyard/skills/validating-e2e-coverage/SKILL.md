@@ -58,7 +58,6 @@ For each GAP or PARTIAL finding, draft a concrete Given/When/Then scenario using
 ```json
 {
   "activated_categories": ["timeout", "idempotency", "privilege-escalation"],
-  "total_types_checked": 12,
   "gaps": [
     {
       "category": "timeout",

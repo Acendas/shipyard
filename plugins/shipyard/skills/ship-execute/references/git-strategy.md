@@ -137,7 +137,7 @@ Shipyard does not merge the hotfix anywhere. The user handles merge/PR.
 2. **Branched** from user's current local branch (via WorktreeCreate hook)
 3. **Named** `shipyard/wt-TASK_ID-slug` (subagent mode) or `shipyard/wt-FEATURE_ID-slug` (team mode)
 4. **Rebased** onto user's branch at wave end
-5. **Merged** via fast-forward (or regular merge if ff fails)
+5. **Merged** via fast-forward only — on ff failure, flagged to the user (never an automatic regular-merge fallback; see item 7 and the hard rule below)
 6. **Cleaned up** after successful merge: `git worktree remove` + `git branch -d`
 7. **Preserved** if merge conflict — flagged to user for manual resolution
 
@@ -157,7 +157,7 @@ Shipyard implements workarounds for several Claude Code bugs that affect worktre
 |-----|--------|------------|
 | **#37549** — `isolation: worktree` silently ignored with `team_name` | Team mode agents run in main repo, no isolation | Manual worktree creation before spawning teammates (see team-mode.md) |
 | **`isolation: worktree` silently fails** — platform sometimes ignores the flag even without `team_name` | Subagent mode agents run on working branch, no isolation | Pre-flight probe detects this; falls back to manual worktree creation (same pattern as team-mode #37549 workaround) |
-| **#34645** — Parallel worktree creation races on `.git/config.lock` | Some agents fail on spawn | File lock in worktree-branch.py serializes creation |
+| **#34645** — Parallel worktree creation races on `.git/config.lock` | Some agents fail on spawn | File lock in `worktree-branch.mjs` serializes creation |
 | **#34775** — Agent frontmatter `isolation: worktree` ignored | Builder agent runs unisolated | Always pass `isolation: "worktree"` in Agent() call, never rely on frontmatter |
 | **#40262** — Hook stdout corrupts worktree path | Worktree creation fails | All hooks document STDOUT CONTRACT; only WorktreeCreate writes to stdout |
 | **#43535** — Worktree branches from `origin/HEAD` not current branch | Agents work on wrong code | WorktreeCreate hook explicitly passes `current_sha` as start point |
@@ -168,7 +168,7 @@ Shipyard implements workarounds for several Claude Code bugs that affect worktre
 |-----|--------|------------|
 | **#29110** — Worktree cleanup destroys uncommitted work | Silent data loss | Builder agent has mandatory "Before Exiting" commit protocol |
 | **#35862** — Three silent data-loss paths in cleanup | Resumed/concurrent worktrees deleted | Step 0 salvage runs before any execution; builders commit before exit |
-| **#42282** — CWD drift after worktree agent returns | Parent session breaks | PostToolUse hook on Agent restores CWD (cwd-restore.py) |
+| **#42282** — CWD drift after worktree agent returns | Parent session breaks | Resolved upstream — Anthropic-native CWD handling restores the parent CWD; the prior `cwd-restore` hook was retired |
 
 ### Permission Bugs
 

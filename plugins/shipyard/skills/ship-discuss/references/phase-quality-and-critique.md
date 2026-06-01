@@ -23,7 +23,7 @@ Before presenting to the user, review your own output. Re-read each feature file
 | 13 | **Failure modes analyzed** | Write operations exist but no failure mode table |
 | 14 | **EARS syntax used** | Acceptance criteria use vague language instead of WHEN/WHILE/IF patterns |
 | 15 | **All states covered** | Missing empty state, error state, loading state, or offline state |
-| 16 | **Architecture diagrams present when applicable** | Feature touches 2+ services/components or has 3+ interacting parts but `## Flows` section is missing or empty. If Phase 1.5 Step 4 triggers applied, at least one Mermaid diagram (C4, sequence, or state machine) must exist in the Flows section. |
+| 16 | **Right diagram present when a significance trigger fired (type-aware)** | A Phase 1.5 Step 4 significance trigger applied (new boundary/service/component, non-obvious 2+-component interaction, ≥3-state or branching lifecycle/UI graph, 2+ related entities, new runtime unit/trust boundary, data crossing a trust boundary, or multi-step user journey) but the `## Flows` (or `## Data Model` for an ER diagram) section lacks the *matching* Mermaid type. Type-aware: a fired lifecycle trigger needs a `stateDiagram`; a fired data-model trigger needs an `erDiagram`; a fired deployment trigger needs a `C4Deployment`/topology graph — a single unrelated diagram does NOT satisfy a different trigger. Conversely, do NOT flag a simple feature that correctly skipped: when no Step 4 trigger fired, an empty Flows section is a PASS, not a gap. |
 
 Iterate the checklist on each feature file, fixing failures (AskUserQuestion when input is needed) and re-running. Max 3 iterations. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag remaining gaps as "Unresolved — needs follow-up in /ship-discuss [ID]". Then proceed to Phase 4.95.
 
@@ -50,6 +50,17 @@ acknowledging it, and missing error states.
 Apply anti-sycophancy: do not agree with the spec just because it sounds
 reasonable. Pre-mortem the feature: imagine it shipped and broke in
 production — what was the failure mode the spec didn't catch?
+
+If (and only if) the feature persists or models data (it has a `## Data
+Model`, or the Constitution-Gap pass flagged a new data category), also
+challenge its data-modeling decisions: an unnormalized schema or duplicated
+facts, missing constraints (FK / NOT NULL / UNIQUE / CHECK), a mutable
+business value used as the primary key, schema-shape anti-patterns (EAV,
+OTLT, god table), FLOAT money / timezone-less timestamps, and any
+over- or under-engineering of the model (see the right-sizing routine in
+${CLAUDE_PLUGIN_ROOT}/project-files/references/data-modeling-guide.md).
+Surface these under FEASIBILITY_RISKS / IMPLICIT_ASSUMPTIONS. Skip entirely
+for features with no persistence concern.
 
 Mode: feature-critique
 Stakes: [standard | high]   (high if part of an epic, ≥8 story points,

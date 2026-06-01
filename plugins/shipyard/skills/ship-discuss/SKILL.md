@@ -294,7 +294,7 @@ Have a natural conversation about the topic. **Always use AskUserQuestion — ne
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-1-research.md`
 
-Once you understand what the user wants, research before challenging. **Use LSP first** for code navigation; fall back to Grep/Read silently. Walk in order: (1) **Constitution check** — Glob `.claude/rules/project-*.md` and `.claude/rules/learnings/*.md`; flag both **tensions** (feature violates a rule → Phase 1.5b challenge) AND **gaps** (feature enters territory no rule covers → log to `.research-draft.md` `## Constitution Gaps` so Phase 1.5b resolves the gray area and Phase 6 offers to codify it as a new rule); (2) **Internal research** — Glob `<SHIPYARD_DATA>/spec/features/F*.md` and read `codebase-context.md`; (3) **How others solve it** — WebSearch established products, common user complaints, security pitfalls; WebFetch official docs; (4) **Architecture visualization** — generate C4, sequence, or state machine diagrams inline when the feature spans 2+ services, involves 3+ interacting components, or introduces entity lifecycle states. This is mandatory when triggers apply — not optional polish. See `references/phase-1-research.md` Step 4 for triggers and skip criteria.
+Once you understand what the user wants, research before challenging. **Use LSP first** for code navigation; fall back to Grep/Read silently. Walk in order: (1) **Constitution check** — Glob `.claude/rules/project-*.md` and `.claude/rules/learnings/*.md`; flag both **tensions** (feature violates a rule → Phase 1.5b challenge) AND **gaps** (feature enters territory no rule covers → log to `.research-draft.md` `## Constitution Gaps` so Phase 1.5b resolves the gray area and Phase 6 offers to codify it as a new rule); (2) **Internal research** — Glob `<SHIPYARD_DATA>/spec/features/F*.md` and read `codebase-context.md`; (3) **How others solve it** — WebSearch established products, common user complaints, security pitfalls; WebFetch official docs; (4) **Architecture visualization** — generate diagrams gated on architectural *significance*, not participation. Seven types, each with its own trigger: **C4** (new boundary/service/component — Component level is the one monoliths need), **sequence** (2+ components with async/error-recovery, not raw count), **state machine** (≥3-state or branching lifecycle/UI graph), **ER** (2+ related entities), **deployment** (new runtime unit or trust boundary), **data-flow** (data crossing a trust boundary), and **user-journey** (multi-step before→during→after). Skip when the feature reuses existing structure with no new boundary, entity, runtime, or non-trivial state graph. Mandatory when a trigger fires — not optional polish. See `references/phase-1-research.md` Step 4 for the per-diagram triggers and the significance skip criteria. **(5) Data‑modeling guidance (gated)** — when the feature persists data (the ER/data‑model trigger fired, or it has a `## Data Model` concern), Read and apply `${CLAUDE_PLUGIN_ROOT}/project-files/references/data-modeling-guide.md` (normalization, keys, right‑sizing, schema anti‑patterns); skip for features with no persistence concern.
 
 Write findings to the feature file `## Technical Notes` (after Phase 3 creates it) with HIGH/MEDIUM/LOW confidence labels. Be prescriptive: "Use X" not "Consider X or Y" — the builder needs decisions. Fold findings into the conversation naturally before challenging. Phase 3 persists diagrams from Step 4 to the `## Flows` section as Mermaid.
 
@@ -357,7 +357,7 @@ For each well-defined feature: generate the next FNNN ID, determine the epic (ex
 
 **External linking:** If the user mentioned an external issue key during discussion (e.g., "this is JIRA-123" or "relates to GH-456"), add it to `external_refs` in the feature frontmatter. Don't ask — if they said it, link it. Body sections: user story, Why This Matters, **acceptance criteria in Given/When/Then format** (happy path + at least one edge case), optional Interface / Data Model / Configuration / Flows / Error Handling sections (include only if discussed), Technical Notes (absorbed from `.research-draft.md`), Decision Log. **Hard limit: 200 lines per file** — split into sub-features (F001a/b) or extract to `<SHIPYARD_DATA>/spec/references/FNNN-<slug>.md` if larger. Fill every RICE field; compute `rice_score = (reach × impact × confidence) / effort`. Mark `.research-draft.md` `obsolete: true` only after Phase 3 finishes (it is the recovery checkpoint until then).
 
-**Diagram persistence:** If Phase 1.5 showed C4 or sequence diagrams, convert them to Mermaid and write to the feature's `## Flows` section. Diagrams shown in conversation are ephemeral — this is the only chance to persist them. See `references/phase-3-write-spec.md` for Mermaid format rules.
+**Diagram persistence:** Every diagram shown during Phase 1.5 — C4, sequence, state machine, ER, deployment, data-flow, or user-journey — is converted to Mermaid and written to the feature's `## Flows` section (an ER diagram may live under `## Data Model` instead when the schema is the feature's primary artifact). Diagrams shown in conversation are ephemeral — this is the only chance to persist them. The canonical diagram-type → Mermaid-syntax mapping is the single source of truth in `references/phase-3-write-spec.md`; keep this list in lock-step with it. See that reference for format rules.
 
 ### Phase 3.5: Impact Analysis
 
@@ -369,6 +369,7 @@ For each well-defined feature: generate the next FNNN ID, determine the epic (ex
              ──depends──▶ F001 (must be done first)
              ──overlaps─▶ F005 (shared data model)
 ```
+**Persist it (≥2 ripple edges):** the inline ASCII is ephemeral. When the impact diagram has 2+ ripple edges, convert it to a Mermaid `graph LR` and write it into the new/refined feature's `## Decision Log` so the ripple map survives the session — see `references/impact-analysis.md` § "What Gets Changed on Approval". A single dependency edge stays a sentence (per `references/communication-design.md` "fewer than 3 data points").
 
 Skip if Glob `<SHIPYARD_DATA>/spec/features/F*.md` returns no results.
 
@@ -376,7 +377,7 @@ Skip if Glob `<SHIPYARD_DATA>/spec/features/F*.md` returns no results.
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-e2e-validation.md`
 
-After impact analysis, validate the feature's acceptance criteria against the E2E taxonomy. Invoke `shipyard:validating-e2e-coverage` with the feature file path, existing AC, and domain hints. The skill detects touch surfaces from the spec content, maps to the 83-type taxonomy, and returns coverage gaps with draft scenarios.
+After impact analysis, validate the feature's acceptance criteria against the E2E taxonomy. Invoke `shipyard:validating-e2e-coverage` with the feature file path, existing AC, and domain hints. The skill detects touch surfaces from the spec content, maps to the E2E taxonomy, and returns coverage gaps with draft scenarios.
 
 **Skip if:** feature is trivial (`story_points <= 2` AND `complexity == "low"`) or no touch surfaces detected.
 
@@ -532,7 +533,7 @@ If tasks are **in-progress or completed**, add extra caution:
 ### Step 2: Challenge Existing Spec (same technique as Phase 1.5b — applied to existing content)
 
 Run the full Challenge & Surface analysis against the **existing feature content**:
-!`shipyard-context reference ship-discuss challenge-surface 80`
+!`shipyard-context reference ship-discuss phase-1-5b-challenge 80`
 
 Apply each section to what's already in the spec — audit assumptions baked into the current writing, sweep for edge cases not covered by existing acceptance scenarios, scan for conflicts with features added since this was first discussed, and list what's still missing.
 

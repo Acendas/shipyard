@@ -3,7 +3,7 @@ name: ship-execute
 description: "Execute the current sprint in test-first waves."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, Monitor, TeamCreate, TeamDelete, TaskCreate, TaskUpdate, TaskGet, TaskList, SendMessage]
 effort: medium
-argument-hint: "[--task ID] [--hotfix ID] [--mode solo|subagent|team]"
+argument-hint: "[--task ID] [--hotfix ID] [--mode solo|subagent|team] [--single-tick]"
 ---
 
 # Shipyard: Sprint Execution
@@ -156,7 +156,7 @@ If checks 1-2 fail → run `git init` (if needed), then `git add -A && git commi
 - **Stay lean as orchestrator** (~10-15% context). Pass file paths to subagents, not contents. State lives in PROGRESS.md / HANDOFF.md, not conversation. Spot-check results before trusting them. Full guide: `references/context-management.md`.
 - **Git strategy.** Work on the user's current branch — no sprint branches, no pushes. Solo commits directly; subagent/team mode uses per-task or per-feature worktrees that rebase back at wave/feature end. Worktrees branch from current local HEAD. Atomic commits per task. Full strategy: `references/git-strategy.md`.
 - **Output capture.** Test/build/E2E commands and other verification runs are dispatched via `shipyard:dispatching-operational-task`, which captures stdout+stderr to `<SHIPYARD_DATA>/captures/<task_id>/run-<N>.log` via plain `tee`. No `shipyard-logcap` dependency. Don't run verification commands directly in this session — delegate.
-- **Communication.** Blocker reports and decisions use the 3-layer pattern (one-liner / context / options); keep under 100 words; always recommend a default. Full guide: `references/communication-design.md`.
+- **Communication.** Blocker reports and decisions use the 3-layer pattern (one-liner / context / options); keep under 100 words; always recommend a default. Full guide: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md`.
 
 ## FULL SPRINT Execution
 
@@ -261,11 +261,11 @@ The WorktreeCreate hook branches worktrees from the current local branch. If the
 
 Before spawning any agent for a task, read the task file frontmatter and check `kind:`. The dispatch path depends on the kind — getting this wrong is how the silent-pass bug happens.
 
-- **`kind: feature`** or **absent** → standard `shipyard-builder` dispatch below (this is the path the rest of this section documents).
+- **`kind: feature`** or **absent** → standard feature-builder dispatch below via `shipyard:dispatching-task-loop` (this is the path the rest of this section documents).
 - **`kind: operational`** → invoke `shipyard:dispatching-operational-task` capability skill. It owns the verify_command resolution, the run+capture phase, the bounded fix-findings loop (cap from `operational_tasks.max_iterations`), and the orchestrator-side gate (verify_output populated, capture file non-empty, final exit:0, LAST_LINES match).
 - **`kind: research`** → invoke `shipyard:dispatching-research-task` capability skill. It owns the Write-scope HARD GATE (one findings doc), the Findings Doc Template, and the orchestrator-side gate (file exists + ≥1 `### Finding` section + porcelain-clean).
 
-**Why this matters.** The silent-pass failure mode — `/ship-execute` marking "run E2E suite and fix findings" tasks done without running any tests — is the exact bug introduced when operational tasks hit the builder. The builder has no Red step for an operational task, exits clean on an empty tree, and the "Before Exiting" check passes trivially. This routing split is the primary fix. The `shipyard-builder` agent ALSO has a Step 0 HARD STOP that refuses any task with `kind: operational` — but that's defense in depth. The first line of defense is this router.
+**Why this matters.** The silent-pass failure mode — `/ship-execute` marking "run E2E suite and fix findings" tasks done without running any tests — is the exact bug introduced when operational tasks hit the builder. The builder has no Red step for an operational task, exits clean on an empty tree, and the "Before Exiting" check passes trivially. This routing split is the primary fix. The feature-builder loop (`dispatching-task-loop`) ALSO has a Step 0 HARD STOP that refuses any task with `kind: operational` — but that's defense in depth. The first line of defense is this router.
 
 **Note — builders may write IDEA files during task execution.** Up to 3 `IDEA-*` files to `<SHIPYARD_DATA>/spec/ideas/` for deferred unknowns and scope-adjacent rot discovered while building. Committed atomically with the task. IDEAs surface in `/ship-sprint`'s carry-over scan and `/ship-backlog`'s IDEAS section. The capture-deferred-unknowns rules are inlined in `dispatching-task-loop`'s subagent prompt template.
 
@@ -429,7 +429,7 @@ Between waves:
 
 9. **Report and continue** — emit a one-line wave status (`Wave [N]/[M] ✓ [████░░░░] [done]/[total] tasks • → Wave [N+1]`). **Under direct invocation:** do NOT pause, do NOT suggest `/clear`, do NOT ask "continue?" — auto-advance into the next wave's Step 2 dispatch. **Under `/loop`:** write the cursor with `stage: wave_<N+1>_dispatch` (or `stage: sprint_full_build` if `N == M`), increment `wave_number`, reset `iteration: 1`, reset `stuck_counter: 0`; emit `shipyard-data events emit pipeline_tick_completed pipeline=ship-execute sprint=<id> stage=wave_<N>_gate outcome=advanced next_stage=<next>`; print `▶ TICK COMPLETE — wave <N>/<M>, stage wave_<N>_gate, next: <next>. /loop continues.`; exit.
 
-10. **Context pressure: warn-only.** If `<SHIPYARD_DATA>/.active-execution.json`'s `compaction_count` ≥ 4, append `⚠ Context summarised N times — consider /clear then /ship-execute`. The counter is informational; never auto-pause.
+10. **Context pressure: warn-only (currently dormant).** `compaction_count` on `.active-execution.json` is initialized but no longer incremented — the `post-compact` hook that bumped it was retired, so this warning does not currently fire. Left as the re-wire point: when a `PreCompact` hook re-increments the counter, append `⚠ Context summarised N times — consider /clear then /ship-execute` once `compaction_count ≥ 4`. The counter is informational; never auto-pause.
 
 **Cursor write summary for Step 4 items 1–7.** Each numbered item maps to a stage:
 - Items 1–3 → `stage: wave_<N>_boundary` (rebase + ff-merge + emit `wave_check_passed`). On success → `wave_<N>_build`.

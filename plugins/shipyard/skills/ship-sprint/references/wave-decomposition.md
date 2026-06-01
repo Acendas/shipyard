@@ -4,7 +4,7 @@ Detail for `/ship-sprint` PLAN-mode task decomposition and wave grouping.
 
 ## Step 4 — Decompose Tasks (5-stage protocol)
 
-**Read first:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-decomposition-patterns.md` — contains the 9 splitting patterns, walking skeleton rules, Red step examples, and effort anchors. Read it before decomposing any feature; decomposing without it produces bundled tasks.
+**Read first:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-decomposition-patterns.md` — contains the splitting patterns, walking skeleton rules, Red step examples, and effort anchors (the canonical 11 patterns are walked by `shipyard:splitting-stories` at Stage 3). Read it before decomposing any feature; decomposing without it produces bundled tasks.
 
 Always include cleanup as explicit tasks — not afterthoughts. If architecture analysis found dead code, deprecated patterns, stale config, or migration shims, create dedicated cleanup tasks in the final wave so they don't block feature work.
 
@@ -27,6 +27,8 @@ Every final task must trace back to exactly one acceptance criterion, or carry a
 ### Stage 2: Extract the walking skeleton (Wave 1 foundation)
 
 Before any behavior task, identify what must exist across all layers for any behavior to be testable: schema migrations, new route registrations, type/interface/enum definitions, service stubs, dependency injection wiring. Extract these into a single foundation task (see the patterns reference for the task template).
+
+**Data features (gated):** when the feature has a `## Data Model` section or otherwise persists data, consult `${CLAUDE_PLUGIN_ROOT}/project-files/references/data-modeling-guide.md` while shaping the foundation task — ensure schema/migration, constraint (`FK`/`NOT NULL`/`UNIQUE`/`CHECK`), and index work that the feature's Data Model and Technical Notes imply are captured as explicit tasks rather than left implicit, and apply the guide's right-sizing routine to keep those tasks neither over- nor under-scoped. Skip for features with no persistence concern.
 
 **Rule:** Wave 1 = foundation only. No behavior task can sit in Wave 1. Every behavior task depends on the foundation. This enforces vertical slicing — each behavior task is a thin, independently testable end-to-end slice through the foundation.
 
@@ -88,7 +90,7 @@ Task files are the **single source of truth** — title, effort, status, depende
 | **M** | 4-8 hrs | Some exploration needed, bounded scope |
 | **L** | 1-2 days | Significant implementation, one coherent area, no splitting pattern fired |
 
-For any task assigned `effort: L`: confirm all 9 patterns were checked and none fired, and the Red step covers exactly one behavior. If uncertain — AskUserQuestion: *"This task is estimated L (1-2 days). Could it split into [specific suggestions]? (split / no, it's cohesive)"*. Write the justification in Technical Notes: "L effort because: [reason]."
+For any task assigned `effort: L`: confirm the splitting patterns were checked and none fired, and the Red step covers exactly one behavior. If uncertain — AskUserQuestion: *"This task is estimated L (1-2 days). Could it split into [specific suggestions]? (split / no, it's cohesive)"*. Write the justification in Technical Notes: "L effort because: [reason]."
 
 **No task exceeds L.** A task requiring more than 1-2 days is a feature, not a task — return it to the backlog.
 
@@ -101,9 +103,9 @@ After all stages: populate `## Technical Notes` in each task file using findings
 - **T (Testable):** Every task has exactly one specific done-condition (one Red step). Multiple or ambiguous conditions — split.
 
 **Task Kinds.** Every task has a `kind:` field that tells the executor *which agent runs it* and *what "done" means*. See `references/task-kinds.md` for the full taxonomy. Summary:
-- **`kind: feature`** (default) — task writes new code or modifies existing code. Follows the TDD cycle (Red → Green → Refactor). Dispatched to `shipyard-builder`. Done = atomic commit containing impl + tests. This is the implicit default if `kind:` is absent.
-- **`kind: operational`** — task's deliverable IS running a command and responding to its output. Examples: "run the full E2E suite and fix findings", "run `npm audit` and patch vulnerabilities", "benchmark the query planner and investigate regressions". **Requires `verify_command:`** — either a literal shell command or a config-key reference like `test_commands.e2e`. Dispatched to `shipyard-test-runner` (NOT the builder) because operational tasks have no Red step and no code commit. Done = `verify_output:` field populated pointing at a non-empty `shipyard-logcap` capture from a passing run.
-- **`kind: research`** — task's deliverable is written findings / a decision doc; no code expected. Dispatched to `shipyard-researcher`. (Execution path for research kind is out of scope for the initial operational-task fix; plan for it but treat as feature-parity until operational path is stable.)
+- **`kind: feature`** (default) — task writes new code or modifies existing code. Follows the TDD cycle (Red → Green → Refactor). Dispatched via the `shipyard:dispatching-task-loop` capability skill (general-purpose subagent, inline prompt). Done = atomic commit containing impl + tests. This is the implicit default if `kind:` is absent.
+- **`kind: operational`** — task's deliverable IS running a command and responding to its output. Examples: "run the full E2E suite and fix findings", "run `npm audit` and patch vulnerabilities", "benchmark the query planner and investigate regressions". **Requires `verify_command:`** — either a literal shell command or a config-key reference like `test_commands.e2e`. Dispatched via `shipyard:dispatching-operational-task` (NOT the builder loop) because operational tasks have no Red step and no code commit. Done = `verify_output:` field populated pointing at a non-empty `shipyard-logcap` capture from a passing run.
+- **`kind: research`** — task's deliverable is written findings / a decision doc; no code expected. Dispatched via `shipyard:dispatching-research-task`, which owns the research execution contract and its escalation gate.
 
 **Why this matters.** The silent-pass failure mode — task marked done without tests actually running — happens when an operational-shaped task is routed to the builder, which exits clean on an empty tree because there's no code for it to write. The `kind:` field is the load-bearing signal that prevents this.
 

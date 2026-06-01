@@ -500,8 +500,137 @@
   {
     "name": "has_diagram_quality_gate_check",
     "type": "contains",
-    "pattern": "[Aa]rchitecture diagrams present|Flows.*missing.*empty|diagram.*quality gate",
+    "pattern": "[Rr]ight diagram present|matching Mermaid type|type-aware",
     "target": "ref:phase-quality-and-critique.md"
+  },
+  {
+    "name": "check16_only_demands_when_trigger_fired",
+    "type": "contains",
+    "pattern": "do NOT flag a simple feature that correctly skipped|no Step 4 trigger fired.*PASS",
+    "dotall": true,
+    "target": "ref:phase-quality-and-critique.md"
+  },
+  {
+    "name": "diagram_gate_is_significance_based",
+    "type": "contains",
+    "pattern": "significance, not participation|architectural significance",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "diagram_gate_rejects_participation",
+    "type": "contains",
+    "pattern": "reuses the same controller|traverses existing layers|reuses the existing structure",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "c4_trigger_relaxed_for_monoliths",
+    "type": "contains",
+    "pattern": "adds or changes a structural element|level monoliths actually need",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "c4_component_level_wired",
+    "type": "contains",
+    "pattern": "Component \\(Level 3\\)",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "c4_code_level_out_of_scope",
+    "type": "contains",
+    "pattern": "Code-level C4 is \\*\\*out of scope|Code.*out of scope at spec altitude",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "sequence_trigger_relaxed_two_party",
+    "type": "contains",
+    "pattern": "2\\+ components exchange messages|component count is \\*\\*not\\*\\* the gate",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "state_machine_trigger_includes_ui",
+    "type": "contains",
+    "pattern": "UI/view state machine|\\u22653 states or branching",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "state_machine_complements_check15",
+    "type": "contains",
+    "pattern": "complementary.*Check 15|Check 15 guarantees the states are handled",
+    "dotall": true,
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "has_er_diagram_trigger",
+    "type": "contains",
+    "pattern": "ER / data-model diagram|erDiagram",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "has_deployment_diagram_trigger",
+    "type": "contains",
+    "pattern": "Deployment / runtime-topology diagram|new runtime unit",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "has_dataflow_diagram_trigger",
+    "type": "contains",
+    "pattern": "Data-flow diagram|crosses a trust boundary",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "has_user_journey_diagram_trigger",
+    "type": "contains",
+    "pattern": "User-journey diagram|multi-step before.{0,4}trigger.{0,4}during.{0,4}after",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "persistence_list_is_canonical_source",
+    "type": "contains",
+    "pattern": "canonical diagram-type . Mermaid-syntax mapping",
+    "target": "ref:phase-3-write-spec.md"
+  },
+  {
+    "name": "persistence_includes_er",
+    "type": "contains",
+    "pattern": "erDiagram",
+    "target": "ref:phase-3-write-spec.md"
+  },
+  {
+    "name": "persistence_includes_deployment",
+    "type": "contains",
+    "pattern": "C4Deployment",
+    "target": "ref:phase-3-write-spec.md"
+  },
+  {
+    "name": "skill_persistence_line_lists_full_set",
+    "type": "contains",
+    "pattern": "C4, sequence, state machine, ER, deployment, data-flow, or user-journey"
+  },
+  {
+    "name": "impact_diagram_is_persisted",
+    "type": "contains",
+    "pattern": "persist it.*ripple|Impact diagram.*persist|graph LR",
+    "dotall": true,
+    "target": "ref:impact-analysis.md"
+  },
+  {
+    "name": "comm_design_has_er_pattern",
+    "type": "contains",
+    "pattern": "ER / data-model diagram|erDiagram",
+    "target": "ref:communication-design.md"
+  },
+  {
+    "name": "comm_design_has_deployment_pattern",
+    "type": "contains",
+    "pattern": "Deployment / runtime-topology diagram|C4Deployment",
+    "target": "ref:communication-design.md"
+  },
+  {
+    "name": "comm_design_code_level_out_of_scope",
+    "type": "contains",
+    "pattern": "Code.*out of scope at spec altitude|out of scope.*class internals",
+    "dotall": true,
+    "target": "ref:communication-design.md"
   },
   {
     "name": "phase_1_research_has_step_4",
@@ -534,5 +663,40 @@
     "name": "has_mcp_tool_discovery",
     "type": "contains",
     "pattern": "MCP tool|MCP.*available|session.*MCP|tracker.*MCP"
+  },
+  {
+    "name": "data_modeling_guide_exists",
+    "type": "file_exists",
+    "path": "project-files/references/data-modeling-guide.md"
+  },
+  {
+    "name": "phase1_reads_data_modeling_guide",
+    "type": "contains",
+    "pattern": "data-modeling-guide\\.md",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "data_modeling_guide_is_gated",
+    "type": "contains",
+    "pattern": "[Ss]kip entirely for features with no persistence|over-engineering this gate prevents",
+    "target": "ref:phase-1-research.md"
+  },
+  {
+    "name": "skill_body_points_to_modeling_guide",
+    "type": "contains",
+    "pattern": "data-modeling-guide\\.md"
+  },
+  {
+    "name": "critic_challenges_data_modeling",
+    "type": "contains",
+    "pattern": "EAV, OTLT, god table|data-modeling decisions",
+    "target": "ref:phase-quality-and-critique.md"
+  },
+  {
+    "name": "critic_data_dimension_is_gated",
+    "type": "contains",
+    "pattern": "[Ss]kip entirely\\s+for features with no persistence",
+    "dotall": true,
+    "target": "ref:phase-quality-and-critique.md"
   }
 ]

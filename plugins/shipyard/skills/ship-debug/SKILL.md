@@ -1,7 +1,7 @@
 ---
 name: ship-debug
 description: "Systematic debugging with persistent cross-session state."
-allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, AskUserQuestion, "Bash(shipyard-context:*)", "Bash(shipyard-logcap:*)", "Bash(shipyard-data:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, AskUserQuestion, "Bash(shipyard-context:*)", "Bash(shipyard-logcap:*)"]
 effort: high
 argument-hint: "[description of the problem] [--resume]"
 ---
@@ -233,7 +233,7 @@ Update `## Resolution` in the debug file with what layers were added and where.
 ### Step 6: Close
 
 1. AskUserQuestion: "Fix verified. Does this resolve the issue?"
-2. If yes: set status → `resolved` in the debug file's frontmatter (Edit in place — do not move). The `reap-obsolete` housekeeping will physically reap resolved debug files after the retention period.
+2. If yes: set status → `resolved` in the debug file's frontmatter (Edit in place — do not move). Resolved debug files persist on disk; there is no automatic reaper.
 3. If related to a sprint task, update PROGRESS.md
 4. If this was a hotfix, suggest: "Create a bug report with /ship-bug --hotfix for proper tracking?"
 

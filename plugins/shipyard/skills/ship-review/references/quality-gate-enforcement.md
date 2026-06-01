@@ -57,7 +57,7 @@ On completion, write to REVIEW-CURSOR.md:
 - If UI features exist: `stage: visual`, `terminal: false`, `next_action: "Run Stage 2 visual verification"`
 - If no UI features: `stage: goal_verify`, `terminal: false`, `next_action: "Run Stage 3 goal verification"`
 
-Emit: `pipeline_tick_completed pipeline=review sprint=<id> stage=quality_gates outcome=advanced next_stage=<next>`
+Emit: `pipeline_tick_completed pipeline=ship-review sprint=<id> stage=quality_gates outcome=advanced next_stage=<next>`
 
 ## Event Log
 

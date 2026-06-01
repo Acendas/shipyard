@@ -220,8 +220,8 @@ When backlog is overwhelmingly large (50+ items) or consistently ignored:
 
 3. AskUserQuestion: "Archive [K] items and keep [M]? (yes / adjust / cancel)"
 4. If confirmed:
-   - Use the Edit tool to set `status: deferred` in each archived feature's frontmatter (in place — do not move or delete the file). The `reap-obsolete` housekeeping subcommand will physically reap them after the retention period.
-   - Rebuild BACKLOG.md with survivor IDs only (use Edit on `<SHIPYARD_DATA>/spec/BACKLOG.md`).
+   - Use the Edit tool to set `status: deferred` in each archived feature's frontmatter (in place — do not move or delete the file). Deferred feature files persist on disk; there is no automatic reaper.
+   - Rebuild BACKLOG.md with survivor IDs only (use Edit on `<SHIPYARD_DATA>/backlog/BACKLOG.md`).
    - Report: "Archived [K] items. [M] remain."
 
 ### `approve [IDs]` → Approve proposed features into backlog

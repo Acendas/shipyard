@@ -71,10 +71,13 @@ For each well-defined feature:
    - **Interface** — only if API endpoints, method signatures, or event schemas were discussed. Skip the section entirely if nothing was covered.
    - **Data Model** — only if schema fields, entity relationships, or data constraints were discussed. Skip if not.
    - **Configuration** — only if settings, environment variables, or feature flags were discussed. Skip if not.
-   - **Flows** — if any diagrams were shown during Phase 1.5 Research (C4, sequence, state machine, user journey), convert them to Mermaid syntax and write them here. This is the persistence step — diagrams shown in conversation vanish after the session; Mermaid in the spec file survives. Include:
-     - **C4 diagrams** → `graph TD` or `C4Context`/`C4Container` Mermaid syntax
+   - **Flows** — convert every diagram shown during Phase 1.5 Research to Mermaid and write it here. This is the persistence step — diagrams shown in conversation vanish after the session; Mermaid in the spec file survives. **This list is the canonical diagram-type → Mermaid-syntax mapping — `ship-discuss/SKILL.md`'s persistence line and `epic-integration-ac.md`'s Flows reference both defer to it. Keep them in lock-step.** Include:
+     - **C4 diagrams** → `C4Context` / `C4Container` / `C4Component` (or `graph TD`)
      - **Sequence diagrams** → `sequenceDiagram` Mermaid syntax
      - **State machines** → `stateDiagram-v2` Mermaid syntax
+     - **ER / data-model diagrams** → `erDiagram` Mermaid syntax (may live under `## Data Model` instead when the schema is the feature's primary artifact)
+     - **Deployment / runtime-topology diagrams** → `C4Deployment` (or `graph TD` with node groupings)
+     - **Data-flow diagrams** → `flowchart LR` / `graph LR` with trust-boundary `subgraph`s
      - **User journeys** → `journey` Mermaid syntax
      If no diagrams were shown and no flows were discussed, skip this section entirely.
    - **Error Handling** — only if specific failure modes or error responses were discussed. Skip if not.
@@ -84,7 +87,7 @@ For each well-defined feature:
    - **Hard limit: 200 lines per file.** If the feature has 10+ acceptance scenarios or extensive technical notes, split it:
      - Split into sub-features (F001a, F001b) for large scenario sets
      - Extract API contracts, data models, wireframes to `<SHIPYARD_DATA>/spec/references/FNNN-<slug>.md`. Add frontmatter to each extracted file: `feature: FNNN` and `source: extracted from FNNN during discuss`.
-     - `<SHIPYARD_DATA>/spec/references/FNNN-flows.md` — Mermaid diagrams (C4, sequence, state machine) when `## Flows` exceeds ~30 lines
+     - `<SHIPYARD_DATA>/spec/references/FNNN-flows.md` — Mermaid diagrams (C4, sequence, state machine, ER, deployment, data-flow, user journey) when `## Flows` exceeds ~30 lines
      - Add full relative paths (e.g., `<SHIPYARD_DATA>/spec/references/F001-api.md`) to the `references:` array in the feature's frontmatter
      - Plan the split BEFORE writing, not after
 

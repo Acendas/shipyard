@@ -192,9 +192,9 @@
     "pattern": "shipyard-logcap"
   },
   {
-    "name": "links_live_capture_reference",
+    "name": "links_logcap_bounds_reference",
     "type": "contains",
-    "pattern": "live-capture\\.md"
+    "pattern": "context-management\\.md"
   },
   {
     "name": "prefers_grep_before_rerun",
@@ -288,9 +288,9 @@
     "pattern": "Stage 0\\.5.*[Ss]implif"
   },
   {
-    "name": "simplification_uses_code_simplifier",
+    "name": "simplification_uses_general_purpose_simplifier",
     "type": "contains",
-    "pattern": "code-simplifier"
+    "pattern": "general-purpose simplifier|simplifier subagent"
   },
   {
     "name": "simplification_scope_guard",
@@ -546,5 +546,24 @@
     "name": "has_gate_failure_handling",
     "type": "contains",
     "pattern": "gate.*[Ff]ail|[Ff]ail.*gate"
+  },
+  {
+    "name": "review_critic_is_data_aware",
+    "type": "contains",
+    "pattern": "data-modeling failure modes",
+    "target": "ref:critic-prompt.md"
+  },
+  {
+    "name": "review_critic_data_is_gated",
+    "type": "contains",
+    "pattern": "[Ss]kip this entirely for features",
+    "dotall": true,
+    "target": "ref:critic-prompt.md"
+  },
+  {
+    "name": "code_review_orchestration_lists_data",
+    "type": "contains",
+    "pattern": "data` \\(auto-gating|exactly one subagent",
+    "target": "ref:code-review-orchestration.md"
   }
 ]

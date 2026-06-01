@@ -65,5 +65,25 @@
     "name": "no_sd_shell_var_assignment",
     "type": "not_contains",
     "pattern": "SD=\\$\\(shipyard-data"
+  },
+  {
+    "name": "diagram_help_is_significance_based",
+    "type": "contains",
+    "pattern": "significance, not participation"
+  },
+  {
+    "name": "diagram_help_lists_full_set",
+    "type": "contains",
+    "pattern": "ER / data-model"
+  },
+  {
+    "name": "diagram_help_no_stale_3plus_components",
+    "type": "not_contains",
+    "pattern": "Involves \\*\\*3\\+ components\\*\\*"
+  },
+  {
+    "name": "diagram_help_check16_type_aware",
+    "type": "contains",
+    "pattern": "type-aware"
   }
 ]

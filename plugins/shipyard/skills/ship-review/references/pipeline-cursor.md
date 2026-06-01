@@ -41,8 +41,8 @@ Body (one paragraph max):
 | stage | What runs | On success → | On dirty / issue → |
 |---|---|---|---|
 | `preflight` | Branch check (SPRINT.md `branch:` vs current), mode detection (sprint vs feature vs hotfix vs retro-only) | `code_review_iter_1` (or `tests` if `--skip-code-review`, or `retro_step_1` if `--retro-only`) | escalate via AskUserQuestion |
-| `code_review_iter_N` | One Stage 0 iteration: orchestrate 6 scanners, write CODE-REVIEW.md, dispatch fixer if dirty | `simplify` (if `must_fix == 0 && should_fix == 0`) | `code_review_iter_N+1` (no cap — see stuck detection) |
-| `simplify` | Stage 0.5 — code-simplifier agent on sprint diff | `tests` | `tests` (log + continue) |
+| `code_review_iter_N` | One Stage 0 iteration: orchestrate the code-review subagent (seven concern domains), write CODE-REVIEW.md, dispatch fixer if dirty | `simplify` (if `must_fix == 0 && should_fix == 0`) | `code_review_iter_N+1` (no cap — see stuck detection) |
+| `simplify` | Stage 0.5 — general-purpose simplifier subagent on sprint diff | `tests` | `tests` (log + continue) |
 | `tests` | Stage 1a — full suite via `shipyard:dispatching-operational-task` | `spec_review` | `tests` (re-run after fixer) — bounded by operational task's own cap |
 | `spec_review` | Stage 1b — `shipyard:dispatching-spec-review` per feature | `visual` (if any UI tasks) or `goal_verify` | `goal_verify` (FINDINGS carry into gap analysis) |
 | `visual` | Stage 2 — screenshots at three viewports | `goal_verify` | `goal_verify` (log + continue) |

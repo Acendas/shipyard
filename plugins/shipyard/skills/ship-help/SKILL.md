@@ -1,7 +1,7 @@
 ---
 name: ship-help
 description: "Ask Shipyard questions or run workflow actions."
-allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, WebSearch, "Bash(shipyard-context:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 argument-hint: "[question or request]"
 ---
 
@@ -130,7 +130,7 @@ When the user asks about any of these, explain with project-specific context.
 
 ### E2E Acceptance Criteria
 
-`/ship-discuss` Phase 3.7 validates spec coverage against a taxonomy of 83 operational test types (timeout, idempotency, graceful degradation, etc.).
+`/ship-discuss` Phase 3.7 validates spec coverage against the E2E taxonomy of operational test types (timeout, idempotency, graceful degradation, etc.).
 
 | AC Tier | What | Where |
 |---------|------|-------|
@@ -163,12 +163,16 @@ Requires MCP tools in the session (e.g., atlassian-suite, GitHub). Falls back to
 
 ### Architecture Diagrams
 
-`/ship-discuss` Phase 1.5 Step 4 generates diagrams when:
-- Feature spans **2+ services** → C4 diagram
-- Involves **3+ components** → sequence diagram
-- Introduces **lifecycle states** → state machine
+`/ship-discuss` Phase 1.5 Step 4 generates diagrams gated on architectural **significance, not participation** — a new boundary/lifecycle/relationship, never a feature that just reuses the existing path. Seven types, each with its own trigger:
+- **Adds/changes a boundary, service, or component** → C4 (Context / Container / **Component** — the level monoliths need)
+- **2+ components with a non-obvious interaction** (async, retry, error-recovery) → sequence
+- **≥3-state or branching lifecycle / UI state graph** → state machine
+- **2+ related entities or a non-trivial schema** → ER / data-model
+- **New runtime unit or trust-boundary crossing** (worker, queue, cron, edge) → deployment
+- **Data crossing a trust boundary** (PII, tenant-scoped) → data-flow
+- **Multi-step before→during→after flow** with abandon points → user journey
 
-Diagrams persist as Mermaid in the feature's `## Flows` section. Quality Gate check #16 enforces they exist when triggers apply.
+Simple features (reused path, single column, copy change) correctly get **none** — over-generation destroys the signal. Diagrams persist as Mermaid in the feature's `## Flows` section (ER may live under `## Data Model`). Quality Gate check #16 is **type-aware**: it demands the *matching* diagram type when a trigger fired, and never forces one on a feature that correctly skipped.
 
 ### Sprint Quality Gates
 

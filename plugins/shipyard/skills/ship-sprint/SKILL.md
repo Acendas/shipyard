@@ -223,7 +223,7 @@ Skip if no selected feature introduces new libraries/utilities/patterns. Routing
 
 ### Step 4: Decompose Tasks (5-stage protocol)
 
-See `references/wave-decomposition.md` § "Step 4" for the full 5-stage protocol (Stage 1 map AC → drafts; Stage 2 walking-skeleton foundation → Wave 1; Stage 3 run drafts through 9 splitting patterns; Stage 4 write Red step + author acceptance probe via `shipyard:authoring-acceptance-probe` capability skill + write task file; Stage 5 effort assignment using S/M/L 8/80 rule).
+See `references/wave-decomposition.md` § "Step 4" for the full 5-stage protocol (Stage 1 map AC → drafts; Stage 2 walking-skeleton foundation → Wave 1; Stage 3 run drafts through the 11 splitting patterns (via `shipyard:splitting-stories`); Stage 4 write Red step + author acceptance probe via `shipyard:authoring-acceptance-probe` capability skill + write task file; Stage 5 effort assignment using S/M/L 8/80 rule).
 
 Always include cleanup as explicit tasks. **Do not write task files until Stage 4.** Read `references/task-decomposition-patterns.md` first.
 
@@ -276,15 +276,15 @@ Include a `## Risks` section derived from: critical path tasks, external deps, k
 
 ### Step 9.5: Quality Gate (self-review loop)
 
-Before presenting the plan, review your own output. Re-read each task file and the sprint draft against a 21-check table covering files-to-modify, architecture, dependency integrity, prescriptive strategy, cleanup, no-cycles, AC clarity, effort, critical path, wave/dep alignment, test strategy, cross-cutting, risks, MoSCoW, PERT, kind-specific required fields (`verify_command`, `research_scope`, `First failing test:`), no nested operational loops, no "and"-titles in feature tasks, and Technical Notes deliverable → task mapping.
+Before presenting the plan, review your own output. Re-read each task file and the sprint draft against a 22-check table covering files-to-modify, architecture, dependency integrity, prescriptive strategy, cleanup, no-cycles, AC clarity, effort, critical path, wave/dep alignment, test strategy, cross-cutting, risks, MoSCoW, PERT, kind-specific required fields (`verify_command`, `research_scope`, `First failing test:`), no nested operational loops, no "and"-titles in feature tasks, Technical Notes deliverable → task mapping, and data-model decomposition (gated — data features only).
 
-See `references/spec-validation.md` § "Step 9.5" for the full 21-row checklist with fail criteria. **Check 21 (Technical Notes → task mapping)** is load-bearing: a feature's Technical Notes section can name concrete artifacts that never become anyone's deliverable — F002's "Author must write a Playwright spec covering the demo-schema golden path" was such an artifact in the v2.5.0 confedit incident; the sprint shipped with `tests/e2e/` empty because no task owned the deliverable. Iterate up to 3 times, fixing failures and re-running. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag any remaining gaps in the sprint plan summary as "Planning gaps — review during execution". Then proceed to Step 9.7.
+See `references/spec-validation.md` § "Step 9.5" for the full 22-row checklist with fail criteria. **Check 21 (Technical Notes → task mapping)** is load-bearing: a feature's Technical Notes section can name concrete artifacts that never become anyone's deliverable — F002's "Author must write a Playwright spec covering the demo-schema golden path" was such an artifact in the v2.5.0 confedit incident; the sprint shipped with `tests/e2e/` empty because no task owned the deliverable. Iterate up to 3 times, fixing failures and re-running. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag any remaining gaps in the sprint plan summary as "Planning gaps — review during execution". Then proceed to Step 9.7.
 
 ### Step 9.7: Adversarial Critique
 
 After the self-review quality gate passes, spawn the critic agent to challenge the plan from angles the self-review doesn't cover. **Determine stakes level:** `high` if sprint has 10+ tasks, total story_points >= 20, any feature touches auth/payments/data, or critical path has 4+ tasks; `standard` otherwise.
 
-See `references/spec-validation.md` § "Step 9.7" for the full critic dispatch prompt and the findings-processing rules (PRIORITY_ACTIONS, TASK_GAPS, WAVE_CONFLICTS, ESTIMATE_RISKS, ASSUMPTION_RISKS). For RECONSIDER verdicts on implementation decisions, AskUserQuestion with both options + critic's reasoning + your recommendation. **Do NOT re-run the critic after fixes.** One round only.
+See `references/spec-validation.md` § "Step 9.7" for the full critic dispatch prompt and the findings-processing rules (the critic emits PRIORITY_ACTIONS, TASK_GAPS, WAVE_CONFLICTS, ESTIMATE_RISKS, ASSUMPTION_RISKS — process each by fix-shape, routing genuine scope/priority calls and load-bearing assumptions through AskUserQuestion). **Do NOT re-run the critic after fixes.** One round only.
 
 ### Step 10: Generate Quality Gate Manifest
 
