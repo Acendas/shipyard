@@ -1005,5 +1005,46 @@
     "name": "gate_before_teardown",
     "type": "contains",
     "pattern": "verify-wave-integrated"
+  },
+  {
+    "name": "handoff_next_up_framed_as_separate_cycle",
+    "type": "contains",
+    "pattern": "SEPARATE cycle you start yourself|separate cycle the user starts|does NOT (chain into|continue into) /ship-review"
+  },
+  {
+    "name": "handoff_stop_marker_is_final_signal",
+    "type": "contains",
+    "pattern": "reads the LAST line as its continue-or-stop signal|MUST be the final line"
+  },
+  {
+    "name": "noop_emit_is_non_optional",
+    "type": "contains",
+    "pattern": "non-optional|[Ee]mitting (it )?is mandatory"
+  },
+  {
+    "name": "loop_leak_detection_repeat_noop",
+    "type": "contains",
+    "pattern": "pipeline_loop_leak_detected"
+  },
+  {
+    "name": "loop_leak_hard_marker",
+    "type": "contains",
+    "pattern": "LOOP LEAK"
+  },
+  {
+    "name": "loop_leak_uses_scan_events",
+    "type": "contains",
+    "pattern": "scan-events --tail \\d+ pipeline_terminal"
+  },
+  {
+    "name": "loop_leak_event_in_vocabulary",
+    "type": "contains",
+    "target": "ref:pipeline-cursor.md",
+    "pattern": "pipeline_loop_leak_detected"
+  },
+  {
+    "name": "cron_fallback_cleanup_at_terminal",
+    "type": "contains",
+    "pattern": "CronDelete"
   }
 ]

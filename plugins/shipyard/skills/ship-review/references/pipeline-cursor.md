@@ -74,10 +74,11 @@ When a tick reaches a terminal stage (`terminal`, `terminal_issues`, `terminal_c
 
 1. Write the cursor with `terminal: true`, `status: complete` (or `escalated`), `next_action: "Pipeline complete — no further work."`
 2. Emit the structured event: `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<id> outcome=<success|issues|changes|escalated> reason=<short>`
-3. Print the literal marker in the final user-facing output: **`▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.`**
+3. Print the literal stop marker as the **FINAL** line of the user-facing output: **`▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.`** Any "what to do next" hint (start `/ship-discuss` or `/ship-sprint`) must print BEFORE this marker, never after.
 4. Do not call `ScheduleWakeup` for the next tick.
+5. **Cron-fallback cleanup.** If this cycle emitted `pipeline_loop_bootstrap_fallback`, call `CronList` and `CronDelete` any cron whose prompt targets `/shipyard:ship-review` before exiting.
 
-The marker text is load-bearing: the `/loop` driver model reads it (alongside the event) and refrains from scheduling another wakeup. The cursor's `terminal: true` is the machine signal; the marker is the human + model echo.
+The marker text is load-bearing: the `/loop` driver model reads the LAST line as its continue-or-stop signal, so the stop marker **MUST be the final line** — never followed by a "NEXT UP" line, which an over-eager driver reads as "keep going" (the v2.8.2 execute→review handoff leak). The cursor's `terminal: true` is the machine signal; the marker is the human + model echo.
 
 ## Mid-pipeline tick exit (non-terminal)
 
@@ -101,17 +102,19 @@ The `/loop` driver reads `terminal: false` and continues with another `ScheduleW
 - The warning is non-blocking. The loop keeps running. Reset `stuck_counter` to 0 on the first tick where state changes.
 - `hard_ceiling: 50` is the absolute safety stop. If `iteration: 50` is reached on a self-loop stage, write `status: escalated`, `terminal: true`, emit `pipeline_terminal pipeline=ship-review outcome=escalated reason=hard_ceiling_stage_<id>`, and halt. This is a backstop against a runaway loop with broken state-change detection — in practice the warning at 5 should already have surfaced intervention.
 
-## No-op terminal: already-archived sprint
+## No-op terminal: already-archived sprint (+ loop-leak self-detection)
 
 When `/ship-review` is invoked and the cursor does NOT exist AND there is no active sprint in `current/` (sprint already archived):
 
-1. Treat this as an idempotent no-op.
-2. Write a transient terminal cursor (or skip the cursor write entirely if no `current/` dir exists).
-3. Emit: `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<archived-id-if-known> outcome=noop reason=sprint_already_archived`
-4. Print: **`▶ CYCLE COMPLETE — sprint already complete and archived. /loop should stop.`**
-5. Exit cleanly.
+1. **Emit the no-op terminal event FIRST — this is non-optional.** `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<archived-id-if-known> outcome=noop reason=sprint_already_archived`. Emitting is mandatory, not best-effort: skipping it is what made the original leak invisible (a leaked wakeup that no-ops silently leaves no audit-log trace, so nobody can see the `/loop` is still alive). Then optionally write a transient terminal cursor (or skip the cursor write if no `current/` dir exists).
+2. **Repeat-leak check.** Before printing the stop marker, scan the recent event log for a PRIOR no-op terminal for this sprint: `shipyard-context scan-events --tail 50 pipeline_terminal`, counting `outcome=noop` lines for this `sprint=<id>` (the one just emitted included).
+   - **First no-op** (count == 1): print **`▶ CYCLE COMPLETE — sprint already complete and archived. /loop should stop.`** and exit.
+   - **Repeat no-op** (count ≥ 2): the loop-driver IGNORED the earlier stop — a leaked wakeup is firing `/shipyard:ship-review` against an archived sprint. Emit `shipyard-data events emit pipeline_loop_leak_detected pipeline=ship-review sprint=<id> noop_count=<N>` and print the HARD marker: **`⛔ LOOP LEAK — /loop is still firing /shipyard:ship-review against an already-archived sprint (<N> no-op wakeups). It is NOT self-stopping. There is no further work — cancel this /loop now and do NOT schedule another wakeup.`** Then exit.
+3. **Cron-fallback cleanup.** If this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-review`. Never call `ScheduleWakeup` on the no-op path.
 
-This is the exact path that fired in the original /loop bug report: sprint-001 archived, /loop fires wakeup, ship-review re-enters, sees archived state, exits — but historically the exit had no terminal marker. With the marker, the /loop driver sees the signal and stops scheduling.
+This is the exact path that fired in the original /loop bug report: sprint archived, /loop fires wakeup, ship-review re-enters, sees archived state, exits — but historically the exit had no terminal marker. The v2.8.2 hardening makes the emit non-optional (so a leak is visible) and adds repeat-leak detection (so a leak that ignores the first stop becomes loud and self-terminating instead of an invisible infinite no-op).
+
+**Structural backstop (you cannot route around this).** Even if a leaked wakeup ignores this sweep, the `auto-approve-data.mjs` PreToolUse hook (`evaluateLoopLeakGuard`) **denies** any non-terminal REVIEW-CURSOR write when `current/SPRINT.md` is absent (archived). A legit review tick on a `status: completed` (not-yet-archived) sprint still passes — only the archived case is a review leak.
 
 ## Event vocabulary
 
@@ -120,6 +123,7 @@ This is the exact path that fired in the original /loop bug report: sprint-001 a
 | `pipeline_tick_started` | `pipeline=ship-review`, `sprint=<id>`, `stage=<id>`, `iteration=<N>`, `loop_owner=<owner>` | At tick entry, after reading the cursor |
 | `pipeline_tick_completed` | + `outcome=advanced|self_loop|escalated`, `next_stage=<id>` | At tick exit, before writing the cursor |
 | `pipeline_terminal` | + `outcome=success|issues|changes|noop|escalated`, `reason=<short>` | When `terminal: true` is being written |
+| `pipeline_loop_leak_detected` | `pipeline=ship-review`, `sprint=<id>`, `noop_count=<N>` | On the no-op terminal path when a PRIOR no-op terminal for the same sprint already exists (a leaked wakeup that ignored the earlier stop) |
 | `pipeline_stuck` | + `stage=<id>`, `iterations=<N>`, `reason=no-state-change` | When `stuck_counter >= 5` |
 | `code_review_iteration` | + `must_fix=<N>`, `should_fix=<N>` | Stage 0 iteration completes (existing event; preserve) |
 | `code_review_escalated` | + `must_fix_remaining=<N>` | When `code_review_iter_N` hits hard ceiling (replaces the prior 3-iteration cap escalation) |

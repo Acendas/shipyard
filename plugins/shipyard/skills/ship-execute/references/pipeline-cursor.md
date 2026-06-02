@@ -88,9 +88,12 @@ When a tick reaches a terminal stage (`terminal_handoff_to_review`, `terminal_ho
 
 1. Write the cursor with `terminal: true`, `status: complete`, `next_action: "Sprint complete — handoff to /ship-review"` (or the analogous message).
 2. Emit: `shipyard-data events emit pipeline_terminal pipeline=ship-execute sprint=<id> outcome=<success|escalated> reason=<short>`
-3. Print the literal marker: **`▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.`**
-4. For `terminal_handoff_to_review` specifically, also print: **`▶ NEXT UP: /ship-review (tip: /clear first for a fresh window)`** — this is the existing handoff message, kept after the terminal marker.
-5. Do not call `ScheduleWakeup` for the next tick.
+3. **For `terminal_handoff_to_review` specifically, print the NEXT-UP handoff hint FIRST**, framed as a NEW, separately-started cycle — never as a continuation of this loop: **`▶ NEXT UP: /ship-review — a SEPARATE cycle you start yourself (tip: /clear first for a fresh window).`**
+4. Print the literal stop marker as the **FINAL** line: **`▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.`**
+5. Do not call `ScheduleWakeup` for the next tick, and at `terminal_handoff_to_review` do NOT chain into `/ship-review` within this invocation — the execute `/loop` ends here; `/ship-review` is the user's to start.
+6. **Cron-fallback cleanup.** If this cycle emitted `pipeline_loop_bootstrap_fallback` (the `/loop`-went-silent path created a one-shot `*/2 * * * *` cron firing `/shipyard:ship-execute`), call `CronList` and `CronDelete` any cron whose prompt targets `/shipyard:ship-execute` before exiting. Skip when no fallback was emitted.
+
+**Why the stop marker must be the LAST line (v2.8.2 — load-bearing).** The loop-driving model reads the LAST line as its continue-or-stop signal, so the `/loop should stop` marker **MUST be the final line**. Pre-v2.8.2 the order was inverted — `▶ NEXT UP: /ship-review` printed *after* the stop marker, so the driver's last-read line said "next up: review," which an over-eager driver reads as "keep going." Because the loop's prompt is hardwired to `/shipyard:ship-execute`, "keep going" re-fired execute against the now-completed/archived sprint — a leaked wakeup that fired "out of nowhere" after the user thought the cycle was done. Keep the NEXT-UP hint *before* the stop marker; `/ship-review` is a separate cycle the user starts, not a continuation of this loop.
 
 ## Mid-pipeline tick exit (non-terminal)
 
@@ -109,7 +112,7 @@ Because all self-loops are bounded by their capability-skill caps, the cursor-le
 - If a `wave_N_*` stage runs twice with `iteration: 1, 1` (re-entry without K increment), emit `pipeline_stuck pipeline=ship-execute wave=<N> stage=<X>` and surface a warning. This catches re-dispatch logic that fails to advance the iteration counter.
 - `hard_ceiling: 50` is the absolute safety stop. Same semantics as ship-review.
 
-## No-op terminal: already-completed sprint
+## No-op terminal: already-completed sprint (+ loop-leak self-detection)
 
 When `/ship-execute` is invoked and:
 - The cursor exists with `terminal: true`, OR
@@ -118,10 +121,14 @@ When `/ship-execute` is invoked and:
 
 Treat as idempotent no-op:
 
-1. Skip the cursor write (or write a transient terminal cursor if `current/` still exists).
-2. Emit: `shipyard-data events emit pipeline_terminal pipeline=ship-execute sprint=<id> outcome=noop reason=sprint_already_complete`
-3. Print: **`▶ CYCLE COMPLETE — sprint already complete. /loop should stop.`**
-4. Exit cleanly.
+1. **Emit the no-op terminal event FIRST — this is non-optional.** `shipyard-data events emit pipeline_terminal pipeline=ship-execute sprint=<id> outcome=noop reason=<sprint_already_complete | cursor_already_terminal>`. Emitting is mandatory, not best-effort: skipping it is exactly what made the original leak *invisible* — in the affected project the no-op terminal event had never once fired across the entire audit log, so a leaked wakeup left no trace and nobody could see the `/loop` was still alive. Always emit first, then (optionally) skip the cursor write (or write a transient terminal cursor if `current/` still exists).
+2. **Repeat-leak check.** Before printing the stop marker, scan the recent event log for a PRIOR no-op terminal for this same sprint: `shipyard-context scan-events --tail 50 pipeline_terminal`, and count the lines carrying `outcome=noop` for this `sprint=<id>` (the line you just emitted in step 1 is included).
+   - **First no-op** (count == 1): print **`▶ CYCLE COMPLETE — sprint already complete. /loop should stop.`** and exit.
+   - **Repeat no-op** (count ≥ 2): the loop-driver IGNORED the earlier stop — this is a leaked wakeup firing `/shipyard:ship-execute` against a dead sprint. Emit `shipyard-data events emit pipeline_loop_leak_detected pipeline=ship-execute sprint=<id> noop_count=<N>` and print the HARD marker: **`⛔ LOOP LEAK — /loop is still firing /shipyard:ship-execute against an already-complete sprint (<N> no-op wakeups). It is NOT self-stopping. There is no further work — cancel this /loop now and do NOT schedule another wakeup.`** Then exit.
+3. **Cron-fallback cleanup.** If this cycle emitted `pipeline_loop_bootstrap_fallback`, call `CronList` and `CronDelete` any cron whose prompt targets `/shipyard:ship-execute` before exiting — a one-shot fallback must not fire after terminal. Skip when no fallback was emitted.
+4. Never call `ScheduleWakeup` on the no-op path, regardless of count.
+
+**Structural backstop (you cannot route around this).** Even if a leaked wakeup ignores this sweep and tries to "fresh start," the `auto-approve-data.mjs` PreToolUse hook (`evaluateLoopLeakGuard`) **denies** any non-terminal EXECUTE-CURSOR write when there is no live sprint (`current/SPRINT.md` absent, or `status: completed`). So a phantom sprint start is impossible at the write layer — the correct response to a no-op is always: emit, mark stop, exit.
 
 ## Event vocabulary
 
@@ -130,6 +137,7 @@ Treat as idempotent no-op:
 | `pipeline_tick_started` | `pipeline=ship-execute`, `sprint=<id>`, `stage=<id>`, `wave=<N>`, `iteration=<N>`, `loop_owner=<owner>` | At tick entry, after reading the cursor |
 | `pipeline_tick_completed` | + `outcome=advanced|self_loop|escalated`, `next_stage=<id>` | At tick exit, before writing the cursor |
 | `pipeline_terminal` | + `outcome=success|noop|escalated`, `reason=<short>` | When `terminal: true` is being written |
+| `pipeline_loop_leak_detected` | `pipeline=ship-execute`, `sprint=<id>`, `noop_count=<N>` | On the no-op terminal path when a PRIOR no-op terminal for the same sprint already exists (a leaked wakeup that ignored the earlier stop) |
 | `pipeline_stuck` | + `stage=<id>`, `wave=<N>`, `iterations=<N>`, `reason=re-entry-without-progress` | When `stuck_counter >= 5` |
 
 Existing per-wave / per-task / sprint-completion events (`wave_check_passed`, `wave_check_escalated`, `task_loop_iteration`, `task_loop_completed`, `sprint_complete_passed`, etc.) continue to emit as documented elsewhere; the cursor-level events are additive.

@@ -23,6 +23,7 @@ import {
   evaluateExecuteTerminal,
   evaluateReviewTerminal,
   evaluateTerminalGate,
+  evaluateLoopLeakGuard,
   parseFrontmatter,
   parseWaves,
 } from "../bin/terminal-gate.mjs";
@@ -461,6 +462,184 @@ status: complete
 ---
 
 body`,
+    });
+    assert.equal(v.allowed, true);
+  });
+});
+
+// --- Loop-leak guard (v2.8.2) ------------------------------------------
+//
+// A leaked /loop wakeup fires /ship-execute (or /ship-review) after the
+// sprint already completed/archived and tries to write a NON-terminal
+// cursor (phantom start). The guard denies that write structurally.
+
+function writeSprintWithStatus(dataDir, status) {
+  const content = `---
+id: sprint-001
+status: ${status}
+features: [F001]
+started_at: 2026-05-19T00:00:00Z
+---
+
+## Waves
+
+### Wave 1
+Tasks: [T001]
+`;
+  writeFileSync(join(dataDir, "sprints", "current", "SPRINT.md"), content);
+}
+
+const EXECUTE_ACTIVE_CURSOR = `---
+pipeline: ship-execute
+stage: wave_1_dispatch
+terminal: false
+status: in_progress
+---
+
+body`;
+
+const REVIEW_ACTIVE_CURSOR = `---
+pipeline: ship-review
+stage: code_review_iter_1
+terminal: false
+status: in_progress
+---
+
+body`;
+
+test("loop-leak guard: execute non-terminal write with no SPRINT.md (archived) is denied", () => {
+  withTempDataDir((dataDir) => {
+    const v = evaluateLoopLeakGuard({
+      dataDir,
+      proposedContent: EXECUTE_ACTIVE_CURSOR,
+      cursorBasename: "EXECUTE-CURSOR.md",
+    });
+    assert.equal(v.allowed, false);
+    assert.equal(v.kind, "loop_leak");
+    assert.ok(v.reasons.some((r) => r.includes("archived")));
+  });
+});
+
+test("loop-leak guard: execute non-terminal write with SPRINT.md status completed is denied", () => {
+  withTempDataDir((dataDir) => {
+    writeSprintWithStatus(dataDir, "completed");
+    const v = evaluateLoopLeakGuard({
+      dataDir,
+      proposedContent: EXECUTE_ACTIVE_CURSOR,
+      cursorBasename: "EXECUTE-CURSOR.md",
+    });
+    assert.equal(v.allowed, false);
+    assert.equal(v.kind, "loop_leak");
+    assert.ok(v.reasons.some((r) => r.includes("status: completed")));
+  });
+});
+
+test("loop-leak guard: execute non-terminal write with an active sprint is allowed", () => {
+  withTempDataDir((dataDir) => {
+    writeSprintWithStatus(dataDir, "in-progress");
+    const v = evaluateLoopLeakGuard({
+      dataDir,
+      proposedContent: EXECUTE_ACTIVE_CURSOR,
+      cursorBasename: "EXECUTE-CURSOR.md",
+    });
+    assert.equal(v.allowed, true);
+    assert.deepEqual(v.reasons, []);
+  });
+});
+
+test("loop-leak guard: terminal cursor write bypasses the guard even with no SPRINT.md", () => {
+  withTempDataDir((dataDir) => {
+    const v = evaluateLoopLeakGuard({
+      dataDir,
+      proposedContent: `---
+pipeline: ship-execute
+stage: terminal_handoff_to_review
+terminal: true
+status: complete
+---
+
+body`,
+      cursorBasename: "EXECUTE-CURSOR.md",
+    });
+    assert.equal(v.allowed, true);
+  });
+});
+
+test("loop-leak guard: review non-terminal write with no SPRINT.md (archived) is denied", () => {
+  withTempDataDir((dataDir) => {
+    const v = evaluateLoopLeakGuard({
+      dataDir,
+      proposedContent: REVIEW_ACTIVE_CURSOR,
+      cursorBasename: "REVIEW-CURSOR.md",
+    });
+    assert.equal(v.allowed, false);
+    assert.equal(v.kind, "loop_leak");
+  });
+});
+
+test("loop-leak guard: review non-terminal write on a status: completed sprint is allowed", () => {
+  // Review legitimately runs ON a completed-but-not-yet-archived sprint —
+  // only the archived/absent case is a review leak.
+  withTempDataDir((dataDir) => {
+    writeSprintWithStatus(dataDir, "completed");
+    const v = evaluateLoopLeakGuard({
+      dataDir,
+      proposedContent: REVIEW_ACTIVE_CURSOR,
+      cursorBasename: "REVIEW-CURSOR.md",
+    });
+    assert.equal(v.allowed, true);
+    assert.deepEqual(v.reasons, []);
+  });
+});
+
+test("loop-leak guard: pipeline inferred from basename when frontmatter omits it", () => {
+  withTempDataDir((dataDir) => {
+    const v = evaluateLoopLeakGuard({
+      dataDir,
+      proposedContent: `---
+stage: wave_1_dispatch
+terminal: false
+status: in_progress
+---
+
+body`,
+      cursorBasename: "EXECUTE-CURSOR.md",
+    });
+    assert.equal(v.allowed, false);
+    assert.equal(v.kind, "loop_leak");
+  });
+});
+
+test("loop-leak guard: hotfix-mode non-terminal write with no SPRINT.md is allowed (sprint-bypass)", () => {
+  withTempDataDir((dataDir) => {
+    const v = evaluateLoopLeakGuard({
+      dataDir,
+      proposedContent: `---
+pipeline: ship-execute
+stage: hotfix
+terminal: false
+status: in_progress
+---
+
+body`,
+      cursorBasename: "EXECUTE-CURSOR.md",
+    });
+    assert.equal(v.allowed, true);
+    assert.deepEqual(v.reasons, []);
+  });
+});
+
+test("loop-leak guard: unknown pipeline fails open (allowed)", () => {
+  withTempDataDir((dataDir) => {
+    const v = evaluateLoopLeakGuard({
+      dataDir,
+      proposedContent: `---
+pipeline: ship-something-else
+terminal: false
+---
+
+body`,
+      cursorBasename: "OTHER.md",
     });
     assert.equal(v.allowed, true);
   });

@@ -379,6 +379,87 @@ function classify(proposedContent) {
 }
 
 /**
+ * Loop-leak guard (v2.8.2). Structural backstop against a leaked `/loop`
+ * wakeup firing `/ship-execute` (or `/ship-review`) AFTER the sprint has
+ * already completed and (possibly) been archived.
+ *
+ * The model-side no-op terminal sweep is supposed to catch this and exit,
+ * but a misreading leaked wakeup can instead treat the absent cursor as a
+ * "fresh start" and try to write a NON-terminal cursor (`terminal: false`,
+ * claiming active work) into a `current/` that has no live sprint. That
+ * write is the phantom-start signature, and — unlike the model sweep — the
+ * PreToolUse hook fires on it unconditionally, so this guard cannot be
+ * skipped.
+ *
+ * Rule (pipeline-aware; false-positive-free because a legit fresh sprint
+ * always has `current/SPRINT.md` present before the first cursor write, and
+ * execute never runs once SPRINT.md is `status: completed`):
+ *
+ *   - `terminal: true` cursor          → always allowed (terminal / no-op writes are fine).
+ *   - ship-execute non-terminal cursor → DENY if no `current/SPRINT.md`, OR
+ *     SPRINT.md `status: completed` (execute has no work left on a done sprint).
+ *   - ship-review non-terminal cursor  → DENY only if no `current/SPRINT.md`
+ *     (review legitimately runs ON a `status: completed` sprint, so only the
+ *     archived/absent case is a leak).
+ *
+ * Returns `{ allowed: false, kind: "loop_leak", reasons: [...] }` on deny;
+ * `{ allowed: true, reasons: [] }` otherwise. Fail-open on unparseable
+ * content / unknown pipeline, consistent with the hook's permissive design.
+ */
+export function evaluateLoopLeakGuard({ dataDir, proposedContent, cursorBasename }) {
+  const fm = parseFrontmatter(proposedContent);
+  // Terminal and no-op cursor writes are never phantom starts.
+  if (frontmatterBool(fm.terminal)) {
+    return { allowed: true, reasons: [] };
+  }
+  const pipeline =
+    (fm.pipeline || "").trim() ||
+    (cursorBasename === "REVIEW-CURSOR.md"
+      ? "ship-review"
+      : cursorBasename === "EXECUTE-CURSOR.md"
+        ? "ship-execute"
+        : "");
+  if (pipeline !== "ship-execute" && pipeline !== "ship-review") {
+    return { allowed: true, reasons: [] };
+  }
+
+  // Sprint-bypass modes (`--hotfix`, `--task`) legitimately run without a
+  // normal sprint pipeline — `--hotfix` branches from main and may have no
+  // (or a completed) SPRINT.md. Their stages are never produced by a leaked
+  // no-arg /loop wakeup (which fresh-starts at `preflight`), so exempt them.
+  const stage = (fm.stage || "").trim();
+  if (/^(hotfix|single_task|terminal_hotfix|terminal_single_task)\b/.test(stage)) {
+    return { allowed: true, reasons: [] };
+  }
+
+  const sprintContent = readSprintMd(dataDir);
+  const present = sprintContent !== null;
+  const status = present
+    ? (parseFrontmatter(sprintContent).status || "").trim().toLowerCase()
+    : null;
+  const archived = !present;
+  const completed = present && status === "completed";
+
+  const leak =
+    pipeline === "ship-execute" ? archived || completed : archived;
+  if (!leak) {
+    return { allowed: true, reasons: [] };
+  }
+
+  const where = archived
+    ? "there is no active sprint in sprints/current/ (already archived)"
+    : "the sprint in sprints/current/ is already status: completed";
+  return {
+    allowed: false,
+    kind: "loop_leak",
+    reasons: [
+      `loop-leak guard: ${where}, but this is a non-terminal ${pipeline} cursor write claiming active work — the signature of a leaked /loop wakeup firing after the cycle already completed`,
+      `There is no sprint to run ${pipeline} against. Emit the no-op terminal event and stop the /loop (cancel it / do not schedule another wakeup) instead of starting phantom work.`,
+    ],
+  };
+}
+
+/**
  * Top-level gate entry point. Called from the auto-approve PreToolUse
  * hook for every Write/Edit targeting a cursor file.
  *

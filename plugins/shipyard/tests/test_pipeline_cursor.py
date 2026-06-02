@@ -402,5 +402,98 @@ class TestExecuteWaveGatePreserved(unittest.TestCase):
         )
 
 
+# Load-bearing strings for the v2.8.2 handoff-seam wakeup-leak fix.
+LOOP_LEAK_EVENT = "pipeline_loop_leak_detected"
+LOOP_LEAK_MARKER = "LOOP LEAK"
+
+
+class TestHandoffSeamWakeupLeak(unittest.TestCase):
+    """v2.8.2 regression guard. A customer's auto-bootstrapped /loop
+    (firing /shipyard:ship-execute) kept re-firing after the sprint had
+    completed and been archived, because:
+
+      1. The execute->review handoff terminal printed the NEXT-UP line
+         AFTER the /loop-stop marker, so the loop-driver's last-read line
+         said "keep going to review" instead of "stop".
+      2. The no-op terminal sweep (the safety net) only *printed* an
+         advisory marker and treated its event emit as optional — in the
+         affected project the noop terminal event had NEVER fired, so a
+         leaked wakeup left no audit-log trace and the loop never died.
+
+    Fix: the /loop-stop marker is the FINAL signal at the handoff
+    terminal; the no-op emit is non-optional; a repeat no-op against the
+    same dead sprint self-detects and screams (pipeline_loop_leak_detected
+    + a hard LOOP LEAK marker) so the leak is loud and self-terminating.
+    """
+
+    def test_execute_handoff_stop_marker_is_the_last_signal(self):
+        """In the execute terminal_handoff banner, the /loop-stop marker
+        must come AFTER the NEXT UP /ship-review line."""
+        text = read(SHIP_EXECUTE_SKILL)
+        anchor = text.find("Print the sprint-complete report")
+        self.assertNotEqual(anchor, -1, "handoff sprint-complete report block not found")
+        region = text[anchor:anchor + 1400]
+        nextup = region.find("NEXT UP: /ship-review")
+        stop = region.find(LOOP_STOP_MARKER)
+        self.assertNotEqual(nextup, -1, "handoff banner missing NEXT UP: /ship-review")
+        self.assertNotEqual(stop, -1, "handoff banner missing /loop-stop marker")
+        self.assertGreater(
+            stop, nextup,
+            "execute handoff: /loop-stop marker must be the FINAL line, "
+            "printed AFTER NEXT UP — else the loop-driver reads 'keep going'",
+        )
+
+    def test_execute_handoff_frames_review_as_separate_cycle(self):
+        text = read(SHIP_EXECUTE_SKILL) + read(SHIP_EXECUTE_CURSOR_REF)
+        self.assertTrue(
+            re.search(
+                r"SEPARATE cycle you start yourself"
+                r"|separate cycle the user starts"
+                r"|does NOT (chain into|continue into) /ship-review",
+                text,
+            ),
+            "execute handoff must frame /ship-review as a separate user-started "
+            "cycle, not a continuation of the execute /loop",
+        )
+
+    def test_both_refs_document_loop_leak_event(self):
+        for p in (SHIP_EXECUTE_CURSOR_REF, SHIP_REVIEW_CURSOR_REF):
+            self.assertIn(
+                LOOP_LEAK_EVENT, read(p),
+                f"{p.name} must document the {LOOP_LEAK_EVENT} event in its vocabulary",
+            )
+
+    def test_both_skills_have_hard_leak_marker(self):
+        for p in (SHIP_EXECUTE_SKILL, SHIP_REVIEW_SKILL):
+            self.assertIn(
+                LOOP_LEAK_MARKER, read(p),
+                f"{p.name} must print the hard '{LOOP_LEAK_MARKER}' marker on a repeat no-op",
+            )
+
+    def test_noop_leak_detection_uses_scan_events(self):
+        for p in (SHIP_EXECUTE_CURSOR_REF, SHIP_REVIEW_CURSOR_REF):
+            self.assertRegex(
+                read(p), r"scan-events --tail \d+ pipeline_terminal",
+                f"{p.name} must detect a repeat no-op by scanning prior "
+                f"pipeline_terminal events via shipyard-context scan-events",
+            )
+
+    def test_noop_emit_is_non_optional(self):
+        for p in (SHIP_EXECUTE_CURSOR_REF, SHIP_REVIEW_CURSOR_REF):
+            self.assertRegex(
+                read(p), r"non-optional|[Ee]mitting (it )?is mandatory",
+                f"{p.name} must state the no-op terminal emit is non-optional "
+                f"(skipping it is what made the original leak invisible)",
+            )
+
+    def test_terminal_paths_clean_up_cron_fallback(self):
+        for p in (SHIP_EXECUTE_SKILL, SHIP_REVIEW_SKILL):
+            self.assertIn(
+                "CronDelete", read(p),
+                f"{p.name} terminal/no-op path must CronDelete any "
+                f"pipeline_loop_bootstrap_fallback cron",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

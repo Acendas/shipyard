@@ -68,7 +68,13 @@ If the planning lock is held by a live different session, print the HARD BLOCK m
 
 The cursor write is via the Write tool — auto-approved for SHIPYARD_DATA paths. Use the literal absolute path from `shipyard-context path`.
 
-**No-op terminal: already-completed sprint.** When `/ship-execute` is invoked and any of: cursor exists with `terminal: true`, SPRINT.md frontmatter has `status: completed`, or there is no active sprint in `current/` (already archived) — emit `shipyard-data events emit pipeline_terminal pipeline=ship-execute sprint=<id> outcome=noop reason=sprint_already_complete`, print `▶ CYCLE COMPLETE — sprint already complete. /loop should stop.`, exit cleanly. This is the exact path that closed the original `/loop` wakeup-leak bug — never skip the emit + marker on the no-op branch.
+**No-op terminal: already-completed sprint (+ loop-leak self-detection).** When `/ship-execute` is invoked and any of: cursor exists with `terminal: true`, SPRINT.md frontmatter has `status: completed`, or there is no active sprint in `current/` (already archived):
+
+1. **Emit the no-op terminal event FIRST — non-optional:** `shipyard-data events emit pipeline_terminal pipeline=ship-execute sprint=<id> outcome=noop reason=<sprint_already_complete | cursor_already_terminal>`. Emitting is mandatory, not best-effort — skipping it is what made the original leak invisible (in the affected project the no-op event had never once fired, so a leaked wakeup left no audit-log trace and nobody could see the `/loop` was still alive).
+2. **Repeat-leak check** via `shipyard-context scan-events --tail 50 pipeline_terminal`: count prior `outcome=noop` lines for this `sprint=<id>` (the one just emitted included). First no-op (count == 1) → print `▶ CYCLE COMPLETE — sprint already complete. /loop should stop.` and exit. Repeat no-op (count ≥ 2, the driver ignored the earlier stop) → emit `shipyard-data events emit pipeline_loop_leak_detected pipeline=ship-execute sprint=<id> noop_count=<N>` and print the hard marker `⛔ LOOP LEAK — /loop is still firing /shipyard:ship-execute against an already-complete sprint (<N> no-op wakeups). It is NOT self-stopping. There is no further work — cancel this /loop now and do NOT schedule another wakeup.`, then exit.
+3. **Cron-fallback cleanup:** if this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-execute`. Never call `ScheduleWakeup` on the no-op path.
+
+This is the exact path that closed the original `/loop` wakeup-leak bug — never skip the emit + marker on the no-op branch. Full protocol in [references/pipeline-cursor.md](references/pipeline-cursor.md).
 
 **loop_owner detection.** Read the last `pipeline_tick_completed` event from `<SHIPYARD_DATA>/.shipyard-events.jsonl`. If the most recent matching event is within the last 30 minutes AND its `next_stage` matches the cursor's current `stage:`, set `loop_owner: "/loop"`. Otherwise `loop_owner: "user"`. The `--single-tick` argument forces `loop_owner: "/loop"` semantics regardless of detection (used for testing per-tick behavior from a direct invocation).
 
@@ -483,15 +489,17 @@ When all waves done:
 
    b. **Emit the terminal event.** `shipyard-data events emit pipeline_terminal pipeline=ship-execute sprint=<id> outcome=success reason=sprint_complete`.
 
-   c. **Print the sprint-complete report:**
+   c. **Print the sprint-complete report** (NEXT-UP hint first, stop marker LAST):
 
    ```
    Sprint complete. [N]/[M] tasks done. Full suite: [pass/fail].
+   ▶ NEXT UP: /ship-review — a SEPARATE cycle you start yourself (tip: /clear first for a fresh window).
    ▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.
-   ▶ NEXT UP: /ship-review (tip: /clear first for a fresh window)
    ```
 
-   The `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` marker is load-bearing: the looping model reads it as the terminal signal and stops scheduling wakeups. Do NOT call `ScheduleWakeup` after writing the terminal cursor. The existing `▶ NEXT UP: /ship-review` line stays — it's the handoff hint for the user, printed AFTER the cycle-complete marker so the order is "loop stops, then humans know what to do next."
+   The order is deliberate and load-bearing (v2.8.2): the loop-driving model reads the LAST line as its continue-or-stop signal, so the `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` marker MUST be the final line — never followed by a `NEXT UP` line, which an over-eager driver reads as "keep going." Do NOT call `ScheduleWakeup` after writing the terminal cursor, and do NOT chain into `/ship-review` here — the execute `/loop` ends at this terminal; `/ship-review` is a separate cycle the user starts deliberately. (This reverses the pre-v2.8.2 order, where NEXT UP printed last and a leaked wakeup re-fired `/shipyard:ship-execute` after the sprint was already archived — see the v2.8.2 handoff-seam wakeup-leak incident.)
+
+   d. **Cron-fallback cleanup.** If this cycle emitted `pipeline_loop_bootstrap_fallback`, call `CronList` and `CronDelete` any cron whose prompt targets `/shipyard:ship-execute` before exiting — a one-shot fallback must not fire after terminal. Skip when no fallback was emitted (the happy path created no cron).
 
 ---
 

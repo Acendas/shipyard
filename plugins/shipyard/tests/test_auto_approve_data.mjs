@@ -404,3 +404,80 @@ test("terminal gate: Edit on cursor file uses post-edit content for evaluation",
       "Edit that flips cursor to terminal: true status: complete without evidence must be denied");
   });
 });
+
+// --- Loop-leak guard (v2.8.2) hook integration -------------------------
+
+function writeSprintFixtureCompleted(sd) {
+  const sprintsCurrent = join(sd, "sprints", "current");
+  mkdirSyncFs(sprintsCurrent, { recursive: true });
+  writeFileSyncFs(
+    join(sprintsCurrent, "SPRINT.md"),
+    `---\nid: sprint-001\nstatus: completed\nfeatures: [F001]\nstarted_at: 2026-05-19T00:00:00Z\n---\n\n## Waves\n\n### Wave 1\nTasks: [T001]\n`,
+  );
+}
+
+test("loop-leak guard: leaked execute non-terminal Write against archived sprint is DENIED", async () => {
+  await withTempDir(async (sd) => {
+    // current/ exists (so the cursor path resolves) but no SPRINT.md → archived.
+    mkdirSyncFs(join(sd, "sprints", "current"), { recursive: true });
+    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
+    const { stdout, code } = await runWithEnv(
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: cursorPath,
+          content: `---\npipeline: ship-execute\nstage: preflight\nterminal: false\nstatus: in_progress\n---\n\nbody`,
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    assert.equal(code, 0);
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /loop-leak guard/i);
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /leaked \/loop wakeup/i);
+  });
+});
+
+test("loop-leak guard: leaked execute non-terminal Write against completed sprint is DENIED", async () => {
+  await withTempDir(async (sd) => {
+    writeSprintFixtureCompleted(sd);
+    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
+    const { stdout, code } = await runWithEnv(
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: cursorPath,
+          content: `---\npipeline: ship-execute\nstage: wave_1_dispatch\nterminal: false\nstatus: in_progress\n---\n\nbody`,
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    assert.equal(code, 0);
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /loop-leak guard/i);
+  });
+});
+
+test("loop-leak guard: review non-terminal Write on a completed (not archived) sprint is ALLOWED", async () => {
+  // Review legitimately runs ON a status: completed sprint — must not be
+  // misclassified as a leak.
+  await withTempDir(async (sd) => {
+    writeSprintFixtureCompleted(sd);
+    const cursorPath = join(sd, "sprints", "current", "REVIEW-CURSOR.md");
+    const { stdout, code } = await runWithEnv(
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: cursorPath,
+          content: `---\npipeline: ship-review\nstage: code_review_iter_1\nterminal: false\nstatus: in_progress\n---\n\nbody`,
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    assert.equal(code, 0);
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "allow");
+  });
+});

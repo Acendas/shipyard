@@ -52,7 +52,12 @@ $ARGUMENTS
    - `<SHIPYARD_DATA>/sprints/current/SPRINT.md` frontmatter has `status: completed`
    - There is no active sprint in `<SHIPYARD_DATA>/sprints/current/` (already archived — `current/` directory empty or absent of SPRINT.md)
 
-   If ANY of these hold AND no feature ID was passed as an argument: emit `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<id-or-unknown> outcome=noop reason=sprint_already_archived`, print `▶ CYCLE COMPLETE — sprint already complete and archived. /loop should stop.`, exit cleanly. NEVER skip this sweep — it is the exact protection that closed the original `/loop` wakeup-leak bug. The auto-loop bootstrap below explicitly depends on this sweep having run with no exit triggered.
+   If ANY of these hold AND no feature ID was passed as an argument, run the no-op terminal path (the emit is **non-optional** — skipping it is what made the original leak invisible in the audit log):
+   - **Emit FIRST:** `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<id-or-unknown> outcome=noop reason=sprint_already_archived`.
+   - **Repeat-leak check** via `shipyard-context scan-events --tail 50 pipeline_terminal`: count prior `outcome=noop` lines for this `sprint=<id>` (the one just emitted included). First no-op (count == 1) → print `▶ CYCLE COMPLETE — sprint already complete and archived. /loop should stop.` and exit. Repeat no-op (count ≥ 2, the driver ignored the earlier stop) → emit `shipyard-data events emit pipeline_loop_leak_detected pipeline=ship-review sprint=<id> noop_count=<N>` and print `⛔ LOOP LEAK — /loop is still firing /shipyard:ship-review against an already-archived sprint (<N> no-op wakeups). It is NOT self-stopping. There is no further work — cancel this /loop now and do NOT schedule another wakeup.`, then exit.
+   - **Cron-fallback cleanup:** if this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-review`.
+
+   Exit cleanly without invoking AskUserQuestion. NEVER skip this sweep — it is the exact protection that closed the original `/loop` wakeup-leak bug. The auto-loop bootstrap below explicitly depends on this sweep having run with no exit triggered. Full protocol in `references/pipeline-cursor.md`.
 
 3. After the chosen stage's handler returns, use the Write tool to write the cursor for tick N+1 (or for terminal exit). Emit `pipeline_tick_completed` (advancing or self-looping) or `pipeline_terminal` (terminal stage). Print the appropriate marker text.
 
@@ -546,16 +551,16 @@ The skip-release path (`stage: archive`) and the full-release path (after `relea
  Retro: [velocity] pts | [throughput] pts/hr | [N] improvements captured
  Release: changelog written to CHANGELOG.md (project root, appended)
 
-▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.
-
-▶ NEXT UP: Start the next cycle
+▶ NEXT UP: Start the next cycle (a SEPARATE cycle you start yourself)
   /ship-discuss — explore new features
   /ship-sprint — plan next sprint (if backlog has approved features)
   (tip: /clear first for a fresh context window)
+
+▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-The marker line `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` is load-bearing — `/loop` drivers read it as the structural signal to refrain from scheduling another wakeup.
+The marker line `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` is load-bearing and **must be the final line** — `/loop` drivers read the LAST line as the structural continue-or-stop signal, so the NEXT-UP hint prints BEFORE it, never after (the v2.8.2 ordering fix; a `NEXT UP` line printed last reads as "keep going" to an over-eager driver). Before exiting, if this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-review`.
 
 ---
 

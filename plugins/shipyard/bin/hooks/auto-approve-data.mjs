@@ -33,7 +33,7 @@ import {
   logBreadcrumb,
   resolveShipyardData,
 } from "../_hook_lib.mjs";
-import { evaluateTerminalGate } from "../terminal-gate.mjs";
+import { evaluateTerminalGate, evaluateLoopLeakGuard } from "../terminal-gate.mjs";
 
 const LOG_NAME = ".auto-approve.log";
 
@@ -138,6 +138,39 @@ export async function run(hookInput, _env) {
     if (CURSOR_BASENAMES.has(base)) {
       const proposedContent = computeProposedContent(toolName, toolInput, filePath);
       if (proposedContent !== null) {
+        // Loop-leak guard (v2.8.2). Runs BEFORE the terminal-evidence gate.
+        // Denies a non-terminal cursor write when there is no live sprint to
+        // justify it — the phantom-start signature of a leaked /loop wakeup
+        // firing after the cycle already completed. Unlike the model-side
+        // no-op sweep, this fires on the Write unconditionally, so it can't
+        // be skipped. See the v2.8.2 handoff-seam wakeup-leak incident.
+        const leak = evaluateLoopLeakGuard({
+          dataDir: shipyardData,
+          proposedContent,
+          cursorBasename: base,
+        });
+        if (!leak.allowed) {
+          logBreadcrumb(shipyardData, LOG_NAME, "deny", [
+            toolName,
+            filePath,
+            "loop_leak",
+            ...leak.reasons,
+          ]);
+          const reason =
+            "Loop-leak guard refused this cursor write — there is no active sprint to run this pipeline against:\n" +
+            leak.reasons.map((r) => `  - ${r}`).join("\n") +
+            "\n\nThis looks like a leaked /loop wakeup firing after the sprint already completed. Cancel the /loop and do not schedule another wakeup; do not start a new sprint here.";
+          const response = {
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: "deny",
+              permissionDecisionReason: reason,
+            },
+          };
+          process.stdout.write(JSON.stringify(response));
+          return 0;
+        }
+
         const verdict = evaluateTerminalGate({
           dataDir: shipyardData,
           proposedContent,
