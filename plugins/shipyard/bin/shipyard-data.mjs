@@ -22,11 +22,15 @@
  *                                 [--all]
  *   shipyard-data ensure-worktree-baseref      → set worktree.baseRef="head" in
  *                                                <projectRoot>/.claude/settings.json
+ *   shipyard-data doctor                       → read-only integrity scan for
+ *                                                phantom/forked project dirs,
+ *                                                nested projects/ dirs, and
+ *                                                dangling patch tasks
  */
 
 import { execFileSync } from "node:child_process";
 import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve as pathResolve } from "node:path";
+import { basename, dirname, join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
 import { ensureDataDirLink, getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
@@ -1180,6 +1184,168 @@ function verifyWaveIntegrated() {
   process.exit(3);
 }
 
+/**
+ * Does a project data dir hold real Shipyard state (as opposed to being an
+ * empty shell)? Used by doctor to tell a fork/orphan apart from a legitimately
+ * uninitialized dir. State = an event log or any allocated ID counter.
+ */
+function dirHoldsState(dir) {
+  if (existsSync(join(dir, ".shipyard-events.jsonl"))) return true;
+  for (const kind of ["ideas", "bugs", "features", "epics", "tasks"]) {
+    if (existsSync(join(dir, "spec", kind, ".id-seq"))) return true;
+  }
+  return false;
+}
+
+/**
+ * Was a project data dir created by `shipyard-data init` (vs. minted as a
+ * side effect of a bookkeeping command)? `init` writes `.project-root` and
+ * copies `templates/`; `/ship-init` additionally writes `config.md`. A dir
+ * with none of these is not a real project.
+ */
+function dirLooksInitialized(dir) {
+  return (
+    existsSync(join(dir, ".project-root")) ||
+    existsSync(join(dir, "config.md")) ||
+    existsSync(join(dir, "templates"))
+  );
+}
+
+/**
+ * Find the task file for an id under `spec/tasks/`, or null. Task files are
+ * named `<id>-<slug>.md` (occasionally bare `<id>.md`), so match by prefix.
+ */
+function findTaskFile(dataDir, id) {
+  const tasksDir = join(dataDir, "spec", "tasks");
+  let entries;
+  try {
+    entries = readdirSync(tasksDir);
+  } catch {
+    return null;
+  }
+  const hit = entries.find(
+    (name) => name === `${id}.md` || name.startsWith(`${id}-`),
+  );
+  return hit ? join(tasksDir, hit) : null;
+}
+
+/**
+ * `shipyard-data doctor` — read-only integrity scan for the classes of data
+ * corruption reported in upstream issue #4:
+ *
+ *   1. Phantom/forked project dirs — a `projects/<hash>/` that holds state but
+ *      was never initialized (no `.project-root`/`config.md`/`templates/`).
+ *      These are minted when a bookkeeping command runs from a cwd that isn't
+ *      the project git repo (now prevented by the resolver's non-git guard;
+ *      doctor surfaces any that already exist).
+ *   2. Nested `projects/` dirs — a `projects/` directory INSIDE a project dir,
+ *      i.e. `projects/<realhash>/projects/<wronghash>/`, the historical shape
+ *      of the same bug.
+ *   3. Dangling patch tasks — a `patch_task_created` event whose task id has
+ *      no `spec/tasks/<id>-*.md` file, so everything that frontmatter-checks
+ *      tasks (ship-status, review's evidence check, carry-over scan) sees a
+ *      broken reference (issue #4, defect 3).
+ *
+ * Exits 0 when clean, 1 when any issue is found. Never mutates state — it
+ * only reports, with a remediation hint per finding.
+ */
+function doctor() {
+  let dataDir;
+  try {
+    dataDir = getDataDir({ silent: true });
+  } catch (err) {
+    process.stderr.write(
+      `shipyard-data doctor: cannot locate the plugin data directory.\n` +
+        (err instanceof ShipyardResolverError ? err.message : `${err}\n`),
+    );
+    process.exit(1);
+  }
+  const projectsDir = dirname(dataDir);
+  const currentHash = basename(dataDir);
+  const findings = [];
+
+  // --- Cross-project scan: phantom dirs + nested projects/ dirs. ---
+  let entries = [];
+  try {
+    entries = readdirSync(projectsDir, { withFileTypes: true });
+  } catch {
+    /* no projects/ dir yet — nothing to scan */
+  }
+  let scanned = 0;
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue;
+    scanned++;
+    const dir = join(projectsDir, ent.name);
+
+    if (existsSync(join(dir, "projects"))) {
+      findings.push({
+        kind: "nested-projects",
+        detail: `${join(dir, "projects")} — a projects/ dir nested inside a project dir`,
+        hint: "Merge its event log/counters into the real project, then delete the nested projects/ tree.",
+      });
+    }
+
+    if (!dirLooksInitialized(dir) && dirHoldsState(dir)) {
+      findings.push({
+        kind: "phantom-project",
+        detail: `${dir} — holds state but was never initialized (no .project-root/config.md/templates/)`,
+        hint: "Likely a fork minted from a non-repo cwd. Merge its events/counters into the real project dir, then delete it.",
+      });
+    }
+  }
+
+  // --- Current project: dangling patch tasks. ---
+  const eventsLog = join(dataDir, ".shipyard-events.jsonl");
+  if (existsSync(eventsLog)) {
+    let lines = [];
+    try {
+      lines = readFileSync(eventsLog, "utf8").split("\n");
+    } catch {
+      /* unreadable — skip this check */
+    }
+    const seen = new Set();
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let ev;
+      try {
+        ev = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (ev.type !== "patch_task_created") continue;
+      const id = ev.task_id ?? ev.task;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      if (!findTaskFile(dataDir, id)) {
+        findings.push({
+          kind: "dangling-patch-task",
+          detail: `patch_task_created id=${id} has no spec/tasks/${id}-*.md file`,
+          hint: `Write the missing task file (spec/tasks/${id}-<slug>.md) — the dispatch path must create it before emitting patch_task_created.`,
+        });
+      }
+    }
+  }
+
+  if (findings.length === 0) {
+    process.stdout.write(
+      `shipyard-data doctor: no issues found ` +
+        `(scanned ${scanned} project dir${scanned === 1 ? "" : "s"} under ${projectsDir}; ` +
+        `current project ${currentHash}).\n`,
+    );
+    return;
+  }
+
+  process.stdout.write(
+    `shipyard-data doctor: ${findings.length} issue${findings.length === 1 ? "" : "s"} found.\n`,
+  );
+  for (const f of findings) {
+    process.stdout.write(`\n  [${f.kind}] ${f.detail}\n`);
+    process.stdout.write(`    → ${f.hint}\n`);
+  }
+  process.stdout.write("\n");
+  process.exit(1);
+}
+
 function main() {
   const command = process.argv[2] ?? "";
   switch (command) {
@@ -1250,11 +1416,15 @@ function main() {
       verifyWaveIntegrated();
       break;
     }
+    case "doctor": {
+      doctor();
+      break;
+    }
     // For project-id / project-root use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash|project-root`.
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated | doctor\n`,
       );
       process.exit(1);
   }

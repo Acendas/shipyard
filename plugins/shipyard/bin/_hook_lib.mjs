@@ -335,6 +335,23 @@ export function logEvent(dataDir, type, fields = {}, opts = {}) {
   }
 
   const ts = new Date().toISOString().replace(/\.\d{3}Z$/, "+00:00");
+  // `ts` and `type` are reserved: they are the event's identity. A caller
+  // that passes `ts=` or `type=` as a field (e.g. `events emit
+  // quality_gate_result type=sprint_specific`, once documented verbatim in
+  // ship-review's quality-gate reference) must NOT be able to clobber the
+  // positional event type — that silently drops the real event from every
+  // type-based query (`events grep`, scan-events, the terminal gate). Spread
+  // the caller fields FIRST, then stamp ts/type last so identity always wins.
+  // A collided `type=` field is preserved under `type_field` rather than
+  // dropped, so nothing the caller sent is lost.
+  if ("type" in sanitized) {
+    sanitized.type_field = sanitized.type;
+    delete sanitized.type;
+  }
+  if ("ts" in sanitized) {
+    sanitized.ts_field = sanitized.ts;
+    delete sanitized.ts;
+  }
   const event = { ts, type: sanitizeForLog(type, 64), ...sanitized };
 
   let line;

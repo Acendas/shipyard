@@ -79,6 +79,22 @@ function runGit(args, cwd) {
  * so symlinked checkouts hash consistently.
  */
 export function getProjectRoot() {
+  return resolveProjectRoot().root;
+}
+
+/**
+ * Internal worker behind {@link getProjectRoot}. Returns both the resolved
+ * root AND whether it is backed by a real git repo (`gitBacked`).
+ *
+ * `gitBacked` is the signal getDataDir needs to avoid silently forking
+ * project state (issue #4, defect 1): when neither the cwd nor
+ * CLAUDE_PROJECT_DIR is inside a git repo, `root` is just "wherever the
+ * process happened to be" (e.g. a skill orchestrator that cd'd into the
+ * plugin data dir). Hashing that and minting `<pluginData>/projects/<hash>`
+ * creates a phantom, config-less project dir that shadows the real one.
+ * getDataDir refuses loudly instead when `gitBacked` is false.
+ */
+function resolveProjectRoot() {
   // CLAUDE_PROJECT_DIR (set by Claude Code) is used as the *starting cwd* for
   // git commands, not as the answer. Returning it directly would bypass the
   // worktree detection below: Claude Code sets this to the session cwd, which
@@ -140,32 +156,36 @@ export function getProjectRoot() {
       // If we couldn't resolve worktreeTop for some reason, fall back to the
       // old behavior (return parent) — safer than misclassifying.
       if (!worktreeTop) {
-        return parentRoot;
+        return { root: parentRoot, gitBacked: true };
       }
       const builderPrefix =
         join(parentRoot, ".claude", "worktrees") + sep;
       const isBuilderWorktree = (worktreeTop + sep).startsWith(builderPrefix);
-      return isBuilderWorktree ? parentRoot : worktreeTop;
+      return {
+        root: isBuilderWorktree ? parentRoot : worktreeTop,
+        gitBacked: true,
+      };
     }
 
     // Normal repo (not a worktree) — use show-toplevel
     const toplevel = runGit(["rev-parse", "--show-toplevel"], startCwd);
     if (toplevel && existsSync(toplevel)) {
       try {
-        return realpathSync(toplevel);
+        return { root: realpathSync(toplevel), gitBacked: true };
       } catch {
-        return toplevel;
+        return { root: toplevel, gitBacked: true };
       }
     }
   }
 
   // Last resort: startCwd (resolved CLAUDE_PROJECT_DIR) if we had one,
-  // otherwise process.cwd().
+  // otherwise process.cwd(). NOT git-backed — flagged so getDataDir can
+  // refuse rather than mint a phantom project dir from a bare cwd.
   const fallback = startCwd ?? process.cwd();
   try {
-    return realpathSync(fallback);
+    return { root: realpathSync(fallback), gitBacked: false };
   } catch {
-    return fallback;
+    return { root: fallback, gitBacked: false };
   }
 }
 
@@ -368,9 +388,62 @@ export function ensureDataDirLink(projectRoot, dataDir) {
   return { status: "created", linkPath };
 }
 
+/**
+ * Cheap "is this path inside a git work tree" check, used only when a caller
+ * hands getDataDir a precomputed `projectRoot` (so we can still tell whether
+ * it is git-backed without re-running full root resolution). Never throws.
+ */
+function isInsideGitRepo(root) {
+  return runGit(["rev-parse", "--is-inside-work-tree"], root) === "true";
+}
+
 export function getDataDir(opts = {}) {
-  const projectRoot = opts.projectRoot ?? getProjectRoot();
+  let projectRoot;
+  let gitBacked;
+  if (opts.projectRoot) {
+    projectRoot = opts.projectRoot;
+    // A caller may assert gitBacked explicitly (resolver CLI does, to avoid a
+    // redundant git call); otherwise probe the supplied root directly.
+    gitBacked = opts.gitBacked ?? isInsideGitRepo(projectRoot);
+  } else {
+    ({ root: projectRoot, gitBacked } = resolveProjectRoot());
+  }
   const projectHash = getProjectHash(projectRoot);
+
+  // Guard (issue #4, defect 1): if the root is not backed by a git repo, its
+  // hash is meaningless — it is just wherever the process happened to run.
+  // With CLAUDE_PLUGIN_DATA set, the env-var path below would happily return
+  // `<pluginData>/projects/<hash-of-cwd>`, silently minting a phantom,
+  // config-less project dir that shadows the real one and swallows counters
+  // and events (the exact failure reported from a skill orchestrator that
+  // cd'd into the plugin data dir). The breadcrumb and `.shipyard` fallbacks
+  // are keyed on this same bogus hash, so they cannot recover the real
+  // project either. Refuse loudly instead of forking state.
+  if (!gitBacked) {
+    const cwdInDataDir =
+      projectRoot.includes(`${sep}plugins${sep}data${sep}`) ||
+      projectRoot.includes(`${sep}.claude-work${sep}plugins${sep}`);
+    let message =
+      `shipyard-resolver: refusing to resolve a data dir outside a git repo.\n` +
+      `  Resolved project root is not inside a git repository:\n` +
+      `    ${projectRoot}\n` +
+      `  Shipyard keys project state on the git repo path, so running a\n` +
+      `  bookkeeping command from a non-repo cwd would mint a NEW, empty\n` +
+      `  project dir (projects/${projectHash}) instead of using the real one.\n`;
+    if (cwdInDataDir) {
+      message +=
+        `  Likely cause: cwd is inside the plugin data directory.\n` +
+        `  Don't cd into the data dir before running shipyard-data.\n`;
+    }
+    message +=
+      `  Run shipyard-data from the project root, or set CLAUDE_PROJECT_DIR\n` +
+      `  to the project's git checkout.\n`;
+    if (opts.silent) {
+      throw new ShipyardResolverError(message);
+    }
+    process.stderr.write(message);
+    process.exit(1);
+  }
 
   // 1. Explicit env var wins. Claude Code exports CLAUDE_PLUGIN_DATA to the
   //    plugin's hooks, MCP/LSP subprocesses, and skill bodies. This is the
@@ -437,7 +510,7 @@ export function getDataDir(opts = {}) {
 // Usage: node shipyard-resolver.mjs <project-root|project-hash|data-dir>
 function cli() {
   const command = process.argv[2] ?? "data-dir";
-  const root = getProjectRoot();
+  const { root, gitBacked } = resolveProjectRoot();
   switch (command) {
     case "project-root":
       process.stdout.write(root + "\n");
@@ -448,7 +521,9 @@ function cli() {
     case "data-dir":
       // CLI mode: fail-loud message goes to stderr if discovery fails.
       // In-process callers use { silent: true } to suppress the message.
-      process.stdout.write(getDataDir({ projectRoot: root }) + "\n");
+      // Pass gitBacked through so the non-git guard fires without a second
+      // git probe.
+      process.stdout.write(getDataDir({ projectRoot: root, gitBacked }) + "\n");
       break;
     default:
       process.stderr.write(

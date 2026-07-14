@@ -53,6 +53,15 @@ class LogcapTestBase(unittest.TestCase):
         os.makedirs(self.tmpdir)
         os.makedirs(self.project_dir)
         os.makedirs(self.plugin_data)
+        # Issue #4: the resolver refuses to resolve a data dir outside a git
+        # repo (it would otherwise mint a phantom project). A Shipyard project
+        # is always a git repo, so init one — logcap's `.active-logcap-session`
+        # lookup goes through getDataDir and needs this.
+        subprocess.run(['git', 'init', '-q'], cwd=self.project_dir, check=True)
+        subprocess.run(['git', 'config', 'user.email', 't@t'], cwd=self.project_dir, check=True)
+        subprocess.run(['git', 'config', 'user.name', 't'], cwd=self.project_dir, check=True)
+        subprocess.run(['git', 'commit', '--allow-empty', '-m', 'init', '-q'],
+                       cwd=self.project_dir, check=True)
 
         self.env = {
             'TMPDIR': self.tmpdir,

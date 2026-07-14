@@ -386,6 +386,26 @@ test("logEvent: writes a single JSONL line with type and ts", () => {
   });
 });
 
+test("logEvent: reserved type/ts fields cannot clobber event identity", () => {
+  withTempEventsDir((dir) => {
+    // Issue #4 defect 2: a caller field named `type` (or `ts`) must not
+    // override the positional event type or the timestamp. The collided
+    // values are preserved under `type_field` / `ts_field`.
+    logEvent(dir, "quality_gate_result", {
+      gate_id: "SSG-2",
+      type: "sprint_specific",
+      ts: "not-a-timestamp",
+    });
+    const events = readEvents(dir);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, "quality_gate_result");
+    assert.equal(events[0].type_field, "sprint_specific");
+    assert.equal(events[0].ts_field, "not-a-timestamp");
+    assert.match(events[0].ts, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$/);
+    assert.equal(events[0].gate_id, "SSG-2");
+  });
+});
+
 test("logEvent: appends without truncating earlier events", () => {
   withTempEventsDir((dir) => {
     logEvent(dir, "first", { n: 1 });

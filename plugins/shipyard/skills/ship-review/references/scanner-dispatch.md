@@ -88,7 +88,7 @@ For a gap matching the boundary, allocate a patch task ID via `shipyard-data nex
 
 After the dispatched commit lands, re-enter `gap_analysis_iter_<N+1>` on the patched diff. If the same gap reappears, fall through to patch-task — the inline fix failed and the user needs to inspect.
 
-Emit `patch_task_created task_id=<id> feature=<F> source=review-inline-fix verdict=<outcome>` for observability.
+Emit `patch_task_created task_id=<id> feature=<F> source=review-inline-fix verdict=<outcome>` for observability — **only after `spec/tasks/<id>-*.md` exists** (written above). Never emit `patch_task_created` for an id with no task file: everything that frontmatter-checks tasks (ship-status, this review's evidence check, next sprint's carry-over scan) then sees a dangling reference. `shipyard-data doctor` flags any that slip through.
 
 ## Stage 4 — Out-of-Scope Gap Capture (IDEA mechanics)
 
