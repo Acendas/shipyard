@@ -32,6 +32,8 @@ Code review is more expensive than spec review (broader concern surface). `/ship
 
 Dispatch via `Agent(subagent_type: "general-purpose", prompt: <template>)`. Read-only role. The prompt activates only the requested `concerns`.
 
+**Model tier (think).** Read `models.think` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal. Applies to every dispatch, including each subagent of the parallel-split variant below.
+
 ```text
 You are conducting a code-quality review of a Shipyard {{scope}}.
 

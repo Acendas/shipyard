@@ -40,7 +40,7 @@ Recommended: 1 — the risk of picking wrong is high enough to justify a quick s
 
 ### POC spike flow (if user chooses spike)
 
-A POC spike does not fit `dispatching-task-loop`'s contract (no tests, no atomic commit, no acceptance probe — the deliverable is a recommendation, not production code). Dispatch directly via `general-purpose` with `isolation: "worktree"` so the spike runs in throwaway isolation:
+A POC spike does not fit `dispatching-task-loop`'s contract (no tests, no atomic commit, no acceptance probe — the deliverable is a recommendation, not production code). Dispatch directly via `general-purpose` with `isolation: "worktree"` so the spike runs in throwaway isolation. **Model tier (build)** — a spike is exploratory build labor: read `models.build` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so it inherits the session model. Never hardcode a literal.
 
 ```
 Agent(subagent_type: "general-purpose", isolation: "worktree", prompt: |

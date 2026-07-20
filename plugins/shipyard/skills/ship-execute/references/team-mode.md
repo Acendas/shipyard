@@ -36,12 +36,13 @@ If a feature has only 1 task, it still gets its own teammate (simpler than speci
    CURRENT_SHA=$(git rev-parse HEAD)
    git worktree add -b shipyard/wt-FEATURE_ID-slug .claude/worktrees/FEATURE_ID "$CURRENT_SHA"
    ```
-4. Spawn teammates up to the concurrency cap (max 4), queue the rest. Dispatch via `general-purpose` with `team_name` set; the `shipyard:dispatching-task-loop` capability skill is NOT used directly because team-mode teammates persist across multiple tasks (a teammate works through ALL tasks in its assigned feature track, not one-task-one-dispatch). The teammate spawn prompt is inlined below.
+4. Spawn teammates up to the concurrency cap (max 4), queue the rest. Dispatch via `general-purpose` with `team_name` set; the `shipyard:dispatching-task-loop` capability skill is NOT used directly because team-mode teammates persist across multiple tasks (a teammate works through ALL tasks in its assigned feature track, not one-task-one-dispatch). The teammate spawn prompt is inlined below. **Model tier (build)** — teammates do implementation labor: read `models.build` from `<SHIPYARD_DATA>/config.md`; if non-empty pass `model: <value>` on the `Agent(...)` call below, if empty or absent OMIT the `model:` field so the teammate inherits the session model. Never hardcode a literal.
 
    ```
    Agent(name: "teammate-FEATURE_ID",
          subagent_type: "general-purpose",
          team_name: "sprint-NNN",
+         model: <models.build — omit this line entirely if the config value is empty/absent>,
          prompt: [teammate spawn prompt with WORKTREE_PATH filled in — see below])
    ```
 

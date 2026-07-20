@@ -39,6 +39,8 @@ Invoke this capability skill from a command skill (`ship-execute`, `ship-quick`,
 
 Dispatch via `Agent(subagent_type: "general-purpose", prompt: <the template below, parameterized>)`. Shipyard does not use registered agents — the dispatch is always `general-purpose` with the template inlined.
 
+**Model tier (build).** Read `models.build` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal. This applies to BOTH dispatch modes below — the sync `Agent(...)` call and the `Agent(run_in_background: true, ...)` call carry the same `model:` rule.
+
 The orchestrator constructs the prompt from this template. Each `{{placeholder}}` is replaced literally. The template is intentionally written *as if it were the subagent's full instructions*, because it is.
 
 ```text

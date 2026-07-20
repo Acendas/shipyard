@@ -12,6 +12,8 @@ For each selected feature, spawn one `general-purpose` subagent **in parallel** 
 
 The analyst role is single-use to ship-sprint, so the prompt template is inline (not a Layer-2 capability skill). Substitute the literal SHIPYARD_DATA path before spawning.
 
+**Model tier (think)** — analysts do reasoning/investigation work: read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it). If non-empty, pass `model: <value>` on each parallel `Agent(...)` call; if empty or absent, OMIT `model:` so the analyst inherits the session model. Never hardcode a literal.
+
 ## Prompt template
 
 ```

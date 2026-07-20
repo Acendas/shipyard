@@ -40,7 +40,7 @@ After the code review loop exits clean, run a simplification pass on the sprint'
    ```bash
    git diff --name-only $(git merge-base HEAD <main_branch>)...HEAD
    ```
-2. Spawn the simplifier agent:
+2. Spawn the simplifier agent. **Model tier (build)** — simplification is implementation labor: read `models.build` from `<SHIPYARD_DATA>/config.md` (the `/ship-review` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so it inherits the session model. Never hardcode a literal.
    ```
    Agent(subagent_type: "general-purpose", prompt: |
      You are a code simplifier. Review and simplify the following files that were changed in this sprint.

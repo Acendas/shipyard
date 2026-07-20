@@ -1,0 +1,80 @@
+[
+  {
+    "name": "is_capability_skill",
+    "type": "contains",
+    "pattern": "disable-model-invocation: true",
+    "why": "escalation must be invoked by orchestrating skills at documented triggers, never auto-fire from a user prompt"
+  },
+  {
+    "name": "four_triggers_enumerated",
+    "type": "contains",
+    "pattern": "repeated_fix_failure|integration_gate|uncovered_blocked|critic_deadlock",
+    "why": "the trigger vocabulary is the contract the orchestrators emit and the cap counts by"
+  },
+  {
+    "name": "respects_escalation_enabled",
+    "type": "contains",
+    "pattern": "escalation\\.enabled",
+    "why": "escalation is a config opt-out; a disabled project must fall back to AskUserQuestion"
+  },
+  {
+    "name": "enforces_per_sprint_cap",
+    "type": "contains",
+    "pattern": "max_consults_per_sprint",
+    "why": "the cap keeps escalation a scalpel — count prior consult events before dispatching"
+  },
+  {
+    "name": "counts_consults_via_scan_events",
+    "type": "contains",
+    "pattern": "scan-events --tail \\d+ escalation_consult_dispatched",
+    "why": "the cap is enforced against the event log, not session memory"
+  },
+  {
+    "name": "reads_think_tier_from_config",
+    "type": "contains",
+    "pattern": "models\\.think",
+    "why": "the consult model comes from config; empty value = omit model: and inherit"
+  },
+  {
+    "name": "omit_model_when_unset",
+    "type": "contains",
+    "pattern": "omit the `model:` field",
+    "why": "an empty tier must not become a hardcoded model — omission inherits the session model"
+  },
+  {
+    "name": "emits_dispatch_event_first",
+    "type": "contains",
+    "pattern": "escalation_consult_dispatched",
+    "why": "a consult that leaves no audit trace cannot be capped or diagnosed"
+  },
+  {
+    "name": "emits_return_event",
+    "type": "contains",
+    "pattern": "escalation_consult_returned",
+    "why": "close the audit pair so /ship-status and diagnose can see consult outcomes"
+  },
+  {
+    "name": "consult_is_read_only",
+    "type": "contains",
+    "pattern": "READ-ONLY",
+    "why": "the consult recommends; the orchestrator executes — a mutating consult would bypass the pipeline's gates"
+  },
+  {
+    "name": "structured_return_contract",
+    "type": "contains",
+    "pattern": "DIAGNOSIS:.*\\n.*RECOMMENDATION:.*\\n.*FALLBACK:.*\\n.*CONFIDENCE:",
+    "why": "the orchestrator parses the return; free-prose recommendations are unactionable"
+  },
+  {
+    "name": "gates_beat_consults",
+    "type": "contains",
+    "pattern": "the gate wins",
+    "why": "a consult recommendation must never become authority to bypass terminal/integration/loop-leak gates"
+  },
+  {
+    "name": "documented_recovery_paths_first",
+    "type": "contains",
+    "pattern": "do not escalate",
+    "why": "escalation is for reasoning gaps the documented playbooks don't cover, not a shortcut around them"
+  }
+]

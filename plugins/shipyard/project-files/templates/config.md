@@ -1,5 +1,5 @@
 ---
-config_version: 3
+config_version: 4
 project_name: ""
 project_type: ""
 tech_stack: []
@@ -36,6 +36,16 @@ operational_tasks:
   max_patch_tasks: 5          # scope-creep guard — escalate if cumulative patch tasks > this
 execution:
   max_parallel_agents: 3      # max concurrent builder subagents per wave (1-4, hard ceiling 4)
+models:
+  # Model tier per work class. Empty string = omit the model override and
+  # inherit the session model (always safe). Values are Agent-tool model
+  # names: fable | opus | sonnet | haiku.
+  think: ""                   # deep reasoning: critics, spec review, sprint analysts, decomposition, escalation consults (recommended: fable, or opus if fable unavailable on your plan)
+  build: ""                   # labor: builder task loops, operational runs, research sweeps, fixers, simplifiers (recommended: sonnet)
+  orchestrate: ""             # informational until skill-frontmatter wiring lands: the user-session shell tier (recommended: opus)
+escalation:
+  enabled: true               # allow orchestrators to dispatch a models.think consult when stuck
+  max_consults_per_sprint: 3  # hard cap on escalation consults per sprint
 quality_gates:
   standing: []              # standing gates applied to every sprint release
   # Examples of standing gates:

@@ -102,7 +102,7 @@ Check if `<SHIPYARD_DATA>/config.md` exists:
 If `<SHIPYARD_DATA>/config.md` exists, run these checks before doing anything else:
 
 1. **Legacy footprint clean?** The legacy cleanup section above runs first regardless. By the time you reach Quick Check, Check 1 (`.claude/rules/shipyard-*.md`) and Check 2 (`.claude/settings.local.json` legacy entries) have already been offered to the user. Nothing to re-check here.
-2. **Config version current?** Read `config_version` from `<SHIPYARD_DATA>/config.md` — if matches latest (3), no migration needed
+2. **Config version current?** Read `config_version` from `<SHIPYARD_DATA>/config.md` — if matches latest (4), no migration needed
 3. **Codebase context exists?** Use the Read tool on `<SHIPYARD_DATA>/codebase-context.md` (substitute the literal SHIPYARD_DATA path) — if it exists, no re-analysis needed
 
 **If ALL checks pass** → report and exit immediately:
@@ -164,6 +164,14 @@ Scan the project first — auto-detect as much as possible. Only ask what you ca
    AskUserQuestion if detectable: "I found these quality checks in your project. Make them standing sprint gates? (yes / pick / skip)"
 
    Default: empty (`quality_gates.standing: []`). Quality gates are opt-in. Write accepted gates to `config.md` under `quality_gates.standing`. Each gate is a free-text description — verification type is inferred during sprint planning.
+
+   **Model tiers (`models:` block, config v4)** — which model each work class dispatches on. AskUserQuestion:
+
+   > "Shipyard dispatches subagents for two classes of work. Which models should they use?
+   > - **think** (critics, spec review, sprint analysis, escalation consults): `fable` (Recommended — requires a plan with Fable access) / `opus` / inherit session model
+   > - **build** (builder task loops, test/build runs, fixers, research): `sonnet` (Recommended) / inherit session model"
+
+   Explain the tradeoff in one line: think-tier work benefits from the strongest model; build-tier work is high-volume and Sonnet keeps it fast and economical. If the user is unsure whether their plan includes Fable, recommend `opus` — a dispatch with an unavailable model errors at spawn time. "Inherit" writes the empty string, which makes every dispatch omit the `model:` override (always safe). `escalation.enabled` defaults to `true` with `max_consults_per_sprint: 3` — mention it, only ask if the user pushes back on escalation behavior.
 
 **Auto-detect these (confirm, don't ask):**
 Scan the project and present findings: "I detected [X]. Correct?" Only ask if detection fails.
@@ -477,7 +485,7 @@ Report:
   ✅ Plugin rules: 4/4 reachable in plugin
   ✅ Legacy injection: clean (0 .claude/rules/shipyard-*.md)
   ✅ Templates: 9/9 installed
-  ✅ Config: valid (v3)
+  ✅ Config: valid (v4)
   ✅ Git: ready (has commits)
   ✅ Worktree: supported (or: ⚠️ project is a worktree — parallel uses parent repo)
   ✅ Test commands: configured (vitest)
@@ -577,6 +585,8 @@ Read the current config's `config_version` (absence = version 1). Compare agains
 Never remove existing fields — only add missing ones. If a field was renamed between versions, map the old value to the new field name and remove the old one.
 
 **If migrating from v2 (or earlier) to v3:** proceed to Step 2b for data model migration.
+
+**If migrating from v3 to v4:** the generic backfill above covers it — v4 adds `models:` (think/build/orchestrate, all defaulting to `""` = inherit) and `escalation:` (enabled: true, max_consults_per_sprint: 3). After backfilling, ask the model-tier question from Step 1 so the user gets a chance to opt into the tiers rather than silently inheriting everywhere.
 
 ### Step 2b: Data Model Migration (v2 → v3)
 

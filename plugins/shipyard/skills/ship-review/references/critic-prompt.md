@@ -10,6 +10,7 @@ Spawned via `Agent(subagent_type: "general-purpose", prompt: <template below>)`.
 - Replace `[FEATURE_ID]` with the feature being critiqued (e.g., `F-018`).
 - Fill in the "Review findings to challenge" section from the current Stage 3 + Stage 4 outputs.
 - Set `Stakes:` to `standard` for low-complexity features or `high` for features touching auth, payments, or data integrity.
+- **Model tier (think):** read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-review` context block already carries config, or Read it). If non-empty, pass `model: <value>` on the `Agent(...)` call; if empty or absent, OMIT `model:` so the critic inherits the session model. Never hardcode a literal.
 
 ## The prompt
 

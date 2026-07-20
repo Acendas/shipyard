@@ -96,6 +96,8 @@ After fixes commit, re-run Phase 1 (iteration N+1). Loop until exit 0 or `max_it
 
 Dispatch via `Agent(subagent_type: "general-purpose", prompt: <template>)`.
 
+**Model tier (build).** Read `models.build` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal.
+
 ```text
 You are executing one Shipyard operational task. Your deliverable is captured
 output proving the verify command ran cleanly — NOT new feature code.

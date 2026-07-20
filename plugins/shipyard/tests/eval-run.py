@@ -1026,6 +1026,57 @@ def check_bash_preexec_permissions(result):
 
 # ─── Check 8: Cross-skill consistency ───
 
+def check_no_hardcoded_dispatch_model(result):
+    """No Agent dispatch site may hardcode a model literal (v2.10.0).
+
+    Model tiers are project config (`config.md` `models:` block, v4):
+    skills read `models.think` / `models.build` and pass `model: <value>`
+    only when non-empty, omitting the field otherwise so the subagent
+    inherits the session model. A literal like `model: sonnet` (or
+    `model: "opus"`) in a skill body bypasses the config and silently
+    pins a tier the user didn't choose — exactly the drift this check
+    exists to catch.
+
+    Scope: every .md under skills/. Allowed forms near Agent dispatches:
+    `model: <models.build value>` style placeholders, `models.think` /
+    `models.build` config references. Banned: a bare model name literal
+    as the model value.
+    """
+    LITERAL = re.compile(
+        r'model:\s*["\']?(fable|opus|sonnet|haiku)\b', re.IGNORECASE
+    )
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        for md_file in skill_dir.rglob("*.md"):
+            content = read_file(md_file)
+            rel = md_file.relative_to(PROJECT_ROOT)
+            # Skill frontmatter `model:` (the shell's own tier) is legitimate
+            # config, not a dispatch-site literal — scan the body only.
+            fm = re.match(r'^---\r?\n[\s\S]*?\r?\n---', content)
+            if fm:
+                content = content[fm.end():]
+            hits = []
+            for m in LITERAL.finditer(content):
+                # Ignore mentions inside the config-docs context, e.g.
+                # "recommended: sonnet" or "fable|opus|sonnet|haiku" lists —
+                # only flag when it reads as an actual Agent model argument.
+                line_start = content.rfind("\n", 0, m.start()) + 1
+                line = content[line_start:content.find("\n", m.start())]
+                if "recommended" in line.lower() or "|" in line.split("model:")[-1][:30]:
+                    continue
+                hits.append(line.strip()[:80])
+            if hits:
+                result.fail(
+                    f"dispatch-model:{rel}",
+                    "hardcoded model literal at a dispatch site "
+                    f"({'; '.join(hits[:3])}) — read models.think/models.build "
+                    "from config.md and omit model: when the value is empty",
+                )
+            else:
+                result.ok(f"dispatch-model:{rel}")
+
+
 def check_cross_skill_consistency(result):
     """Check skills reference each other consistently."""
 
@@ -1138,6 +1189,7 @@ def main():
     check_skill_bash_allowlist_consistency(result)
     check_no_python_in_plugin(result)
     check_session_mutex_pattern(result)
+    check_no_hardcoded_dispatch_model(result)
     check_cross_skill_consistency(result)
 
     exit_code = print_report(result, verbose)

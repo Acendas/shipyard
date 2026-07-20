@@ -97,7 +97,7 @@ When not eligible, skip the bootstrap block entirely and proceed to the dispatch
 Two stages can self-loop until they converge by data: `code_review_iter_N` (Stage 0 — scanner clean signal) and `gap_analysis` (Stages 4 + 4.5 — checklist stable signal). There is no arbitrary iteration cap; convergence is data-driven. Stuck detection works as follows:
 
 - Each self-loop tick increments `stuck_counter:` if state did NOT change since the previous tick. For `code_review_iter_N`, state = the (must_fix, should_fix) tuple from the most recent scanner pass. For `gap_analysis`, state = the gap list (set-equal).
-- If `stuck_counter >= 5` (5 ticks without state change), emit `shipyard-data events emit pipeline_stuck pipeline=ship-review sprint=<id> stage=<id> iterations=<N> reason=no-state-change` AND surface a non-blocking one-line warning in the user-facing text: `⚠ Stage [X] has run [N] times without state change. /ship-status to inspect; consider manual intervention.` The loop keeps running — the warning is informational.
+- If `stuck_counter >= 5` (5 ticks without state change): for `code_review_iter_N` (the fixer has stalled with an unchanged must-fix set), FIRST invoke the `shipyard:escalating-to-thinker` capability skill (trigger: `repeated_fix_failure`, subject: `code_review_iter`) — a think-tier consult may diagnose why the fixer isn't converging and recommend a normal-path unstick. Then, whether or not the consult ran (it may be capped), emit `shipyard-data events emit pipeline_stuck pipeline=ship-review sprint=<id> stage=<id> iterations=<N> reason=no-state-change` AND surface a non-blocking one-line warning in the user-facing text: `⚠ Stage [X] has run [N] times without state change. /ship-status to inspect; consider manual intervention.` The loop keeps running — the warning is informational.
 - Reset `stuck_counter` to 0 on the first tick where state changes.
 - `hard_ceiling: 50` is the absolute safety stop. If a self-loop stage reaches `iteration: 50`, run `shipyard-data cursor escalate review reason=hard_ceiling_stage_<id>` (terminal escalation from the current stage — sets `status: escalated`, `terminal: true`, emits `pipeline_terminal outcome=escalated`, prints the stop marker), echo its output, and halt. In practice the 5-tick warning surfaces intervention long before the ceiling is reached; the ceiling exists only as a backstop against a runaway loop with broken state-change detection.
 
@@ -156,7 +156,7 @@ Run the multi-agent code review on the sprint's diff before tests and spec compl
 
 Skip if `--skip-code-review` is passed (same gate as Stage 0).
 
-After Stage 0 exits clean, spawn a general-purpose simplifier subagent (inline prompt — no external-plugin dependency) against the sprint diff to clean up quick patches the fixer may have introduced. Scope-guarded to sprint-diff files only — reverts via `git reset --hard HEAD~1` if the simplifier touches unexpected files. Mechanics in `references/scanner-dispatch.md`.
+After Stage 0 exits clean, spawn a general-purpose simplifier subagent (inline prompt — no external-plugin dependency) against the sprint diff to clean up quick patches the fixer may have introduced. **Model tier (build)** — pass `model: <models.build>` from config if non-empty, else OMIT `model:` (inherit session model); never hardcode a literal. Scope-guarded to sprint-diff files only — reverts via `git reset --hard HEAD~1` if the simplifier touches unexpected files. Mechanics (including the model rule) in `references/scanner-dispatch.md`.
 
 - **Cursor advance**: on completion (success or logged-and-continue), run `shipyard-data cursor advance review tests --note "Run Stage 1a full test suite via dispatching-operational-task"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain into the next stage.
 
@@ -312,7 +312,7 @@ Iterate the checklist against your findings. If any check reveals a missed gap, 
 
 ### Stage 4.6: Critic Challenge (stage_id: critic)
 
-After the self-review loop stabilizes, dispatch a **`general-purpose`** subagent in critic mode to challenge the review findings. The critic reads the feature spec, implementation, and the review's results to find what the reviewer missed — blind spots, false positives, and false negatives. Anti-sycophancy + pre-mortem framing; read-only.
+After the self-review loop stabilizes, dispatch a **`general-purpose`** subagent in critic mode to challenge the review findings. The critic reads the feature spec, implementation, and the review's results to find what the reviewer missed — blind spots, false positives, and false negatives. Anti-sycophancy + pre-mortem framing; read-only. **Model tier (think)** — pass `model: <models.think>` from config if non-empty, else OMIT `model:` (inherit session model); never hardcode a literal.
 
 The full subagent prompt template (with `<SHIPYARD_DATA>`, `[FEATURE_ID]`, stakes, and findings substitutions) and the consumption protocol live in `references/critic-prompt.md`. The critic returns a structured `STATUS: CHALLENGES` or `STATUS: NO_CHALLENGES` report — Stage 4.7 processes the findings with one surgical pass.
 
@@ -328,6 +328,8 @@ Process the critic's findings with **one** targeted pass — no iteration loop:
 4. If the critic's finding is itself a false positive (the review was correct) → discard it
 
 Do not re-run the full review pipeline. This is a surgical pass on the critic's specific findings only. Update the gap counts and classifications, then proceed to the verdict.
+
+**Critic deadlock.** If the critic's verdicts contradict the review's conclusions (e.g., the critic insists a ✅ is broken while direct verification says it holds, or vice versa) and a single reconciliation pass over the disputed items does NOT resolve which is right, invoke the `shipyard:escalating-to-thinker` capability skill (trigger: `critic_deadlock`, subject: the feature ID / disputed finding) before recording a verdict — a think-tier consult breaks the tie with a fresh reading. Only if it declines (cap reached), returns low confidence, or its recommendation also fails do you surface the contradiction to the user via AskUserQuestion. Do not silently pick a side.
 
 - **Cursor advance**: run `shipyard-data cursor advance review verdict --note "Write verdict file"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
