@@ -47,7 +47,8 @@ $ARGUMENTS
 
 1. Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` (use the Read tool — reads are unchanged; only writes are CLI-owned).
    - **If the file exists and `terminal: true`**: run `shipyard-data cursor noop review sprint=<id> reason=cursor_already_terminal`, echo its output, exit.
-   - **If the file exists and `terminal: false`**: dispatch to the handler for `cursor.stage` (per the stage map in `references/pipeline-cursor.md`). (`pipeline_tick_started`/`pipeline_tick_completed` are CLI-emitted on every advance — no manual event emits.)
+   - **If the file exists and `status: paused`** (a pause-before-ask stage is awaiting a user answer): **paused is wakeup-inert.** A `/loop` wakeup must NEVER resume it — a wakeup can't answer the pending question. Run `shipyard-data cursor noop review sprint=<id>`, echo its output (it emits `pipeline_terminal outcome=noop reason=awaiting_user_paused`, prints the pause note + resume hint + stop marker; a 2nd wakeup against the same paused sprint trips the ⛔ leak alarm pointing at `cursor resume`), and STOP. Only when the user is explicitly re-engaging this invocation (they answered the pending question, or asked to continue) run `shipyard-data cursor resume review` and dispatch to `cursor.stage`.
+   - **If the file exists and `terminal: false`** (and not paused): dispatch to the handler for `cursor.stage` (per the stage map in `references/pipeline-cursor.md`). (`pipeline_tick_started`/`pipeline_tick_completed` are CLI-emitted on every advance — no manual event emits.)
    - **If the file does NOT exist**: fresh start. Dispatch to the preflight handler; the handler's `cursor advance` call materializes the cursor (and emits the tick events).
 
 2. **No-op terminal sweep (MANDATORY — load-bearing for /loop safety).** Even if step 1 read a non-terminal cursor (or no cursor at all), verify the sprint is actually alive by checking all THREE conditions:
@@ -57,7 +58,7 @@ $ARGUMENTS
 
    If ANY of these hold AND no feature ID was passed as an argument, run the no-op terminal path via a single CLI call:
    - Run `shipyard-data cursor noop review sprint=<id-or-unknown> reason=sprint_already_archived`. This does the whole sweep in-process: emits `pipeline_terminal outcome=noop` FIRST (non-optional — skipping it is what made the original leak invisible in the audit log), runs the repeat-leak detection (a 2nd no-op for the same dead sprint emits `pipeline_loop_leak_detected` + prints the `⛔ LOOP LEAK …` marker), and prints the stop marker as the final line. Echo its output.
-   - **Cron-fallback cleanup:** if this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-review`.
+   - **Cron-fallback cleanup:** `cursor noop` (like `pause`/`escalate`/terminal `advance`) prints a cron-cleanup reminder line itself when the event log shows an armed `pipeline_loop_bootstrap_fallback` cron. Act on that reminder line whenever it's printed: `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-review`.
 
    Exit cleanly without invoking AskUserQuestion. NEVER skip this sweep — it is the exact protection that closed the original `/loop` wakeup-leak bug. The auto-loop bootstrap below explicitly depends on this sweep having run with no exit triggered. Full protocol in `references/pipeline-cursor.md`.
 
@@ -65,12 +66,14 @@ $ARGUMENTS
 
 The CLI is the single cursor writer (auto-approved; a direct model Write to the cursor is DENIED by the hook). The marker text it prints is load-bearing — `/loop` drivers (and the loop-driving model) read `CYCLE COMPLETE` + `/loop should stop` as the structural signal to refrain from scheduling another wakeup, and the CLI guarantees that marker is the LAST line.
 
+**Pause before every blocking ask (load-bearing rule): a tick never exits with a pending question and no stop marker.** At every stage that blocks on `AskUserQuestion` for user input — `demo_user` (Stage 5 approval), `retro_step_2` (retro discussion), `release_step_1` (release plan) — run `shipyard-data cursor pause review --note "awaiting user: <what>"` **before** invoking `AskUserQuestion`. The pause writes `status: paused` and prints the stop marker, so if the tick is torn down (context loss, or the `/loop` driver treating the ask as end-of-tick) the persisted state is `paused` and the next wakeup no-ops instead of re-running the stage and re-asking the same question every wakeup. On the user's answer, run `shipyard-data cursor resume review`, then proceed with the stage handler. The `demo_probe` FAIL path already does exactly this (Stage 4.8) — it's the pattern to mirror. (pause keeps the current stage; resume returns to it — no stage-graph change is involved.)
+
 **Direct invocation vs /loop driver.** The same skill body serves both callers:
 
 - **Direct invocation** (user runs `/ship-review` or `/ship-review F-NNN` from the prompt): after a handler returns, if the next stage is non-terminal AND non-blocking (no `AskUserQuestion` required AND no expensive long-running operation), the dispatcher MAY chain into it within the same invocation. Bound the chain by an approximate wall-clock budget of **~10 minutes** per invocation to keep ticks responsive and interruptible.
 - **`/loop` driver** (the invocation is one tick of a `/loop` schedule): each tick is exactly one handler. After the handler's `shipyard-data cursor advance` returns (it emits `pipeline_tick_completed` and prints the marker), exit. The chain-within-invocation logic is suppressed when `loop_owner == "/loop"`. The next `/loop` wakeup picks up from the cursor's `stage:`.
 
-**`loop_owner` detection.** Determine the caller by reading the most recent `pipeline_tick_completed` event from `<SHIPYARD_DATA>/.shipyard-events.jsonl` (a 30-minute lookback window): if its `next_stage` matches the current cursor's `stage` AND its timestamp is within the last 30 minutes, treat the current invocation as a `/loop` re-entry and set `loop_owner: "/loop"`. Otherwise treat as a direct user invocation (`loop_owner: "user"`). A user explicitly passing `--single-tick` forces `/loop` semantics — this is the override for "I want one tick now and that's it."
+**`loop_owner` detection.** The heuristic is CLI-owned (centralized in `shipyard-data cursor bootstrap-check` so it can be fixed in one place): the most recent `pipeline_tick_completed` event whose `next_stage` matches the current cursor's `stage` AND whose timestamp is **within the last 5 minutes** (v3.4.0, was 30) marks this invocation as a `/loop` re-entry (`loop_owner: "/loop"`); otherwise it's a direct user invocation (`loop_owner: "user"`). The cursor's own `loop_owner` field wins when set. A live `/loop` ticks well inside 5 minutes; the tighter window means an abandoned session doesn't masquerade as a live loop for half an hour (which would one-tick-stall the pipeline and disarm the cron fallback, which requires `loop_owner=user`). A user explicitly passing `--single-tick` forces `/loop` semantics — the override for "I want one tick now and that's it."
 
 **Auto-loop bootstrap.** When a user invokes `/ship-review` directly (not `--retro-only` — single-pass retro never loops), run `shipyard-data cursor bootstrap-check review`. The CLI evaluates everything (loop-owner detection, cursor non-terminal, sentinel not set, sprint liveness) and prints one JSON line; when `eligible: true` it has already set the `auto_loop_attempted` sentinel on the cursor. Then:
 
@@ -407,19 +410,19 @@ After all features are reviewed and verdicts written, present the complete revie
 - Standing gates: [N] pass / [M] fail
 - Sprint-specific gates: [N] pass / [M] fail
 - Integration gates: [N] pass / [M] fail
-- **Manual verification checklist** — for each manual gate:
-  Present via AskUserQuestion: "[Gate description]. Verified? (yes / no / not applicable)"
-  Review cannot auto-approve if manual gates remain unverified.
+- **Manual verification checklist** — batch ALL manual gates into a **single** `AskUserQuestion` call (each gate is one question: "[Gate description]. Verified? — yes / no / not applicable"), up to 4 questions per call; paginate into a second call only on overflow (>4 gates). Do NOT drip one gate per call. If there are few gates, fold them in as extra questions of the approval call below rather than making a separate call. Review cannot auto-approve if manual gates remain unverified.
 
 **Recommended action** per feature:
 - ✅ Approve — all checks passed
 - ⚠️ Issues — minor gaps, suggest patch tasks
 - ❌ Needs changes — significant gaps, needs rework
 
-Then use `AskUserQuestion` for approval:
+**Pause before the approval ask** (per the pause-before-ask rule above): run `shipyard-data cursor pause review --note "awaiting user: sprint approval decision"` before invoking `AskUserQuestion`. Then use `AskUserQuestion` for approval (this approval is load-bearing — NEVER skip user approval; batch the manual-gate questions above into this same call when there are few of them):
 - **Approve (Recommended)** — update feature statuses to `done`, proceed to Sprint Retrospective
 - **Refine** — give feedback on specific features, iterate
 - **Fix first** — create patch tasks, show: "/ship-execute --task [patch task ID]"
+
+On the user's answer, run `shipyard-data cursor resume review`, then advance:
 
 - **Cursor advance**: after the user answers, run `shipyard-data cursor advance review process_approved` (or `... process_issues` / `... process_changes` per the answer) with `--note "Process Stage 6 decision branch"` and echo its output.
 
@@ -445,7 +448,7 @@ Fast-track for hotfixes:
 1. Check regression test exists and passes
 2. Check fix addresses the bug report
 3. No full demo — just test verification
-4. AskUserQuestion: "Hotfix B-HOT-NNN verified. Merge to [main_branch from config]?"
+4. Report as a statement, not a question — Shipyard never merges or pushes (see Rules), so asking permission for an action it won't perform is misleading: *"Hotfix B-HOT-NNN verified (regression test red→green). Merge when ready — Shipyard doesn't touch your branches."*
 
 ---
 
@@ -458,17 +461,17 @@ The retro runs in four steps with compaction recovery via `RETRO-DATA.md`'s `ste
 ### Retro Step 1: Gather Data (stage_id: retro_step_1)
 Compute planned-vs-delivered, velocity, carry-over, bugs, blocked time, swaps, patch tasks, estimate accuracy, throughput from SPRINT.md + task/feature files. Write to `RETRO-DATA.md` (`step: data_gathered`) and present the summary block.
 
-- **Cursor advance**: run `shipyard-data cursor advance review retro_step_2 --note "Facilitate retro discussion (3× AskUserQuestion)"`.
+- **Cursor advance**: run `shipyard-data cursor advance review retro_step_2 --note "Facilitate retro discussion (one bulk AskUserQuestion)"`.
 
 ### Retro Step 2: Facilitate Discussion (stage_id: retro_step_2)
-Three sequential AskUserQuestion calls — lead each with the data-driven observation, then ask:
-1. **What went well?**
-2. **What didn't go well?**
-3. **What should we change?**
+Pause before asking (per the pause-before-ask rule): run `shipyard-data cursor pause review --note "awaiting user: retro discussion"` before the `AskUserQuestion`. Then ask all three in **ONE** `AskUserQuestion` call (three questions), each led by its data-driven observation and each with a cheap exit ("'skip' is fine"):
+1. **What went well?** — lead with what the data shows went well.
+2. **What didn't go well?** — lead with the flagged issues.
+3. **What should we change next sprint?** — lead with the suggested improvements.
 
-Append responses to `RETRO-DATA.md` under `## Team Feedback`. Update frontmatter: `step: feedback_collected`.
+On the user's answers, run `shipyard-data cursor resume review`, append responses to `RETRO-DATA.md` under `## Team Feedback`, and update frontmatter: `step: feedback_collected`.
 
-- **Cursor advance**: after all three AskUserQuestion responses are collected, run `shipyard-data cursor advance review retro_step_3 --note "Create IDEA action items"` and echo its output.
+- **Cursor advance**: after the answers are collected, run `shipyard-data cursor advance review retro_step_3 --note "Create IDEA action items"` and echo its output.
 
 ### Retro Step 3: Create Action Items (stage_id: retro_step_3)
 For each actionable improvement, allocate an ID via `shipyard-data next-id ideas` (never `ls`-and-guess) and Write `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with `source: retro/<sprint-id>` (slash form — matches the carry-over scan regex). Update `RETRO-DATA.md`: `step: action_items_created`.
@@ -500,9 +503,7 @@ Please report it so the maintainers can fix it:
 Include the output of: shipyard-context diagnose
 ```
 
-Use `AskUserQuestion` to offer:
-- **Report issue (Recommended)** — user will file at github.com/acendas/shipyard/issues
-- **Skip** — acknowledged, move on
+Print this as plain text and continue the retro — do not `AskUserQuestion`. Both a "report" and a "skip" answer land in the same place (the retro continues either way), so a blocking question here buys nothing; surfacing the report-it block above is the whole job.
 
 ---
 
@@ -513,10 +514,12 @@ After retro completes, generate the release record. This is a changelog + status
 ### Release Step 1: Present Release Plan (stage_id: release_step_1)
 Read all `status: done` features from this sprint. Output the release plan as text — CHANGELOG block, STATUS CHANGES, RETRO HIGHLIGHTS, FILES WRITTEN. Release is the most irreversible action in the workflow; surface everything before confirming.
 
-Then use `AskUserQuestion` for approval:
+Pause before asking (per the pause-before-ask rule): run `shipyard-data cursor pause review --note "awaiting user: release approval"` before the `AskUserQuestion`. This approval is load-bearing (most irreversible action) — never skip it. Then use `AskUserQuestion` for approval:
 - **Release (Recommended)** — proceed to Release Step 2 (write everything)
 - **Edit changelog** — adjust changelog text, then re-approve
 - **Skip release** — skip release record, still archive sprint
+
+On the user's answer, run `shipyard-data cursor resume review`, then advance:
 
 - **Cursor advance**: on **Release** → run `shipyard-data cursor advance review release_step_2`. On **Skip release** → run `shipyard-data cursor advance review archive`. On **Edit changelog** → run `shipyard-data cursor advance review release_step_1 iteration=<N+1> --note "Re-present after changelog edit"` (self-tick). Echo the CLI output in each case.
 
@@ -528,7 +531,7 @@ Update feature frontmatter (`status: released`, `released_at: [date]`) and prepe
 ### Release Step 3: Archive Sprint (stage_id: release_step_3)
 Run `shipyard-data archive-sprint sprint-NNN` from Bash. This atomically renames `current/` → `sprint-NNN/` and recreates an empty `current/`. Do NOT synthesize raw `cp`/`mv`/`mkdir` against the plugin data dir — they're not portable and not atomic.
 
-- **Cursor advance**: the archive operation rotates `current/` so the cursor file goes with it. Advance to `stage: terminal` semantically — the wrap-up below runs the terminal advance. Because archive already rotated `current/` away, the terminal advance runs with no live cursor to write; the CLI still emits the canonical `pipeline_terminal` event and prints the stop marker (the event, not a cursor file, is the terminal signal here).
+- **Cursor advance**: the archive operation rotates `current/` so the cursor file goes with it — that is by design, and the wrap-up below runs the terminal advance against the *absent* cursor. The CLI handles this seam first-class (v3.4.0): a terminal advance with no cursor runs the terminal-evidence gate against the (persistent) event log, emits the canonical `pipeline_terminal` event, and **writes no cursor** — it prints `cursor: (archived) → terminal …` plus the stop marker. Writing a terminal cursor into the freshly-recreated empty `current/` would plant a stale terminal cursor that no-ops the NEXT sprint and false-trips the leak alarm; the event, not a cursor file, is the terminal signal here.
 
 ### Final: Run Status
 After archiving, run `/ship-status` to give the user a clean project health snapshot and auto-fix any state issues before the next cycle.
@@ -555,9 +558,9 @@ The skip-release path (`stage: archive`) and the full-release path (after `relea
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-2. Run `shipyard-data cursor advance review terminal outcome=success reason=cycle_complete --note "Pipeline complete — no further work."`. The CLI emits `pipeline_terminal outcome=success` and prints `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` Echo its output so that marker is the FINAL line of your response. (If `archive-sprint` already rotated `current/` away, there is no cursor file to write — the CLI still emits the terminal event and prints the marker; the event is the canonical terminal signal.)
+2. Run `shipyard-data cursor advance review terminal outcome=success reason=cycle_complete --note "Pipeline complete — no further work."`. The CLI emits `pipeline_terminal outcome=success` and prints `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` Echo its output so that marker is the FINAL line of your response. (When `archive-sprint` already rotated `current/` away, the CLI's post-archive terminal seam applies: evidence gate over the event log, terminal event emitted, `cursor: (archived) → terminal …` printed, and NO cursor file written — deliberately, so no stale terminal cursor haunts the next sprint.)
 
-The stop marker is load-bearing and **must be the final line** — `/loop` drivers read the LAST line as the structural continue-or-stop signal, so the NEXT-UP hint (printed in step 1) comes BEFORE it, never after (the v2.8.2 ordering fix; a `NEXT UP` line printed last reads as "keep going" to an over-eager driver). The CLI guarantees the marker is last as long as you echo its output after the banner and print nothing further. Before exiting, if this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-review`.
+The stop marker is load-bearing and **must be the final line** — `/loop` drivers read the LAST line as the structural continue-or-stop signal, so the NEXT-UP hint (printed in step 1) comes BEFORE it, never after (the v2.8.2 ordering fix; a `NEXT UP` line printed last reads as "keep going" to an over-eager driver). The CLI guarantees the marker is last as long as you echo its output after the banner and print nothing further. The terminal `advance` also prints a cron-cleanup reminder line when an armed `pipeline_loop_bootstrap_fallback` cron exists — act on it whenever printed: `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-review`.
 
 ---
 

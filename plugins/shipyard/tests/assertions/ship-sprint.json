@@ -576,5 +576,41 @@
     "type": "contains",
     "pattern": "Never run AskUserQuestion inside the dispatched agent",
     "why": "v3.0.0: user gates stay shell-side; the deep-dive agent only analyzes and writes task files"
+  },
+  {
+    "name": "capacity_decide_and_inform",
+    "type": "contains",
+    "pattern": "Decide-and-inform when velocity data exists|say 'change' to adjust",
+    "why": "v3.4.0: capacity with velocity data is stated in one line and proceeds; no accept/adjust ask"
+  },
+  {
+    "name": "capacity_save_default_folds_into_approval",
+    "type": "contains",
+    "pattern": "folds into the Step 11 plan-approval|Save \\[N\\] pts as the new default velocity",
+    "why": "v3.4.0: the save-as-default question is asked only inside the Step 11 approval call"
+  },
+  {
+    "name": "planning_decisions_round_confidence_gated",
+    "type": "contains",
+    "pattern": "Planning-decisions round \\(Steps 3.5.3.75\\)",
+    "why": "v3.4.0: Steps 3.5-3.75 run the confidence gate; HIGH decide-and-inform, MEDIUM/LOW batch into one ask"
+  },
+  {
+    "name": "planning_decisions_assumed_logging",
+    "type": "contains",
+    "pattern": "ASSUMED: <decision>|ASSUMPTIONS MADE",
+    "why": "v3.4.0: HIGH-tier decisions log ASSUMED entries surfaced in the Step 11 ASSUMPTIONS MADE list"
+  },
+  {
+    "name": "rules_line_uses_confidence_gate",
+    "type": "contains",
+    "pattern": "resolve the ambiguity before reaching for a prompt",
+    "why": "v3.4.0: the blanket 'ambiguous -> ask' rule is replaced by the confidence gate + kill-list"
+  },
+  {
+    "name": "stale_draft_options_labeled_by_content",
+    "type": "contains",
+    "pattern": "Resume the draft with|Discard it and replan",
+    "why": "v3.4.0: stale-draft resume options are labeled by feature content, not abstract keep/discard verbs"
   }
 ]

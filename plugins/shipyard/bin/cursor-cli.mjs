@@ -99,6 +99,31 @@ const SETTABLE_FIELDS = new Set([
   "pending_subagents",
 ]);
 
+// `cursor set` may not touch lifecycle fields — status transitions belong
+// to resume/pause/escalate (which emit their events); a `cursor set
+// status=in_progress` would be a silent un-pause backdoor.
+const SET_ONLY_EXCLUDED = new Set(["status"]);
+
+/**
+ * If a loop-silence fallback cron was armed this cycle, remind the model
+ * to clean it up — read from the EVENT LOG, not conversation memory (a
+ * compacted session forgets it armed a cron; the log doesn't). Printed
+ * BEFORE the stop marker so the marker stays the final line.
+ */
+function cronCleanupReminder(dataDir, pipeline) {
+  try {
+    const events = readEvents(dataDir, 500);
+    const armed = events.some(
+      (ev) => ev.type === "pipeline_loop_bootstrap_fallback" && ev.pipeline === pipeline,
+    );
+    if (armed) {
+      process.stdout.write(
+        `(a pipeline_loop_bootstrap_fallback cron was armed this cycle — CronList and CronDelete any cron targeting /shipyard:${pipeline === "ship-execute" ? "ship-execute" : "ship-review"} now)\n`,
+      );
+    }
+  } catch { /* best-effort */ }
+}
+
 function usageFail(msg) {
   process.stderr.write(msg.endsWith("\n") ? msg : msg + "\n");
   process.exit(2);
@@ -368,6 +393,37 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
   const prior = readCursor(dataDir, pipeline);
   const from = prior?.fm?.stage ?? null;
 
+  // Archive→terminal seam (v3.4.0). ship-review's release path runs
+  // archive-sprint BEFORE its terminal advance, which rotates current/
+  // away — the cursor is gone by design, and there is nothing left to
+  // write a cursor INTO (writing one would plant a stale terminal cursor
+  // that noops the NEXT sprint and false-trips the leak alarm). For a
+  // terminal advance with no cursor: run the evidence gate against the
+  // (persistent) event log, emit pipeline_terminal, print the markers —
+  // and write nothing.
+  if (!prior && isTerminalStage(pipeline, stage)) {
+    const proposed = renderCursor(
+      { pipeline, sprint: cursorFields.sprint ?? "", stage, terminal: true, status: cursorFields.status ?? terminalDefaultStatus(stage) },
+      [],
+      note ?? "",
+    );
+    const gate = evaluateTerminalGate({ dataDir, proposedContent: proposed });
+    if (!gate.allowed) {
+      gateFail("cursor advance refused — terminal-evidence gate (post-archive terminal)", gate.reasons);
+    }
+    logEvent(dataDir, "pipeline_terminal", {
+      pipeline,
+      sprint: cursorFields.sprint || "unknown",
+      outcome: outcome || terminalDefaultOutcome(stage),
+      reason: reason || stage,
+    });
+    clearExecutionLock(dataDir, pipeline);
+    process.stdout.write(`cursor: (archived) → ${stage} — terminal recorded in the event log; no cursor written (current/ already rotated).\n`);
+    cronCleanupReminder(dataDir, pipeline);
+    process.stdout.write(STOP_MARKER + "\n");
+    return;
+  }
+
   if (prior && String(prior.fm.terminal).toLowerCase() === "true" && !force) {
     gateFail(
       `cursor advance refused — the ${pipeline} cursor is already terminal`,
@@ -507,10 +563,19 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
         "▶ NEXT UP: /ship-review — a SEPARATE cycle you start yourself (tip: /clear first for a fresh window).\n",
       );
     }
+    cronCleanupReminder(dataDir, pipeline);
     process.stdout.write(STOP_MARKER + "\n");
   } else {
     const waveBit = merged.wave_number != null ? ` wave ${merged.wave_number},` : "";
-    process.stdout.write(`▶ TICK COMPLETE —${waveBit} stage ${stage}. /loop continues.\n`);
+    // Pacing hint for the /loop driver (v3.4.0): waiting stages are pure
+    // polls of background builders — waking every 60s burns a full
+    // context load per no-op poll on a wave that can run 30-60 minutes.
+    // The driver reads the last line; give it a delay suggestion there.
+    const pacing =
+      normalizeStage(pipeline, stage)?.key === "wave_waiting"
+        ? " Background builders are running — suggest next wakeup in 300s."
+        : "";
+    process.stdout.write(`▶ TICK COMPLETE —${waveBit} stage ${stage}. /loop continues.${pacing}\n`);
   }
 }
 
@@ -538,6 +603,13 @@ export function cursorSet(dataDir, pipelineArg, rest) {
     ]);
   }
   const { cursorFields } = splitEventFields(fields);
+  for (const k of Object.keys(cursorFields)) {
+    if (SET_ONLY_EXCLUDED.has(k)) {
+      usageFail(
+        `cursor set: "${k}" is a lifecycle field — use cursor resume/pause/escalate (they emit the matching events); a raw set would be a silent state change`,
+      );
+    }
+  }
   let pending = prior.pending;
   if (cursorFields.pending_subagents !== undefined) {
     const raw = cursorFields.pending_subagents;
@@ -621,11 +693,14 @@ export function cursorResume(dataDir, pipelineArg, rest, { now = new Date() } = 
  *
  * loop_owner heuristic (centralized here so it can be fixed in ONE
  * place): a pipeline_tick_completed for this pipeline within the last
- * 30 minutes whose next_stage matches the current cursor stage → this
- * invocation is a /loop re-entry. Known limitation: a direct
- * re-invocation shortly after a Ctrl-C'd chain misclassifies as /loop;
- * callers can override with the cursor's own loop_owner field, which
- * wins when set.
+ * 5 minutes whose next_stage matches the current cursor stage → this
+ * invocation is a /loop re-entry. The window is deliberately SHORT
+ * (v3.4.0, was 30 min): a live /loop ticks well inside 5 minutes, and a
+ * stale tick means the loop died (Ctrl-C, crash) — the old 30-min
+ * window misclassified a direct re-invocation as /loop for up to half
+ * an hour, one-tick-stalling the pipeline AND disarming the cron
+ * fallback (which requires loop_owner=user). Callers can override with
+ * the cursor's own loop_owner field, which wins when set.
  */
 export function cursorBootstrapCheck(dataDir, pipelineArg) {
   const pipeline = canonicalPipeline(pipelineArg);
@@ -658,7 +733,7 @@ export function cursorBootstrapCheck(dataDir, pipelineArg) {
   let loopOwner = (prior.fm.loop_owner || "").trim();
   if (loopOwner !== "/loop" && loopOwner !== "user") {
     loopOwner = "user";
-    const cutoff = Date.now() - 30 * 60 * 1000;
+    const cutoff = Date.now() - 5 * 60 * 1000;
     const events = readEvents(dataDir, 200);
     for (let i = events.length - 1; i >= 0; i--) {
       const ev = events[i];
@@ -724,7 +799,8 @@ export function cursorPause(dataDir, pipelineArg, rest, { now = new Date() } = {
     writeProgress(dataDir);
   } catch { /* best-effort */ }
   clearExecutionLock(dataDir, pipeline);
-  process.stdout.write(`cursor: paused at stage ${merged.stage}. Resume with the same skill; the cursor body carries the note.\n`);
+  process.stdout.write(`cursor: paused at stage ${merged.stage}. Resume is a USER decision (\`shipyard-data cursor resume\`) — a /loop wakeup must never resume a paused sprint.\n`);
+  cronCleanupReminder(dataDir, pipeline);
   process.stdout.write(STOP_MARKER + "\n");
 }
 
@@ -761,7 +837,8 @@ export function cursorEscalate(dataDir, pipelineArg, rest, { now = new Date() } 
     writeProgress(dataDir);
   } catch { /* best-effort */ }
   clearExecutionLock(dataDir, pipeline);
-  process.stdout.write(`cursor: escalated at stage ${merged.stage} (${reason}).\n`);
+  process.stdout.write(`cursor: escalated at stage ${merged.stage} (${reason}). Resume later with \`shipyard-data cursor resume\` once the cause is fixed.\n`);
+  cronCleanupReminder(dataDir, pipeline);
   process.stdout.write("▶ CYCLE COMPLETE — pipeline terminal (escalated). /loop should stop.\n");
 }
 
@@ -774,29 +851,30 @@ export function cursorNoop(dataDir, pipelineArg, rest) {
 
   const prior = readCursor(dataDir, pipeline);
   const sprint = fields.sprint || prior?.fm?.sprint || "unknown";
+  const alias = pipeline === "ship-execute" ? "execute" : "review";
+  const skillName = pipeline === "ship-execute" ? "ship-execute" : "ship-review";
 
-  // An ESCALATED terminal is not "sprint already complete" — it is a
-  // recoverable halt. Don't emit a noop (which would arm the repeat-leak
-  // alarm against a sprint the user may be about to resume); point at
-  // the resume path instead.
+  // PAUSED and ESCALATED are "awaiting the user" — the sprint is NOT
+  // complete, and a wakeup must not resume it (resume is an explicit user
+  // decision via `cursor resume`). But these wakeups still get leak
+  // ACCOUNTING (v3.4.0): the v2.8.2 lesson is that a stop path with no
+  // event trail lets a marker-ignoring driver spin invisibly forever. So:
+  // emit a noop with an awaiting_user reason FIRST, then run the same
+  // repeat detection — a second wakeup against the same halted sprint
+  // screams, with the ⛔ text pointing at resume instead of "complete".
   const priorStatus = (prior?.fm?.status || "").toLowerCase();
-  if (prior && String(prior.fm.terminal).toLowerCase() === "true" && priorStatus === "escalated") {
-    const alias = pipeline === "ship-execute" ? "execute" : "review";
-    process.stdout.write(
-      `cursor: the ${pipeline} pipeline ESCALATED at stage ${prior.fm.stage} — the sprint is NOT complete.\n` +
-        `If the underlying problem is fixed, resume with: shipyard-data cursor resume ${alias}\n` +
-        `▶ CYCLE COMPLETE — pipeline terminal (escalated). /loop should stop.\n`,
-    );
-    return;
-  }
+  const awaitingUser =
+    prior && (priorStatus === "escalated" || priorStatus === "paused");
 
   const reason =
     fields.reason ||
-    (prior && String(prior.fm.terminal).toLowerCase() === "true"
-      ? "cursor_already_terminal"
-      : pipeline === "ship-review"
-        ? "sprint_already_archived"
-        : "sprint_already_complete");
+    (awaitingUser
+      ? `awaiting_user_${priorStatus}`
+      : prior && String(prior.fm.terminal).toLowerCase() === "true"
+        ? "cursor_already_terminal"
+        : pipeline === "ship-review"
+          ? "sprint_already_archived"
+          : "sprint_already_complete");
 
   // Emit FIRST, unconditionally — a silent no-op is what made the original
   // /loop leak invisible (v2.8.2 incident: zero outcome=noop events in the
@@ -805,23 +883,39 @@ export function cursorNoop(dataDir, pipelineArg, rest) {
   clearExecutionLock(dataDir, pipeline);
 
   // Repeat-leak detection over the tail (the event just emitted included).
-  const events = readEvents(dataDir, 100);
+  // Same-reason-class scoping so post-archive noops from a different dead
+  // cycle don't aggregate with this one.
+  const events = readEvents(dataDir, 500);
   const noops = events.filter(
     (ev) =>
       ev.type === "pipeline_terminal" &&
       ev.pipeline === pipeline &&
       ev.outcome === "noop" &&
-      (ev.sprint || "unknown") === sprint,
+      (ev.sprint || "unknown") === sprint &&
+      (ev.reason || "") === reason,
   ).length;
 
   if (noops >= 2) {
     logEvent(dataDir, "pipeline_loop_leak_detected", { pipeline, sprint, noop_count: noops });
+    const tail = awaitingUser
+      ? `The sprint is ${priorStatus.toUpperCase()} awaiting the user — a wakeup cannot resume it. Cancel this /loop now; the user resumes with \`shipyard-data cursor resume ${alias}\` when ready.`
+      : "There is no further work — cancel this /loop now and do NOT schedule another wakeup.";
     process.stdout.write(
-      `⛔ LOOP LEAK — /loop is still firing /shipyard:${pipeline === "ship-execute" ? "ship-execute" : "ship-review"} against an already-complete sprint (${noops} no-op wakeups). It is NOT self-stopping. There is no further work — cancel this /loop now and do NOT schedule another wakeup.\n`,
+      `⛔ LOOP LEAK — /loop is still firing /shipyard:${skillName} against a ${awaitingUser ? priorStatus : "already-complete"} sprint (${noops} no-op wakeups). It is NOT self-stopping. ${tail}\n`,
     );
     return;
   }
 
+  cronCleanupReminder(dataDir, pipeline);
+  if (awaitingUser) {
+    process.stdout.write(
+      `cursor: the ${pipeline} pipeline is ${priorStatus.toUpperCase()} at stage ${prior.fm.stage} — the sprint is NOT complete.\n` +
+        `${priorStatus === "paused" ? `Pause note: ${String(prior.body || "").slice(0, 200)}\n` : ""}` +
+        `Resume (a user decision, never a wakeup's) with: shipyard-data cursor resume ${alias}\n` +
+        `▶ CYCLE COMPLETE — pipeline ${priorStatus} awaiting user. /loop should stop.\n`,
+    );
+    return;
+  }
   process.stdout.write(
     `▶ CYCLE COMPLETE — sprint already complete${pipeline === "ship-review" ? " and archived" : ""}. /loop should stop.\n`,
   );

@@ -11,10 +11,12 @@ After research, identify every point where there's a meaningful choice — don't
 - **Migration strategy** — "Big bang vs incremental strangler fig"
 - **Build vs buy** — "Hand-roll auth vs use Auth.js vs use Clerk"
 
-For each decision point:
+Score every decision point through the confidence gate + kill-list in `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/question-design.md` before asking — the same discipline `/ship-discuss` uses.
 
-1. **Output explanation** (plain text) — describe the options, tradeoffs, what the codebase already uses, what research found, and your recommendation with reasoning
-2. **AskUserQuestion** — short summary with numbered choices and your recommendation
+- **HIGH tier** (evidence converges AND two-way door — most library picks, internal structure, naming) → **decide and inform.** Print one line: `Going with X — [≤10-word why]. (say 'change' to override)`, and log an `ASSUMED: <decision> — <evidence> — reversible: yes` entry in the feature's `## Decision Log`. NEVER for one-way doors (data-model shapes, API/external contracts, auth, migration strategy) — those stay asks.
+- **MEDIUM / LOW** → carry into the **batched** planning-decisions AskUserQuestion (the shell composes ONE call across Steps 3.5–3.75, ≤4 questions). For each such point still prepare: a plain-text explanation (options, tradeoffs, what the codebase uses, what research found, recommendation) and the recommended-first option set.
+
+All HIGH `ASSUMED:` entries surface in the Step 11 **ASSUMPTIONS MADE** list — the single veto point.
 
 ```
 State management approach for F001:

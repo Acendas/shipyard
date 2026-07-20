@@ -1134,5 +1134,42 @@
     "pattern": "Finish or pause it.*before running --task/--hotfix|A sprint is active.*--task",
     "dotall": true,
     "why": "--task/--hotfix must refuse when a non-terminal sprint cursor exists (they'd clobber the sprint cursor)."
+  },
+  {
+    "name": "task_hotfix_guard_refuses_terminal_current",
+    "type": "contains",
+    "pattern": "terminal but still in `current/`|finish /ship-review \\(which archives",
+    "dotall": true,
+    "why": "v3.4.0: --task/--hotfix also refuse a TERMINAL execute cursor still in current/ (execute done, review pending) — never --force."
+  },
+  {
+    "name": "readiness_banner_no_ask",
+    "type": "contains",
+    "pattern": "invoking `/ship-execute` IS the consent to execute|advance straight to `wave_1_dispatch`",
+    "why": "v3.4.0: fresh-start readiness states a banner and advances; the Begin/Adjust/Abort ask is removed."
+  },
+  {
+    "name": "readiness_anomaly_prompt_conditional",
+    "type": "contains",
+    "pattern": "the ONLY ask on a fresh start|one ask max, zero when clean",
+    "why": "v3.4.0: the single readiness ask fires only on baseline-fail / branch-mismatch / wt-* branch / dirty tree."
+  },
+  {
+    "name": "paused_wakeup_inert",
+    "type": "contains",
+    "pattern": "wakeup-inert|never auto-resume",
+    "why": "v3.4.0: a /loop wakeup on a paused cursor runs cursor noop and STOPS; resume is a user-only decision."
+  },
+  {
+    "name": "paused_noop_awaiting_user_reason",
+    "type": "contains",
+    "pattern": "awaiting_user_paused",
+    "why": "v3.4.0: the paused/escalated wakeup noop emits reason=awaiting_user_<paused|escalated>."
+  },
+  {
+    "name": "tick_never_exits_with_pending_question",
+    "type": "contains",
+    "pattern": "tick NEVER exits with a pending question and no marker",
+    "why": "v3.4.0: the tick-exit contract states the pause-before-blocking-ask rule once."
   }
 ]

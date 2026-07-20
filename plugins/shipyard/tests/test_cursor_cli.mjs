@@ -556,3 +556,108 @@ test("config set-model: pre-v4 config (no models block) gets one appended", () =
     p.cleanup();
   }
 });
+
+// --- v3.4.0 loop-lifecycle hardening --------------------------------------
+
+test("noop on a PAUSED cursor: wakeup-inert with leak accounting, resume hint, no auto-resume", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "sprint=sprint-001"], { expectFail: false });
+    p.run(["cursor", "pause", "execute", "--note", "waiting on user creds"], { expectFail: false });
+    const r1 = p.run(["cursor", "noop", "execute"], { expectFail: false });
+    assert.match(r1.stdout, /PAUSED at stage preflight/);
+    assert.match(r1.stdout, /NOT complete/);
+    assert.match(r1.stdout, /cursor resume execute/);
+    assert.match(r1.stdout.trim().split("\n").pop(), /\/loop should stop\./, "stop marker last");
+    // Second wakeup against the same paused sprint → leak alarm pointing at resume
+    const r2 = p.run(["cursor", "noop", "execute"], { expectFail: false });
+    assert.match(r2.stdout, /⛔ LOOP LEAK/);
+    assert.match(r2.stdout, /cursor resume execute/);
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(events, /awaiting_user_paused/, "paused wakeups are event-accounted (v2.8.2 lesson: silent no-ops hide leaks)");
+    assert.match(events, /pipeline_loop_leak_detected/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("noop on an ESCALATED cursor: accounted + repeat detection (no more invisible spin)", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "sprint=sprint-001"], { expectFail: false });
+    p.run(["cursor", "escalate", "execute", "reason=gate_failure"], { expectFail: false });
+    p.run(["cursor", "noop", "execute"], { expectFail: false });
+    const r2 = p.run(["cursor", "noop", "execute"], { expectFail: false });
+    assert.match(r2.stdout, /⛔ LOOP LEAK/);
+    assert.match(r2.stdout, /ESCALATED|escalated/);
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(events, /awaiting_user_escalated/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("archive-terminal seam: terminal advance with NO cursor emits + markers, writes nothing", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    // Evidence for a review `terminal` (demo_user tick) then simulate archive:
+    p.run(["events", "emit", "pipeline_tick_completed", "pipeline=ship-review", "stage=demo_user"]);
+    rmSync(join(p.dataDir, "sprints", "current", "SPRINT.md"), { force: true });
+    const r = p.run(["cursor", "advance", "review", "terminal", "sprint=sprint-001", "reason=cycle_complete"], { expectFail: false });
+    assert.match(r.stdout, /no cursor written/);
+    assert.match(r.stdout.trim().split("\n").pop(), /\/loop should stop\./);
+    assert.ok(!existsSync(join(p.dataDir, "sprints", "current", "REVIEW-CURSOR.md")), "no stale terminal cursor planted for the next sprint");
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(events, /"outcome":"success"/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("wave_waiting tick marker carries a pacing hint for the /loop driver", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    for (const s of ["preflight", "salvage", "load", "wave_1_dispatch"]) {
+      p.run(["cursor", "advance", "execute", s], { expectFail: false });
+    }
+    const r = p.run(["cursor", "advance", "execute", "wave_1_waiting"], { expectFail: false });
+    assert.match(r.stdout, /suggest next wakeup in 300s/);
+    // Non-waiting stages carry no hint
+    const r2 = p.run(["cursor", "advance", "execute", "wave_1_recovery"], { expectFail: false });
+    assert.ok(!r2.stdout.includes("suggest next wakeup"));
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cursor set refuses the status lifecycle field (no silent un-pause backdoor)", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    const r = p.run(["cursor", "set", "execute", "status=in_progress"]);
+    assert.equal(r.code, 2);
+    assert.match(r.stderr, /lifecycle field/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cron-cleanup reminder prints from the EVENT LOG on terminal paths (survives compaction)", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["events", "emit", "pipeline_loop_bootstrap_fallback", "pipeline=ship-execute", "method=cron"]);
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    const r = p.run(["cursor", "pause", "execute", "--note", "x"], { expectFail: false });
+    assert.match(r.stdout, /CronList and CronDelete/);
+    const lines = r.stdout.trim().split("\n");
+    assert.match(lines[lines.length - 1], /\/loop should stop\./, "reminder prints BEFORE the stop marker");
+  } finally {
+    p.cleanup();
+  }
+});

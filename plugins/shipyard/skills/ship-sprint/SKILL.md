@@ -103,7 +103,7 @@ If you lose context mid-planning (e.g., after auto-compaction):
 0. **Call `TaskList()` first.** If the step-checklist tasks from PLAN mode Step 0 are present, the last `in_progress` (or first non-`completed`) task names the step to resume — a structured position anchor. Confirm against the file evidence below before resuming (tasks are a mirror, not authority; if tasks and files disagree, the files win).
 
 1. Use the Read tool on `<SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md` (substitute the literal SHIPYARD_DATA path).
-   - If draft exists, check staleness: read `created` from frontmatter. If the draft is from a previous session (more than a few hours old) → AskUserQuestion: "A sprint draft from [date] exists with features [list]. Resume it, or start fresh (the existing draft will be overwritten)? (resume / start fresh)"
+   - If draft exists, check staleness: read `created` from frontmatter. If the draft is from a previous session (more than a few hours old) → AskUserQuestion with options labeled by their content, never abstract keep/discard verbs: **"Resume the draft with [F009, F011]"** / **"Discard it and replan from the backlog"** (choosing discard overwrites the existing draft). Naming the features makes the choice concrete.
    - If current/resumed → load it, skip to Step 11 (Present Plan and Confirm)
    - If "start fresh" → use the Write tool to overwrite SPRINT-DRAFT.md with the new draft content (no separate delete step needed; Write replaces).
 2. If no draft, use Grep with `pattern: ^status: approved`, `path: <SHIPYARD_DATA>/spec/tasks`, `glob: T*.md`, `output_mode: files_with_matches` to find recently-created task files
@@ -159,10 +159,15 @@ Use the Read tool on `<SHIPYARD_DATA>/memory/metrics.md` (also loaded in context
 
 Also scan metrics.md for `Throughput:` lines (format: `Throughput: X.X pts/hr (N pts in M.M hrs active)  # Sprint NNN`). Extract the float value before `pts/hr` from each line. Average the last 3 values (or all available if fewer than 3 exist) → `avg_throughput`. If no `Throughput:` lines exist, `avg_throughput` is null.
 
-If velocity data exists → AskUserQuestion: "Based on past sprints, you typically complete ~[N] points. Adjust? (accept / set new capacity)"
-If no velocity data (first sprint or metrics empty) → AskUserQuestion: "No prior velocity data. How many story points for this sprint? (default: 20 for solo dev)"
+**Decide-and-inform when velocity data exists** (evidence converges, two-way door — capacity is re-litigated at feature selection and by the >10% overage rule, so it's never a one-way commit). State one line and proceed — do NOT ask:
 
-If the user provides a new capacity value, use that figure for the rest of this planning session (feature selection, capacity warnings, etc.). AskUserQuestion: "Save [N] points as the new default velocity in config.md? (yes / no, just this sprint)"
+```
+Capacity ~[N] pts (rolling velocity, last 3 sprints) — say 'change' to adjust.
+```
+
+If the user says 'change', take the new figure for the rest of this session. **First sprint / no velocity data** is the one genuine unknown → keep ONE AskUserQuestion: "No prior velocity data. How many story points for this sprint? (Recommended: 20 for solo dev)". Use the answer for the rest of the session.
+
+**Do not ask "save as default" here** — that decision folds into the Step 11 plan-approval AskUserQuestion as one of its questions, so capacity costs zero extra interruptions on a returning project.
 
 ### Step 1.5: Carry-Over Scan
 
@@ -231,6 +236,15 @@ Apply the planning checklists from `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/ref
 
 See `references/sprint-analyst-report.md` for the full analyst-dispatch prompt template and report schema. Use the analyst output directly in Step 4 task decomposition. If a report flags low-confidence findings, the orchestrator validates them inline (LSP first, then Grep / WebSearch).
 
+### Planning-decisions round (Steps 3.5–3.75) — confidence-gated, batched
+
+Steps 3.5 (rule violations), 3.55 (terminology), 3.7 (implementation decisions), and 3.75 (simplification routing) all surface *decisions*. Run them through the confidence gate + kill-list from `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/question-design.md` before asking anything:
+
+- **HIGH tier** (evidence converges AND two-way door) → **decide and inform.** Print one line — `Going with X — [≤10-word why]. (say 'change' to override)` — and log an `ASSUMED: <decision> — <evidence> — reversible: yes` entry in the relevant feature's `## Decision Log`. Never for one-way doors (schema shapes, external/API contracts, auth, migrations — those stay asks).
+- **MEDIUM / LOW** → batch into ONE `AskUserQuestion` call across all four steps (≤4 questions, recommended option first + labeled; a 2nd call only on genuine overflow where the first answers fork the design).
+
+The audit point is the **ASSUMPTIONS MADE** list in the Step 11 plan summary — one cheap veto surface instead of N interruptions. Each step below still does its detection work; the gate only governs what reaches the user.
+
 ### Step 3.5: Rules Compliance Check
 
 Verify selected features comply with current project rules — rules may have been added or updated AFTER features were discussed. See `references/spec-validation.md` § "Step 3.5" for the contradiction-detection process and the per-violation AskUserQuestion options (update spec / send back to discuss / override rule / remove scenario). Features sent back to discuss are removed from this sprint's selection.
@@ -245,7 +259,7 @@ Before decomposing, verify each feature is ready. Run the DoR checks, Cross-Cutt
 
 ### Step 3.7: Surface Implementation Decisions
 
-After research, identify every point where there's a meaningful choice — don't silently pick one. For each decision point: output an explanation with options/tradeoffs/recommendation, then AskUserQuestion with numbered choices. If research can't resolve the decision, offer a POC spike (options: spike it / pick one / defer).
+After research, identify every point where there's a meaningful choice — don't silently pick one. Score each through the confidence gate (Planning-decisions round, above): HIGH-tier two-way-door calls become one-line `Going with X` inform + `ASSUMED:` log entries; MEDIUM/LOW join the batched AskUserQuestion. If research can't resolve a decision, offer a POC spike (options: spike it / pick one / defer).
 
 See `references/implementation-decisions.md` for the full catalogue of decision-point types, the explanation/AskUserQuestion templates, the POC spike subagent dispatch (`isolation: "worktree"`, throwaway), and Decision Log recording. Write findings into each task file's `## Technical Notes` after Step 4 creates them — do not echo the template back into conversation.
 
@@ -362,6 +376,7 @@ Then for each wave: task IDs + titles, execution (sequential/parallel), dependen
 
 **RISKS** — from the risk register: risk, likelihood, impact, mitigation
 **DECISIONS MADE** — from Step 3.7: key implementation choices and reasoning
+**ASSUMPTIONS MADE** — every HIGH-tier decide-and-inform from the planning-decisions round (the `ASSUMED:` Decision Log entries), listed with "flag any to change before approval". This is the single audit point for everything the gate decided without asking.
 **QUALITY GATE RESULTS** — from Step 9.5: all checks passed, or flagged gaps
 
 **QUALITY GATES** (if QUALITY-GATE.md was generated):
@@ -373,6 +388,8 @@ Then use `AskUserQuestion` for approval:
 - **Approve (Recommended)** — create the sprint and proceed to Step 12
 - **Refine** — give feedback on specific tasks/waves, iterate
 - **Cancel** — cancel the sprint draft (sets `status: cancelled` in SPRINT-DRAFT.md and task files, clears `tasks:` arrays in feature frontmatter; the soft-deleted record stays in place)
+
+**If a new capacity was set this session** (Step 1 'change', or the first-sprint ask), add a second question item to this same call: "Save [N] pts as the new default velocity in config.md? (yes / no, just this sprint)". This is the only place the save-default decision is asked — folding it here keeps capacity at zero extra rounds.
 
 ### Step 12: Create Sprint (after approval)
 
@@ -486,7 +503,7 @@ Then show:
 
 ## CANCEL Mode
 
-1. AskUserQuestion: "Why are you cancelling this sprint? (This feeds the retro.)"
+1. AskUserQuestion: "Why are you cancelling this sprint? (This feeds the retro — 'skip' is fine.)"
 2. For each task in the sprint:
    - **Done tasks** → keep commits, status stays `done`
    - **In-progress tasks** → commit work-in-progress with `wip(cancel):` prefix, update status to `approved` in task file frontmatter, update parent **feature** status to `approved` in feature frontmatter, add feature ID back to BACKLOG.md
@@ -506,4 +523,4 @@ Then show:
 - Check cross-feature dependencies — if F009 depends on F001 which isn't done → AskUserQuestion: "[Feature] depends on [dependency] which isn't done yet. Include [dependency] in this sprint, defer [feature], or proceed anyway? (include / defer / proceed)"
 - Circular dependencies → reject, explain why.
 - Never auto-carry-over from previous sprint — user must explicitly re-select.
-- When input is ambiguous or unclear → AskUserQuestion with options and your recommendation.
+- When something is ambiguous, run the confidence gate + kill-list from `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/question-design.md` first: derive what's derivable, decide-and-inform HIGH-tier two-way-door calls (one-line "Going with X — [why]", logged `ASSUMED:`), and only genuinely MEDIUM/LOW decisions reach `AskUserQuestion` (options + recommendation). "Ambiguous → ask" is retired — resolve the ambiguity before reaching for a prompt.

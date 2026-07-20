@@ -31,7 +31,7 @@ The other subcommands:
 - `shipyard-data cursor bootstrap-check execute` — the CLI-owned auto-loop eligibility computation. Prints `{"loop_owner":"/loop"|"user","eligible":<bool>,"reason":"…"}` and, when eligible, sets `auto_loop_attempted: true` itself and emits `pipeline_loop_bootstrap_eligible`. Replaces the entire model-side eligibility heuristic.
 - `shipyard-data cursor pause execute --note "<why paused / resume context>"` — keeps the stage, sets `status: paused`, note becomes the cursor body, clears the execution lock. **This replaces HANDOFF.md** (retired in v2.9.0): one resume source, the paused cursor.
 - `shipyard-data cursor escalate execute reason=<short>` — terminal escalation from any stage (`terminal: true`, `status: escalated`, emits `pipeline_terminal outcome=escalated`). Escalation is not a claim of success, so it bypasses the evidence gate by design. Resumable afterward via `cursor resume execute`.
-- `shipyard-data cursor noop execute [sprint=<id>]` — the idempotent already-complete sweep (see below). On an **escalated** terminal it does NOT emit a noop or arm the leak alarm — it prints that the sprint is NOT complete and points at `cursor resume execute`.
+- `shipyard-data cursor noop execute [sprint=<id>]` — the idempotent already-complete sweep (see below), and also the **wakeup-inert** sweep for a halted-but-recoverable cursor. On an **escalated** or **paused** terminal it does NOT treat the sprint as complete: it emits `pipeline_terminal outcome=noop reason=awaiting_user_escalated` / `reason=awaiting_user_paused`, prints the escalation/pause note + the "resume is a USER decision (`shipyard-data cursor resume execute`)" hint + the stop marker, and a 2nd wakeup against the same halted sprint trips the ⛔ leak alarm pointing at resume. A wakeup must NEVER auto-resume — resume is the user's call. When the cursor is genuinely complete/absent it prints the normal already-complete marker instead.
 
 ## Cursor location and lifetime
 
@@ -114,7 +114,9 @@ When a tick reaches a terminal stage:
 
 ## Mid-pipeline tick exit (non-terminal)
 
-One call: `shipyard-data cursor advance execute <next-stage> next_action="<one line>" --note "<tick narrative>"`. The CLI emits `pipeline_tick_completed` (with `outcome=advanced` or `self_loop`) and prints `▶ TICK COMPLETE — wave [N], stage [X]. /loop continues.` Echo that as the final line.
+One call: `shipyard-data cursor advance execute <next-stage> next_action="<one line>" --note "<tick narrative>"`. The CLI emits `pipeline_tick_completed` (with `outcome=advanced` or `self_loop`) and prints `▶ TICK COMPLETE — wave [N], stage [X]. /loop continues.` Echo that as the final line. For a `wave_N_waiting` self-loop the tick marker also carries a "suggest next wakeup in 300s" pacing hint the `/loop` driver honors, so polling for background subagents doesn't hot-spin.
+
+**Post-archive terminal seam.** A terminal advance run when there is NO cursor in `current/` (the sprint was already archived out from under a leaked wakeup) emits the terminal event + markers and writes nothing — there is no cursor to rewrite. This is the CLI's belt to the no-op sweep's suspenders.
 
 ## Self-looping stages: stuck detection
 
@@ -125,7 +127,7 @@ The only self-looping stages are `wave_N_waiting` and the bounded `*_fix_iter_K`
 When `/ship-execute` is invoked and the cursor is already `terminal: true`, OR SPRINT.md has `status: completed`, OR there is no active sprint in `current/`:
 
 1. Run **`shipyard-data cursor noop execute sprint=<id-if-known>`** (default `reason=sprint_already_complete`, or `cursor_already_terminal` when a terminal cursor exists) and echo its output. The CLI emits `pipeline_terminal outcome=noop` FIRST (non-optional — a silent no-op is what made the v2.8.2 leak invisible), performs the repeat-leak scan itself, and on the 2nd no-op for the same sprint emits `pipeline_loop_leak_detected` and prints the hard `⛔ LOOP LEAK …` marker; otherwise it prints the stop marker.
-2. **Cron-fallback cleanup** as in the terminal protocol.
+2. **Cron-fallback cleanup** as in the terminal protocol. `cursor pause` / `escalate` / `noop` / terminal-advance each read the event log and print a cron-cleanup reminder line themselves when a `pipeline_loop_bootstrap_fallback` cron was armed (the reminder is computed from the LOG, not conversation memory) — act on it whenever printed.
 3. Never call `ScheduleWakeup` on the no-op path.
 
 **Structural backstop (you cannot route around this).** A leaked wakeup that tries to "fresh start" anyway hits two walls: the PreToolUse hook denies any model write to the cursor file, and `cursor advance` itself runs the loop-leak guard — a non-terminal advance with no live sprint exits 3.
@@ -157,7 +159,12 @@ Existing per-wave / per-task / sprint-completion events (`wave_check_passed`, `t
      `shipyard-data cursor resume execute`, exit.
    - `terminal: true` (any other status) → run `shipyard-data cursor noop execute`,
      echo output, exit.
-   - `status: paused` → resume: the body note is the resume context;
+   - `status: paused` → WAKEUP-INERT: a bare `/loop` wakeup runs
+     `shipyard-data cursor noop execute` (emits
+     `pipeline_terminal outcome=noop reason=awaiting_user_paused`, prints the
+     pause note + resume hint + stop marker) and STOPS — never auto-resumes.
+     Resume via `shipyard-data cursor resume execute` ONLY on an explicit
+     user resume/continue; then the body note is the resume context and you
      dispatch to the handler for the `stage:` field.
    - Exists, non-terminal, in_progress → dispatch to the `stage:` handler.
    - Does NOT exist → fresh start: the first advance must target an entry
@@ -171,7 +178,7 @@ Existing per-wave / per-task / sprint-completion events (`wave_check_passed`, `t
 
 ## Direct invocation vs /loop driver
 
-Same as ship-review. Direct invocation chains handlers within a single invocation up to a ~10-minute wall-clock budget; `/loop` driver runs one handler per tick. Detection via the most recent `pipeline_tick_completed` event in `.shipyard-events.jsonl`: within 30 minutes + matching `next_stage` → `/loop` re-entry. Override via `--single-tick`.
+Same as ship-review. Direct invocation chains handlers within a single invocation up to a ~10-minute wall-clock budget; `/loop` driver runs one handler per tick. Detection is CLI-owned (`cursor bootstrap-check`) via the most recent `pipeline_tick_completed` event in `.shipyard-events.jsonl`: within a **5-minute** tick-recency window + matching `next_stage` → `/loop` re-entry (a staler tick reads as a dead loop, so the cron fallback re-arms and a Ctrl-C misclassification self-heals within 5 minutes). Override via `--single-tick`.
 
 ## Interplay with verifying-wave-completion
 

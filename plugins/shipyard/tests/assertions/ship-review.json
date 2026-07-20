@@ -637,5 +637,116 @@
     "pattern": "On dispatch failure.*inline|run the Stage 4 \\+ 4.5 analysis inline",
     "dotall": true,
     "why": "v3.0.0: on dispatch failure the shell evaluates gap analysis + self-review inline"
+  },
+  {
+    "name": "pause_before_ask_rule_stated",
+    "type": "contains",
+    "pattern": "a tick never exits with a pending question and no stop marker",
+    "why": "v3.4.0: the load-bearing pause-before-ask rule is stated once"
+  },
+  {
+    "name": "pause_before_ask_at_demo_user",
+    "type": "contains",
+    "pattern": "cursor pause review --note \"awaiting user: sprint approval",
+    "why": "v3.4.0: demo_user (Stage 5 approval) pauses before AskUserQuestion"
+  },
+  {
+    "name": "pause_before_ask_at_retro_step_2",
+    "type": "contains",
+    "pattern": "cursor pause review --note \"awaiting user: retro discussion",
+    "why": "v3.4.0: retro_step_2 pauses before AskUserQuestion"
+  },
+  {
+    "name": "pause_before_ask_at_release_step_1",
+    "type": "contains",
+    "pattern": "cursor pause review --note \"awaiting user: release approval",
+    "why": "v3.4.0: release_step_1 pauses before AskUserQuestion"
+  },
+  {
+    "name": "paused_wakeup_inert_entry",
+    "type": "contains",
+    "pattern": "paused is wakeup-inert",
+    "why": "v3.4.0: a wakeup on a paused cursor no-ops (awaiting_user_paused), never resumes"
+  },
+  {
+    "name": "paused_noop_reason_awaiting_user",
+    "type": "contains",
+    "pattern": "awaiting_user_paused",
+    "why": "v3.4.0: paused no-op emits reason=awaiting_user_paused"
+  },
+  {
+    "name": "resume_is_user_decision_not_wakeup",
+    "type": "contains",
+    "pattern": "cursor resume review|resume is a user decision|resume.*user re-engagement",
+    "dotall": true,
+    "why": "v3.4.0: resume only on explicit user re-engagement, never a wakeup"
+  },
+  {
+    "name": "retro_step_2_single_ask_call",
+    "type": "contains",
+    "pattern": "all three in \\*\\*ONE\\*\\*",
+    "why": "v3.4.0: retro discussion is ONE AskUserQuestion call with three questions, not three sequential"
+  },
+  {
+    "name": "retro_step_2_not_three_sequential",
+    "type": "not_contains",
+    "pattern": "Three sequential AskUserQuestion calls",
+    "why": "v3.4.0: the three-sequential-calls drip was replaced by a single batched call"
+  },
+  {
+    "name": "manual_gates_batched_single_call",
+    "type": "contains",
+    "pattern": "batch ALL manual gates",
+    "why": "v3.4.0: manual quality gates go into one AskUserQuestion call, not a per-gate drip"
+  },
+  {
+    "name": "manual_gates_no_per_gate_drip",
+    "type": "not_contains",
+    "pattern": "for each manual gate:\\s*\\n\\s*Present via AskUserQuestion",
+    "why": "v3.4.0: the old per-gate serial AskUserQuestion drip is gone"
+  },
+  {
+    "name": "hotfix_reports_statement_not_ask",
+    "type": "contains",
+    "pattern": "Merge when ready — Shipyard doesn't touch your branches",
+    "why": "v3.4.0: hotfix verification is a statement, not a merge-permission question Shipyard can't act on"
+  },
+  {
+    "name": "hotfix_not_merge_permission_ask",
+    "type": "not_contains",
+    "pattern": "AskUserQuestion: \"Hotfix B-HOT-NNN verified. Merge to",
+    "why": "v3.4.0: removed the misleading merge-permission ask"
+  },
+  {
+    "name": "plugin_issue_detection_plain_text_not_ask",
+    "type": "contains",
+    "pattern": "Print this as plain text and continue the retro — do not `AskUserQuestion`",
+    "why": "v3.4.0: plugin-issue detection is a plain-text report, not a blocking question"
+  },
+  {
+    "name": "loop_owner_window_five_minutes",
+    "type": "contains",
+    "pattern": "5 minutes \\(v3.4.0|within the last \\*\\*5 minutes\\*\\*",
+    "why": "v3.4.0: loop_owner recency window tightened from 30 to 5 minutes"
+  },
+  {
+    "name": "loop_owner_window_not_thirty_minutes",
+    "type": "not_contains",
+    "pattern": "within the last 30 minutes",
+    "why": "v3.4.0: the 30-minute loop_owner window is retired"
+  },
+  {
+    "name": "archive_then_terminal_advance_order",
+    "type": "contains",
+    "target": "ref:pipeline-cursor.md",
+    "pattern": "run `archive-sprint`, then `cursor advance review terminal",
+    "why": "v3.4.0: the no-cursor terminal advance handles the archive seam; run archive then terminal advance"
+  },
+  {
+    "name": "archive_seam_no_noop_or_force_fallback",
+    "type": "not_contains",
+    "target": "ref:pipeline-cursor.md",
+    "pattern": "cursor directory itself is gone",
+    "why": "v3.4.0: removed the old 'if current/ is gone use cursor noop' workaround"
   }
 ]

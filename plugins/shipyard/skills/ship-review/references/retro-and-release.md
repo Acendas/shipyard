@@ -52,13 +52,13 @@ Estimate accuracy: [avg]% (range: [min]%-[max]%)
 
 ### Retro Step 2: Facilitate Discussion
 
-Three sequential AskUserQuestion calls (explain context first, then ask):
+Pause before asking (`shipyard-data cursor pause review --note "awaiting user: retro discussion"`), then ask all three in **ONE** AskUserQuestion call (three questions), each led by its data observation and each with a cheap "'skip' is fine" exit:
 
-1. **What went well?** — lead with data-driven observations, then ask for user's perspective
+1. **What went well?** — lead with data-driven observations, then ask for the user's perspective
 2. **What didn't go well?** — lead with flagged issues, then ask
-3. **What should we change?** — lead with suggested improvements, then ask
+3. **What should we change next sprint?** — lead with suggested improvements, then ask
 
-Append responses to RETRO-DATA.md under `## Team Feedback`. Update frontmatter: `step: feedback_collected`.
+On the answers, `shipyard-data cursor resume review`, then append responses to RETRO-DATA.md under `## Team Feedback`. Update frontmatter: `step: feedback_collected`.
 
 ### Retro Step 3: Create Action Items
 
@@ -133,7 +133,7 @@ Output the release plan as text:
 - Feature file frontmatter updates
 - Sprint directory archived
 
-Then use `AskUserQuestion` for approval:
+Pause before asking (`shipyard-data cursor pause review --note "awaiting user: release approval"`), then use `AskUserQuestion` for approval (load-bearing — the most irreversible action; never skip). On the answer, `shipyard-data cursor resume review`, then proceed:
 - **Release (Recommended)** — proceed to Release Step 2 (write everything)
 - **Edit changelog** — adjust changelog text, then re-approve
 - **Skip release** — skip release record, still archive sprint

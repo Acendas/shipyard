@@ -42,7 +42,7 @@ $ARGUMENTS
 - `--single-tick` → Force one-tick-per-invocation (direct-invocation testing of /loop semantics)
 - No args → Execute full sprint from current wave
 
-**`--task` / `--hotfix` guard.** If `EXECUTE-CURSOR.md` exists and is non-terminal (a sprint is live), REFUSE both modes: print *"A sprint is active (stage `<stage>`). Finish or pause it (`shipyard-data cursor pause execute --note …`) before running --task/--hotfix"* and STOP. These modes write their own cursor and would clobber the sprint cursor.
+**`--task` / `--hotfix` guard.** If `EXECUTE-CURSOR.md` exists and is **non-terminal** (a sprint is live), REFUSE both modes: print *"A sprint is active (stage `<stage>`). Finish or pause it (`shipyard-data cursor pause execute --note …`) before running --task/--hotfix"* and STOP. If it exists and is **terminal but still in `current/`** (execute done, `/ship-review` pending — the sprint isn't archived yet), also REFUSE: print *"A sprint is active (stage `<stage>`). Finish or pause it before running --task/--hotfix — the terminal execute cursor is still in current/; finish /ship-review (which archives the sprint) first."* and STOP. Never `--force` through either. These modes write their own cursor and would clobber the sprint cursor.
 
 ## Acquire Locks
 
@@ -72,6 +72,10 @@ The CLI validates the transition against the stage graph, runs the loop-leak gua
 
 On a `cursor advance` **exit 3 (refused)**, do NOT retry blindly — read the reasons on stderr, fix the missing evidence (re-run the stage that emits it) or escalate. `--force` skips only transition-graph validation for crash recovery; it never skips the evidence gates.
 
+**Pause-before-blocking-ask (load-bearing).** A tick NEVER exits with a pending question and no marker — a /loop wakeup would otherwise re-run the whole stage and re-ask. So any stage that must block on `AskUserQuestion` first runs `shipyard-data cursor pause execute --note "<question pending: …>"`, which sets the resume surface and prints the stop marker. Already wired at `sprint_full_build`, `sprint_demo_probes`, and the readiness anomaly prompt.
+
+**Cron cleanup is CLI-prompted.** `cursor pause` / `escalate` / `noop` / terminal-advance each read the event log and print a cron-cleanup reminder line when a `pipeline_loop_bootstrap_fallback` cron was armed. Act on that reminder whenever the CLI prints it — on ANY rest path (terminal, pause, escalate, noop): `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-execute`. Don't compute cron state from conversation memory.
+
 `stuck_counter` is CLI-owned: a same-stage self-loop advance auto-increments it (pass `stuck_counter=0` explicitly when the self-loop made real progress; `wave_N_waiting` is exempt — it never auto-increments). At `stuck_counter >= 5` the CLI emits `pipeline_stuck`; at the `hard_ceiling: 50` self-loop safety stop the CLI REFUSES the advance and directs you to `cursor escalate execute reason=hard_ceiling_stage_<id>`.
 
 ### Cursor read at entry (the canonical recipe — before any other work besides locks)
@@ -80,7 +84,7 @@ On a `cursor advance` **exit 3 (refused)**, do NOT retry blindly — read the re
 2. Read `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR.md` with the Read tool.
    - **`terminal: true`, `status: escalated`** → an escalated (recoverable) halt, NOT a completed sprint. Run `shipyard-data cursor noop execute` (the CLI detects the escalated terminal, does NOT emit a noop or arm the leak alarm, and prints the resume hint); echo it. Tell the user the sprint is resumable via `shipyard-data cursor resume execute` once the cause is fixed, then STOP.
    - **`terminal: true`** (any other status) → a leaked wakeup against a finished cycle. Run the No-op sweep below and exit.
-   - **`status: paused`** → graceful resume. The paused cursor's `stage:` and body note (from a prior `cursor pause`) tell you where to pick up; dispatch to that stage handler. (See "Recovery & resume".)
+   - **`status: paused`** → **wakeup-inert.** A `/loop` wakeup must NEVER auto-resume a paused sprint — pause is a deliberate user stop, and only the user un-pauses it. Run `shipyard-data cursor noop execute` (the CLI emits `pipeline_terminal outcome=noop reason=awaiting_user_paused`, prints the pause note + the "resume is a USER decision (`shipyard-data cursor resume execute`)" hint + the stop marker; a 2nd wakeup against the same paused sprint trips the ⛔ leak alarm pointing at resume), echo it, and STOP. Run `shipyard-data cursor resume execute` (flips to `in_progress` at the recorded stage, then dispatch to that handler using the body note as resume context) ONLY when the user explicitly asked to resume — invoked `/ship-execute` saying resume/continue, or answered a surfaced question. (See "Recovery & resume".)
    - **`terminal: false`, `status: in_progress`** → dispatch to the handler for the `stage:` field.
    - **Cursor absent** → fresh start. Begin at Pre-flight; the first `shipyard-data cursor advance execute preflight` creates the cursor.
 3. **No-op terminal sweep (MANDATORY — load-bearing for /loop safety).** Even if step 2 passed as non-terminal, verify the sprint is alive against all THREE conditions below. If ANY hold, run the sweep and exit. NEVER skip it — this is the exact protection that closed the original `/loop` wakeup-leak bug, and the auto-loop bootstrap in step 4 depends on it having run with no exit. (Belt-and-suspenders with the CLI's in-process loop-leak guard, which refuses a non-terminal advance when there is no live sprint.)
@@ -92,7 +96,7 @@ On a `cursor advance` **exit 3 (refused)**, do NOT retry blindly — read the re
 Trigger when the cursor is `terminal: true`, OR SPRINT.md frontmatter has `status: completed`, OR there is no active sprint in `current/` (already archived):
 
 1. Run `shipyard-data cursor noop execute [sprint=<id>] [reason=<sprint_already_complete|cursor_already_terminal>]` and echo its output. The CLI emits `pipeline_terminal outcome=noop` FIRST (non-optional — a silent no-op is what made the original leak invisible), runs the repeat-leak scan itself, and on the 2nd no-op for the same dead sprint emits `pipeline_loop_leak_detected` and prints the hard `⛔ LOOP LEAK …` marker; otherwise it prints `▶ CYCLE COMPLETE — sprint already complete. /loop should stop.`
-2. **Cron-fallback cleanup:** if this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-execute`. Never call `ScheduleWakeup` on the no-op path.
+2. **Cron-fallback cleanup:** act on the CLI's printed cron-cleanup reminder — `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-execute`. Never call `ScheduleWakeup` on the no-op path.
 
 ### Auto-loop bootstrap (run AFTER the no-op terminal sweep, BEFORE dispatch)
 
@@ -104,7 +108,7 @@ When a user invokes `/ship-execute` directly, this skill self-bootstraps the `/l
 
 The `auto_loop_attempted` sentinel is per-sprint: the next sprint does not carry `auto_loop_attempted` forward — the `current/` archive drops the cursor at sprint completion, so the next sprint's first `/ship-execute` re-evaluates eligibility from scratch.
 
-**Fallback if `/loop` goes silent.** If bootstrap-check reports `loop_owner: "user"` yet `auto_loop_attempted` is already set AND the last `pipeline_tick_completed` for this pipeline is older than 5 minutes (loop accepted the bootstrap but stopped firing), call `CronCreate(cron: "*/2 * * * *", prompt: "/shipyard:ship-execute", recurring: false)` to nudge the next tick, then proceed. Emit `shipyard-data events emit pipeline_loop_bootstrap_fallback pipeline=ship-execute sprint=<id> method=cron reason=loop_silent`. Normal operation never triggers this.
+**Fallback if `/loop` goes silent.** The `loop_owner` heuristic uses a **5-minute** tick-recency window (a stale tick reads as a dead loop), so this fallback self-heals a silent loop — and a Ctrl-C misclassification — within 5 minutes. If bootstrap-check reports `loop_owner: "user"` yet `auto_loop_attempted` is already set AND the last `pipeline_tick_completed` for this pipeline is older than that window (loop accepted the bootstrap but stopped firing), call `CronCreate(cron: "*/2 * * * *", prompt: "/shipyard:ship-execute", recurring: false)` to nudge the next tick, then proceed. Emit `shipyard-data events emit pipeline_loop_bootstrap_fallback pipeline=ship-execute sprint=<id> method=cron reason=loop_silent`. Normal operation never triggers this.
 
 ### Direct invocation vs /loop driver — the dispatch contract
 
@@ -128,7 +132,7 @@ Fresh start creates the cursor here; run these gates, then advance to `salvage`.
 3. **Git repository check.** Builder agents use worktree isolation, so verify git is ready:
    - `git rev-parse --git-dir` — fails → not a git repo.
    - `git log -1` — fails → no commits.
-   - `git status --porcelain` — uncommitted changes won't reach worktree agents. First explain as plain text (worktree agents start from the last commit; the tradeoffs), then `AskUserQuestion`: **1. Commit now** ('wip: pre-sprint') / **2. Stash** (restore after) / **3. Continue** (changes don't affect sprint tasks). Recommended: 1.
+   - `git status --porcelain` — note a dirty tree but do NOT ask here. The readiness anomaly prompt (Step 1.5) owns the Commit/Stash/Continue decision so a fresh start asks at most once, and never when the tree is clean.
    - If the repo/commit checks fail → `git init` (if needed) then `git add -A && git commit -m "chore: initial commit"`. Worktree isolation requires at least one commit.
 
    **DO NOT check if the project is a worktree. DO NOT fall back to solo mode because of worktrees.** The WorktreeCreate hook handles all worktree scenarios (including nested) by creating them from the parent repo. Use the mode determined by task count; never downgrade for git worktree state.
@@ -180,25 +184,26 @@ Read SPRINT.md (wave structure — task IDs grouped by wave, critical path, exec
 
 ### Step 1.5: Execution Readiness Check (stage_id: readiness) (fresh-start only)
 
-Present a compact readiness check before any code is written; skip on resume / crash recovery.
+State a compact READINESS banner before any code is written, then advance straight to `wave_1_dispatch` — **invoking `/ship-execute` IS the consent to execute**, so a clean fresh start never asks "Begin?". Skip entirely on resume / crash recovery.
 
 ```
-READINESS CHECK
-  Branch: <current> [matches SPRINT.md? mismatch / ⚠️ on shipyard/wt-* branch]
-  Uncommitted: <none | list>
-  Mode: <solo | subagent | team>
-  Tasks: N across M waves
+STARTING sprint-NNN: N tasks / M waves, <solo|subagent|team> mode, baseline tests <pass|fail|not-run>.
+  Branch: <current> [matches SPRINT.md branch]
   Wave 1: <task IDs + titles + effort>
-  Baseline tests: <pass | fail | not-run>
   Risks: <top 2-3 from SPRINT.md>
-HOW TO PAUSE: type "pause" any time.
+Type "pause" any time to stop.
 ```
 
-If the current branch starts with `shipyard/wt-*`, add: *"⚠️ Worktree branch detected — Shipyard will switch to <working branch> before spawning agents."*
+**Anomaly prompt (the ONLY ask on a fresh start — one ask max, zero when clean).** Fire a single `AskUserQuestion` iff ANY of these hold; otherwise advance without asking:
 
-Then `AskUserQuestion`: Begin execution (Recommended) / Adjust / Abort. The `using-worktrees` capability skill encodes the trust-the-platform model; `dispatching-task-loop`'s HARD STOP catches genuinely-broken isolation.
+- **Baseline tests FAIL** — a red baseline muddies every wave's signal. Option: **Investigate** (Recommended) / Proceed anyway.
+- **Current branch ≠ SPRINT.md `branch:`** — new worktrees would fork from the wrong commit. Option: **Switch to <working branch>** (Recommended) / stay.
+- **A leftover `shipyard/wt-*` branch is checked out** — add *"⚠️ WORKTREE BRANCH DETECTED — Shipyard will switch to <working branch> before spawning agents."* Option: **Switch to <working branch>** (Recommended).
+- **Dirty working tree** (`git status --porcelain` non-empty) — worktree agents start from the last commit, so uncommitted changes won't reach them. Option: **Commit now** ('wip: pre-sprint', Recommended) / Stash / Continue.
 
-**→ `wave_1_dispatch`** (`wave_number=1 iteration=1`) on "Begin execution". On "Abort": `shipyard-data cursor escalate execute reason=readiness_aborted`; echo and halt.
+Merge all firing conditions into ONE prompt (one question item per condition, each with its recommended default above). **If a /loop driver owns this tick, run `shipyard-data cursor pause execute --note "readiness anomaly: <which>"` BEFORE the AskUserQuestion** (pause-before-blocking-ask — a wakeup can't re-run readiness and re-ask; the pause note is the resume surface). The `using-worktrees` capability skill encodes the trust-the-platform model; `dispatching-task-loop`'s HARD STOP catches genuinely-broken isolation.
+
+**→ `wave_1_dispatch`** (`wave_number=1 iteration=1`) when clean, or after the anomaly prompt resolves toward proceeding. If the user aborts from the anomaly prompt: `shipyard-data cursor escalate execute reason=readiness_anomaly_aborted`; echo and halt.
 
 ### Step 2: Execute Waves (stage_id: wave_N_dispatch)
 
@@ -326,7 +331,7 @@ Files are the source of truth — never rely on conversation memory for wave/tas
 | Situation | Signal | Action |
 |---|---|---|
 | **Compaction recovery** | context cleared mid-run; cursor present | The cursor's `stage:` is authoritative — dispatch to that handler and resume. Absent cursor → rebuild from PROGRESS.md `current_wave` + task-file `status`, confirm `git branch`, resume from the first non-done task, then `cursor advance execute wave_<N>_dispatch --force` (a mid-wave stage is never an entry stage, so recovery always needs `--force`). Corrupted cursor (unparseable YAML / missing fields) → refuse: *"EXECUTE-CURSOR.md is corrupted. Run `/ship-status --repair` first."* |
-| **Pause / resume** | `status: paused` | Read the paused cursor's `stage:` + body note. Confirm `git branch` matches SPRINT.md `branch`. Team mode only: `TeamCreate` + re-spawn teammates from the note (previous teammates are dead after a session break). Then `shipyard-data cursor resume execute` (flips `status` back to `in_progress` at the recorded stage) and continue from that stage. |
+| **Pause / resume** | `status: paused` | **Wakeup-inert** — a bare `/loop` wakeup runs `cursor noop execute` and STOPS (never auto-resumes; resume is a USER decision). Resume ONLY on an explicit user resume/continue: read the paused cursor's `stage:` + body note, confirm `git branch` matches SPRINT.md `branch`; team mode only, `TeamCreate` + re-spawn teammates from the note (previous teammates are dead after a session break); then `shipyard-data cursor resume execute` (flips `status` back to `in_progress` at the recorded stage) and continue from that stage. |
 | **/goal-mode crash** | `status: in_progress`, no clean pause | The event log is the source of truth. Follow [references/resume-from-event-log.md](references/resume-from-event-log.md): scan for the last `wave_check_passed`, cross-check the registry, re-verify last-clean-wave invariants with `wakeup_budget: 0`, re-dispatch incomplete tasks, advance. Empty/corrupted log → refuse, run `/ship-status --repair`. |
 | **Crash during `wave_N_waiting`** | cursor at `wave_N_waiting` from a prior session | The background agents died with that session — do NOT wait out their timeouts. Route the still-pending tasks straight to re-dispatch (`wave_<N>_redispatch_iter_1`); Step 0 salvage already recovered any worktree commits they committed. |
 
@@ -365,7 +370,7 @@ When all waves are done:
 
       The loop-driving model reads the LAST line as its continue-or-stop signal, so the stop marker MUST be the final line — a `NEXT UP` line after it reads as "keep going." NEXT UP is framed as a SEPARATE cycle you start yourself. Do NOT call `ScheduleWakeup`, do NOT print your own NEXT-UP line after the CLI output, and do NOT chain into `/ship-review` — the execute `/loop` ends here; `/ship-review` is a separate cycle the user starts deliberately.
 
-   c. **Cron-fallback cleanup.** If this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-execute`. Skip on the happy path (no cron created).
+   c. **Cron-fallback cleanup.** Act on the CLI's printed cron-cleanup reminder — `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-execute`. The CLI only prints the reminder when a `pipeline_loop_bootstrap_fallback` cron was armed, so the happy path is silent.
 
 ---
 
@@ -379,7 +384,7 @@ Execute one task following the TDD cycle above — for picking up a specific unb
 
 ## HOTFIX Mode (--hotfix) (stage_id: hotfix → terminal_hotfix)
 
-1. Read bug file (B-HOT-NNN). 2. Verify the target branch (AskUserQuestion if unclear). 3. Execute TDD cycle (must include regression test). 4. Commit `fix(B-HOT-NNN): [description]`. 5. **Terminal (stage_id: terminal_hotfix).** Print `Hotfix ready. Review with /ship-review --hotfix B-HOT-NNN` first, then `shipyard-data cursor advance execute terminal_hotfix status=complete outcome=success reason=hotfix_ready next_action="Hotfix ready — handoff to /ship-review --hotfix"`. The CLI appends `pipeline_terminal`, re-renders PROGRESS.md, prints the `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` marker as the final line; echo it.
+1. Read bug file (B-HOT-NNN). 2. **Derive the target branch** — default to the bug file's `branch:` frontmatter, else the current checkout. AskUserQuestion ONLY when both exist and disagree. 3. Execute TDD cycle (must include regression test). 4. Commit `fix(B-HOT-NNN): [description]`. 5. **Terminal (stage_id: terminal_hotfix).** Print `Hotfix ready. Review with /ship-review --hotfix B-HOT-NNN` first, then `shipyard-data cursor advance execute terminal_hotfix status=complete outcome=success reason=hotfix_ready next_action="Hotfix ready — handoff to /ship-review --hotfix"`. The CLI appends `pipeline_terminal`, re-renders PROGRESS.md, prints the `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` marker as the final line; echo it.
 
 Shipyard does not create branches, merge, or push for hotfixes — the user handles their own git workflow. Hotfix does NOT affect sprint state or velocity. Hotfix is the one exception that DOES run tests at task level — the regression test is the whole point, and you need red→green→still-red-after-revert→green to prove the fix catches the bug.
 
@@ -423,4 +428,4 @@ Before falling to AskUserQuestion, if the BLOCKED return's `escalation_code` has
 - ALWAYS commit atomically per task; update task `status: done` after each.
 - Surface blockers / deviations / session notes by emitting events (`task_blocked`, `patch_task_created`, `task_status_changed`, …) — PROGRESS.md auto-renders. Never Write or Edit PROGRESS.md.
 - NEVER fix test failures, lint errors, or bugs directly in this session — invoke `shipyard:dispatching-task-loop` (code) or `shipyard:dispatching-operational-task` (command-shaped) to delegate.
-- Architectural changes → `AskUserQuestion`. If in doubt → `AskUserQuestion`.
+- Architectural changes → `AskUserQuestion`. Before any other ask, run the confidence gate + kill-list from `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/question-design.md`: derive what's derivable, decide-and-inform HIGH-tier two-way-door calls (one-line "Going with X — [why]"), and only genuinely MEDIUM/LOW decisions reach `AskUserQuestion`. "If in doubt, ask" is retired — if in doubt, resolve the doubt first.
