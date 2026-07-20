@@ -594,7 +594,7 @@ If the event log is empty or corrupted, refuse to resume — re-run `/ship-statu
 
 | Category | Examples | Action |
 |---|---|---|
-| **Bug / Missing Critical / Blocker** | runtime errors, missing null checks, missing auth, broken imports | invoke `shipyard:dispatching-task-loop` with a patch task; emit `patch_task_created task_id=<id> feature=<feature> source=execute-deviation` (PROGRESS.md auto-renders) |
+| **Bug / Missing Critical / Blocker** | runtime errors, missing null checks, missing auth, broken imports | allocate the id (`shipyard-data next-id tasks`), **write `spec/tasks/<id>-<slug>.md` FIRST**, then invoke `shipyard:dispatching-task-loop` with that `task_file_path`; only after the file exists, emit `patch_task_created task_id=<id> feature=<feature> source=execute-deviation` (PROGRESS.md auto-renders) |
 | **Structural** | new DB table, new service, different design pattern | `AskUserQuestion` before proceeding |
 
 **The orchestrator never writes, edits, or fixes code directly.** Always delegate.

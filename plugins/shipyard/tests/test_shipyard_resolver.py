@@ -105,8 +105,12 @@ class TestShipyardResolver(unittest.TestCase):
         fail loud on no-discovery, this test was only passing on the dev
         machine because of a populated ~/.claude/plugins/data/shipyard/
         legacy dir.
+
+        Issue #4: the project dir must be a git repo — data-dir resolution
+        now refuses a non-git root rather than minting a phantom project.
         """
         with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(['git', 'init', '-q', tmp], check=True)
             with tempfile.TemporaryDirectory() as plugin_data:
                 data_dir, _ = run_resolver_with_env(
                     'data-dir',
@@ -122,8 +126,12 @@ class TestShipyardResolver(unittest.TestCase):
                 self.assertTrue(data_dir.endswith(f'/projects/{project_hash}'))
 
     def test_data_dir_honors_claude_plugin_data(self):
-        """CLAUDE_PLUGIN_DATA env var sets the base path."""
+        """CLAUDE_PLUGIN_DATA env var sets the base path.
+
+        Issue #4: the project dir is git-init'd — data-dir resolution refuses
+        a non-git root (see test_data_dir_refuses_non_git_root)."""
         with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(['git', 'init', '-q', tmp], check=True)
             with tempfile.TemporaryDirectory() as plugin_data:
                 data_dir, _ = run_resolver(
                     'data-dir',
@@ -348,6 +356,41 @@ class TestShipyardResolver(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0,
                 f'expected non-zero exit, got {proc.returncode}; stdout={proc.stdout!r}; stderr={proc.stderr!r}')
             self.assertIn('CLAUDE_PLUGIN_DATA', proc.stderr)
+
+    def test_data_dir_refuses_non_git_root(self):
+        """Issue #4 (defect 1): when the resolved project root is NOT inside a
+        git repo, data-dir resolution must refuse loudly instead of minting a
+        phantom `<pluginData>/projects/<hash-of-cwd>` dir — even (especially)
+        when CLAUDE_PLUGIN_DATA is set, which is the case that used to fork
+        state silently. Reproduces the reported scenario: a skill orchestrator
+        cd'd into the plugin data dir with no CLAUDE_PROJECT_DIR.
+        """
+        with tempfile.TemporaryDirectory() as non_git, \
+             tempfile.TemporaryDirectory() as plugin_data, \
+             tempfile.TemporaryDirectory() as fake_home, \
+             tempfile.TemporaryDirectory() as empty_tmpdir:
+            env = os.environ.copy()
+            env.pop('CLAUDE_PROJECT_DIR', None)
+            env.pop('CLAUDE_PLUGIN_ROOT', None)
+            env['CLAUDE_PLUGIN_DATA'] = plugin_data
+            env['HOME'] = fake_home
+            env['USERPROFILE'] = fake_home
+            env['TMPDIR'] = empty_tmpdir
+            env['TMP'] = empty_tmpdir
+            env['TEMP'] = empty_tmpdir
+            proc = subprocess.run(
+                ['node', RESOLVER, 'data-dir'],
+                capture_output=True, text=True, env=env, cwd=non_git,
+            )
+            self.assertNotEqual(
+                proc.returncode, 0,
+                f'non-git root must fail loud; stdout={proc.stdout!r}')
+            self.assertIn('git', proc.stderr.lower())
+            # And it must NOT have created any projects/ dir as a side effect.
+            projects = os.path.join(plugin_data, 'projects')
+            self.assertFalse(
+                os.path.isdir(projects),
+                f'no phantom project dir may be minted; found {projects}')
 
     def test_breadcrumb_found_via_secondary_tmp_candidate(self):
         """R-tmpdir-split: the SessionStart hook and the skill `!` backtick

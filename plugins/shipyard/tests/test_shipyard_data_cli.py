@@ -35,6 +35,19 @@ def run_cli(args, env_extra=None, cwd=None):
     return proc.stdout, proc.stderr, proc.returncode
 
 
+def git_init_project(path):
+    """Init a git repo at `path` so the resolver treats it as a real project.
+
+    Issue #4: data-dir resolution now refuses a non-git project root (it would
+    otherwise mint a phantom project dir). Test fixtures that stand in for a
+    Shipyard project — always a git repo in practice — must git-init.
+    """
+    subprocess.run(['git', 'init', '-q'], cwd=path, check=True)
+    subprocess.run(['git', 'config', 'user.email', 't@t'], cwd=path, check=True)
+    subprocess.run(['git', 'config', 'user.name', 't'], cwd=path, check=True)
+    subprocess.run(['git', 'commit', '--allow-empty', '-m', 'init', '-q'],
+                   cwd=path, check=True)
+
 
 class TestShipyardDataLockPidLiveness(unittest.TestCase):
     """R13: regression guard for the with-lock pid liveness check.
@@ -74,6 +87,7 @@ class TestShipyardDataArchiveSprint(unittest.TestCase):
         self.project_dir = os.path.join(self.tmp, 'project')
         os.makedirs(self.plugin_data)
         os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
         self.env = {
             'CLAUDE_PROJECT_DIR': self.project_dir,
             'CLAUDE_PLUGIN_DATA': self.plugin_data,
@@ -191,6 +205,7 @@ class TestShipyardDataEvents(unittest.TestCase):
         self.project_dir = os.path.join(self.tmp, 'project')
         os.makedirs(self.plugin_data)
         os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
         self.env = {
             'CLAUDE_PROJECT_DIR': self.project_dir,
             'CLAUDE_PLUGIN_DATA': self.plugin_data,
@@ -244,6 +259,27 @@ class TestShipyardDataEvents(unittest.TestCase):
         self.assertIsInstance(ev['ratio'], float)
         self.assertEqual(ev['flag'], True)
         self.assertEqual(ev['name'], 'S007')
+
+    def test_events_emit_type_field_does_not_clobber_event_type(self):
+        """Issue #4 (defect 2): a `type=<value>` field must NOT overwrite the
+        positional event type. ship-review's quality-gate reference once
+        documented `events emit quality_gate_result type=sprint_specific ...`
+        verbatim, which produced `{"type":"sprint_specific"}` — the
+        quality_gate_result event silently vanished from every type-based
+        query. The positional type must always win; the collided field is
+        preserved under `type_field` so nothing is lost.
+        """
+        self._emit('quality_gate_result', gate_id='SSG-2',
+                   type='sprint_specific', status='pass')
+        events = self._read_events()
+        self.assertEqual(len(events), 1)
+        ev = events[0]
+        self.assertEqual(ev['type'], 'quality_gate_result',
+                         'positional event type must survive a type= field')
+        self.assertEqual(ev['type_field'], 'sprint_specific',
+                         'collided type= field must be preserved under type_field')
+        self.assertEqual(ev['gate_id'], 'SSG-2')
+        self.assertEqual(ev['status'], 'pass')
 
     def test_events_emit_requires_type(self):
         _, err, code = run_cli(['events', 'emit'], env_extra=self.env)
@@ -423,6 +459,7 @@ class TestShipyardDataLinkDataDir(unittest.TestCase):
         self.project_dir = os.path.join(self.tmp, 'project')
         os.makedirs(self.plugin_data)
         os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
         self.env = {
             'CLAUDE_PROJECT_DIR': self.project_dir,
             'CLAUDE_PLUGIN_DATA': self.plugin_data,
@@ -525,6 +562,90 @@ class TestShipyardDataLinkDataDir(unittest.TestCase):
         self.assertTrue(os.path.islink(link_path),
             'after --force, .shipyard should be a symlink')
         self.assertEqual(os.path.realpath(link_path), self.expected_target)
+
+
+class TestShipyardDataDoctor(unittest.TestCase):
+    """Tests for `shipyard-data doctor` — the read-only integrity scan added
+    for issue #4: phantom/forked project dirs, nested projects/ dirs, and
+    dangling patch tasks."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-doctor-test-')
+        self.plugin_data = os.path.join(self.tmp, 'plugin-data')
+        self.project_dir = os.path.join(self.tmp, 'project')
+        os.makedirs(self.plugin_data)
+        os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
+        self.env = {
+            'CLAUDE_PROJECT_DIR': self.project_dir,
+            'CLAUDE_PLUGIN_DATA': self.plugin_data,
+        }
+        # `init` writes .project-root + templates/ so the current project reads
+        # as legitimately initialized (not a phantom).
+        _, err, code = run_cli(['init'], env_extra=self.env)
+        self.assertEqual(code, 0, f'init failed: {err}')
+        self.data_dir = self._data_dir()
+        self.projects_dir = os.path.dirname(self.data_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _data_dir(self):
+        out, _, code = run_cli([], env_extra=self.env)
+        self.assertEqual(code, 0)
+        return out.strip()
+
+    def test_doctor_clean_project_reports_no_issues(self):
+        out, _, code = run_cli(['doctor'], env_extra=self.env)
+        self.assertEqual(code, 0, f'clean project should exit 0; out={out!r}')
+        self.assertIn('no issues found', out)
+
+    def test_doctor_flags_phantom_project_dir(self):
+        # A sibling project dir that holds state (an event log) but was never
+        # initialized — the fork signature.
+        phantom = os.path.join(self.projects_dir, 'deadbeefcafe')
+        os.makedirs(phantom)
+        with open(os.path.join(phantom, '.shipyard-events.jsonl'), 'w') as f:
+            f.write('{"ts":"2026-07-03T00:00:00+00:00","type":"next_id_allocated"}\n')
+
+        out, _, code = run_cli(['doctor'], env_extra=self.env)
+        self.assertEqual(code, 1, f'phantom dir must make doctor exit 1; out={out!r}')
+        self.assertIn('phantom-project', out)
+        self.assertIn('deadbeefcafe', out)
+
+    def test_doctor_flags_nested_projects_dir(self):
+        # A projects/ dir nested INSIDE the real project dir.
+        nested = os.path.join(self.data_dir, 'projects', '799a0a66a4f7')
+        os.makedirs(nested)
+        out, _, code = run_cli(['doctor'], env_extra=self.env)
+        self.assertEqual(code, 1, f'nested projects/ must make doctor exit 1; out={out!r}')
+        self.assertIn('nested-projects', out)
+
+    def test_doctor_flags_dangling_patch_task(self):
+        # Emit patch_task_created for a task whose file was never written.
+        self._emit_patch_task('T-CI016')
+        out, _, code = run_cli(['doctor'], env_extra=self.env)
+        self.assertEqual(code, 1, f'dangling patch task must make doctor exit 1; out={out!r}')
+        self.assertIn('dangling-patch-task', out)
+        self.assertIn('T-CI016', out)
+
+    def test_doctor_passes_when_patch_task_file_exists(self):
+        self._emit_patch_task('T-CI017')
+        tasks_dir = os.path.join(self.data_dir, 'spec', 'tasks')
+        os.makedirs(tasks_dir, exist_ok=True)
+        with open(os.path.join(tasks_dir, 'T-CI017-ci-fix.md'), 'w') as f:
+            f.write('---\nid: T-CI017\n---\n')
+        out, _, code = run_cli(['doctor'], env_extra=self.env)
+        self.assertEqual(code, 0, f'patch task with a file must pass; out={out!r}')
+        self.assertIn('no issues found', out)
+
+    def _emit_patch_task(self, task_id):
+        _, err, code = run_cli(
+            ['events', 'emit', 'patch_task_created', f'task_id={task_id}',
+             'feature=F-CI', 'source=execute-deviation'],
+            env_extra=self.env,
+        )
+        self.assertEqual(code, 0, f'emit failed: {err}')
 
 
 if __name__ == '__main__':

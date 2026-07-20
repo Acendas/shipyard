@@ -63,7 +63,11 @@ Emit: `pipeline_tick_completed pipeline=ship-review sprint=<id> stage=quality_ga
 
 Emit structured events for observability:
 ```
-shipyard-data events emit quality_gate_result gate_id=SG-1 type=standing verification=probe status=pass
-shipyard-data events emit quality_gate_result gate_id=SSG-2 type=sprint_specific verification=manual status=pending
+shipyard-data events emit quality_gate_result gate_id=SG-1 gate_type=standing verification=probe status=pass
+shipyard-data events emit quality_gate_result gate_id=SSG-2 gate_type=sprint_specific verification=manual status=pending
 shipyard-data events emit quality_gates_completed sprint=<id> passed=N failed=N manual_pending=N
 ```
+> `type` is reserved by the event emitter for the positional event type (here
+> `quality_gate_result`). Passing `type=<value>` as a field is preserved under
+> `type_field` and never overrides the event type — use a distinct key like
+> `gate_type=` for the gate classification.

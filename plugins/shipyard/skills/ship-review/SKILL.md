@@ -429,7 +429,7 @@ Then use `AskUserQuestion` for approval:
 Based on the approval:
 - **Approved** → Update feature statuses to `done` in feature frontmatter. Proceed to Sprint Retrospective (below).
 - **Issues found** → Create bug entries via /ship-bug logic. **Emit `bug_created` per bug** (`shipyard-data events emit bug_created bug=<id>`) — the terminal gate requires at least one such event in the review window before it will allow the `terminal_issues` cursor write (clause 3 below). Feature status → `approved` (not `in-progress` — it needs re-planning). Add feature ID back to BACKLOG.md so the next `/ship-sprint` picks it up.
-- **Needs changes** → Update spec with new criteria. Create patch tasks. **Emit `patch_task_created` per task** (`shipyard-data events emit patch_task_created task=<id>`) — the terminal gate requires it before allowing the `terminal_changes` cursor write (clause 3 below). Feature status → `approved`, add ID back to BACKLOG.md. Show:
+- **Needs changes** → Update spec with new criteria. Create patch tasks — **write each `spec/tasks/<id>-<slug>.md` file first**, then **emit `patch_task_created` per task** (`shipyard-data events emit patch_task_created task=<id>`). Order matters: a `patch_task_created` event for an id with no task file leaves a dangling reference that ship-status validation, this review's evidence check, and the next sprint's carry-over scan all trip over (`shipyard-data doctor` flags it). The terminal gate requires the event before allowing the `terminal_changes` cursor write (clause 3 below). Feature status → `approved`, add ID back to BACKLOG.md. Show:
   ```
   ▶ NEXT UP: Fix the gaps and re-verify
     /ship-execute --task [patch task ID]
