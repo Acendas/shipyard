@@ -7,7 +7,7 @@ How Shipyard communicates with users when surfacing discoveries, explaining tech
 Shipyard's users are **system architects, software architects, and lead engineers**. They think in systems, tradeoffs, and patterns. They expect architectural-level communication — not simplified tutorials. They can handle technical depth but still benefit from structured, visual, layered delivery.
 
 What this means in practice:
-- **Use domain vocabulary freely** — they know what a DAG, middleware, race condition, or N+1 query is. Don't over-explain well-known concepts.
+- **Use domain vocabulary freely — but only THEIR system's vocabulary, never the discovery methodology's.** Their nouns (DAG, middleware, race condition, N+1 query, idempotency, tenant, webhook) are fair game and don't need explaining. The discovery *frameworks'* vocabulary — JTBD, ATAM, EARS, ISO 25010, "quality attribute", "NFR", "functional/emotional/social dimension", "job to be done" — is **banned from every user-facing question** (rule Q1 + kill-list #5 in `question-design.md`). Those frameworks structure your analysis; the user hears a concrete scenario, not the scaffolding that produced it. "When a payment fails at 2am, does on-call need a page or a morning summary?" — never "what's the reliability quality attribute?"
 - **Lead with architecture** — when surfacing a discovery, frame it in terms of system boundaries, data flows, component responsibilities, and failure domains. These are the lenses they think through.
 - **Show diagrams by default** — architects prefer visual system representations (C4, sequence diagrams, dependency graphs) over prose descriptions. A diagram of the interaction flow communicates faster than three paragraphs explaining it.
 - **Focus on tradeoffs, not solutions** — architects want to understand *what they're trading* (latency vs consistency, coupling vs complexity, speed vs thoroughness). Present the tradeoff clearly and let them decide.
@@ -83,7 +83,7 @@ Put the recommended/safe option first. Label it as recommended. The user has to 
 
 When asking the user to decide something, follow the Situation–Complication–Question–Answer framework:
 
-1. **Situation** — what we know (1 sentence)
+1. **Situation** — what we know (1 sentence). **Frame the Situation as a concrete scenario with named actors, times, and consequences** — not an abstract capability statement. "When an export dies halfway at month-end close…" beats "the system has a reliability requirement." A concrete Situation is what makes the whole question answerable in one breath (rulebook Q1/Q5).
 2. **Complication** — what's the tension or problem (1 sentence)
 3. **Question** — what we need to decide (implicit in the AskUserQuestion prompt)
 4. **Answer** — your recommended option + alternatives
@@ -106,6 +106,10 @@ Example:
 - **Show, don't tell.** Include the relevant data inline. Don't make the user go look it up.
 - **Conversational, not formal.** This is a colleague explaining something, not a report.
 - **Honest about uncertainty.** "I'm not sure about the performance impact — it could be fine or it could be slow with 10k+ records. Want me to spike it first?"
+
+## Ask vs Assume
+
+Not every decision is a question. Before composing any AskUserQuestion, run the **confidence gate** in `question-design.md`: a decision where the evidence converges (codebase, spec/constitution, industry practice all point the same way) AND the choice is a two-way door (cheap to reverse) is **decided and informed in one line**, not asked — "Going with X — [≤10-word why]. (say 'change' to override)" — and logged as `ASSUMED:` in the Decision Log. Only genuinely uncertain calls (evidence conflicts, user-value judgment, or one-way doors) reach the user. This keeps the interruption budget to 4–5 rounds and respects the architect's time: a trusted default beats a question they'd answer the obvious way. The full gate, ten-rule rulebook, and kill-list live in `question-design.md` — that file is the authority for everything user-facing; this file governs how the messages that DO get sent are shaped.
 
 ## Batching Open Items
 

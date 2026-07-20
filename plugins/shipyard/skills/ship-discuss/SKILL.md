@@ -79,13 +79,14 @@ Auto-route ONLY on unambiguous inputs. Heuristic classifications must be confirm
 - If input is a **triage phrase** — exact phrase match against: "anything requires discussion", "anything requires discussion?", "what's open", "what needs discussion", "what needs attention", "what's pending", "what needs refinement", "anything else", "discuss anything", "what else", "any ideas", "any ideas to discuss", "what ideas" → **TRIAGE mode** (see below)
 - If no input → AskUserQuestion: "What would you like to discuss?"
 
-**Heuristic-classified (REQUIRES confirmation before routing):** Any input that does not match the unambiguous list above MUST be confirmed with the user even if the heuristic strongly suggests a mode. Compose a one-line summary of the input, the inferred mode, and the mode's outcome, and use `AskUserQuestion` to confirm. Default-recommend the inferred mode but always offer the cheaper-to-recover-from neighbor:
+**Heuristic-classified:** Any input that does not match the unambiguous list above is heuristic-classified. **The confirmation discipline is tiered by reversibility** (this is the confidence gate applied to mode selection — see `references/question-design.md`):
 
-- **Short one-liner heuristic** (under ~20 words, no questions, no detail) → inferred CAPTURE mode. Ask: "This looks like a quick capture — file as IDEA-NNN (zero ceremony) or open a full feature discussion?" Default: CAPTURE.
-- **Large-initiative heuristic** (multiple features implied, a whole product area) → inferred EPIC mode. Ask: "This sounds like an epic — multiple features under one initiative. Discuss as an epic, or start with the first feature? (epic / feature)". Default: epic.
-- **Detailed-topic heuristic** (the user is describing a single feature in more than a few words OR asking questions about a single behavior) → inferred NEW mode. Ask: "Open a full discussion (~6 phases, produces a spec) or stash as an IDEA for later?" Default: NEW.
+- **CAPTURE and EPIC still REQUIRE confirmation before routing** — they are one-way-ish doors (CAPTURE writes an IDEA file and demotes a meaty idea to a stub; EPIC cascades changes across many feature files). Compose a one-line summary of the input, the inferred mode, and the mode's outcome, and use `AskUserQuestion` to confirm. Default-recommend the inferred mode but always offer the cheaper-to-recover-from neighbor:
+  - **Short one-liner heuristic** (under ~20 words, no questions, no detail) → inferred CAPTURE mode. Ask: "This looks like a quick capture — file as IDEA-NNN (zero ceremony) or open a full feature discussion?" Default: CAPTURE.
+  - **Large-initiative heuristic** (multiple features implied, a whole product area) → inferred EPIC mode. Ask: "This sounds like an epic — multiple features under one initiative. Discuss as an epic, or start with the first feature? (epic / feature)". Default: epic.
+- **Detailed-topic heuristic** (the user is describing a single feature in more than a few words OR asking questions about a single behavior) → inferred NEW mode. **Do NOT ask a standalone confirmation** — entering NEW is a two-way door (nothing is written until Phase 3, and the user sees the spec before it's finalized), so a confirmation interruption here is cheap-to-recover reasoning applied to a costless choice. Instead **proceed into NEW mode immediately with a stated assumption**, folded into the first Phase-1 round: open with one line — "Treating this as a full feature discussion — say 'just stash it' to capture as an IDEA instead." The veto is live but does not cost a round.
 
-The confirmation step is two sentences max — do not turn it into a full Phase 1 question. Its only purpose is to catch wrong-mode-by-default before the skill commits to a flow that's hard to back out of (CAPTURE writes an IDEA file; NEW writes a feature; EPIC cascades changes). After confirmation, route to the chosen mode.
+The CAPTURE/EPIC confirmation step is two sentences max — do not turn it into a full Phase 1 question. Its only purpose is to catch wrong-mode-by-default before the skill commits to a flow that's hard to back out of. After confirmation (CAPTURE/EPIC) or the stated assumption (NEW), route to the chosen mode.
 
 ### TRIAGE Mode: Surface what needs discussion
 
@@ -297,23 +298,38 @@ On entering NEW mode, `TaskCreate` one task per phase so the user can see where 
 
 Create all 15 in one batch (subjects prefixed with the topic slug, e.g. `[auth-flow] Phase 2: Viability Gate`, so parallel sessions don't collide). `TaskUpdate` each to `in_progress` when its phase starts and `completed` when it ends. If a mode variant legitimately skips a phase (e.g. REFINE entering mid-flow), mark the skipped tasks `completed` with a `skipped: <reason>` note in the description — never delete them silently.
 
-**Deep-dive dispatch coverage.** The analytical bulk of Phases 1.5, 3.5, and 3.8 runs inside the single dispatched **design deep-dive** agent (see Phase 1.5), which produces the dossier those phases consume. Those phases still exist as shell steps — they present the dossier's findings and drive the user-facing gates — so keep their tasks in the checklist. Mark task 2 (Phase 1.5) `in_progress` when the deep-dive is dispatched and `completed` once its dossier is written and presented; tasks 6 (Phase 3.5) and 8 (Phase 3.8) track the shell's present-and-apply steps as usual.
+**Deep-dive dispatch coverage.** The analytical bulk of Phases 1.5, 3.5, and 3.8 runs inside the single dispatched **design deep-dive** agent (see Phase 1.5), which produces the dossier those phases consume. Those phases still exist as shell steps — they present the dossier's findings and drive the user-facing gates — so keep their tasks in the checklist. The deep-dive is dispatched **concurrently at Phase 0.6** (seeded with the topic) so its no-user-input passes overlap the Phase-1 conversation; mark task 2 (Phase 1.5) `in_progress` at that dispatch and `completed` once the dossier is written and presented. Tasks 6 (Phase 3.5) and 8 (Phase 3.8) track the shell's present-and-apply steps as usual.
+
+**Interruption-round budget (load-bearing).** The 15 phases collapse into **4–5 user-interruption rounds**, not 15 asks: Round 1 = Phase 1 bulk understanding; Round 2 = Phase 1.5b challenge + Phase 2 viability echo in one call; Round 3 = Phases 3.5/3.7/3.8/4.5 consolidated post-spec decisions in one call; Round 4 = Phase 5 AC sign-off (+ overall approval folded in when scenarios fit one batch). The phases stay as checklist steps and present-and-apply work; only their **interruption points** merge. See `references/question-design.md` for the discipline.
 
 **Guardrail (load-bearing): the task list is a progress surface and a recovery anchor, NEVER authority.** Do not gate any behavior on TaskList state, do not cite task status as evidence a phase ran, and never mark a phase's task completed before the phase's file/event artifacts exist. The spec files, `.research-draft.md`, and the event log remain the record; the tasks are the user-visible mirror. (Same discipline as PROGRESS.md vs the event log.)
 
+### Phase 0.6: Dispatch the design deep-dive in the background (concurrent)
+
+**Immediately after mode detection routes to NEW (or IDEA-graduated-to-NEW), before composing the first Phase-1 question**, dispatch the design deep-dive agent **in the background**, seeded with just the TOPIC. Steps 1–3 of the research protocol (constitution check, internal research, external "how others solve it" research) need no user answers — they run against the topic and codebase alone, so they overlap the user's Phase-1 thinking time for free. See Phase 1.5 for the exact dispatch (the "concurrent seed" variant) and the SendMessage hand-off that feeds it the Phase-1 summary once the conversation finishes. Print the one-line dispatch banner there.
+
+**Fallback:** if background dispatch is unavailable or the launch fails, skip this and dispatch the whole deep-dive after Phase 1 as the documented Phase 1.5 fallback path.
+
 ### Phase 1: Understand
 
-**Read the discovery techniques:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/discovery-techniques.md` — contains JTBD, user journey mapping, pre-mortem, ISO 25010 quality characteristics, ATAM tradeoff analysis, EARS syntax, and IEEE 830 completeness checks. Apply these throughout Phases 1-3.
+**Read the two authorities for this phase:**
+- `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/question-design.md` — **how to ask**: the confidence gate (run BEFORE composing any question), the ten-rule rulebook, the kill-list, the ≤5-question budget, and the 4–5-round target. This governs everything user-facing below.
+- `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/discovery-techniques.md` — JTBD, user journey mapping, pre-mortem, ISO 25010, ATAM, EARS, IEEE 830. **These structure YOUR analysis only** — their vocabulary never reaches the user (rule Q1 + kill-list #5). Apply them throughout Phases 1-3 as scaffolding, then translate every probe into a concrete scenario before asking.
 
 **Communication design:** When surfacing something the user hasn't considered, use the 3-layer pattern from `references/communication-design.md` — one-liner (what + recommendation), context (why it matters, tradeoff, analogy if helpful), detail (only for high-stakes). Max 3–4 new concepts and 2–3 options per question. Under 100 words per decision message. Name the tradeoff on each option. Always recommend a default.
 
-Have a natural conversation about the topic. **Always use AskUserQuestion — never plain text — to ask questions.** AskUserQuestion suspends execution and waits for input; plain text does not. Bundle related questions into a single call. Key topics to cover (combine where natural):
-- Who are the users? What roles/permissions?
-- What's the core behavior? What should happen?
-- What's the business value? Why does this matter?
-- Any constraints, compliance, or technical requirements?
-- **JTBD**: What job is the user hiring this feature for? What are they doing today without it? What functional/emotional/social dimensions? What adjacent jobs happen before/after?
-- **Journey**: What triggers usage? What's the full before/during/after flow? Where can they abandon?
+**Think first, ask once (bulk understanding — this is Round 1 of the 4–5-round budget).** Do the derivation BEFORE composing any question:
+
+1. **List every unknown** the spec would need answered. Use the JTBD and journey lenses as scaffolding: who is the user, what job are they hiring this for, what do they do today without it, what triggers usage, what's the before/during/after flow, where can they abandon, what's the business value, what constraints exist.
+2. **Kill what the record already answers** (kill-list + rule Q8). Grep the codebase/config, the spec + Decision Logs + constitution, git history, and the user's own words this session. For anything found, STATE it rather than ask ("You're on Postgres with row-level tenancy, so I'll scope this per-tenant").
+3. **Run the confidence gate** over every remaining item (question-design.md). HIGH items (evidence converges AND two-way door) are decided, informed in one line, and logged as ASSUMED — they never reach AskUserQuestion. Only MEDIUM and LOW items are asked.
+4. **Ask everything remaining in AT MOST ONE `AskUserQuestion` call of up to 4 questions** (each ≤4 options + a recommended default + Other). A second call in this phase only if the first call's answers genuinely fork the design. Every question is scenario-framed and past-behavior-anchored per the rulebook — never framework vocabulary, never a hypothetical-opinion probe.
+
+If this discussion arrived via the detailed-topic heuristic (NEW-by-assumption), fold the stated mode assumption into this round's opening line ("Treating this as a full feature discussion — say 'just stash it' to capture as an IDEA instead") rather than spending a separate confirmation.
+
+**Always use AskUserQuestion — never plain text — to ask questions.** AskUserQuestion suspends execution and waits for input; plain text does not.
+
+**Once the Phase-1 conversation finishes, SendMessage the deep-dive agent the Phase-1 summary** (see Phase 1.5) so it completes its remaining passes. Then narrate the transition in one line ("→ Design deep-dive finishing: diagrams + viability read underway").
 
 **Key behaviors during conversation:**
 - **Splitting:** If the user describes multiple distinct features, use AskUserQuestion: "I'm hearing two things: [X] and [Y]. Want to capture them separately?"
@@ -327,7 +343,14 @@ Have a natural conversation about the topic. **Always use AskUserQuestion — ne
 
 The analytical bulk of this phase runs in **one dispatched design deep-dive agent** — the shell (this session) stays lean for conversation and gates; the heavy reasoning (research, diagram generation, viability pre-assessment, impact + simplification prep) runs on the think tier. The shell then **presents the dossier's findings conversationally** and drives the user-facing gates itself.
 
-**Dispatch the design deep-dive.** After Phase 1 (Understand) completes, dispatch exactly ONE subagent:
+**Dispatch it CONCURRENTLY, in two passes, so nothing blocks the user.** The dispatch is split so the no-user-input work overlaps the Phase-1 conversation:
+
+- **Seed pass (at Phase 0.6, background).** Immediately after mode detection, launch the agent in the background (`run_in_background: true`) with a stable `name` derived from the topic slug (e.g. `deepdive-<slug>`), seeded with only the TOPIC. It runs research protocol steps 1–3 (constitution check, internal research, external "how others solve it") — none need user answers. Print the dispatch banner: `→ Dispatched design deep-dive: constitution check, codebase scan, external research, diagrams — usually 1–3 min`.
+- **Hand-off (when Phase 1 finishes).** `SendMessage` the named agent the Phase-1 conversation summary (users, core behavior, value, constraints, JTBD/journey findings, decisions already made) so it completes the remaining passes — (4) Architecture visualization, data-modeling guidance, viability pre-assessment, impact-analysis prep, simplification candidates — and writes the dossier.
+
+When the agent returns, **lead with its one-line summary** ("→ Deep-dive back: 3 findings, viability clean, 1 data-model risk").
+
+**Fallback (background dispatch or SendMessage unavailable/failed).** If the background launch, the agent `name` addressing, or the `SendMessage` hand-off is unavailable or errors, fall back to the documented path: dispatch **the whole deep-dive as ONE synchronous subagent after Phase 1 completes** (seeded with the full Phase-1 summary up front). Note the fallback to the user in one line and continue. Either way the Agent template and prompt below are identical — only the timing and the seed-vs-summary split differ.
 
 **Model tier (think).** Read `models.think` from config.md (the `/ship-discuss` context block already carries config, or Read `<SHIPYARD_DATA>/config.md`). If the value is non-empty, pass `model: <value>` on the Agent call; if empty or absent, OMIT the `model:` field so the subagent inherits the session model. Never hardcode a model literal.
 
@@ -340,9 +363,13 @@ dossier. You have Read/Grep/Glob/LSP/WebSearch/WebFetch. You are READ-ONLY on
 source; the only file you WRITE is the dossier below. No commits, no subagents.
 
 # Input
-Feature topic + Phase 1 conversation summary (inlined here):
-  <paste the Phase 1 understanding: users, core behavior, value, constraints,
-   JTBD, journey, and any decisions the user already made>
+Feature topic (always provided at dispatch):
+  <the topic string>
+Phase 1 conversation summary (provided up front on the synchronous-fallback
+path; arrives via SendMessage on the concurrent path — begin steps 1–3 on the
+topic alone, then do steps 4-onward once the summary lands):
+  <users, core behavior, value, constraints, JTBD, journey, and any decisions
+   the user already made>
 Data dir: <SHIPYARD_DATA>
 Plugin root: ${CLAUDE_PLUGIN_ROOT}
 
@@ -393,7 +420,7 @@ biggest risk). The dossier file is the artifact the shell consumes.
 
 Once you have a reasonable understanding of the feature, **proactively challenge it** before moving to spec. Invoke the **`shipyard:discovering-edge-cases` capability skill** to walk the seven discovery categories (boundary inputs, concurrency, failure modes, adversarial input, observability gaps, NFRs, domain-specific) and return structured findings. Pass `feature_text`, `parent_context`, `domain_hints`, and `data_dir`. The capability skill returns a structured list (~3-5k tokens). Also run a quick pre-mortem inline (from `discovery-techniques.md`).
 
-**Presentation:** Follow `references/communication-design.md`. Max 3–4 items per AskUserQuestion; batch into themed groups of 3 if more. For each item: what I found → why it matters → what I recommend. Use the 3-layer pattern for anything genuinely surprising. Compact visual summary before the AskUserQuestion:
+**Presentation — this is Round 2, and it fuses the challenge with the Phase 2 viability echo into ONE `AskUserQuestion` call.** Follow `references/communication-design.md`. Present ALL findings at once in the compact visual summary (no per-finding drip), then resolve them in a single call:
 
 ```
   ⚠️  [Finding]           → [impact], recommend [action]
@@ -402,7 +429,11 @@ Once you have a reasonable understanding of the feature, **proactively challenge
   ❓  [Finding]           → needs decision
 ```
 
-**Do not proceed to Phase 2 until grey areas are resolved or explicitly deferred.** Write research findings and challenge resolutions to `<SHIPYARD_DATA>/spec/.research-draft.md` (frontmatter `topic:` + `created:`; body sections `## Research Findings` and `## Challenge Resolutions`). This file is absorbed into the feature file's Technical Notes in Phase 3 and then deleted.
+The single `AskUserQuestion` carries **up to 4 questions**:
+- **Up to 3 themed challenge questions** — group the resolvable findings into ≤3 themes (e.g. security, data model, failure modes); each question's recommended default option is **"Apply all recommendations"** for that theme, so the trusting user resolves a whole theme with one pick. For each item inside a theme: what I found → why it matters → what I recommend.
+- **The 4th question is the Phase 2 viability-echo confirmation** (see Phase 2 — mandatory, never dropped): "I'm reading this as one feature, scoped to [scope], with these acceptance themes: [themes]. Does this match your intent?"
+
+**Kill the old per-group serial gating.** Do NOT resolve challenge themes one AskUserQuestion at a time and do NOT block "until each group is resolved" before showing the next — present everything and bulk-resolve in the one call. (If more than 3 challenge themes genuinely exist, a second call is the sanctioned overflow, but aim for one.) Write research findings and challenge resolutions to `<SHIPYARD_DATA>/spec/.research-draft.md` (frontmatter `topic:` + `created:`; body sections `## Research Findings` and `## Challenge Resolutions`). This file is absorbed into the feature file's Technical Notes in Phase 3 and then deleted.
 
 ### Phase 2: Viability Gate
 
@@ -429,7 +460,7 @@ Evaluate each feature against the 5 gates AND echo the verdicts to the user. The
     SCOPED      ✓  [N feature(s) — if N>1, list the split]
 ```
 
-Then `AskUserQuestion`: "I'm reading this as one feature, scoped to [scope], with these acceptance themes: [themes]. Does this match your intent? (looks right / refine the read / split into multiple features)". Default-recommend "looks right" only when all five gates pass cleanly. If the user picks "refine the read" or "split into multiple features", go back to Phase 1 for re-clarification before writing to spec. Do NOT skip this echo step — the v2.4.0 audit flagged silent-pass as a HIGH-risk gap because users have no way to catch a model misjudgment about USER VALUE / TESTABLE / SCOPED otherwise.
+**Delivery: this echo is the 4th question of the Round-2 `AskUserQuestion` call** composed in Phase 1.5b — it does NOT get its own separate interruption. Present the verdict block above alongside the challenge summary, and ask (as that call's final question): "I'm reading this as one feature, scoped to [scope], with these acceptance themes: [themes]. Does this match your intent? (looks right / refine the read / split into multiple features)". Default-recommend "looks right" only when all five gates pass cleanly. If the user picks "refine the read" or "split into multiple features", go back to Phase 1 for re-clarification before writing to spec. Do NOT skip this echo step — it stays MANDATORY even though it's merged into Round 2 — the v2.4.0 audit flagged silent-pass as a HIGH-risk gap because users have no way to catch a model misjudgment about USER VALUE / TESTABLE / SCOPED otherwise. (When SPLIT fires or the user picks anything other than "looks right", the split/re-clarify sub-flow below runs as its own follow-up — the merge is about the default clean-pass path, not about suppressing a needed split conversation.)
 
 When SPLIT fires (or BUILDABLE/SCOPED fails on size grounds), invoke the **`shipyard:splitting-stories` capability skill** with `level: feature`, the draft text, the AC list, and `domain_hints` inferred from the discussion. The skill returns split candidates with cited patterns and `acceptance_hint`s. Present them as an AskUserQuestion: "This looks like [N] stories, not one — split it? (split as suggested / pick which children to keep / capture as-is and refine later)". Reject any candidate that fails the skill's horizontal-slice check before presenting (the skill flags these in `horizontal_rejections` — re-prompt the skill if it returned any).
 
@@ -450,6 +481,21 @@ For each well-defined feature: generate the next FNNN ID, determine the epic (ex
 
 **Diagram persistence:** Every diagram shown during Phase 1.5 — C4, sequence, state machine, ER, deployment, data-flow, or user-journey — is converted to Mermaid and written to the feature's `## Flows` section (an ER diagram may live under `## Data Model` instead when the schema is the feature's primary artifact). Diagrams shown in conversation are ephemeral — this is the only chance to persist them. The canonical diagram-type → Mermaid-syntax mapping is the single source of truth in `references/phase-3-write-spec.md`; keep this list in lock-step with it. See that reference for format rules.
 
+**ASSUMED logging in the Decision Log.** Every HIGH-tier decision the confidence gate resolved without asking (Phase 1 and throughout) is recorded in the feature's `## Decision Log` in the ASSUMED form, distinct from user-confirmed `DECIDED:` entries:
+
+```
+ASSUMED: <decision> — <evidence one-liner> — reversible: yes
+DECIDED: <decision> — <user's explicit answer>
+```
+
+These ASSUMED entries are what Phase 5's ASSUMPTIONS MADE section reads back for the one cheap audit point. See `references/question-design.md` § "Assumption logging."
+
+**Narrate the write in one line** ("→ Wrote F012 to spec — 4 acceptance scenarios, RICE 24") so the transition into the Round-3 consolidated decisions is visible, never silent.
+
+### Round 3: Consolidated post-spec decisions (Phases 3.5 → 3.7 → 3.8 → 4.5)
+
+The four post-spec phases below all run their **analysis and present-and-apply work as usual and keep their checklist tasks** — but their **user-interruption points merge into ONE consolidated `AskUserQuestion` call** (up to 4 questions): impact ripples to confirm (3.5), E2E AC gaps to accept (3.7), simplification candidates to route (3.8), and backlog re-estimations to approve (4.5). Run all four phases' analysis first, collect each one's decision items, then ask once. **Only sanctioned overflow:** an E2E gap set too large for one question may take a second call. Each phase notes below what it contributes to this single call rather than asking on its own.
+
 ### Phase 3.5: Impact Analysis
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/impact-analysis.md`
@@ -464,6 +510,8 @@ For each well-defined feature: generate the next FNNN ID, determine the epic (ex
 ```
 **Persist it (≥2 ripple edges):** the inline ASCII is ephemeral. When the impact diagram has 2+ ripple edges, convert it to a Mermaid `graph LR` and write it into the new/refined feature's `## Decision Log` so the ripple map survives the session — see `references/impact-analysis.md` § "What Gets Changed on Approval". A single dependency edge stays a sentence (per `references/communication-design.md` "fewer than 3 data points").
 
+**Contributes to the Round-3 consolidated call** — the ripple-confirmation is one of that call's ≤4 questions, not a separate interruption.
+
 Skip if Glob `<SHIPYARD_DATA>/spec/features/F*.md` returns no results.
 
 ### Phase 3.7: E2E AC Validation
@@ -474,7 +522,7 @@ After impact analysis, validate the feature's acceptance criteria against the E2
 
 **Skip if:** feature is trivial (`story_points <= 2` AND `complexity == "low"`) or no touch surfaces detected.
 
-Present gaps via AskUserQuestion in groups of ≤4. For accepted gaps, write to the feature file under `### E2E AC` within `## Acceptance Criteria`. If adding E2E AC would push the file over 200 lines, extract to `<SHIPYARD_DATA>/spec/references/FNNN-e2e-ac.md`.
+**Contributes to the Round-3 consolidated call** — the accepted-gap decision is one of that call's ≤4 questions, not a separate interruption. **Overflow exception:** if the gap set is too large to fit as one question alongside the other three phases, it may take a second AskUserQuestion call (the only sanctioned Round-3 overflow). For accepted gaps, write to the feature file under `### E2E AC` within `## Acceptance Criteria`. If adding E2E AC would push the file over 200 lines, extract to `<SHIPYARD_DATA>/spec/references/FNNN-e2e-ac.md`.
 
 ### Phase 3.8: Simplification Opportunity Scan
 
@@ -493,7 +541,7 @@ Scan the codebase for places that hand-roll what this feature's new libraries, u
 
 **Routing at discuss time:** All findings become IDEA files (since there's no sprint to fold tasks into yet). The sprint planning step (Step 3.75) will re-evaluate these and promote trivial/small items into sprint tasks if the feature is selected.
 
-Present findings and AskUserQuestion as defined in the protocol. If no opportunities found, move on silently.
+**Contributes to the Round-3 consolidated call** — the routing decision is one of that call's ≤4 questions, not a separate interruption. If no opportunities found, contribute nothing and move on silently.
 
 ### Phase 4: Capture Tangential Ideas
 
@@ -503,6 +551,8 @@ Any tangential features mentioned → create as idea files via the same logic as
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/backlog-reeval.md`
 !`shipyard-context reference ship-discuss backlog-reeval 55`
+
+**Contributes to the Round-3 consolidated call** — any re-estimation/priority-shift approval is one of that call's ≤4 questions, not a separate interruption. (Other-feature mutations still follow the protocol's AskUserQuestion-with-evidence rule; they ride inside this consolidated call.)
 
 Skip if BACKLOG.md is empty or doesn't exist.
 
@@ -518,11 +568,15 @@ Before presenting to the user, re-read each feature file and run the 15-check qu
 
 After the quality gate passes, spawn a `general-purpose` critic subagent (inline prompt in the reference — kept inline per S-1 granularity) to challenge the spec from angles self-review misses: implicit assumptions, feasibility risks, ambiguities, missing error states. Determine stakes level: `high` if feature is part of an epic, story_points ≥ 8, touches auth/payments/data, or has 6+ acceptance scenarios; `standard` otherwise.
 
-Process the critic's findings: fix what's fixable without user input, batch judgment calls into a single AskUserQuestion with the critic's evidence and your recommendation, log CONCERN items in the Decision Log, make silent assumptions explicit in the spec. **Do NOT re-run the critic after fixes.** One round only.
+**Dispatch the critic CONCURRENTLY with composing the Phase 5 summary.** The critic and the Phase 5 summary composition are independent — launch the critic (background where available), then compose the FEATURES DEFINED / verbatim-AC summary while it runs. **Reconcile the critic's findings BEFORE asking the user anything** (the Round-4 sign-off call must reflect the reconciled spec, not a pre-critic one): when the critic returns, apply its mechanical fixes silently, then hold its judgment-call items for the merged batch below.
+
+**Process the critic's findings in ONE merged batch.** Fix what's fixable without user input. Then combine the critic's judgment-call items AND the silent-assumption-surfacing items into a **single AskUserQuestion batch** with the critic's evidence and your recommendation per item — semantic assumptions are surfaced through this question, never encoded into the spec silently (see the reference). Log CONCERN items in the Decision Log. **Do NOT re-run the critic after fixes.** One round only.
 
 ### Phase 4.97: Scope-Drift Check ("did we drop something?")
 
-Before assembling the Phase 5 approval summary, run an explicit drift check with the user. The discussion entered Phase 1 with one shape (the user's initial topic, idea, or feature request) and may have evolved through challenge, viability, impact, and critique — sometimes losing scope on the way. Up to this point in the skill, there is no checkpoint that asks the user whether the spec they're about to approve still covers everything they originally wanted. Phase 4 captures NEW tangents that come up; this phase asks about OLD intent that may have been dropped.
+**Delivery: this check is folded INTO the Phase 5 summary presentation, not run as a separate interruption before it.** The two-column diff below is shown as part of the Round-4 summary, and its "did anything get dropped?" question is embedded in the Round-4 call (it rides alongside the AC sign-off / approval sequence rather than costing its own round). The check itself still runs, once, in full — only its interruption merges into Round 4.
+
+The discussion entered Phase 1 with one shape (the user's initial topic, idea, or feature request) and may have evolved through challenge, viability, impact, and critique — sometimes losing scope on the way. Up to this point in the skill, there is no checkpoint that asks the user whether the spec they're about to approve still covers everything they originally wanted. Phase 4 captures NEW tangents that come up; this phase asks about OLD intent that may have been dropped.
 
 Run this check exactly once per discussion, regardless of mode (NEW, IDEA-graduated-to-NEW, REFINE). Skip only on CAPTURE mode (which doesn't write acceptance criteria at all).
 
@@ -539,7 +593,7 @@ Compose a two-column diff in plain text:
                                           IDEA-009 — [title of tangent captured during Phase 4]
 ```
 
-Then `AskUserQuestion`: "We started with [paraphrase] and landed at the spec above. Did anything important from the original idea NOT make it into the spec? (nothing dropped — proceed to approval / something is missing — let me add it / a piece I wanted got captured as an IDEA instead — promote it)". Default-recommend "nothing dropped" only if the spec's acceptance themes cover every noun/verb in the user's initial topic (paraphrase from Phase 1's first AskUserQuestion). If the user picks "something is missing", re-enter Phase 1 with the dropped concern as the new seed, and re-run Phases 1.5b → 2 → 3 to incorporate it. If the user picks "promote an IDEA", inline-merge the IDEA's content back into the feature spec (or split it into a sibling feature), then return to this phase for re-confirmation.
+The two-column diff is carried into the Phase 5 summary as the SCOPE-DRIFT DIFF section, and the question "Did anything important from the original idea NOT make it into the spec? (nothing dropped — proceed to approval / something is missing — let me add it / a piece I wanted got captured as an IDEA instead — promote it)" is asked there, embedded in the Round-4 call (see Phase 5's "Scope-drift question" paragraph for the full delivery, defaults, and the missing/promote branches). Default-recommend "nothing dropped" only if the spec's acceptance themes cover every noun/verb in the user's initial topic (paraphrase from Phase 1's first AskUserQuestion).
 
 This phase has zero existing coverage anywhere else in the skill — until v2.4.0, there was no point where the user was asked "what did we cut?" Scope creep prevention was implicit in the model's judgment, which means it was silent and unrecoverable. The audit flagged this as a HIGH-risk gap.
 
@@ -566,11 +620,17 @@ Output the discussion outcome as text. Use these sections only — describe what
 - **EPIC** — if assigned, show epic with all features
 - **IMPACTS** — cross-feature changes already applied to spec files
 - **BACKLOG EFFECT** — re-estimation notes, priority shifts
+- **ASSUMPTIONS MADE** — every `ASSUMED:` entry from the feature Decision Logs (the HIGH-tier decisions the confidence gate resolved without asking), each with its evidence one-liner and reversibility. Lead the section with "flag any to change before approval" — this is the one cheap audit point for the decide-and-inform assumptions (see `references/question-design.md`).
+- **SCOPE-DRIFT DIFF** — the Phase 4.97 two-column "Started with → Landed at" diff (below), shown here rather than as a separate interruption.
 - **UNRESOLVED** — quality-gate items flagged for follow-up
 
-**Acceptance-criteria sign-off gate (run BEFORE the approval AskUserQuestion below).** Before asking for overall approval, run an AC-only review using `AskUserQuestion`. Quote each scenario verbatim in the question text (or batch into groups of ≤4 scenarios per question if there are many). For each scenario set, ask: "Are these acceptance scenarios correct as written? (looks good / edit a scenario / a scenario is wrong / missing a scenario)". If the user picks anything other than "looks good", surface the specific scenario and use a follow-up AskUserQuestion to capture the correction, then update the feature file and re-present that scenario set for re-confirmation. Loop until all scenario sets read "looks good". **Do not skip this gate.** Approving a count is not the same as approving the criteria — the v2.4.0 audit flagged this as the single largest risk surface in `/ship-discuss` because wrong-by-default ACs become the test contract that `/ship-execute` enforces downstream and there is no other point in the pipeline where the user is shown the actual scenario text for sign-off.
+**Acceptance-criteria sign-off gate — this IS Round 4.** Before asking for overall approval, run an AC-only review using `AskUserQuestion`. Quote each scenario verbatim in the question text (or batch into groups of ≤4 scenarios per question if there are many). For each scenario set, ask: "Are these acceptance scenarios correct as written? (looks good / edit a scenario / a scenario is wrong / missing a scenario)". If the user picks anything other than "looks good", surface the specific scenario and use a follow-up AskUserQuestion to capture the correction, then update the feature file and re-present that scenario set for re-confirmation. Loop until all scenario sets read "looks good". **Do not skip this gate.** Approving a count is not the same as approving the criteria — the v2.4.0 audit flagged this as the single largest risk surface in `/ship-discuss` because wrong-by-default ACs become the test contract that `/ship-execute` enforces downstream and there is no other point in the pipeline where the user is shown the actual scenario text for sign-off. The verbatim AC sign-off keeps its own round — audit-critical, never merged away.
 
-Then use `AskUserQuestion` for overall approval:
+**Fold the scope-drift question and the overall approval into this same call when the scenarios fit one batch.** When all scenario sets fit in a single `AskUserQuestion` (≤4 questions total), add the Phase 4.97 scope-drift question and the overall-approval question as the remaining questions of that same call — so the clean-pass path completes Round 4 in one interruption. When scenarios need multiple batches, the AC sign-off loops first, then the scope-drift + approval questions come as the final call.
+
+**Scope-drift question (Phase 4.97, embedded here):** using the SCOPE-DRIFT DIFF shown in the summary, ask "Did anything important from the original idea NOT make it into the spec? (nothing dropped — proceed to approval / something is missing — let me add it / a piece I wanted got captured as an IDEA instead — promote it)". Default-recommend "nothing dropped" only if the spec's acceptance themes cover every noun/verb in the user's initial topic. If "something is missing", re-enter Phase 1 with the dropped concern as the new seed and re-run Phases 1.5b → 2 → 3; if "promote an IDEA", inline-merge the IDEA back into the feature spec (or split into a sibling feature), then re-confirm.
+
+Then (as the final question of the merged call, or its own call when batching forced multiple rounds) use `AskUserQuestion` for overall approval:
 - **Approve (Recommended)** — proceed to Phase 6 (Finalize). The discussion is not complete until Phase 6 runs in full.
 - **Refine** — stay in discussion, iterate on flagged features, re-enter Phase 5 when ready. Do not touch `.active-session.json`.
 - **Reject** — leave features at `status: proposed`, stop. User can resume later with `/ship-discuss [ID]`. Do not touch `.active-session.json`.
@@ -634,11 +694,11 @@ Apply each section to what's already in the spec — audit assumptions baked int
 
 ### Step 3: Gather Updates
 
-Based on what Phase 1.5 surfaced, use AskUserQuestion (never plain text) to gather updates — bundle gaps into a single question where possible:
+Based on what Phase 1.5 surfaced, use AskUserQuestion (never plain text) to gather updates — bundle gaps into a single question where possible (one call, per the bulk-ask discipline):
 - Resolve each gap: addressed / deferred / not needed
 - New insights, changed requirements, concerns?
 - New acceptance scenarios for uncovered edge cases
-- Technical decisions made since last discussion?
+- **Technical decisions made since last discussion?** Derive these from the record FIRST — `git log` since the feature's `updated:` date and the diff of the spec/code areas the feature touches — then STATE what you found ("since we last talked, the auth middleware moved to `lib/auth/` and you switched to Argon2"). Ask only about decisions the record can't show (rationale, intent, things not yet committed). Don't ask the user to recite what git already records.
 
 ### Step 4: Update & Re-evaluate
 
@@ -693,12 +753,15 @@ REFINE-mode differences from NEW-mode finalize (status no-op for already-approve
 
 ## Rules
 
+**How to ask is governed by `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/question-design.md`** — the confidence gate, the ten-rule rulebook, the kill-list, and the bulk-ask discipline. The rules below are the load-bearing summary; that file is the authority.
+
 - **Use AskUserQuestion — never plain text for questions.** AskUserQuestion is a tool call that suspends execution and waits for user input. Plain text output does not pause — the model will continue without user input. Every question that requires an answer must use AskUserQuestion.
-- **Always recommend.** Every question to the user must include your recommendation. Never ask "A or B?" without saying which you'd pick and why. Example: "Should we require email verification? I'd recommend yes — it prevents fake accounts and is standard for auth flows."
-- **Don't ask obvious questions.** If the answer is clear from context, the tech stack, or standard practice — just state your recommendation and move on. Only ask when there's a genuine decision to make. Example: don't ask "should login errors be user-friendly?" — of course they should. Do ask "should we rate-limit login attempts? I'd recommend 5 per minute to prevent brute force."
+- **Confidence gate before every question (replaces "never assume").** Score each pending decision on evidence convergence and reversibility. **HIGH** (evidence converges AND two-way door) → **decide, inform in one line ("Going with X — [why]. say 'change' to override"), and log as `ASSUMED:`** — do NOT ask. Only **MEDIUM** and **LOW** items reach AskUserQuestion. **One-way doors and user-value questions (who it's for, whether it's worth building) are never HIGH** — they always ask; the Phase 2 viability echo stays mandatory. This is the opposite of the old "never assume technical decisions" rule: for reversible, evidence-backed calls, assuming-and-informing is faster and better than interrupting.
+- **Always recommend.** Every question to the user must include your recommendation. Never ask "A or B?" without saying which you'd pick and why. Options are outcomes with tradeoffs, not mechanisms (rulebook Q4).
+- **Don't ask what the record already answers — check the kill-list.** Before every AskUserQuestion call, run the kill-list in `question-design.md` (derivable from code/config, derivable from the spec dir, restating the user's own words, universal-yes questions, framework-vocabulary questions, hypothetical-opinion questions, two-way-door minutiae, and questions whose answer won't change the spec). If it's on the list, STATE what you found or decide-and-log instead. Example: don't ask "should login errors be user-friendly?" — of course they should. Do ask "should we rate-limit login attempts? I'd recommend 5 per minute to prevent brute force."
+- **Question budget: ≤5 asks through Phases 1–2, 4–5 interruption rounds total.** Round 1 bulk understanding, Round 2 challenge + viability echo, Round 3 consolidated post-spec decisions, Round 4 AC sign-off (+ approval). Overflow items become HIGH assumptions, not extra asks. Every round beyond that needs a reason.
 - **Be conversational, not mechanical.** This is a discussion, not a form.
 - **Suggest structure.** If the user rambles, organize their thoughts into features/epics.
-- **Never assume technical decisions.** Ask about architecture, approach, tradeoffs — but always lead with your suggestion.
 - **Reference existing spec.** Don't create duplicates. Link to related features.
 - **Record everything.** Every decision, every "let's not do that", every "maybe later" goes in the decision log.
 - **Multi-session safe.** If the user stops mid-discussion, state is saved. They can resume with `/ship-discuss [ID]`.

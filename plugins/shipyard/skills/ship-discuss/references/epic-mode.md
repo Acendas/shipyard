@@ -29,11 +29,14 @@ If new epic (user described a large initiative): create the epic file first, the
 
 ## Step EP2: Epic-Level Discussion
 
-Use AskUserQuestion to understand the direction:
-- What's changing about this epic? (scope, priority, direction)
-- Any new features to add? Any existing features to remove or split?
-- Has the business context changed? (competitor launched, user feedback, pivot)
-- Are there cross-feature concerns to address? (shared infrastructure, common patterns, sequencing)
+**Bundle all four context questions into ONE `AskUserQuestion` call** (per the bulk-ask discipline in `question-design.md` — don't drip them one at a time). Each question carries an example answer so the user can respond in one breath, and each offers a cheap "nothing changed / you decide" exit:
+
+- **What's changing about this epic?** (scope, priority, direction) — e.g. "we're dropping the analytics half", "bumping this ahead of the reporting epic", or "nothing — just reviewing."
+- **Any features to add, remove, or split?** — e.g. "add a refund-flow feature", "F015 should split into basic + advanced", or "none."
+- **Has the business context changed?** — e.g. "a competitor shipped split payments", "user feedback says onboarding is the blocker", or "no change."
+- **Any cross-feature concerns?** (shared infrastructure, common patterns, sequencing) — e.g. "F003 must land before F012", "all of these share the ledger schema", or "none."
+
+Run the confidence gate first: anything the epic file or feature files already answer is stated, not asked.
 
 ## Step EP3: Cascade Changes to Features
 

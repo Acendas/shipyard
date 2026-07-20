@@ -300,7 +300,8 @@
   {
     "name": "h1_mode_detection_requires_confirmation",
     "type": "contains",
-    "pattern": "Heuristic-classified \\(REQUIRES confirmation"
+    "pattern": "CAPTURE and EPIC still REQUIRE confirmation before routing",
+    "why": "the write/cascade one-way-door modes (CAPTURE, EPIC) still confirm before routing; only the two-way-door detailed-topic heuristic proceeds with a stated assumption"
   },
   {
     "name": "h1_mode_detection_unambiguous_list_documented",
@@ -754,5 +755,95 @@
     "pattern": "Fallback \\(dispatch failed|fall back to running the .phase-1-research\\.md. protocol .{0,20}inline",
     "dotall": true,
     "why": "if the deep-dive dispatch fails or returns an unusable dossier, the shell falls back to the pre-4.0 inline research path"
+  },
+  {
+    "name": "question_design_ref_exists",
+    "type": "file_exists",
+    "path": "skills/ship-discuss/references/question-design.md",
+    "why": "v3.3.0 question redesign: the confidence gate / rulebook / kill-list authority file must exist"
+  },
+  {
+    "name": "skill_points_to_question_design",
+    "type": "contains",
+    "pattern": "question-design\\.md",
+    "why": "Phase 1, 1.5b, and the Rules section route how-to-ask discipline to question-design.md"
+  },
+  {
+    "name": "concurrent_deep_dive_dispatch",
+    "type": "contains",
+    "pattern": "Dispatch it CONCURRENTLY|Phase 0\\.6",
+    "why": "v3.3.0 speed: the design deep-dive is seeded in the background at Phase 0.6 so its no-user-input passes overlap the Phase-1 conversation"
+  },
+  {
+    "name": "deep_dive_handoff_via_sendmessage",
+    "type": "contains",
+    "pattern": "SendMessage",
+    "why": "the concurrent deep-dive gets the Phase-1 summary via SendMessage once the conversation finishes; synchronous dispatch is the documented fallback"
+  },
+  {
+    "name": "bulk_ask_single_call_rule",
+    "type": "contains",
+    "pattern": "AT MOST ONE",
+    "why": "Round 1 bulk understanding asks everything remaining in at most one AskUserQuestion call of up to 4 questions"
+  },
+  {
+    "name": "confidence_gate_wired",
+    "type": "contains",
+    "pattern": "[Cc]onfidence gate",
+    "why": "the confidence gate (HIGH decide-and-inform / MEDIUM-LOW ask) replaces the old 'never assume technical decisions' rule"
+  },
+  {
+    "name": "kill_list_referenced",
+    "type": "contains",
+    "pattern": "kill-list",
+    "why": "'Don't ask obvious questions' now points at the question-design.md kill-list"
+  },
+  {
+    "name": "assumed_logging_wired",
+    "type": "contains",
+    "pattern": "ASSUMED:",
+    "why": "HIGH-tier decisions are logged as ASSUMED: in the Decision Log and read back in Phase 5's ASSUMPTIONS MADE section"
+  },
+  {
+    "name": "phase5_assumptions_made_section",
+    "type": "contains",
+    "pattern": "ASSUMPTIONS MADE",
+    "why": "Phase 5 approval summary surfaces all ASSUMED decisions as one cheap audit point with 'flag any to change before approval'"
+  },
+  {
+    "name": "round_budget_stated",
+    "type": "contains",
+    "pattern": "interruption round|4.5 interruption|≤5 asks",
+    "why": "the 15 phases collapse into a 4-5 interruption-round budget with ≤5 asks through Phases 1-2"
+  },
+  {
+    "name": "round2_challenge_viability_merged",
+    "type": "contains",
+    "pattern": "fuses the challenge with the Phase 2 viability echo",
+    "why": "Round 2 merges the 1.5b challenge and the mandatory Phase 2 viability echo into one AskUserQuestion call"
+  },
+  {
+    "name": "round3_consolidated_post_spec",
+    "type": "contains",
+    "pattern": "Round 3: Consolidated",
+    "why": "Phases 3.5/3.7/3.8/4.5 keep their tasks but merge their interruption points into one consolidated call"
+  },
+  {
+    "name": "concurrent_critic_dispatch",
+    "type": "contains",
+    "pattern": "Dispatch the critic CONCURRENTLY",
+    "why": "the 4.95 critic runs concurrently with composing the Phase 5 summary; findings are reconciled before asking"
+  },
+  {
+    "name": "detailed_topic_proceeds_with_assumption",
+    "type": "contains",
+    "pattern": "Do NOT ask a standalone confirmation|proceed into NEW mode immediately with a stated assumption",
+    "why": "the detailed-topic heuristic (two-way door) proceeds into NEW with a stated assumption instead of costing a confirmation round; CAPTURE/EPIC still confirm"
+  },
+  {
+    "name": "verbatim_ac_signoff_keeps_own_round",
+    "type": "contains",
+    "pattern": "verbatim AC sign-off keeps its own round",
+    "why": "the audit-critical verbatim AC sign-off survives the round merge and is never folded away"
   }
 ]

@@ -1,5 +1,11 @@
 # Feature Discovery Techniques
 
+**These frameworks structure YOUR analysis; their vocabulary never appears in a question.** JTBD, ISO 25010, ATAM, EARS, "quality attribute", "NFR", "functional/emotional/social dimension" — all of it is scaffolding you reason with, then discard before you open your mouth. Translate every probe into a concrete scenario with named actors, times, and consequences first (see `question-design.md`, rule Q1 + the kill-list).
+
+> **Translated example.** The ISO 25010 *Reliability* probe below ("blast radius if this feature fails? recovery auto or manual?") never reaches the user as jargon. Ask it as a scenario:
+> "If the export job dies halfway at month-end close, does the accountant need a partial file, or is nothing-until-complete fine?"
+> Same information, zero framework vocabulary — and answerable in one breath.
+
 ## Jobs-to-be-Done (JTBD)
 
 Before asking "what should this feature do?", ask:
