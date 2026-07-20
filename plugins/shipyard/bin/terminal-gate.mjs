@@ -102,10 +102,14 @@ export function parseWaves(sprintContent) {
         tasks = taskLine[1]
           .split(",")
           .map((s) => s.trim().replace(/[\[\]]/g, ""))
-          .filter((s) => /^T-?[A-Za-z0-9]+/.test(s));
+          // Require trailing digits so placeholder tokens (TBD, TODO) in a
+          // half-authored wave don't become phantom task IDs the terminal
+          // gate then demands completion evidence for. Real IDs: T001,
+          // T-P001 (patch), T-HOT1 — letters ≤3 then digits.
+          .filter((s) => /^T-?[A-Za-z]{0,3}\d+$/.test(s));
         break;
       }
-      const bulletMatch = lines[j].match(/^\s*[-*]\s+(T-?[A-Za-z0-9]+)/);
+      const bulletMatch = lines[j].match(/^\s*[-*]\s+(T-?[A-Za-z]{0,3}\d+)\b/);
       if (bulletMatch) {
         tasks.push(bulletMatch[1]);
       }
@@ -219,22 +223,36 @@ export function evaluateExecuteTerminal({ dataDir }) {
     }
   }
 
-  // Per-task evidence — for every task in every wave, at least one
-  // task_dispatch_returned with status=complete.
+  // Per-task evidence — for every task in every wave, either a
+  // task_dispatch_returned status=complete, OR documented parking
+  // evidence (task_blocked event / task_dispatch_returned status=blocked).
+  // Parked (needs-attention) tasks are a designed outcome — the skill
+  // deliberately advances past persistent failures and hands them to
+  // /ship-review — so demanding `complete` for them made a sprint with
+  // any parked task structurally unable to terminate (found in the
+  // 2026-07 Fable review). Parking still requires its own event trail;
+  // a task with NO evidence at all still blocks the terminal.
   const tasksCompleted = new Set();
+  const tasksParked = new Set();
   for (const ev of events) {
+    if (ev.type === "task_blocked") {
+      const id = ev.task_id || ev.task;
+      if (id) tasksParked.add(id);
+      continue;
+    }
     if (ev.type !== "task_dispatch_returned") continue;
     if (ev.pipeline !== "ship-execute") continue;
-    if (ev.status !== "complete") continue;
     const id = ev.task_id || ev.task;
-    if (id) tasksCompleted.add(id);
+    if (!id) continue;
+    if (ev.status === "complete") tasksCompleted.add(id);
+    else if (ev.status === "blocked") tasksParked.add(id);
   }
   for (const t of allTaskIds) {
-    if (!tasksCompleted.has(t)) {
-      reasons.push(
-        `Missing task_dispatch_returned status=complete for task ${t}`,
-      );
-    }
+    if (tasksCompleted.has(t)) continue;
+    if (tasksParked.has(t)) continue;
+    reasons.push(
+      `Missing evidence for task ${t} — need task_dispatch_returned status=complete, or (for a parked task) a task_blocked event`,
+    );
   }
 
   // Sprint-complete predicate evidence.

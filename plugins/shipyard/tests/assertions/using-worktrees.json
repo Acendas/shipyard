@@ -53,5 +53,17 @@
     "name": "baseref_verified_at_execute",
     "type": "contains",
     "pattern": "ensure-worktree-baseref"
+  },
+  {
+    "name": "isolation_is_only_path",
+    "type": "contains",
+    "pattern": "only path",
+    "why": "isolation: worktree is the single dispatch path; no manual pre-creation fallback"
+  },
+  {
+    "name": "no_precreated_worktree_option",
+    "type": "not_contains",
+    "pattern": "orchestrator pre-creates the worktree|pre-creation is more explicit",
+    "why": "pre-creating a worktree bypasses the WorktreeCreate hook's branch naming and baseRef"
   }
 ]

@@ -250,6 +250,26 @@ function splitEventFields(fields) {
   return { outcome, reason, cursorFields: rest };
 }
 
+/**
+ * Best-effort clear of the execute-skill advisory lock when the execute
+ * pipeline reaches a resting state (terminal / paused / noop). The lock
+ * and the cursor used to flip on the same transition but with split
+ * ownership (CLI wrote the cursor, the model hand-Wrote the lock JSON) —
+ * a forgettable model step. Review has no per-pipeline lock file.
+ */
+function clearExecutionLock(dataDir, pipeline) {
+  if (pipeline !== "ship-execute") return;
+  try {
+    const path = join(dataDir, ".active-execution.json");
+    if (!existsSync(path)) return;
+    writeFileSync(
+      path,
+      JSON.stringify({ skill: null, cleared: new Date().toISOString() }) + "\n",
+      "utf8",
+    );
+  } catch { /* advisory lock — never fail the state transition over it */ }
+}
+
 function buildProposed({ pipeline, stage, prior, cursorFields, note, terminal, nowIso }) {
   const priorFm = prior?.fm ?? {};
   const merged = {
@@ -263,9 +283,20 @@ function buildProposed({ pipeline, stage, prior, cursorFields, note, terminal, n
     status: cursorFields.status ?? (terminal ? terminalDefaultStatus(stage) : "in_progress"),
     next_action: cursorFields.next_action ?? "",
     terminal: terminal,
+    // stuck_counter is CLI-owned (v3.1.0): a self-loop advance without an
+    // explicit stuck_counter= auto-INCREMENTS (forgetting now counts as
+    // stuck — the safe direction; pass stuck_counter=0 when the self-loop
+    // made real progress). Stage change resets to 0. Exception:
+    // wave_N_waiting is a poll stage — "no progress yet" is its normal
+    // state and its stuck protection is the per-task timeout machinery,
+    // so it carries the counter without incrementing.
     stuck_counter:
       cursorFields.stuck_counter ??
-      (prior && priorFm.stage === stage ? priorFm.stuck_counter ?? 0 : 0),
+      (prior && priorFm.stage === stage
+        ? normalizeStage(pipeline, stage)?.key === "wave_waiting"
+          ? (parseInt(priorFm.stuck_counter, 10) || 0)
+          : (parseInt(priorFm.stuck_counter, 10) || 0) + 1
+        : 0),
     hard_ceiling: cursorFields.hard_ceiling ?? priorFm.hard_ceiling ?? 50,
     mode: cursorFields.mode ?? priorFm.mode ?? "",
     working_branch: cursorFields.working_branch ?? priorFm.working_branch ?? "",
@@ -397,6 +428,23 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
     );
   }
 
+  // Stuck detection is CLI-owned: warn at 5, refuse at the hard ceiling.
+  const stuck = parseInt(merged.stuck_counter, 10) || 0;
+  const ceiling = parseInt(merged.hard_ceiling, 10) || 50;
+  if (!terminal && from === stage && stuck >= ceiling) {
+    logEvent(dataDir, "pipeline_stuck", {
+      pipeline,
+      sprint: sprintIdOf(merged, prior),
+      stage,
+      iterations: stuck,
+      reason: "hard-ceiling",
+    });
+    gateFail(`cursor advance refused — hard ceiling (${ceiling}) reached on self-looping stage ${stage}`, [
+      `${stuck} self-loop ticks without progress. This is a runaway loop with broken state-change detection.`,
+      `Escalate instead: shipyard-data cursor escalate ${pipeline === "ship-execute" ? "execute" : "review"} reason=hard_ceiling_stage_${stage}`,
+    ]);
+  }
+
   const sprint = sprintIdOf(merged, prior);
   if (terminal) {
     logEvent(dataDir, "pipeline_terminal", {
@@ -406,6 +454,15 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
       reason: reason || stage,
     });
   } else {
+    if (from === stage && stuck >= 5) {
+      logEvent(dataDir, "pipeline_stuck", {
+        pipeline,
+        sprint,
+        stage,
+        iterations: stuck,
+        reason: "re-entry-without-progress",
+      });
+    }
     logEvent(dataDir, "pipeline_tick_completed", {
       pipeline,
       sprint,
@@ -413,6 +470,17 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
       outcome: from === stage ? "self_loop" : "advanced",
       next_stage: stage,
       ...(merged.wave_number != null ? { wave: merged.wave_number } : {}),
+    });
+    // The CLI also emits the next tick's started event — the last
+    // pipeline-lifecycle event that used to be a model-side ritual
+    // (forgettable, never verified). Zero consumers gate on it; it exists
+    // for audit-log readability.
+    logEvent(dataDir, "pipeline_tick_started", {
+      pipeline,
+      sprint,
+      stage,
+      ...(merged.iteration != null ? { iteration: merged.iteration } : {}),
+      ...(merged.loop_owner ? { loop_owner: merged.loop_owner } : {}),
     });
   }
 
@@ -428,6 +496,7 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
   try {
     writeProgress(dataDir);
   } catch { /* rendering is best-effort; next advance retries */ }
+  if (terminal) clearExecutionLock(dataDir, pipeline);
 
   process.stdout.write(`cursor: ${from ?? "(fresh)"} → ${stage} (${path})\n`);
   if (terminal) {
@@ -443,6 +512,179 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
     const waveBit = merged.wave_number != null ? ` wave ${merged.wave_number},` : "";
     process.stdout.write(`▶ TICK COMPLETE —${waveBit} stage ${stage}. /loop continues.\n`);
   }
+}
+
+/** ---- set (field-only, no transition) -------------------------------- */
+
+/**
+ * Update cursor frontmatter fields WITHOUT a stage transition: no graph
+ * traversal, no gates, no tick events. Exists because a "same-stage
+ * advance just to set a field" (the pre-v3.1 auto-loop sentinel recipe)
+ * was an illegal transition on every non-self-looping stage AND polluted
+ * the event log with a phantom tick. Field sets cannot start work — the
+ * stage and terminal flag are not settable here.
+ */
+export function cursorSet(dataDir, pipelineArg, rest) {
+  const pipeline = canonicalPipeline(pipelineArg);
+  if (!pipeline) usageFail(`cursor set: unknown pipeline "${pipelineArg}" — expected execute|review`);
+  const { fields, note } = parseArgs(rest);
+  if (Object.keys(fields).length === 0 && note === null) {
+    usageFail("cursor set: nothing to set — pass k=v fields and/or --note");
+  }
+  const prior = readCursor(dataDir, pipeline);
+  if (!prior) {
+    gateFail("cursor set refused — no cursor exists", [
+      `Expected sprints/current/${CURSOR_FILE[pipeline]}. Field sets update an existing cursor; use \`cursor advance\` to create one at an entry stage.`,
+    ]);
+  }
+  const { cursorFields } = splitEventFields(fields);
+  let pending = prior.pending;
+  if (cursorFields.pending_subagents !== undefined) {
+    const raw = cursorFields.pending_subagents;
+    if (raw === "" || raw === "[]") pending = [];
+    else {
+      try {
+        pending = JSON.parse(raw);
+        if (!Array.isArray(pending)) throw new Error("not an array");
+      } catch (err) {
+        usageFail(`cursor set: pending_subagents must be a JSON array (${err.message})`);
+      }
+    }
+    delete cursorFields.pending_subagents;
+  }
+  const merged = { ...prior.fm, ...cursorFields, pipeline };
+  const content = renderCursor(merged, pending, note ?? prior.body);
+  writeCursorFile(dataDir, pipeline, content);
+  process.stdout.write(
+    `cursor: fields updated at stage ${merged.stage} (${Object.keys(cursorFields).join(", ") || "note"})\n`,
+  );
+}
+
+/** ---- resume (escalated/paused → in_progress) ------------------------ */
+
+/**
+ * Documented recovery from an escalated (or paused) cursor: flip
+ * terminal/status back to in_progress at the SAME stage so normal
+ * advances work again. Without this, an escalated sprint was bricked —
+ * the entry recipe noop'd on any `terminal: true` cursor and `advance`
+ * refused it, with `--force` as the only (undocumented) escape.
+ */
+export function cursorResume(dataDir, pipelineArg, rest, { now = new Date() } = {}) {
+  const pipeline = canonicalPipeline(pipelineArg);
+  if (!pipeline) usageFail(`cursor resume: unknown pipeline "${pipelineArg}" — expected execute|review`);
+  const { fields, note } = parseArgs(rest);
+  const prior = readCursor(dataDir, pipeline);
+  if (!prior) {
+    gateFail("cursor resume refused — no cursor exists", [
+      `Expected sprints/current/${CURSOR_FILE[pipeline]}.`,
+    ]);
+  }
+  const status = (prior.fm.status || "").toLowerCase();
+  if (status !== "escalated" && status !== "paused") {
+    gateFail(`cursor resume refused — cursor status is "${prior.fm.status}"`, [
+      "Resume applies to escalated or paused cursors only. A status: complete terminal means the pipeline finished — start the next cycle instead.",
+    ]);
+  }
+  const merged = {
+    ...prior.fm,
+    pipeline,
+    status: "in_progress",
+    terminal: false,
+    last_advance_at: now.toISOString(),
+    next_action: fields.next_action ?? `Resumed from ${status} at stage ${prior.fm.stage}`,
+    stuck_counter: 0,
+  };
+  const content = renderCursor(merged, prior.pending, note ?? prior.body);
+  writeCursorFile(dataDir, pipeline, content);
+  logEvent(dataDir, "pipeline_resumed", {
+    pipeline,
+    sprint: sprintIdOf(merged, prior),
+    stage: merged.stage,
+    from_status: status,
+  });
+  try {
+    writeProgress(dataDir);
+  } catch { /* best-effort */ }
+  process.stdout.write(`cursor: resumed at stage ${merged.stage} (was ${status}). Normal advances apply again.\n`);
+}
+
+/** ---- bootstrap-check ------------------------------------------------ */
+
+/**
+ * The auto-loop bootstrap eligibility computation, absorbed from ~20
+ * lines of skill prose (5 ordered predicates over cursor + event log +
+ * SPRINT.md). Prints one JSON line:
+ *   { "loop_owner": "/loop"|"user", "eligible": bool, "reason": "..." }
+ * When eligible, sets `auto_loop_attempted: true` on the cursor as a
+ * side effect (field-only, no tick event) so the /loop re-entry sees the
+ * sentinel without a second CLI call.
+ *
+ * loop_owner heuristic (centralized here so it can be fixed in ONE
+ * place): a pipeline_tick_completed for this pipeline within the last
+ * 30 minutes whose next_stage matches the current cursor stage → this
+ * invocation is a /loop re-entry. Known limitation: a direct
+ * re-invocation shortly after a Ctrl-C'd chain misclassifies as /loop;
+ * callers can override with the cursor's own loop_owner field, which
+ * wins when set.
+ */
+export function cursorBootstrapCheck(dataDir, pipelineArg) {
+  const pipeline = canonicalPipeline(pipelineArg);
+  if (!pipeline) usageFail(`cursor bootstrap-check: unknown pipeline "${pipelineArg}" — expected execute|review`);
+
+  const out = (loop_owner, eligible, reason) => {
+    process.stdout.write(JSON.stringify({ loop_owner, eligible, reason }) + "\n");
+  };
+
+  const prior = readCursor(dataDir, pipeline);
+  if (!prior) return out("user", false, "no cursor — bootstrap runs after the first advance");
+  if (String(prior.fm.terminal).toLowerCase() === "true") {
+    return out("user", false, "cursor is terminal");
+  }
+  if ((prior.fm.status || "").toLowerCase() === "paused") {
+    return out("user", false, "cursor is paused — resume is a user decision");
+  }
+
+  // Sprint liveness (the v2.2.0 wakeup-leak precondition).
+  const sprintPath = join(dataDir, "sprints", "current", "SPRINT.md");
+  if (!existsSync(sprintPath)) return out("user", false, "no live sprint (SPRINT.md absent)");
+  try {
+    const sprintFm = parseFrontmatter(readFileSync(sprintPath, "utf8"));
+    if ((sprintFm.status || "").trim().toLowerCase() === "completed") {
+      return out("user", false, "sprint is status: completed — never bootstrap a dead sprint");
+    }
+  } catch { /* unreadable — treat as live and let the advance-time guard decide */ }
+
+  // loop_owner: explicit cursor field wins; else the tick-recency heuristic.
+  let loopOwner = (prior.fm.loop_owner || "").trim();
+  if (loopOwner !== "/loop" && loopOwner !== "user") {
+    loopOwner = "user";
+    const cutoff = Date.now() - 30 * 60 * 1000;
+    const events = readEvents(dataDir, 200);
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i];
+      if (ev.type !== "pipeline_tick_completed" || ev.pipeline !== pipeline) continue;
+      const ts = Date.parse(ev.ts || "");
+      if (Number.isFinite(ts) && ts >= cutoff && ev.next_stage === prior.fm.stage) {
+        loopOwner = "/loop";
+      }
+      break; // only the most recent tick matters
+    }
+  }
+
+  if (loopOwner === "/loop") return out("/loop", false, "already driven by /loop");
+  if (String(prior.fm.auto_loop_attempted).toLowerCase() === "true") {
+    return out(loopOwner, false, "auto_loop_attempted already set — bootstrap was already offered");
+  }
+
+  // Eligible: set the sentinel as a side effect (field-only write).
+  const merged = { ...prior.fm, pipeline, auto_loop_attempted: true };
+  writeCursorFile(dataDir, pipeline, renderCursor(merged, prior.pending, prior.body));
+  logEvent(dataDir, "pipeline_loop_bootstrap_eligible", {
+    pipeline,
+    sprint: sprintIdOf(merged, prior),
+    stage: merged.stage,
+  });
+  out(loopOwner, true, "eligible — sentinel auto_loop_attempted set; invoke Skill(loop) now");
 }
 
 /** ---- pause --------------------------------------------------------- */
@@ -481,6 +723,7 @@ export function cursorPause(dataDir, pipelineArg, rest, { now = new Date() } = {
   try {
     writeProgress(dataDir);
   } catch { /* best-effort */ }
+  clearExecutionLock(dataDir, pipeline);
   process.stdout.write(`cursor: paused at stage ${merged.stage}. Resume with the same skill; the cursor body carries the note.\n`);
   process.stdout.write(STOP_MARKER + "\n");
 }
@@ -517,6 +760,7 @@ export function cursorEscalate(dataDir, pipelineArg, rest, { now = new Date() } 
   try {
     writeProgress(dataDir);
   } catch { /* best-effort */ }
+  clearExecutionLock(dataDir, pipeline);
   process.stdout.write(`cursor: escalated at stage ${merged.stage} (${reason}).\n`);
   process.stdout.write("▶ CYCLE COMPLETE — pipeline terminal (escalated). /loop should stop.\n");
 }
@@ -530,6 +774,22 @@ export function cursorNoop(dataDir, pipelineArg, rest) {
 
   const prior = readCursor(dataDir, pipeline);
   const sprint = fields.sprint || prior?.fm?.sprint || "unknown";
+
+  // An ESCALATED terminal is not "sprint already complete" — it is a
+  // recoverable halt. Don't emit a noop (which would arm the repeat-leak
+  // alarm against a sprint the user may be about to resume); point at
+  // the resume path instead.
+  const priorStatus = (prior?.fm?.status || "").toLowerCase();
+  if (prior && String(prior.fm.terminal).toLowerCase() === "true" && priorStatus === "escalated") {
+    const alias = pipeline === "ship-execute" ? "execute" : "review";
+    process.stdout.write(
+      `cursor: the ${pipeline} pipeline ESCALATED at stage ${prior.fm.stage} — the sprint is NOT complete.\n` +
+        `If the underlying problem is fixed, resume with: shipyard-data cursor resume ${alias}\n` +
+        `▶ CYCLE COMPLETE — pipeline terminal (escalated). /loop should stop.\n`,
+    );
+    return;
+  }
+
   const reason =
     fields.reason ||
     (prior && String(prior.fm.terminal).toLowerCase() === "true"
@@ -542,6 +802,7 @@ export function cursorNoop(dataDir, pipelineArg, rest) {
   // /loop leak invisible (v2.8.2 incident: zero outcome=noop events in the
   // whole audit log despite the auto-loop bootstrapping every sprint).
   logEvent(dataDir, "pipeline_terminal", { pipeline, sprint, outcome: "noop", reason });
+  clearExecutionLock(dataDir, pipeline);
 
   // Repeat-leak detection over the tail (the event just emitted included).
   const events = readEvents(dataDir, 100);
@@ -575,6 +836,15 @@ export function cursorCmd(dataDir, args) {
     case "advance":
       cursorAdvance(dataDir, rest[0], rest[1], rest.slice(2));
       break;
+    case "set":
+      cursorSet(dataDir, rest[0], rest.slice(1));
+      break;
+    case "resume":
+      cursorResume(dataDir, rest[0], rest.slice(1));
+      break;
+    case "bootstrap-check":
+      cursorBootstrapCheck(dataDir, rest[0]);
+      break;
     case "pause":
       cursorPause(dataDir, rest[0], rest.slice(1));
       break;
@@ -589,6 +859,9 @@ export function cursorCmd(dataDir, args) {
         `shipyard-data cursor: unknown subcommand "${sub ?? ""}".\n` +
           `  Usage:\n` +
           `    cursor advance <execute|review> <stage> [k=v ...] [--note "..."] [--force]\n` +
+          `    cursor set <execute|review> k=v [...] [--note "..."]      (field-only, no transition)\n` +
+          `    cursor resume <execute|review>                            (escalated/paused → in_progress)\n` +
+          `    cursor bootstrap-check <execute|review>                   (auto-loop eligibility JSON)\n` +
           `    cursor pause <execute|review> --note "..."\n` +
           `    cursor escalate <execute|review> reason=<short> [--note "..."]\n` +
           `    cursor noop <execute|review> [sprint=<id>] [reason=<r>]\n`,

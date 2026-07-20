@@ -14,21 +14,21 @@ When `/ship-execute` re-enters with a non-paused cursor (or none) but a non-empt
 
    The last line of output is the canonical checkpoint. If no `wave_check_passed` events exist (sprint hasn't completed a wave yet), the resume is "re-enter from wave 1, treat every task as suspect."
 
-2. **Find the last task that landed.** The most recent `task_loop_completed` / `operational_task_completed` event tells you the last task whose subagent returned cleanly.
+2. **Find the last task that landed.** The most recent `task_dispatch_returned` (with `status=complete`) / `operational_task_completed` event tells you the last task whose return the orchestrator gate accepted.
 
    ```text
-   shipyard-context scan-events --tail 1000 task_loop_completed operational_task_completed
+   shipyard-context scan-events --tail 1000 task_dispatch_returned operational_task_completed
    ```
 
 3. **Cross-check the registry.** Read SPRINT.md + each task file. Any task `status: done` AFTER the last completion event in the log is suspect — the registry can lie (manual edit, partial write); the event log is append-only and authoritative.
 
-   For each suspect task, prefer the event log's verdict. If a task is `status: done` in the registry but has no `task_loop_completed` event in the log, treat it as not-done for resume purposes.
+   For each suspect task, prefer the event log's verdict. If a task is `status: done` in the registry but has no `task_dispatch_returned status=complete` event in the log, treat it as not-done for resume purposes — but first check for a builder-side `subagent_completed status=complete` event plus its `.subagent-returns/<task>.json`: if those exist, the work is done and only the gate record is missing, so run the orchestrator gate on the `.json` (per `dispatching-task-loop`) instead of re-dispatching the whole task.
 
 4. **Verify the last-clean-wave invariants.** Invoke `verifying-wave-completion` for the wave the event log says completed last, with `wakeup_budget: 0` (verify-only, no retry). If `STATUS: ESCALATED`, do NOT resume — surface the failed invariant to the user; manual intervention required.
 
    This step matters: the event log can record `wave_check_passed` correctly but the underlying state may have drifted (worktrees re-modified, registry hand-edited). The verifier re-checks the invariants against current state.
 
-5. **Re-dispatch incomplete tasks in the current wave.** For each task in the current wave (the wave AFTER the last `wave_check_passed`) without a `task_loop_completed` event, re-dispatch via `dispatching-task-loop` with `continuation_note: "previous attempt did not return; resumed from event log"`.
+5. **Re-dispatch incomplete tasks in the current wave.** For each task in the current wave (the wave AFTER the last `wave_check_passed`) without a `task_dispatch_returned status=complete` event — and without a gateable `subagent_completed` + `.json` return per step 3 — re-dispatch via `dispatching-task-loop` with `continuation_note: "previous attempt did not return; resumed from event log"`. **Skip tasks already parked:** a task with a `task_blocked` (or `task_dispatch_returned status=blocked`) event settled deliberately on its prior run and was handed to review — do not re-dispatch it, or resume will loop on a task the pipeline already gave up on.
 
 6. **Continue from there.** Once the current wave is finished re-dispatching, normal wave-boundary check + completion gate runs, and execution proceeds.
 

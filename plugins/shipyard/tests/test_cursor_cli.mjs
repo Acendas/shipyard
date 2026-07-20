@@ -376,3 +376,138 @@ test("task-return: verify-wave-integrated reads the JSON returns (Check B)", () 
     p.cleanup();
   }
 });
+
+// --- v3.1.0 CLI absorption ------------------------------------------------
+
+test("cursor set: field-only update — no transition, no tick event", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    const before = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8").split("\n").length;
+    const r = p.run(["cursor", "set", "execute", "auto_loop_attempted=true"], { expectFail: false });
+    assert.equal(r.code, 0);
+    const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+    assert.match(cursor, /auto_loop_attempted: true/);
+    assert.match(cursor, /stage: preflight/, "stage unchanged");
+    const after = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8").split("\n").length;
+    assert.equal(after, before, "field set emits no pipeline events");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cursor resume: escalated cursor becomes in_progress at the same stage; advance works again", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    p.run(["cursor", "escalate", "execute", "reason=wave_gate_failed"], { expectFail: false });
+    // noop on an escalated cursor must NOT claim the sprint complete or arm the leak alarm
+    const noop = p.run(["cursor", "noop", "execute"], { expectFail: false });
+    assert.match(noop.stdout, /ESCALATED at stage preflight/);
+    assert.match(noop.stdout, /NOT complete/);
+    const r = p.run(["cursor", "resume", "execute"], { expectFail: false });
+    assert.match(r.stdout, /resumed at stage preflight/);
+    const adv = p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
+    assert.equal(adv.code, 0, "post-resume advance follows the normal graph");
+    // resume refuses a complete terminal
+    const bad = p.run(["cursor", "resume", "execute"]);
+    assert.equal(bad.code, 3, "resume only applies to escalated/paused");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cursor bootstrap-check: eligible sets sentinel; second call ineligible", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
+    const r1 = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
+    assert.equal(r1.eligible, true);
+    const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+    assert.match(cursor, /auto_loop_attempted: true/, "sentinel set as side effect");
+    const r2 = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
+    assert.equal(r2.eligible, false);
+    assert.match(r2.reason, /auto_loop_attempted/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cursor bootstrap-check: dead sprint is never eligible", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
+    p.run(["sprint", "set", "status", "completed"], { expectFail: false });
+    const r = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
+    assert.equal(r.eligible, false);
+    assert.match(r.reason, /completed|dead/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("stuck_counter: auto-increments on iter self-loops, exempt on wave_waiting, refuses at ceiling", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    for (const s of ["preflight", "salvage", "load", "wave_1_dispatch", "wave_1_waiting"]) {
+      p.run(["cursor", "advance", "execute", s], { expectFail: false });
+    }
+    p.run(["cursor", "advance", "execute", "wave_1_waiting"], { expectFail: false });
+    let cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+    assert.match(cursor, /stuck_counter: 0/, "poll stage exempt from auto-increment");
+    // iter-family self-loop auto-increments and the ceiling refuses
+    p.run(["cursor", "advance", "execute", "wave_1_recovery"], { expectFail: false });
+    p.run(["cursor", "advance", "execute", "wave_1_redispatch_iter_1", "hard_ceiling=3"], { expectFail: false });
+    p.run(["cursor", "advance", "execute", "wave_1_redispatch_iter_1"], { expectFail: false }); // stuck 1
+    p.run(["cursor", "advance", "execute", "wave_1_redispatch_iter_1"], { expectFail: false }); // stuck 2
+    const refused = p.run(["cursor", "advance", "execute", "wave_1_redispatch_iter_1"]); // stuck 3 = ceiling
+    assert.equal(refused.code, 3);
+    assert.match(refused.stderr, /hard ceiling/);
+    assert.match(refused.stderr, /cursor escalate/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("terminal advance clears the execute advisory lock", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    writeFileSync(join(p.dataDir, ".active-execution.json"), '{"skill":"ship-execute","started":"x"}');
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    p.run(["cursor", "escalate", "execute", "reason=test"], { expectFail: false });
+    const lock = JSON.parse(readFileSync(join(p.dataDir, ".active-execution.json"), "utf8"));
+    assert.equal(lock.skill, null, "escalate clears the lock (soft-delete sentinel)");
+    assert.ok(lock.cleared);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("advance emits pipeline_tick_started for the new stage (CLI-owned, no model ritual)", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(events, /"pipeline_tick_started"/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("sprint check: placeholder tokens (TBD) are not parsed as task IDs", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p, { waves: "### Wave 1\nTasks: [T001, TBD, T-P002]\n" });
+    const r = p.run(["sprint", "check"], { expectFail: false });
+    assert.match(r.stdout, /W1\[T001,T-P002\]/, "TBD excluded, patch-task id kept");
+  } finally {
+    p.cleanup();
+  }
+});

@@ -33,7 +33,7 @@
   {
     "name": "invariant_4_completion_events",
     "type": "contains",
-    "pattern": "task_loop_completed|completion event"
+    "pattern": "task_dispatch_returned|gate-recorded completion"
   },
   {
     "name": "invariant_5_silent_failure_markers",
@@ -99,5 +99,17 @@
     "name": "invariant_6_references_integration_gate",
     "type": "contains",
     "pattern": "verify-wave-integrated"
+  },
+  {
+    "name": "no_phantom_task_loop_completed",
+    "type": "not_contains",
+    "pattern": "task_loop_completed",
+    "why": "invariant 4 must key off task_dispatch_returned status=complete, never the never-emitted task_loop_completed"
+  },
+  {
+    "name": "invariant_4_allows_parked_task_blocked",
+    "type": "contains",
+    "pattern": "task_blocked",
+    "why": "a parked task (task_blocked / status=blocked, handed to review) is a legitimate wave outcome, not a missing completion"
   }
 ]

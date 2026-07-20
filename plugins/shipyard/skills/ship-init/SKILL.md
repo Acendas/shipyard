@@ -165,13 +165,13 @@ Scan the project first — auto-detect as much as possible. Only ask what you ca
 
    Default: empty (`quality_gates.standing: []`). Quality gates are opt-in. Write accepted gates to `config.md` under `quality_gates.standing`. Each gate is a free-text description — verification type is inferred during sprint planning.
 
-   **Model tiers (`models:` block, config v4)** — which model each work class dispatches on. AskUserQuestion:
+   **Model tiers (`models:` block, config v4)** — one question only. Defaults ship as `think: opus`, `build: sonnet`, `orchestrate: opus`. AskUserQuestion:
 
-   > "Shipyard dispatches subagents for two classes of work. Which models should they use?
-   > - **think** (critics, spec review, sprint analysis, escalation consults): `fable` (Recommended — requires a plan with Fable access) / `opus` / inherit session model
-   > - **build** (builder task loops, test/build runs, fixers, research): `sonnet` (Recommended) / inherit session model"
+   > "Is Fable enabled on your Claude plan? If yes, Shipyard's thinking/planning work (critics, spec review, decomposition deep-dives, escalation consults) will run on Fable instead of Opus.
+   > - No / not sure (Recommended default — keeps `think: opus`)
+   > - Yes — set `think: fable`"
 
-   Explain the tradeoff in one line: think-tier work benefits from the strongest model; build-tier work is high-volume and Sonnet keeps it fast and economical. If the user is unsure whether their plan includes Fable, recommend `opus` — a dispatch with an unavailable model errors at spawn time. "Inherit" writes the empty string, which makes every dispatch omit the `model:` override (always safe). `escalation.enabled` defaults to `true` with `max_consults_per_sprint: 3` — mention it, only ask if the user pushes back on escalation behavior.
+   Do NOT ask about `build` — it stays `sonnet` (high-volume labor; fast and economical). A dispatch with an unavailable model errors at spawn time, so "not sure" keeps opus. Advanced users can hand-edit `models:` later (empty string = inherit session model). `escalation.enabled` defaults to `true` with `max_consults_per_sprint: 3` — mention it, only ask if the user pushes back.
 
 **Auto-detect these (confirm, don't ask):**
 Scan the project and present findings: "I detected [X]. Correct?" Only ask if detection fails.
@@ -586,7 +586,7 @@ Never remove existing fields — only add missing ones. If a field was renamed b
 
 **If migrating from v2 (or earlier) to v3:** proceed to Step 2b for data model migration.
 
-**If migrating from v3 to v4:** the generic backfill above covers it — v4 adds `models:` (think/build/orchestrate, all defaulting to `""` = inherit) and `escalation:` (enabled: true, max_consults_per_sprint: 3). After backfilling, ask the model-tier question from Step 1 so the user gets a chance to opt into the tiers rather than silently inheriting everywhere.
+**If migrating from v3 to v4:** the generic backfill above covers it — v4 adds `models:` (defaults: `think: opus`, `build: sonnet`, `orchestrate: opus`) and `escalation:` (enabled: true, max_consults_per_sprint: 3). After backfilling, ask the single Fable question from Step 1 (yes → `think: fable`). An existing config whose `models:` values are empty strings is a valid manual choice (inherit) — leave those alone.
 
 ### Step 2b: Data Model Migration (v2 → v3)
 

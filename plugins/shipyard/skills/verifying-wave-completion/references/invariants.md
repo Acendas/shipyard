@@ -57,21 +57,23 @@ Flake detection: if exit code is non-zero with a failure pattern matching common
 - **RECOVERABLE** — non-zero exit with a recognized flake signature. Recovery: re-run the verify command via `dispatching-operational-task`. If second run passes, emit `wave_check_flake_suspected` (per the event catalog) and mark this invariant PASS for advancement purposes.
 - **ESCALATE** — non-zero on second run. The regression is real.
 
-## Invariant 4 — Wave-task-complete events for every task
+## Invariant 4 — Gate-recorded completion for every task
 
-**What it checks.** For each task in `task_ids`, the event log contains a `task_loop_completed` event (kind:feature) or `operational_task_completed` event (kind:operational) since `wave_base_sha`.
+**What it checks.** For each task in `task_ids`, the event log contains a `task_dispatch_returned` event with `status="complete"` (kind:feature — emitted by the orchestrator gate in `dispatching-task-loop` after sha verify + anti-stub-scan pass) or an `operational_task_completed` event (kind:operational) since `wave_base_sha`. This is the record that the *orchestrator gate* ran and accepted the return — not merely that the builder claimed completion. (No `task_loop_completed` event exists; nothing emits it.)
+
+**A parked task counts as settled, not missing.** A task with a `task_blocked` event (or `task_dispatch_returned status=blocked`) exhausted its redispatch budget and was deliberately handed to review — that is a legitimate wave outcome. Invariant 4 requires every task to be *settled*, not every task to *complete*; do not treat a parked task as a missing completion and do not re-dispatch it here.
 
 **Primitive.**
 
 ```text
-shipyard-context scan-events --tail 500 task_loop_completed operational_task_completed
+shipyard-context scan-events --tail 500 task_dispatch_returned task_blocked subagent_completed operational_task_completed
 ```
 
 **Verdicts.**
 
-- **PASS** — every task has a completion event.
-- **RECOVERABLE** — a task has a `task_dispatch_returned` with `status="complete"` but no completion event (the subagent forgot to emit). Recovery: the orchestrator emits the missing event itself, marked `recovered=true`, with the structured-return payload. Self-healing — emit and advance.
-- **ESCALATE** — completion event absent AND structured return absent — task never finished. Re-dispatch.
+- **PASS** — every task is settled: a gate-recorded completion event, OR a `task_blocked` / `task_dispatch_returned status=blocked` parking record.
+- **RECOVERABLE** — a task has a builder-side `subagent_completed` event with `status=complete` (and its `.subagent-returns/<task>.json` exists) but no `task_dispatch_returned` — the orchestrator gate never ran on the return (e.g., a crashed recovery tick). Recovery: run the orchestrator gate now on the `.json` (per `dispatching-task-loop`'s "Orchestrator-Side Parsing and Gating": sha verify, anti-stub-scan, anchor-commit), then emit `task_dispatch_returned … recovered=true`. Self-healing — gate, emit, advance.
+- **ESCALATE** — no gate record AND no builder-side return (`subagent_completed` / `.json` both absent) — task never finished. Re-dispatch.
 
 ## Invariant 5 — No silent-failure or loop-detected markers in window
 

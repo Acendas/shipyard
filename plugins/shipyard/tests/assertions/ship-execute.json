@@ -209,12 +209,12 @@
   {
     "name": "wave_status_progress_bar",
     "type": "contains",
-    "pattern": "█.*░|progress bar"
+    "pattern": "\u2588.*\u2591|progress bar"
   },
   {
     "name": "wave_status_projection",
     "type": "contains",
-    "pattern": "Wave \\[N\\]/\\[M\\]|→ Wave"
+    "pattern": "Wave \\[N\\]/\\[M\\]|\u2192 Wave"
   },
   {
     "name": "uses_shipyard_data_path",
@@ -821,7 +821,8 @@
   {
     "name": "auto_loop_sentinel_written_before_skill_call",
     "type": "contains",
-    "pattern": "MUST land before the .Skill\\(loop, \\.\\.\\.\\). call|MUST happen before invoking /loop|MUST happen before the .Skill"
+    "pattern": "sets .auto_loop_attempted: true. on the cursor itself|MUST land before the .Skill",
+    "why": "v3.1: cursor bootstrap-check sets the auto_loop_attempted sentinel as a side effect BEFORE the model invokes Skill(loop), so the /loop iteration-1 re-entry sees it and skips re-bootstrapping."
   },
   {
     "name": "auto_loop_emits_bootstrap_event",
@@ -898,7 +899,7 @@
   {
     "name": "wakeup_leak_protection_prints_cycle_complete_marker",
     "type": "contains",
-    "pattern": "CYCLE COMPLETE — sprint already complete\\. /loop should stop\\."
+    "pattern": "CYCLE COMPLETE \u2014 sprint already complete\\. /loop should stop\\."
   },
   {
     "name": "wakeup_leak_protection_references_v2_2_0_lesson",
@@ -908,7 +909,7 @@
   {
     "name": "bootstrap_runs_after_noop_terminal_sweep",
     "type": "contains",
-    "pattern": "Auto-loop bootstrap \\(run AFTER loop_owner detection AND the no-op terminal sweep"
+    "pattern": "Auto-loop bootstrap \\(run AFTER the no-op terminal sweep"
   },
   {
     "name": "bootstrap_has_sprint_liveness_re_check",
@@ -918,13 +919,14 @@
   {
     "name": "bootstrap_refuses_dead_sprint",
     "type": "contains",
-    "pattern": "Never bootstrap .?/loop.? against a dead sprint"
+    "pattern": "never reports eligible for a dead/absent/completed sprint|Never bootstrap .?/loop.? against a dead sprint",
+    "why": "v3.1: eligibility is CLI-owned (cursor bootstrap-check); it never reports eligible for a dead/absent/completed sprint (the v2.2.0 wakeup-leak precondition)."
   },
   {
     "name": "bootstrap_dead_sprint_emits_terminal",
     "type": "contains",
-    "pattern": "cursor noop execute reason=sprint_dead_at_bootstrap",
-    "why": "v2.9.0: bootstrap-time dead-sprint detection routes through cursor noop with the dedicated reason"
+    "pattern": "sprint-liveness re-check|never reports eligible for a dead",
+    "why": "v3.1: the dead-sprint guard moved into cursor bootstrap-check's sprint-liveness re-check; the model no longer emits a sprint_dead_at_bootstrap noop (the step-3 no-op sweep already handles dead sprints)."
   },
   {
     "name": "v250_background_dispatch_documented",
@@ -965,7 +967,8 @@
   {
     "name": "v250_background_capture_file_path_canonical",
     "type": "contains",
-    "pattern": "\\.subagent-returns/.task_id.\\.txt|\\.subagent-returns/<task_id>\\.txt"
+    "pattern": "\\.subagent-returns/.task_id.\\.json|\\.subagent-returns/<task_id>\\.json",
+    "why": "v3.1: builders persist via `shipyard-data task-return` to `.subagent-returns/<task_id>.json` (was a freeform .txt)."
   },
   {
     "name": "v250_subagent_completed_event_filter",
@@ -995,7 +998,7 @@
   {
     "name": "v250_sync_mode_for_task_and_hotfix",
     "type": "contains",
-    "pattern": "sync. for .--task./.--hotfix. modes|--task./.--hotfix. only"
+    "pattern": "sync mode \\(.--task./.--hotfix. only\\)|sync. for .--task./.--hotfix."
   },
   {
     "name": "v250_background_emits_dispatched_event",
@@ -1053,5 +1056,83 @@
     "name": "cron_fallback_cleanup_at_terminal",
     "type": "contains",
     "pattern": "CronDelete"
+  },
+  {
+    "name": "preflight_advances_to_salvage",
+    "type": "contains",
+    "pattern": "cursor advance execute salvage",
+    "why": "Fresh start creates the cursor at preflight; the preflight handler must close with an advance to salvage (the next documented advance was ->load, illegal from preflight)."
+  },
+  {
+    "name": "auto_loop_uses_bootstrap_check_cli",
+    "type": "contains",
+    "pattern": "cursor bootstrap-check execute",
+    "why": "v3.1: the entire auto-loop eligibility computation is CLI-owned via `cursor bootstrap-check`; the model no longer computes the 5 predicates."
+  },
+  {
+    "name": "cursor_resume_documented",
+    "type": "contains",
+    "pattern": "cursor resume execute",
+    "why": "Escalated/paused cursors are recovered via `cursor resume execute` (flips back to in_progress at the recorded stage)."
+  },
+  {
+    "name": "escalated_terminal_recovery_at_entry",
+    "type": "contains",
+    "pattern": "status: escalated.*resumable|escalated.*NOT a completed sprint|escalated \\(recoverable\\) halt",
+    "dotall": true,
+    "why": "The entry recipe must distinguish an escalated terminal (recoverable, resumable) from a completed one (leaked wakeup)."
+  },
+  {
+    "name": "parked_task_terminal_handoff",
+    "type": "contains",
+    "pattern": "parked.*(hand.*/ship-review|does not block sprint completion)|hand them to /ship-review",
+    "dotall": true,
+    "why": "A parked task (task_blocked evidence) satisfies its terminal-gate slot; a needs-attention sprint CAN terminate and hands parked tasks to /ship-review."
+  },
+  {
+    "name": "recovery_handler_anchors_and_emits",
+    "type": "contains",
+    "pattern": "anchor-commit <task>.*task_dispatch_returned|anchor-commit.*task_dispatch_returned pipeline=ship-execute",
+    "dotall": true,
+    "why": "Background recovery must anchor each gate-passed commit AND emit task_dispatch_returned status=complete (the single orchestrator choke point) \u2014 background mode was missing both, reopening the v2.8 orphan vector."
+  },
+  {
+    "name": "waiting_timeout_taskstop_zombie",
+    "type": "contains",
+    "pattern": "TaskStop\\W* the task's background Agent",
+    "why": "On genuine timeout the background Agent handle must be TaskStop'd so a zombie builder can't keep committing."
+  },
+  {
+    "name": "waiting_liveness_check_before_timeout",
+    "type": "contains",
+    "pattern": "recent .task_loop_iteration. event",
+    "why": "Before declaring a subagent TIMED OUT, check for a recent task_loop_iteration event \u2014 a live slow builder is not dead."
+  },
+  {
+    "name": "parked_branch_salvage_not_merged",
+    "type": "contains",
+    "pattern": "parked task.?s? branch.*NOT merged|anchor-commit <task> <sha-of-branch-tip>",
+    "dotall": true,
+    "why": "A parked task's worktree branch is anchored + force-removed (not merged) so verify-wave-integrated Check A passes without merging unverified work."
+  },
+  {
+    "name": "expensive_stage_pauses_before_askuser",
+    "type": "contains",
+    "pattern": "cursor pause execute --note.*BEFORE AskUserQuestion",
+    "dotall": true,
+    "why": "sprint_full_build failure and demo-probe failure/absence pause the cursor BEFORE AskUserQuestion so a /loop wakeup can't re-run the whole stage and re-ask."
+  },
+  {
+    "name": "unconfigured_build_still_advances",
+    "type": "contains",
+    "pattern": "unconfigured, still advance as a pass-through tick|unconfigured, advance as a pass-through",
+    "why": "The stage graph has no skip edges; unconfigured build/full-build stages still advance as pass-through ticks."
+  },
+  {
+    "name": "task_hotfix_guard_refuses_active_sprint",
+    "type": "contains",
+    "pattern": "Finish or pause it.*before running --task/--hotfix|A sprint is active.*--task",
+    "dotall": true,
+    "why": "--task/--hotfix must refuse when a non-terminal sprint cursor exists (they'd clobber the sprint cursor)."
   }
 ]

@@ -261,7 +261,12 @@ test("execute terminal: denies when a task lacks task_dispatch_returned", () => 
   });
 });
 
-test("execute terminal: status=blocked does NOT count as complete", () => {
+test("execute terminal: status=blocked counts as PARKED evidence (v3.1.0), not completion", () => {
+  // Pre-v3.1 the gate demanded status=complete for every task, which made
+  // a sprint with any parked (needs-attention) task structurally unable to
+  // terminate — the park flow is a designed outcome handed to /ship-review.
+  // Parking evidence (task_dispatch_returned status=blocked, or a
+  // task_blocked event) now satisfies the per-task requirement.
   withTempDataDir((dataDir) => {
     writeSprint(dataDir, {});
     writeEvents(dataDir, [
@@ -273,8 +278,40 @@ test("execute terminal: status=blocked does NOT count as complete", () => {
       { type: "sprint_complete_passed" },
     ]);
     const v = evaluateExecuteTerminal({ dataDir });
+    assert.equal(v.allowed, true, "a parked task with a blocked event must not brick the terminal");
+  });
+});
+
+test("execute terminal: a task with NO evidence at all still blocks the terminal", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, {});
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_1_gate" },
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_2_gate" },
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T001" },
+      // T002: nothing. T003: complete.
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T003" },
+      { type: "sprint_complete_passed" },
+    ]);
+    const v = evaluateExecuteTerminal({ dataDir });
     assert.equal(v.allowed, false);
     assert.ok(v.reasons.some((r) => r.includes("T002")));
+  });
+});
+
+test("execute terminal: task_blocked event alone is valid parking evidence", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, {});
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_1_gate" },
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_2_gate" },
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T001" },
+      { type: "task_blocked", task: "T002", reason: "persistent_failure" },
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T003" },
+      { type: "sprint_complete_passed" },
+    ]);
+    const v = evaluateExecuteTerminal({ dataDir });
+    assert.equal(v.allowed, true);
   });
 });
 

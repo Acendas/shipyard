@@ -37,12 +37,12 @@ operational_tasks:
 execution:
   max_parallel_agents: 3      # max concurrent builder subagents per wave (1-4, hard ceiling 4)
 models:
-  # Model tier per work class. Empty string = omit the model override and
-  # inherit the session model (always safe). Values are Agent-tool model
-  # names: fable | opus | sonnet | haiku.
-  think: ""                   # deep reasoning: critics, spec review, sprint analysts, decomposition, escalation consults (recommended: fable, or opus if fable unavailable on your plan)
-  build: ""                   # labor: builder task loops, operational runs, research sweeps, fixers, simplifiers (recommended: sonnet)
-  orchestrate: ""             # informational until skill-frontmatter wiring lands: the user-session shell tier (recommended: opus)
+  # Model tier per work class. Values are Agent-tool model names
+  # (fable | opus | sonnet | haiku); empty string = omit the model
+  # override and inherit the session model.
+  think: opus                 # deep reasoning: critics, spec review, sprint analysts, decomposition deep-dives, escalation consults. /ship-init asks one question: if Fable is enabled on your plan, this becomes `fable`.
+  build: sonnet               # labor: builder task loops, operational runs, research sweeps, fixers, simplifiers. Fixed default — high-volume work stays fast and economical.
+  orchestrate: opus           # the user-session shell tier (enforced via skill frontmatter; recorded here for visibility)
 escalation:
   enabled: true               # allow orchestrators to dispatch a models.think consult when stuck
   max_consults_per_sprint: 3  # hard cap on escalation consults per sprint

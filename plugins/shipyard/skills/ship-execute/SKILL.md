@@ -20,20 +20,29 @@ Execute sprint tasks following the wave plan. Every task follows Red → Green �
 !`shipyard-context view sprint-progress`
 !`shipyard-context view codebase`
 
-**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Bash is for project test commands, git, `shipyard-data` CLI calls, and `shipyard-data with-lock sprint -- <cmd>` for any advisory-locked mutation. **Never `cd` into the data directory before running `shipyard-data` commands** — they resolve the data directory internally via git and env vars; `cd`-ing into a non-git directory breaks the resolver. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files** — use the Write tool for the non-cursor data-dir files it still owns (auto-approved for SHIPYARD_DATA). When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
+**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Bash is for project test commands, git, and `shipyard-data` CLI calls. **Never `cd` into the data directory before running `shipyard-data`** — the CLIs resolve the data directory internally via git and env vars, and `cd`-ing into a non-git directory breaks the resolver. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files** — use the Write tool for the non-cursor data-dir files it still owns (auto-approved for SHIPYARD_DATA). When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
 
-**Deterministic state (v2.9.0).** The pipeline cursor (`EXECUTE-CURSOR.md`), `PROGRESS.md`, and SPRINT.md frontmatter are NOT written by the model. A PreToolUse hook DENIES any Write/Edit targeting them. The only writer is the `shipyard-data` CLI:
-- **Cursor** — `shipyard-data cursor advance|pause|escalate|noop execute …`. The CLI validates the stage transition against the stage graph, runs the terminal-evidence gate + loop-leak guard in-process (exit 3 with reasons on failure), appends the pipeline event (`pipeline_tick_completed` / `pipeline_terminal`) atomically with the cursor write, re-renders PROGRESS.md, and prints the tick/terminal marker lines itself (the `/loop should stop` marker is guaranteed LAST). Echo the CLI's stdout as the final lines of your tick output — do NOT emit `pipeline_tick_completed` / `pipeline_terminal` yourself and do NOT print your own markers.
+**Deterministic state (v2.9.0).** The pipeline cursor (`EXECUTE-CURSOR.md`), `PROGRESS.md`, and SPRINT.md frontmatter are NOT written by the model — a PreToolUse hook DENIES any Write/Edit targeting them. The only writers are the `shipyard-data` CLI subcommands:
+
+- **Cursor** — `shipyard-data cursor advance|set|resume|pause|escalate|noop execute …`. See the tick-exit contract below and [references/pipeline-cursor.md](references/pipeline-cursor.md) for the full schema, stage map, and event vocabulary. Read that reference before changing any per-tick wiring.
 - **SPRINT.md frontmatter** — `shipyard-data sprint set <key> <value>` (typed atomic mutation; wave-body narrative stays model-authored).
 - **PROGRESS.md** — never written by anyone but the renderer; emit events and it stays current.
 
-On a `cursor advance` exit 3 (refused): do NOT retry blindly — read the reasons on stderr, fix the missing evidence (re-run the stage that emits it) or escalate. `--force` skips only transition-graph validation for crash recovery; it never skips the evidence gates.
-
-Non-cursor narrative events (`pipeline_tick_started`, `task_dispatch_returned`, `wave_check_passed`, `subagent_completed`, `sprint_complete_passed`, `task_blocked`, …) are still emitted via `shipyard-data events emit <type> …` as before.
+Non-cursor narrative events (`task_dispatch_returned`, `wave_check_passed`, `subagent_completed`, `sprint_complete_passed`, `task_blocked`, …) are emitted via `shipyard-data events emit <type> …`. The CLI auto-emits the pipeline-lifecycle events (`pipeline_tick_started`, `pipeline_tick_completed`, `pipeline_terminal`) itself on every `cursor advance` — the model never emits those.
 
 ## Input
 
 $ARGUMENTS
+
+## Detect Mode
+
+- `--task T001` → Execute single task only (sync, single-tick)
+- `--hotfix B-HOT-001` → Hotfix mode (branch from main, bypass sprint; sync, single-tick)
+- `--mode solo|subagent|team` → Override execution mode
+- `--single-tick` → Force one-tick-per-invocation (direct-invocation testing of /loop semantics)
+- No args → Execute full sprint from current wave
+
+**`--task` / `--hotfix` guard.** If `EXECUTE-CURSOR.md` exists and is non-terminal (a sprint is live), REFUSE both modes: print *"A sprint is active (stage `<stage>`). Finish or pause it (`shipyard-data cursor pause execute --note …`) before running --task/--hotfix"* and STOP. These modes write their own cursor and would clobber the sprint cursor.
 
 ## Acquire Locks
 
@@ -41,179 +50,137 @@ Invoke the **`shipyard:acquiring-skill-lock` capability skill** to (a) check the
 
 If the planning lock is held by a live different session, print the HARD BLOCK message from the capability skill's contract and STOP — do not load any further context.
 
-3. **On sprint completion or pause** (terminal cursor written, or `cursor pause execute` called), use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}`. (Soft-delete sentinel. The lock file is not a cursor/PROGRESS/SPRINT file, so the Write tool still owns it — it is auto-approved for SHIPYARD_DATA.)
-
-## Detect Mode
-
-- `--task T001` → Execute single task only
-- `--hotfix B-HOT-001` → Hotfix mode (branch from main, bypass sprint)
-- `--mode solo|subagent|team` → Override execution mode
-- `--single-tick` → Force one-tick-per-invocation (for direct invocation testing of /loop semantics)
-- No args → Execute full sprint from current wave
+The execution lock is cleared automatically: `cursor advance` (terminal), `cursor pause`, `cursor escalate`, and `cursor noop` all soft-delete `.active-execution.json` themselves. Do not Write the lock sentinel by hand on those paths — only the ACQUISITION at entry is model-driven.
 
 ---
 
 ## Cursor + Per-Tick Advance
 
-`/ship-execute` is /loop-friendly: every invocation reads a persistent **pipeline cursor**, dispatches to the matching stage handler, and writes the cursor for the next tick. Full schema, stage map, terminal protocol, event vocabulary, and stuck-detection thresholds live in [references/pipeline-cursor.md](references/pipeline-cursor.md) — read it before changing any of the per-tick wiring.
+`/ship-execute` is /loop-friendly: every invocation reads a persistent **pipeline cursor**, dispatches to the matching stage handler, and advances the cursor for the next tick. Full schema, stage map, terminal protocol, and event vocabulary live in [references/pipeline-cursor.md](references/pipeline-cursor.md).
 
-**Cursor location.** `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR.md`. One file per sprint. Written by the `shipyard-data cursor` CLI (never the model), advanced after every stage transition, archived along with `current/` when the sprint completes.
+**Cursor location.** `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR.md`. One file per sprint, written only by `shipyard-data cursor`, archived with `current/` when the sprint completes.
 
-**Cursor read at entry (the canonical recipe — do this before any other work besides locks):**
+### Tick-exit contract (applies at EVERY stage)
 
-1. Acquire locks (the `Acquire Locks` section below).
-2. Use the Read tool to read `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR.md`.
-   - **Cursor exists and `terminal: true`** → this is a leaked wakeup against a finished cycle. Run the No-op terminal sweep below (`shipyard-data cursor noop execute`) and exit.
-   - **Cursor exists, `terminal: false`, `status: paused`** → graceful resume. The paused cursor's `stage:` field and body note (written by a prior `cursor pause execute --note`) tell you where to pick up. Emit `pipeline_tick_started`, then continue from that stage.
-   - **Cursor exists, `terminal: false`, `status: in_progress`** → emit `shipyard-data events emit pipeline_tick_started pipeline=ship-execute sprint=<id> stage=<stage> wave=<N> iteration=<N> loop_owner=<owner>` and dispatch to the handler for the `stage:` field.
-   - **Cursor absent** → fresh start. The first `shipyard-data cursor advance execute preflight …` creates the cursor. Emit `pipeline_tick_started`, begin from Pre-flight.
-3. **No-op terminal sweep (MANDATORY — load-bearing for /loop safety).** Even if the cursor passed step 2 as non-terminal, verify the sprint is actually alive by checking all THREE conditions from the No-op terminal section below (cursor `terminal: true`, SPRINT.md `status: completed`, or no active sprint in `current/`). If ANY hold, run the sweep (`shipyard-data cursor noop execute`) and exit. NEVER skip this sweep — it is the exact protection that closed the original `/loop` wakeup-leak bug. The auto-loop bootstrap in step 4 explicitly depends on this sweep having run with no exit triggered. (This model-facing sweep is belt-and-suspenders with the structural loop-leak guard the `cursor advance` CLI runs in-process — the CLI refuses a non-terminal advance when there is no live sprint to justify it.)
-4. **Auto-loop bootstrap check** (described in detail below). PRECONDITION: step 3 must have completed without exit. If the user invoked directly and the eligibility conditions hold, set the sentinel via `cursor advance` + call `Skill(skill: "loop", ...)` + return. The bootstrap path short-circuits the rest of this recipe — `/loop` will re-fire `/shipyard:ship-execute` immediately and that re-entry does the real work.
-5. After the chosen stage's handler returns, run `shipyard-data cursor advance execute <next-stage> …` (or a terminal-stage advance). The CLI appends `pipeline_tick_completed` / `pipeline_terminal`, re-renders PROGRESS.md, and prints the marker; echo that output.
+After a stage handler succeeds, advance the cursor with a single call:
 
-**No-op terminal: already-completed sprint (+ loop-leak self-detection).** When `/ship-execute` is invoked and any of: cursor exists with `terminal: true`, SPRINT.md frontmatter has `status: completed`, or there is no active sprint in `current/` (already archived):
+```
+shipyard-data cursor advance execute <next-stage> [k=v ...] [--note "<tick narrative>"]
+```
 
-1. **Run the whole sweep in one call:** `shipyard-data cursor noop execute [sprint=<id>] [reason=<sprint_already_complete | cursor_already_terminal>]`. The CLI emits `pipeline_terminal pipeline=ship-execute sprint=<id> outcome=noop reason=sprint_already_complete` (or the given reason) FIRST (non-optional — this is what makes a leak visible; skipping it is what made the original leak invisible), then does the repeat-leak scan itself — the same `scan-events --tail 50 pipeline_terminal` helper, run in-process. On the 2nd no-op for the same dead sprint it emits `pipeline_loop_leak_detected` and prints the hard `⛔ LOOP LEAK …` marker telling the driver to cancel; otherwise it prints the `▶ CYCLE COMPLETE — sprint already complete. /loop should stop.` marker. Echo the CLI output.
-2. **Cron-fallback cleanup (still model-side):** if this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-execute`. Never call `ScheduleWakeup` on the no-op path.
+The CLI validates the transition against the stage graph, runs the loop-leak guard + terminal-evidence gate in-process, appends `pipeline_tick_completed` (or `pipeline_terminal`), auto-emits the new stage's `pipeline_tick_started`, re-renders PROGRESS.md, and prints the marker (for terminals the `/loop should stop` marker is guaranteed the FINAL line). **Echo the CLI's stdout as the final lines of your tick output** — never emit the pipeline-lifecycle events yourself and never print your own markers. Under `loop_owner: "/loop"`, exit after echoing; under direct invocation, chain into the next handler. Because of this contract, each stage below states only its `→ <next-stage>` target plus any stage-specific `k=v`.
 
-This is the exact path that closed the original `/loop` wakeup-leak bug — never skip the `cursor noop` call. Full protocol in [references/pipeline-cursor.md](references/pipeline-cursor.md).
+On a `cursor advance` **exit 3 (refused)**, do NOT retry blindly — read the reasons on stderr, fix the missing evidence (re-run the stage that emits it) or escalate. `--force` skips only transition-graph validation for crash recovery; it never skips the evidence gates.
 
-**loop_owner detection.** Read the last `pipeline_tick_completed` event from `<SHIPYARD_DATA>/.shipyard-events.jsonl`. If the most recent matching event is within the last 30 minutes AND its `next_stage` matches the cursor's current `stage:`, set `loop_owner: "/loop"`. Otherwise `loop_owner: "user"`. The `--single-tick` argument forces `loop_owner: "/loop"` semantics regardless of detection (used for testing per-tick behavior from a direct invocation).
+`stuck_counter` is CLI-owned: a same-stage self-loop advance auto-increments it (pass `stuck_counter=0` explicitly when the self-loop made real progress; `wave_N_waiting` is exempt — it never auto-increments). At `stuck_counter >= 5` the CLI emits `pipeline_stuck`; at the `hard_ceiling: 50` self-loop safety stop the CLI REFUSES the advance and directs you to `cursor escalate execute reason=hard_ceiling_stage_<id>`.
 
-**Auto-loop bootstrap (run AFTER loop_owner detection AND the no-op terminal sweep, BEFORE the dispatch contract).** When a user invokes `/ship-execute` directly, this skill self-bootstraps the `/loop` driver so the user never needs to type `/loop` themselves. Eligibility (ALL must hold — checked in this order so the cheapest predicates fail-fast):
+### Cursor read at entry (the canonical recipe — before any other work besides locks)
 
-- `loop_owner == "user"` (no `/loop` already driving — checked above).
-- Mode is not `--task` and not `--hotfix` (those are single-tick by design).
-- Cursor exists and `terminal: false`.
-- Cursor's `auto_loop_attempted` field is not `true`.
-- **Sprint-liveness re-check (defense in depth):** `<SHIPYARD_DATA>/sprints/current/SPRINT.md` exists AND its frontmatter `status` is NOT `completed`. The recipe step 3 sweep should have already exited if either is false — this re-check guards against a refactor that moves the sweep, since bootstrapping against a dead sprint is the exact precondition for the v2.2.0 wakeup-leak regression. If this re-check fires, run `shipyard-data cursor noop execute reason=sprint_dead_at_bootstrap` (emits `pipeline_terminal pipeline=ship-execute sprint=<id> outcome=noop reason=sprint_dead_at_bootstrap` and prints the stop marker) and exit. Never bootstrap `/loop` against a dead sprint.
+1. Acquire locks (above).
+2. Read `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR.md` with the Read tool.
+   - **`terminal: true`, `status: escalated`** → an escalated (recoverable) halt, NOT a completed sprint. Run `shipyard-data cursor noop execute` (the CLI detects the escalated terminal, does NOT emit a noop or arm the leak alarm, and prints the resume hint); echo it. Tell the user the sprint is resumable via `shipyard-data cursor resume execute` once the cause is fixed, then STOP.
+   - **`terminal: true`** (any other status) → a leaked wakeup against a finished cycle. Run the No-op sweep below and exit.
+   - **`status: paused`** → graceful resume. The paused cursor's `stage:` and body note (from a prior `cursor pause`) tell you where to pick up; dispatch to that stage handler. (See "Recovery & resume".)
+   - **`terminal: false`, `status: in_progress`** → dispatch to the handler for the `stage:` field.
+   - **Cursor absent** → fresh start. Begin at Pre-flight; the first `shipyard-data cursor advance execute preflight` creates the cursor.
+3. **No-op terminal sweep (MANDATORY — load-bearing for /loop safety).** Even if step 2 passed as non-terminal, verify the sprint is alive against all THREE conditions below. If ANY hold, run the sweep and exit. NEVER skip it — this is the exact protection that closed the original `/loop` wakeup-leak bug, and the auto-loop bootstrap in step 4 depends on it having run with no exit. (Belt-and-suspenders with the CLI's in-process loop-leak guard, which refuses a non-terminal advance when there is no live sprint.)
+4. **Auto-loop bootstrap check** (below). PRECONDITION: step 3 completed without exit.
+5. Run the chosen stage's handler, then advance per the tick-exit contract.
 
-When eligible, in this exact order:
+### No-op terminal: already-completed sprint (+ loop-leak self-detection)
 
-1. Persist the sentinel: `shipyard-data cursor advance execute <current stage> auto_loop_attempted=true` (a same-stage field set — all other cursor fields are preserved). This MUST land before the `Skill(loop, ...)` call — `/loop` fires its iteration 1 immediately and re-enters this skill, and that re-entry must see the sentinel so it skips this block and proceeds to real work. Echo the CLI's tick marker.
-2. Emit `shipyard-data events emit pipeline_loop_bootstrap pipeline=ship-execute sprint=<id> via=auto`.
-3. Invoke `Skill(skill: "loop", args: "/shipyard:ship-execute")`. `/loop` will set up dynamic-mode self-pacing AND immediately fire `/shipyard:ship-execute` as iteration 1. The re-entry sees `auto_loop_attempted: true`, skips this bootstrap, and does the current tick's actual stage work. `/loop`'s pacer then schedules subsequent ticks via `ScheduleWakeup`.
-4. Return from this outer invocation as soon as the `Skill` call returns. Do NOT do tick work in this outer frame — the re-entry owns it. Print the one-line marker `▶ AUTO-LOOP STARTED — /shipyard:ship-execute is now driven by /loop. Subsequent waves will fire automatically.` so the user sees what happened.
+Trigger when the cursor is `terminal: true`, OR SPRINT.md frontmatter has `status: completed`, OR there is no active sprint in `current/` (already archived):
 
-When not eligible, skip the bootstrap block entirely and proceed to the dispatch contract below.
+1. Run `shipyard-data cursor noop execute [sprint=<id>] [reason=<sprint_already_complete|cursor_already_terminal>]` and echo its output. The CLI emits `pipeline_terminal outcome=noop` FIRST (non-optional — a silent no-op is what made the original leak invisible), runs the repeat-leak scan itself, and on the 2nd no-op for the same dead sprint emits `pipeline_loop_leak_detected` and prints the hard `⛔ LOOP LEAK …` marker; otherwise it prints `▶ CYCLE COMPLETE — sprint already complete. /loop should stop.`
+2. **Cron-fallback cleanup:** if this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-execute`. Never call `ScheduleWakeup` on the no-op path.
 
-**Sentinel cleanup.** On a terminal `cursor advance` / `cursor escalate`, do NOT carry `auto_loop_attempted` forward (the CLI drops it). The next sprint's first `/ship-execute` re-evaluates eligibility from scratch. The `current/` archive at sprint completion drops the cursor along with the rest of sprint state, so this is mostly a belt-and-braces rule.
+### Auto-loop bootstrap (run AFTER the no-op terminal sweep, BEFORE dispatch)
 
-**Fallback if `/loop` goes silent.** If a tick re-enters with `loop_owner == "user"` AND `auto_loop_attempted == true` AND the last `pipeline_tick_completed` event from this pipeline is older than 5 minutes (i.e., `/loop` accepted the bootstrap but stopped firing), call `CronCreate(cron: "*/2 * * * *", prompt: "/shipyard:ship-execute", recurring: false)` to nudge the next tick, then proceed with this tick's work. Emit `shipyard-data events emit pipeline_loop_bootstrap_fallback pipeline=ship-execute sprint=<id> method=cron reason=loop_silent`. This path exists for resilience; in normal operation `/loop` keeps firing and the fallback never triggers.
+When a user invokes `/ship-execute` directly, this skill self-bootstraps the `/loop` driver so the user never types `/loop`. The eligibility computation is entirely CLI-owned:
 
-**Direct invocation vs /loop driver — the dispatch contract.**
+1. Run `shipyard-data cursor bootstrap-check execute`. It prints `{"loop_owner":"/loop"|"user","eligible":<bool>,"reason":"..."}` — evaluating loop-owner (tick-recency), mode, cursor liveness, the `auto_loop_attempted` sentinel, and the sprint-liveness re-check (the v2.2.0 wakeup-leak precondition: it never reports eligible for a dead/absent/completed sprint). When it returns `eligible: true` it also sets `auto_loop_attempted: true` on the cursor itself and emits `pipeline_loop_bootstrap_eligible`.
+2. **If `eligible: true`:** emit `shipyard-data events emit pipeline_loop_bootstrap pipeline=ship-execute sprint=<id> via=auto`, then invoke `Skill(skill: "loop", args: "/shipyard:ship-execute")`, then print `▶ AUTO-LOOP STARTED — /shipyard:ship-execute is now driven by /loop. Subsequent waves will fire automatically.` and RETURN. `/loop` immediately fires iteration 1, which re-enters this skill; that re-entry sees `auto_loop_attempted: true` (bootstrap-check reports `eligible: false`) and does the real stage work. Do NOT do tick work in this outer frame.
+3. **If `eligible: false`:** proceed with this tick.
 
-- **`loop_owner: "user"` (direct invocation):** the handler for the current stage runs, and on success it CHAINS into the next stage's handler within the same invocation. Continue chaining until either a user-input gate (AskUserQuestion), the terminal stage, or a ~10-minute wall-clock budget is exhausted. The FULL SPRINT Execution mandate below (sprint-start to sprint-done without per-wave hand-off) is the direct-invocation behavior — do not change it.
-- **`loop_owner: "/loop"`:** the handler for the current stage runs, then `shipyard-data cursor advance execute <next-stage> …` writes the cursor, appends `pipeline_tick_completed`, and prints the tick marker; echo it and exit. /loop schedules the next wakeup; the next tick re-enters this skill and reads the cursor again. One stage per tick.
+The `auto_loop_attempted` sentinel is per-sprint: the next sprint does not carry `auto_loop_attempted` forward — the `current/` archive drops the cursor at sprint completion, so the next sprint's first `/ship-execute` re-evaluates eligibility from scratch.
 
-Both paths share the SAME stage handlers and the SAME cursor. The only difference is whether the skill chains within an invocation or exits between stages.
+**Fallback if `/loop` goes silent.** If bootstrap-check reports `loop_owner: "user"` yet `auto_loop_attempted` is already set AND the last `pipeline_tick_completed` for this pipeline is older than 5 minutes (loop accepted the bootstrap but stopped firing), call `CronCreate(cron: "*/2 * * * *", prompt: "/shipyard:ship-execute", recurring: false)` to nudge the next tick, then proceed. Emit `shipyard-data events emit pipeline_loop_bootstrap_fallback pipeline=ship-execute sprint=<id> method=cron reason=loop_silent`. Normal operation never triggers this.
 
-**Pause is a cursor state, not a separate file (v2.9.0).** HANDOFF.md is retired. A user-initiated pause is `shipyard-data cursor pause execute --note "<why paused / resume context>"` — the CLI sets `status: paused`, keeps the current `stage:`, and stores the note as the cursor body. Resume reads that paused cursor's stage + body note (step 2 of the entry recipe). There is no longer a second hand-written artifact to reconcile; the cursor is the single authoritative resume surface.
+### Direct invocation vs /loop driver — the dispatch contract
 
-### Self-looping stages: stuck detection
+- **`loop_owner: "user"` (direct):** the current stage handler runs and CHAINS into the next stage within the same invocation, until a user-input gate (AskUserQuestion), the terminal stage, or a ~10-minute wall-clock budget is exhausted. On budget exhaustion, advance to the next pending stage and exit so the next invocation resumes cleanly. This is the FULL SPRINT mandate below (sprint-start to sprint-done without per-wave hand-off).
+- **`loop_owner: "/loop"`:** one stage per tick — run the handler, advance the cursor, echo the marker, exit. /loop schedules the next wakeup and the next tick re-reads the cursor.
 
-The within-stage iteration caps stay as-is — `dispatching-task-loop`'s single-redispatch rule per task and `dispatching-operational-task`'s `operational_tasks.max_iterations` cap handle micro-flake. Self-looping stages in this skill are `wave_N_redispatch_iter_K`, `wave_N_build_fix_iter_K`, `wave_N_tests_fix_iter_K`, and `sprint_tests_fix_iter_K`; each `K` is bounded at 1 by the existing single-redispatch rule, after which the failing task moves to `needs-attention`. The `wave_N_gate` stage self-loops INTERNALLY via `verifying-wave-completion`'s own ScheduleWakeup pattern (budget 3) — outer cursor sees `wave_N_gate` as a single tick that either advances or escalates.
+Both share the same stage handlers and the same cursor; the only difference is chain-vs-exit between stages.
 
-The outer-cursor `stuck_counter:` is defense-in-depth, not the primary cap:
+### Pause is a cursor state (v2.9.0). HANDOFF.md is retired
 
-- Increment `stuck_counter` whenever a stage is re-entered with the same `wave_number` AND the same `iteration` (re-dispatch logic failed to advance the counter).
-- At `stuck_counter >= 5`, emit `shipyard-data events emit pipeline_stuck pipeline=ship-execute wave=<N> stage=<X> reason=re-entry-without-progress` and surface a warning in the tick output. The pipeline keeps running; this is observational.
-- At `iteration: 50` (the `hard_ceiling: 50` safety stop), run `shipyard-data cursor escalate execute reason=hard_ceiling` (sets `status: escalated`, `terminal: true`, emits `pipeline_terminal outcome=escalated`, prints the terminal marker); echo it and halt.
-- Reset `stuck_counter` to `0` on any tick that advances `stage` or `wave_number`.
+A user-initiated pause is `shipyard-data cursor pause execute --note "<why / resume context>"` — the CLI sets `status: paused`, keeps the current `stage:`, stores the note as the cursor body, and clears the execution lock. There is no second hand-written artifact (the old HANDOFF.md) to reconcile — the paused cursor is the single authoritative resume surface.
 
 ---
 
-## Pre-flight: Status Check
+## Pre-flight (stage_id: preflight)
 
-Before doing anything else, run the `/ship-status` validation silently (Check 1–7 from ship-status). This catches stale state, tasks marked done without commits, broken references, and schema issues BEFORE spending tokens on execution. Auto-fix what can be fixed. If critical issues remain (e.g., sprint references non-existent tasks), report and stop — don't execute on broken state.
+Fresh start creates the cursor here; run these gates, then advance to `salvage`. Skip the /goal-mode gates on `--task`/`--hotfix`.
 
-## Pre-flight: /goal-mode Gates
+1. **Status check.** Run the `/ship-status` validation silently (Check 1–7). This catches stale state, tasks marked done without commits, broken references, and schema issues before spending tokens. Anything auto-fixable that requires a code or spec change is delegated (never hand-edited here); if critical issues remain (e.g., sprint references non-existent tasks), report and stop.
+2. **/goal-mode gates.** `/ship-execute` runs /goal-shaped by default (sprint-start to sprint-done, halting only on documented escalation contracts). Seven pre-flight gates refuse entry when a known-ambiguous condition exists so /goal never compounds a structural problem. Run each in order; first failure emits `shipyard-data events emit sprint_goal_preflight_failed gate=<name> sprint=<id>` and halts with an actionable message. Gate names, checks, rationale, and fix copy: [references/goal-mode-preflight.md](references/goal-mode-preflight.md).
+3. **Git repository check.** Builder agents use worktree isolation, so verify git is ready:
+   - `git rev-parse --git-dir` — fails → not a git repo.
+   - `git log -1` — fails → no commits.
+   - `git status --porcelain` — uncommitted changes won't reach worktree agents. First explain as plain text (worktree agents start from the last commit; the tradeoffs), then `AskUserQuestion`: **1. Commit now** ('wip: pre-sprint') / **2. Stash** (restore after) / **3. Continue** (changes don't affect sprint tasks). Recommended: 1.
+   - If the repo/commit checks fail → `git init` (if needed) then `git add -A && git commit -m "chore: initial commit"`. Worktree isolation requires at least one commit.
 
-`/ship-execute` runs /goal-shaped by default — sprint-start to sprint-done without per-wave hand-off, halting only on documented escalation contracts. Seven pre-flight gates refuse entry when a known-ambiguous condition exists, so /goal never compounds a structural problem. Skip on `--task` and `--hotfix` modes.
+   **DO NOT check if the project is a worktree. DO NOT fall back to solo mode because of worktrees.** The WorktreeCreate hook handles all worktree scenarios (including nested) by creating them from the parent repo. Use the mode determined by task count; never downgrade for git worktree state.
 
-Run each gate in order. First failure emits `sprint_goal_preflight_failed` (`shipyard-data events emit sprint_goal_preflight_failed gate=<name> sprint=<id>`) and halts with an actionable message. Do NOT proceed in degraded /goal mode.
-
-The gate names, structural checks, rationale, and actionable-fix copy per gate live in [references/goal-mode-preflight.md](references/goal-mode-preflight.md). Read that file when implementing the pre-flight phase.
-
-## Pre-flight: Git Repository Check
-
-Before spawning any agents, verify git is ready (builder agents use worktree isolation):
-
-1. `git rev-parse --git-dir 2>/dev/null` — if this fails, not a git repo
-2. `git log -1 2>/dev/null` — if this fails, no commits exist
-3. `git status --porcelain 2>/dev/null` — if this shows uncommitted changes, worktrees won't have them.
-
-   **First**, output as plain text: explain that uncommitted changes exist, that worktree agents start from the last commit, and what the options are with tradeoffs.
-
-   **Then**, invoke AskUserQuestion with:
-   "Uncommitted changes detected. Worktree agents won't see them.
-
-   1. Commit now — save as 'wip: pre-sprint' (amend later)
-   2. Stash — save, run sprint clean, restore after
-   3. Continue — changes don't affect sprint tasks
-
-   Recommended: 1"
-
-If checks 1-2 fail → run `git init` (if needed), then `git add -A && git commit -m "chore: initial commit"`. Worktree isolation requires at least one commit.
-
-**DO NOT check if the project is a worktree. DO NOT fall back to solo mode because of worktrees.** The WorktreeCreate hook handles all worktree scenarios including nested worktrees by creating them from the parent repo. Always use the execution mode determined by task count (solo/subagent/team), never downgrade because of git worktree state.
+**→ `salvage`** (`shipyard-data cursor advance execute salvage`).
 
 ## Operating Principles
 
-- **LSP first.** Use LSP (`documentSymbol`, `goToDefinition`, `findReferences`, `hover`) before Grep/Read for all code navigation. Fall back silently if LSP is unavailable. Pass this to builder subagents. Full strategy: `references/lsp-strategy.md`.
+- **LSP first.** Use LSP (`documentSymbol`, `goToDefinition`, `findReferences`, `hover`) before Grep/Read for all code navigation; fall back silently if unavailable. Pass this to builder subagents. Full strategy: `references/lsp-strategy.md`.
 - **Stay lean as orchestrator** (~10-15% context). Pass file paths to subagents, not contents. State lives in the cursor / PROGRESS.md / the event log, not conversation. Spot-check results before trusting them. Full guide: `references/context-management.md`.
-- **Git strategy.** Work on the user's current branch — no sprint branches, no pushes. Solo commits directly; subagent/team mode uses per-task or per-feature worktrees that rebase back at wave/feature end. Worktrees branch from current local HEAD. Atomic commits per task. Full strategy: `references/git-strategy.md`.
-- **Output capture.** Test/build/E2E commands and other verification runs are dispatched via `shipyard:dispatching-operational-task`, which captures stdout+stderr to `<SHIPYARD_DATA>/captures/<task_id>/run-<N>.log` via plain `tee`. No `shipyard-logcap` dependency. Don't run verification commands directly in this session — delegate.
+- **Git strategy.** Work on the user's current branch — no sprint branches, no pushes. Solo commits directly; subagent/team mode uses per-task/per-feature worktrees that rebase back at wave/feature end. Worktrees branch from current local HEAD. Atomic commits per task. Full strategy: `references/git-strategy.md`.
+- **Output capture.** Test/build/E2E verification runs are dispatched via `shipyard:dispatching-operational-task`, which captures stdout+stderr to `<SHIPYARD_DATA>/captures/<task_id>/run-<N>.log` via plain `tee` (no `shipyard-logcap` dependency). Don't run verification commands directly in this session — delegate.
 - **Communication.** Blocker reports and decisions use the 3-layer pattern (one-liner / context / options); keep under 100 words; always recommend a default. Full guide: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md`.
 
 ## FULL SPRINT Execution
 
-**CRITICAL: Execute the ENTIRE sprint to completion.** Do not pause between waves to ask the user if they want to continue. Do not suggest re-invoking `/ship-execute`. Do not suggest `/clear` between waves. Execute wave after wave until all tasks are done, then report sprint completion. The only reasons to stop mid-sprint are: (1) an unresolvable blocker requiring user input (AskUserQuestion), (2) a structural deviation requiring user decision (Rule 4), or (3) the user explicitly says "pause" or "stop".
+**CRITICAL: Execute the ENTIRE sprint to completion.** Do not pause between waves to ask whether to continue, do not suggest re-invoking `/ship-execute`, do not suggest `/clear` between waves. Execute wave after wave until all tasks are done, then report completion. The only reasons to stop mid-sprint: (1) an unresolvable blocker needing user input (AskUserQuestion), (2) a structural deviation needing a user decision (Deviation Rules), or (3) the user explicitly says "pause"/"stop".
 
 ### Step 0: Worktree Salvage (stage_id: salvage) (always runs first)
 
-**First:** run `shipyard-data clean-worktrees` to remove any worktrees whose branches are already merged into the working branch or whose remote tracking is `[gone]`. This catches orphans from prior crashed sprints where the wave-boundary cleanup never ran. The CLI also cleans orphaned `shipyard/wt-*` branches with no corresponding worktree directory.
+**First:** `shipyard-data clean-worktrees` — removes worktrees whose branches are already merged or whose remote tracking is `[gone]`, plus orphaned `shipyard/wt-*` branches with no worktree directory. This catches orphans from prior crashed sprints where wave-boundary cleanup never ran.
 
-**Also at Step 0:** run `shipyard-data ensure-worktree-baseref`. It sets `worktree.baseRef: "head"` in the project's `.claude/settings.json` (idempotent; an atomic JSON read-merge-write that preserves every other key — never a model hand-edit, which is exactly the corruption class that welded `status: done` + `effort: M` into `status: doneeffort: M` in a sibling incident). Verifying it here, every sprint, is self-healing — it does not depend on `/ship-init` having set it once. It is also the backstop for when the `WorktreeCreate` hook does not fire (native worktree creation then still bases new worktrees on the local working-branch HEAD instead of silently forking from `origin/<default>` and dropping earlier waves' local commits).
+**Also:** `shipyard-data ensure-worktree-baseref` — sets `worktree.baseRef: "head"` in the project's `.claude/settings.json` (idempotent atomic JSON read-merge-write that preserves every other key — never a model hand-edit, which is the corruption class that welded `status: done` + `effort: M` into `status: doneeffort: M`). Verifying it every sprint is self-healing and independent of `/ship-init`. It is the backstop for when the `WorktreeCreate` hook does not fire (native creation would otherwise fork from `origin/<default>` and drop earlier waves' local commits).
 
-**Then:** run `git worktree list`. If no `shipyard/wt-*` paths remain, skip to Step 1.
-
-Otherwise, for each leftover `shipyard/wt-*` worktree (these are ones with unmerged commits — the merged ones were already cleaned above):
+**Then:** `git worktree list`. If no `shipyard/wt-*` paths remain, skip to Step 1. Otherwise, for each leftover `shipyard/wt-*` worktree (unmerged — the merged ones were cleaned above):
 
 1. **Salvage uncommitted work** if present: `git -C <worktree> add -A` then `git -C <worktree> commit -m "wip(TASK_ID): salvage from interrupted session"`. Task ID is the branch suffix.
-2. **Rebase + ff-merge** the worktree branch onto the working branch. Conflicts → keep the branch; emit `shipyard-data events emit task_blocked task=<id> reason="shipyard/wt-X has conflicts — manual merge needed"` (PROGRESS.md is auto-rendered from events; do NOT Write/Edit PROGRESS.md) and skip the merge.
+2. **Rebase + ff-merge** the branch onto the working branch. Conflicts → keep the branch; emit `shipyard-data events emit task_blocked task=<id> reason="shipyard/wt-X has conflicts — manual merge needed"` and skip the merge.
 3. **Remove the worktree** (`git worktree remove`) and delete merged branches.
 4. **Update task status** — done if a real commit landed, in-progress for WIP-only salvages, approved (re-execute) if nothing to salvage, blocked for conflicts.
 
-Anthropic's stale-worktree cleanup (per `cleanupPeriodDays`) handles worktrees with NO uncommitted changes / NO untracked files / NO unpushed commits at session start automatically. Step 0 only handles the cases Anthropic's sweep skips.
+Anthropic's stale-worktree cleanup (per `cleanupPeriodDays`) handles worktrees with no uncommitted changes / no untracked files / no unpushed commits automatically; Step 0 covers only the cases that sweep skips. The working branch now contains all recoverable work; new worktrees in Step 2 branch from this consolidated state.
 
-The working branch now contains all recoverable work. New worktrees created in Step 2 branch from this consolidated state.
-
-**Cursor write (stage_id: salvage).** On success, `shipyard-data cursor advance execute load stuck_counter=0` (the CLI updates `last_advance_at`, appends `pipeline_tick_completed`, re-renders PROGRESS.md, prints the tick marker). Under `loop_owner: "/loop"`: echo the marker and exit. Under `loop_owner: "user"`: echo and chain into Step 1.
+**→ `load`** (`stuck_counter=0`).
 
 ### Step 1: Load Sprint Plan (stage_id: load)
 
-Read SPRINT.md — get wave structure (task IDs grouped by wave), critical path, execution mode.
-Read PROGRESS.md — get current wave number, blockers, session log.
-For each task ID in the current wave, read its task file to get title, effort, status, dependencies, parent feature.
+Read SPRINT.md (wave structure — task IDs grouped by wave, critical path, execution mode) and PROGRESS.md (current wave, blockers, session log). For each task ID in the current wave, read its task file (title, effort, status, dependencies, parent feature).
 
-**Detect session type — fresh start vs resume vs crash recovery:**
+**Detect session type:**
 
-1. **Paused cursor (`status: paused`)** → **Graceful resume.** Previous session paused cleanly via `cursor pause execute`. Follow the On Resume flow (see Pause/Resume section below); the paused cursor's `stage:` and body note carry the resume context. (Worktrees already salvaged in Step 0.)
+1. **`status: paused` cursor** → graceful resume (see "Recovery & resume"). Worktrees already salvaged in Step 0.
+2. **No paused cursor, but PROGRESS.md shows tasks done OR Step 0 salvaged work** → crash recovery. Resume from the current wave.
+3. **No paused cursor, no tasks done, Step 0 found no worktrees** → fresh start. Record the working branch: `git branch --show-current`, then `shipyard-data sprint set branch <current branch>` if not set.
 
-2. **No paused cursor, but PROGRESS.md shows tasks done OR Step 0 salvaged work** → **Crash recovery.** Previous session died without pausing (quota, crash, kill). Worktree salvage already happened in Step 0 — proceed to resume execution from the current wave.
+**Record sprint start time (idempotent):** if SPRINT.md `started_at` is null/absent, `shipyard-data sprint set started_at <ISO 8601>`. If already set, leave it — resuming a pause must never reset the clock.
 
-3. **No paused cursor, no tasks done, Step 0 found no worktrees** → **Fresh start.** First execution of this sprint.
-   - Record the user's current branch: `git branch --show-current` → this is the working branch for the entire sprint
-   - `shipyard-data sprint set branch <current branch>` if not already set
-
-**Record sprint start time (idempotent):** Read SPRINT.md frontmatter. If `started_at` is null or absent, `shipyard-data sprint set started_at <current ISO 8601 timestamp>`. If `started_at` already has a value, leave it unchanged — this must never overwrite an existing timestamp so that resuming a paused sprint does not reset the clock.
-
-**Cursor write (stage_id: load).** Determine next stage from session type: fresh start → `readiness`; resume / crash recovery → `wave_<current_wave>_dispatch`. Run `shipyard-data cursor advance execute <next stage>` (the CLI appends `pipeline_tick_completed`, re-renders PROGRESS.md, prints the marker). Under `/loop`: echo and exit. Under direct: echo and chain into Step 1.5 (fresh) or Step 2 (resume).
+**→ `readiness`** (fresh) or **`wave_<current_wave>_dispatch`** (resume / crash recovery).
 
 ### Step 1.5: Execution Readiness Check (stage_id: readiness) (fresh-start only)
 
-On fresh sprint start, present a compact readiness check before any code is written. Skip on resume / crash recovery.
+Present a compact readiness check before any code is written; skip on resume / crash recovery.
 
 ```
 READINESS CHECK
@@ -229,269 +196,164 @@ HOW TO PAUSE: type "pause" any time.
 
 If the current branch starts with `shipyard/wt-*`, add: *"⚠️ Worktree branch detected — Shipyard will switch to <working branch> before spawning agents."*
 
-Then `AskUserQuestion`: Begin execution (Recommended) / Adjust / Abort.
+Then `AskUserQuestion`: Begin execution (Recommended) / Adjust / Abort. The `using-worktrees` capability skill encodes the trust-the-platform model; `dispatching-task-loop`'s HARD STOP catches genuinely-broken isolation.
 
-The `using-worktrees` capability skill encodes the trust-the-platform model; `dispatching-task-loop`'s HARD STOP catches genuinely-broken isolation.
-
-**Cursor write (stage_id: readiness).** On AskUserQuestion = "Begin execution", run `shipyard-data cursor advance execute wave_1_dispatch wave_number=1 iteration=1`. Under `/loop`: echo the marker and exit. Under direct: echo and chain into Step 2. On "Abort": run `shipyard-data cursor escalate execute reason=readiness_aborted` (sets `status: escalated`, `terminal: true`, emits `pipeline_terminal outcome=escalated`, prints the terminal marker); echo it and halt.
+**→ `wave_1_dispatch`** (`wave_number=1 iteration=1`) on "Begin execution". On "Abort": `shipyard-data cursor escalate execute reason=readiness_aborted`; echo and halt.
 
 ### Step 2: Execute Waves (stage_id: wave_N_dispatch)
 
-Per-wave stage IDs are `wave_<N>_dispatch` for the dispatch tick and `wave_<N>_redispatch_iter_<K>` for the single per-task re-dispatch tick (K ∈ {1}). Each wave then transitions through `wave_<N>_boundary` → `wave_<N>_build` → `wave_<N>_refactor` → `wave_<N>_tests` → `wave_<N>_verify` → `wave_<N>_gate` in Step 4. After the last wave's gate, the cursor advances to `sprint_full_build` (Step 5).
+Per-wave stage IDs: `wave_<N>_dispatch`, `wave_<N>_redispatch_iter_<K>` (K∈{1}), then `wave_<N>_boundary` → `_build` → `_refactor` → `_tests` → `_verify` → `_gate` (Step 4). After the last wave's gate → `sprint_full_build` (Step 5).
 
-For each wave (starting from current):
+**ALWAYS delegate task execution to subagents** — every task runs in a fresh context window, keeping the orchestrator lean. The mode determines parallelism, not whether subagents are used.
 
-**ALWAYS delegate task execution to subagents.** Every task runs in a fresh context window — this keeps the orchestrator lean and prevents context degradation across waves. The mode determines parallelism, not whether subagents are used.
-
-#### Solo Mode (1-3 tasks per wave)
-Spawn subagents **sequentially** — one task at a time, same branch (no worktree isolation needed since tasks run one after another).
-
-#### Subagent Mode (4-10 tasks per wave)
-Spawn subagents **in parallel** — up to `execution.max_parallel_agents` from config at a time (default 3, hard ceiling 4). If a wave has more tasks than the cap, **batch them**: spawn the first N, wait for all N to return and run post-subagent checks, then spawn the next batch from the updated HEAD. This prevents the quality degradation observed when 6-7 agents run simultaneously (Sprint 001/002 anti-pattern: agents hit context limits or return early without committing).
-
-#### Team Mode (10+ tasks)
-Spawn persistent teammates per feature track using Agent Teams. Each teammate works through all tasks in its feature — more efficient than per-task subagents for features with 3+ tasks. **Max `execution.max_parallel_agents` concurrent teammates** (default 3, hard ceiling 4) — additional feature tracks are queued and spawned as earlier ones complete.
-**Read the full protocol** in `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/team-mode.md`. (Team-mode workarounds for Anthropic's then-buggy worktree-isolation are mostly obsolete — the file is on track for retirement once Anthropic's native Agent Teams worktree isolation is GA. Keep using `general-purpose` + `team_name` per the `using-worktrees` capability skill until then.)
+- **Solo (1-3 tasks/wave):** subagents **sequentially**, same branch (no worktree isolation needed).
+- **Subagent (4-10 tasks/wave):** **parallel**, up to `execution.max_parallel_agents` at a time (default 3, hard ceiling 4). More tasks than the cap → **batch**: spawn N, await + run post-subagent checks, then spawn the next batch from updated HEAD. Prevents the quality degradation seen when 6-7 agents run at once.
+- **Team (10+ tasks):** persistent teammates per feature track via Agent Teams — **max `execution.max_parallel_agents` concurrent teammates** (default 3, hard ceiling 4); extra tracks queued. Full protocol: `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/team-mode.md`.
 
 #### Pre-spawn Branch Check (subagent AND team mode)
 
-Before spawning any worktree agents, verify the orchestrator is on the expected working branch:
-```bash
-git branch --show-current
-```
-Read `branch` from SPRINT.md frontmatter.
+Before spawning any worktree agents, verify the orchestrator's branch: `git branch --show-current`, and read `branch` from SPRINT.md frontmatter.
 
-**If on a `shipyard/wt-*` branch** → the orchestrator is running inside a leftover worktree or the user checked out a worktree branch in the main repo. This is dangerous — new worktrees would branch from the wrong commit. Fix: `git checkout <sprint working branch>` before proceeding. Report: "WARNING: Orchestrator was on worktree branch [name], switched to [working branch]."
+- **On a `shipyard/wt-*` branch** → the orchestrator is inside a leftover worktree or the user checked out a worktree branch; new worktrees would branch from the wrong commit. `git checkout <sprint working branch>` first. Report: "WARNING: Orchestrator was on worktree branch [name], switched to [working branch]."
+- **Branch doesn't match SPRINT.md** → `git checkout <branch>` first.
 
-**If branch doesn't match SPRINT.md** → `git checkout <branch>` before proceeding.
-
-The WorktreeCreate hook branches worktrees from the current local branch. If the orchestrator is on the wrong branch, all worktrees will branch from the wrong place.
+The WorktreeCreate hook branches worktrees from the current local branch — a wrong orchestrator branch forks every worktree from the wrong place.
 
 #### Task Kind Routing (REQUIRED before every dispatch)
 
-Before spawning any agent for a task, read the task file frontmatter and check `kind:`. The dispatch path depends on the kind — getting this wrong is how the silent-pass bug happens.
+Read the task file frontmatter and check `kind:` — the dispatch path depends on it; getting this wrong is how the silent-pass bug happens.
 
-- **`kind: feature`** or **absent** → standard feature-builder dispatch below via `shipyard:dispatching-task-loop` (this is the path the rest of this section documents).
-- **`kind: operational`** → invoke `shipyard:dispatching-operational-task` capability skill. It owns the verify_command resolution, the run+capture phase, the bounded fix-findings loop (cap from `operational_tasks.max_iterations`), and the orchestrator-side gate (verify_output populated, capture file non-empty, final exit:0, LAST_LINES match).
-- **`kind: research`** → invoke `shipyard:dispatching-research-task` capability skill. It owns the Write-scope HARD GATE (one findings doc), the Findings Doc Template, and the orchestrator-side gate (file exists + ≥1 `### Finding` section + porcelain-clean).
+- **`kind: feature`** or **absent** → standard feature-builder dispatch via `shipyard:dispatching-task-loop` (documented below).
+- **`kind: operational`** → invoke `shipyard:dispatching-operational-task` (owns verify_command resolution, run+capture, bounded fix loop from `operational_tasks.max_iterations`, and the orchestrator-side gate: verify_output populated, capture non-empty, final exit:0, LAST_LINES match).
+- **`kind: research`** → invoke `shipyard:dispatching-research-task` (owns the Write-scope HARD GATE, the Findings Doc Template, and the orchestrator-side gate: file exists + ≥1 `### Finding` section + porcelain-clean).
 
-**Why this matters.** The silent-pass failure mode — `/ship-execute` marking "run E2E suite and fix findings" tasks done without running any tests — is the exact bug introduced when operational tasks hit the builder. The builder has no Red step for an operational task, exits clean on an empty tree, and the "Before Exiting" check passes trivially. This routing split is the primary fix. The feature-builder loop (`dispatching-task-loop`) ALSO has a Step 0 HARD STOP that refuses any task with `kind: operational` — but that's defense in depth. The first line of defense is this router.
+**Why this matters.** The silent-pass failure mode — marking "run E2E suite and fix findings" tasks done without running any tests — is the exact bug when operational tasks hit the feature builder: no Red step, clean exit on an empty tree, trivial "Before Exiting" pass. This router is the primary fix; `dispatching-task-loop`'s Step 0 HARD STOP (refuse any `kind: operational`) is defense in depth.
 
-**Note — builders may write IDEA files during task execution.** Up to 3 `IDEA-*` files to `<SHIPYARD_DATA>/spec/ideas/` for deferred unknowns and scope-adjacent rot discovered while building. Committed atomically with the task. IDEAs surface in `/ship-sprint`'s carry-over scan and `/ship-backlog`'s IDEAS section. The capture-deferred-unknowns rules are inlined in `dispatching-task-loop`'s subagent prompt template.
-
-#### Live progress streaming (wrap the dispatch)
-
-`dispatching-task-loop`'s subagents already emit `task_loop_iteration` events per iteration (`shipyard-data events emit task_loop_iteration task=<id> iteration=<N> probe_exit=<code>`) from inside their own contexts — see `dispatching-task-loop/SKILL.md`. By default the orchestrator does NOT surface mid-loop work, leaving the user with a long silence (minutes per wave) while subagents churn. To close that gap, wrap each wave's per-task dispatch with a backgrounded `tail -f` on the event log and attach `Monitor` so events surface in the user's chat as they fire.
-
-Pattern, immediately before dispatching the first task of the wave:
-
-```
-# Start the live-progress streamer. Captures events appended to the log during this wave's dispatch.
-bg = Bash(
-    run_in_background: true,
-    command: "tail -f -n 0 <SHIPYARD_DATA>/.shipyard-events.jsonl | "
-             "grep --line-buffered -E '(task_loop_iteration|subagent_dispatched|subagent_returned|wave_check_passed|wave_check_failed)'"
-)
-Monitor(bg.task_id)   # each matching JSONL line surfaces as a notification
-```
-
-After the wave's dispatch returns (all task verdicts collected):
-
-```
-TaskStop(bg.task_id)  # ends the tail-f and the Monitor together
-```
-
-Apply this wrap at every stage that dispatches subagents:
-
-- `wave_<N>_dispatch`
-- `wave_<N>_redispatch_iter_<K>`
-- `sprint_tests_fix_iter_<K>` (sprint-level test-fix re-dispatch)
-
-Skip for stages without subagent dispatch (preflight, salvage, load, readiness, boundary, refactor, tests, verify, gate). The `verify` and `tests` stages already have their own Monitor wired via `dispatching-operational-task` for stream-vs-capture verify runs (commit `de5c0c8`) — do not double-wrap.
-
-The streamer is cheap: `tail -f -n 0` starts at EOF (no historical replay), `grep --line-buffered` flushes line-by-line, the JSONL events are tens of bytes each. Negligible per tick.
+**Builders may write IDEA files during task execution** — up to 3 `IDEA-*` files to `<SHIPYARD_DATA>/spec/ideas/` for deferred unknowns / scope-adjacent rot, committed atomically with the task. IDEAs surface in `/ship-sprint`'s carry-over scan and `/ship-backlog`. The capture rules are inlined in `dispatching-task-loop`'s prompt template.
 
 #### Per-task dispatch (solo + subagent modes — kind: feature only)
 
-For each task in the wave, **invoke the `shipyard:dispatching-task-loop` capability skill** — do NOT construct an Agent dispatch inline. The capability skill owns the prompt template (with the three Iron Laws inlined), the structured-return contract, the orchestrator-side gate (sha verification + probe re-execution + anti-stub-scan), the iteration cap, and the single-redispatch rule.
+For each task, **invoke `shipyard:dispatching-task-loop`** — do NOT construct an Agent dispatch inline. That skill owns the prompt template (three Iron Laws inlined), the structured-return contract, the orchestrator-side gate (sha verify + PROBE_EXIT:0 check + anti-stub-scan), the iteration cap, and the single-redispatch rule.
 
-Pass these parameters to `dispatching-task-loop`:
+Parameters:
 
 | Parameter | Value |
 |---|---|
-| `task_id` | The task ID, e.g., `T-042` |
-| `task_file_path` | `<SHIPYARD_DATA>/spec/tasks/[TASK_ID]-*.md` (use the absolute literal SHIPYARD_DATA path) |
-| `feature_file_path` | `<SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md` for the parent feature, or null for hotfix |
-| `working_branch` | `branch:` field from SPRINT.md frontmatter |
-| `acceptance_probe` | `acceptance_probe:` from the task's frontmatter (HALT and surface to user if missing — task is unauthorable without one) |
-| `data_dir` | Literal SHIPYARD_DATA path |
+| `task_id` | e.g., `T-042` |
+| `task_file_path` | `<SHIPYARD_DATA>/spec/tasks/[TASK_ID]-*.md` (literal SHIPYARD_DATA path) |
+| `feature_file_path` | `<SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md`, or null for hotfix |
+| `working_branch` | `branch:` from SPRINT.md frontmatter |
+| `acceptance_probe` | `acceptance_probe:` from task frontmatter (HALT and surface to user if missing — task is unauthorable without one) |
+| `data_dir` | literal SHIPYARD_DATA path |
 | `worktree_path` | null in solo mode; absolute worktree path in subagent/team mode |
-| `sprint_id` | `id:` from SPRINT.md frontmatter — used by the subagent to scope its `subagent_completed` event |
-| `wave_number` | Current wave number from the cursor — used by the subagent to scope its `subagent_completed` event |
-| `dispatch_mode` | `background` for wave-dispatch and sprint-test-fix-redispatch stages; `sync` for `--task`/`--hotfix` modes. **See "Background dispatch" below.** |
+| `sprint_id` | `id:` from SPRINT.md frontmatter |
+| `wave_number` | current wave number from the cursor |
+| `dispatch_mode` | `background` for wave-dispatch and sprint-test-fix-redispatch; `sync` for `--task`/`--hotfix` |
 
-In **subagent/team mode**, the capability skill internally dispatches with `isolation: "worktree"` (per `using-worktrees` — Anthropic's stable primitive). In **solo mode**, no isolation. The skill handles both transparently.
+In subagent/team mode the capability skill dispatches with `isolation: "worktree"` (per `using-worktrees`); in solo mode, no isolation. It handles both transparently, and returns a structured verdict (`STATUS: COMPLETE` + `COMMIT: <sha>` + `PROBE_OUTPUT_TAIL` after orchestrator-side verification, or `STATUS: BLOCKED`). **Do not parse subagent output yourself.**
 
-**Background dispatch (the default for wave-dispatch in v2.5.0+).**
+Capabilities used per task: `shipyard:dispatching-task-loop` (internally `shipyard:verifying-completion`, `shipyard:tdd-cycle`, `shipyard:running-acceptance-probe`, `shipyard:anti-stub-scan`, `shipyard:using-worktrees`).
 
-When `dispatch_mode: background`, the orchestrator does NOT block waiting for the subagent's structured return. Instead:
+**Background dispatch (the default for wave-dispatch in v2.5.0+).** `dispatching-task-loop` owns the full background mechanics; the orchestrator's part: the Agent call uses `run_in_background: true` and returns a task handle immediately (record it — the timeout path needs it to `TaskStop` a zombie); then emit `shipyard-data events emit wave_<N>_dispatched_bg pipeline=ship-execute sprint=<id> wave=<N> task_ids=<csv>` and advance `→ wave_<N>_waiting` with `pending_subagents='[…]'` (one entry per spawned task: `{"task_id","spawned_at":<iso>,"max_execution_minutes":<task frontmatter or 60>}`), and arms a persistent Monitor on `<SHIPYARD_DATA>/.shipyard-events.jsonl` filtered for `subagent_completed pipeline=ship-execute sprint=<id> wave=<N>`; then exit. Each subagent runs its Cycle in the background and, per the `dispatching-task-loop` contract, records its structured return via `shipyard-data task-return` — which writes `<SHIPYARD_DATA>/sprints/current/.subagent-returns/<task_id>.json` (keys: `task`, `status`, `commit_sha`, `probe_exit_code`, `escalation_code`, `output_tail`) — and emits `subagent_completed` whose `capture_file=` points at that `.json`; the Monitor then fires a `<task-notification>` to `/loop`, which wakes and reads `stage: wave_<N>_waiting`.
 
-1. The Agent call uses `run_in_background: true`. Returns immediately with a task handle.
-2. The orchestrator runs `shipyard-data cursor advance execute wave_<N>_waiting pending_subagents='[…]'`, populating the cursor's `pending_subagents: [{ task_id, spawned_at, max_execution_minutes }]` field (one entry per spawned subagent), then arms a persistent Monitor on `<SHIPYARD_DATA>/.shipyard-events.jsonl` filtered for `subagent_completed` events with matching `sprint=` and `wave=`.
-3. The orchestrator exits. The current `/loop` iteration ends.
-4. Each subagent runs its internal Cycle in the background. As its final actions (per the `dispatching-task-loop` contract), it writes the full structured return to `<SHIPYARD_DATA>/sprints/current/.subagent-returns/<task_id>.txt` and emits the `subagent_completed` event.
-5. The Monitor armed in step 2 fires `<task-notification>` envelopes to `/loop` each time a `subagent_completed` event lands. `/loop` wakes the moment any matching event arrives, regardless of the fallback `ScheduleWakeup` delay.
-6. On the next `/loop` iteration, the orchestrator reads the cursor at `stage: wave_<N>_waiting`, dispatches to the `wave_<N>_recovery` handler (see Step 4 below), which reads each task's capture file, runs the orchestrator-side gate (sha verify + probe re-execution + anti-stub-scan), removes completed task_ids from `pending_subagents`, and either advances to `wave_<N>_boundary` (all done + all gates pass) or to `wave_<N>_redispatch_iter_1` (any BLOCKED or any gate failure).
+The orchestrator never reads the Agent tool's return value in background mode — the structured-return contract is preserved via the `.json` capture file (read it as JSON; never regex for `STATUS:` lines), and the wake signal is the event log.
 
-The orchestrator never reads the Agent tool's return value in background mode. The structured-return contract is preserved via the capture file; the wake signal is the event log.
-
-The skill returns a structured verdict (`STATUS: COMPLETE` + `COMMIT: <sha>` + `PROBE_OUTPUT_TAIL` after orchestrator-side verification, or `STATUS: BLOCKED` with reason) — in **sync mode** this comes from the Agent's return value, in **background mode** it's reconstructed from the capture file referenced in the `subagent_completed` event. The downstream gate logic and re-dispatch rule are identical in both modes. **Do not parse subagent output yourself** — the capability skill (or the capture file in background mode) has already validated it.
-
-Capabilities used per task: `shipyard:dispatching-task-loop` (which internally uses `shipyard:verifying-completion`, `shipyard:tdd-cycle`, `shipyard:running-acceptance-probe`, `shipyard:anti-stub-scan`, and `shipyard:using-worktrees`).
+Wrap each subagent-dispatching stage (`wave_<N>_dispatch`, `wave_<N>_redispatch_iter_<K>`, `sprint_tests_fix_iter_<K>`) with the live-progress streamer so subagent `task_loop_iteration` events surface in the user's chat during the otherwise-silent minutes. Pattern: [references/live-streaming.md](references/live-streaming.md).
 
 #### Post-Subagent gate (all modes)
 
-Most kind-specific gating already lives inside the dispatching-* capability skills (sha verification, probe re-execution, anti-stub-scan, exit-0 + capture checks, findings doc + porcelain checks). Orchestrator-side checks are intentionally minimal:
+Most kind-specific gating lives inside the dispatching-* skills (sha verify, PROBE_EXIT:0 check, anti-stub-scan, exit-0 + capture checks, findings-doc + porcelain checks). Orchestrator-side checks are minimal:
 
-**For `kind: feature`** (post `dispatching-task-loop` return):
-- Verify key files exist + commits present (`git log --grep="TASK_ID"` in the worktree).
-- **Item completeness check**: if Technical Notes lists discrete items (e.g., "migrate 8 calls"), grep the diff for each. <100% covered → re-dispatch with the missing list as `continuation_note`.
-- **No-commits salvage**: if the worktree has dirty changes, WIP-commit and re-dispatch via `dispatching-task-loop` with a continuation note. If the worktree is clean (subagent did nothing), reset task `status: approved`. Single re-dispatch per task per wave; persistent failure → `status: needs-attention`, emit `task_blocked task=<id> reason=salvage_failed`, advance.
-- **Effort-gated single-task spec check**: for `effort: M|L|XL`, invoke `dispatching-spec-review` with `scope: "task"` to catch obvious AC gaps before merge. Skip `effort: S` (overhead exceeds value).
-- **Merge**: rebase + ff-merge the worktree branch; remove worktree; delete the merged branch.
+- **`kind: feature`:** verify key files exist + commits present (`git log --grep="TASK_ID"`); **item completeness** — if Technical Notes lists discrete items (e.g., "migrate 8 calls"), grep the diff for each, <100% covered → re-dispatch with the missing list as `continuation_note`; **no-commits salvage** — dirty worktree → WIP-commit + re-dispatch with a continuation note, clean worktree (did nothing) → reset task `status: approved`; single re-dispatch per task per wave, persistent failure → `status: needs-attention` + emit `task_blocked task=<id> reason=salvage_failed`; **effort-gated single-task spec check** — for `effort: M|L|XL`, invoke `dispatching-spec-review` `scope: "task"` (skip `effort: S`); **merge** — rebase + ff-merge the worktree branch, remove worktree, delete merged branch.
+- **`kind: operational`** / **`kind: research`:** the capability skill's gate is authoritative; record the verdict and advance.
 
-**For `kind: operational`** (post `dispatching-operational-task` return):
-- The capability skill's gate (verify_output populated + capture non-empty + final exit:0 + LAST_LINES match) is authoritative. Orchestrator just records the verdict and advances.
-
-**For `kind: research`** (post `dispatching-research-task` return):
-- Same pattern: capability skill's gate (file exists + ≥1 `### Finding` + porcelain clean) is authoritative.
-
-This is the last line of defense against silent-pass regression. Capability-skill gates plus these orchestrator-side checks together cover the failure modes: false completion, stub commits, missing capture, missing findings doc, out-of-scope writes.
-
-**Cursor write (stage_id: wave_N_dispatch) — background mode (default).** After spawning all subagents in the background, first emit `shipyard-data events emit wave_<N>_dispatched_bg pipeline=ship-execute sprint=<id> wave=<N> task_ids=<csv>`, then run `shipyard-data cursor advance execute wave_<N>_waiting pending_subagents='[…]'` (one entry per dispatched task: `{ "task_id", "spawned_at":<iso>, "max_execution_minutes":<from task frontmatter or 60 default> }`). The CLI appends `pipeline_tick_completed`, re-renders PROGRESS.md, and prints the tick marker. Arm the Monitor on the event log filtered for `subagent_completed pipeline=ship-execute sprint=<id> wave=<N>`. Echo the marker and exit. The next `/loop` iteration that fires (Monitor-driven or fallback-timer-driven) reads the cursor at `wave_<N>_waiting` and routes to the recovery handler below.
-
-**Cursor write (stage_id: wave_N_dispatch) — sync mode (`--task`/`--hotfix` only).** On all dispatched tasks returning `STATUS: COMPLETE`: `shipyard-data cursor advance execute wave_<N>_boundary`. On any `STATUS: BLOCKED` returns: `shipyard-data cursor advance execute wave_<N>_redispatch_iter_1 iteration=<n+1>`. After the single re-dispatch attempt ALSO fails for the same task (still BLOCKED after K=1): invoke the `shipyard:escalating-to-thinker` capability skill (trigger: `repeated_fix_failure`, subject: the task ID) before marking the task down — one think-tier consult may unstick it through a normal path. Only if that skill declines (cap reached), returns low confidence, or its recommendation also fails do you then mark the task `status: needs-attention`, emit `shipyard-data events emit task_blocked task=<id> reason=persistent_failure`, then `shipyard-data cursor advance execute wave_<N>_boundary`, continue. Under `/loop`: echo the CLI marker and exit. Under direct: echo and chain into Step 4 (boundary) or the re-dispatch handler.
+**→ `wave_<N>_waiting`** (background) — see the waiting handler. In sync mode (`--task`/`--hotfix` only): all COMPLETE → `wave_<N>_boundary`; any BLOCKED → `wave_<N>_redispatch_iter_1 iteration=<n+1>`.
 
 #### Wave waiting handler (stage_id: wave_N_waiting)
 
-When `/loop` re-enters with `cursor.stage == wave_<N>_waiting`:
+When `/loop` re-enters at `wave_<N>_waiting`:
 
-1. **Read the event log.** Use Read on `<SHIPYARD_DATA>/.shipyard-events.jsonl`. Filter (with Grep or in-process) for `subagent_completed pipeline=ship-execute sprint=<cursor.sprint_id> wave=<N>` events. Build a map of `task_id → event payload`.
-2. **Match against `pending_subagents`.** Each entry in `pending_subagents` either:
-   - Has a matching event in the map → mark as COMPLETED, queue for gate-verification in step 4.
-   - Has no matching event AND `now - spawned_at < max_execution_minutes` → still in flight, leave in `pending_subagents`.
-   - Has no matching event AND `now - spawned_at >= max_execution_minutes` → TIMED OUT. Mark task `status: needs-attention`, remove from `pending_subagents`, emit `shipyard-data events emit subagent_timeout pipeline=ship-execute sprint=<id> wave=<N> task=<id> minutes=<N>` (PROGRESS.md auto-renders from events), advance past this task.
-3. **If `pending_subagents` is still non-empty after step 2** (some subagents still in flight, none timed out): run `shipyard-data cursor advance execute wave_<N>_waiting pending_subagents='[…]'` with the pending list minus any TIMED OUT entries (a same-stage advance, so it stays `wave_<N>_waiting`). Echo the CLI marker and exit. The Monitor remains armed (or re-arm if absent).
-4. **If `pending_subagents` is now empty** (all subagents accounted for via completion or timeout): `shipyard-data cursor advance execute wave_<N>_recovery` so the next tick runs the orchestrator gate. Disarm the Monitor (TaskStop on the armed Bash task). Echo the marker; continue to the recovery handler (chain under direct invocation; exit and re-enter under /loop).
+1. **Read the event log** (`<SHIPYARD_DATA>/.shipyard-events.jsonl`). Filter for `subagent_completed pipeline=ship-execute sprint=<cursor.sprint_id> wave=<N>`; build `task_id → event`.
+2. **Match against `pending_subagents`.** Each entry:
+   - Has a matching event → COMPLETED; queue for gate-verification in `wave_<N>_recovery`.
+   - No event AND `now - spawned_at < max_execution_minutes` → still in flight; leave it.
+   - No event AND `now - spawned_at >= max_execution_minutes` → **before declaring TIMED OUT, check for a recent `task_loop_iteration` event for that task** (a live slow builder is not dead — leave it in `pending_subagents` to extend). Only on genuine timeout (no recent iteration): `TaskStop` the task's background Agent handle so a zombie can't keep committing, mark task `status: needs-attention`, remove from `pending_subagents`, emit `shipyard-data events emit subagent_timeout pipeline=ship-execute sprint=<id> wave=<N> task=<id> minutes=<N>`.
+3. **`pending_subagents` still non-empty** → advance `→ wave_<N>_waiting` with the pending list minus timed-out entries (same-stage self-loop). Echo and exit; the Monitor stays armed (re-arm if absent).
+4. **`pending_subagents` empty** → advance `→ wave_<N>_recovery`; disarm the Monitor (`TaskStop` the armed Bash task).
 
 #### Wave recovery handler (stage_id: wave_N_recovery)
 
-When all subagents have completed (or timed out) for the wave, this handler reads their capture files and runs the orchestrator-side gate:
+Reads each subagent's capture file and runs the orchestrator-side gate:
 
-1. **For each completed subagent**, read the capture file referenced in the `subagent_completed` event (`capture_file=<path>` field). The file should contain the same structured-return text the subagent would have returned inline in sync mode (STATUS / COMMIT / PROBE_EXIT / PROBE_OUTPUT_TAIL).
-2. **Run the orchestrator-side gate** per task (sha cat-file verify, probe re-execution per `tdd-cycle`, anti-stub-scan on the diff). This is the IDENTICAL logic that runs in sync mode at the end of `dispatching-task-loop` — moved to the recovery handler because in background mode the gate runs on a different iteration than the dispatch.
-3. **Decide cursor next-stage based on aggregate results:**
-   - All tasks `STATUS: COMPLETE` + all gates pass → next stage `wave_<N>_boundary`.
-   - Any task `STATUS: BLOCKED` or any gate fails → next stage `wave_<N>_redispatch_iter_1` (pass `iteration=<n+1>`). The redispatch is itself a sync dispatch (single attempt; doesn't go back through background).
-   - Any task TIMED OUT in the waiting handler is already marked `needs-attention` — no re-dispatch for those.
-4. **Run `shipyard-data cursor advance execute <chosen stage> [iteration=<n+1>]`** (appends `pipeline_tick_completed`, re-renders PROGRESS.md, prints the marker); echo it and exit (under /loop) or chain (under direct).
+1. **For each COMPLETED subagent**, read the `.json` capture referenced by the `subagent_completed` event's `capture_file=<path>` field — the record written by `shipyard-data task-return` (keys `task`, `status` COMPLETE|BLOCKED, `commit_sha`, `probe_exit_code`, `escalation_code`, `output_tail`), NOT the freeform STATUS/COMMIT text of an inline return. The CLI already refused any COMPLETE record with a non-zero probe exit, so a well-formed `.json` is trustworthy on that axis; a missing or unparseable `.json` is a contract violation (treat as BLOCKED). Never regex for `STATUS:` lines.
+2. **Run the orchestrator-side gate per task from the `.json` fields** — follow `dispatching-task-loop`'s "Orchestrator-Side Parsing and Gating" section verbatim: sha `cat-file` verify, PROBE_EXIT:0 check, non-empty output tail, anti-stub-scan on the diff, and on pass `shipyard-data anchor-commit <task> <sha>` (pins `shipyard/keep-<task>` so the commit survives teardown/rebase) + emit `shipyard-data events emit task_dispatch_returned pipeline=ship-execute task=<id> status=complete commit_sha=<sha>` BEFORE marking done; on BLOCKED, the escalation-code routing + the blocked-return `task_dispatch_returned status=blocked` emit. That section is the single orchestrator choke point — the same orchestrator-side gate that runs in sync mode — in both modes; this handler exists only because in background mode the gate runs a different iteration than the dispatch, so do not fork its logic. Missing the anchor + emit reopens the v2.8 orphan vector and starves the terminal gate.
+3. **Decide next stage:** all COMPLETE + all gates pass → `wave_<N>_boundary`; any BLOCKED or gate failure → `wave_<N>_redispatch_iter_1 iteration=<n+1>` (redispatch is a SYNC dispatch, single attempt); TIMED-OUT tasks are already `needs-attention` (no re-dispatch).
 
 ### Step 3: Per-Task Execution (implementation only)
 
-Each task is a small, focused unit of work: **write tests → write implementation → run acceptance probe → commit**. Tasks do NOT execute the test suite — test execution is deferred. Wave-scoped tests run at the wave boundary (Step 4); the full suite runs at sprint completion (Step 5). The per-task acceptance probe is the only check that fires inside the task.
+Each task: **write tests → write implementation → run acceptance probe → commit**. Tasks do NOT execute the test suite — wave-scoped tests run at the wave boundary (Step 4), the full suite at sprint completion (Step 5). The per-task acceptance probe is the only check that fires inside the task. Full cycle: `shipyard:tdd-cycle` (canonical Iron Law + Red→Green→Refactor); `dispatching-task-loop` inlines the same Iron Law into every subagent prompt.
 
-**Read the full cycle details** in the `shipyard:tdd-cycle` capability skill — the canonical Iron Law and Red→Green→Refactor contract. The `dispatching-task-loop` capability skill inlines the same Iron Law into every subagent prompt.
+1. **READ SPEC** → what to build. 2. **READ CODEBASE** → existing patterns. 3. **PLAN**. 4. **RED** → write failing tests (do NOT run them). 5. **GREEN** → implement; trust the test contract. 6. **PROBE** → run `acceptance_probe:` (single command, exit 0 + observable output). 7. **COMPLETENESS** → if Technical Notes lists discrete items, grep to confirm each. 8. **COMMIT** → `feat(TASK_ID): [description]`, set task `status: done`.
 
-Per-task summary:
-1. **READ SPEC** → understand what to build
-2. **READ CODEBASE** → check existing patterns
-3. **PLAN** → decide approach
-4. **RED** → write tests that would fail (do NOT run them — wave boundary executes tests)
-5. **GREEN** → implement; trust the test contract you just wrote
-6. **PROBE** → run the task's `acceptance_probe:` (single command, exit 0 + observable output)
-7. **COMPLETENESS CHECK** → if Technical Notes lists discrete items, grep to confirm every one was addressed
-8. **COMMIT** → `feat(TASK_ID): [description]`, update task status to `done`
+Tests are always written before implementation; only test *execution* is deferred. Do not Write/Edit PROGRESS.md — emit events (`task_blocked`, `task_status_changed`, `patch_task_created`, `wave_check_passed`, …) and the render-progress hook keeps it current.
 
-Key rules:
-- Tests MUST be written before implementation. Test *execution* is deferred to wave/sprint boundaries; the test-first discipline is unchanged.
-- The acceptance probe is the only thing run inside the task — it proves the wiring works without running the suite.
-- Commit format: `feat(TASK_ID): [description]`. Update task file status to `done` after each.
-- **Do not Write or Edit PROGRESS.md.** PROGRESS.md is auto-rendered from the event log by the `render-progress` PostToolUse hook (v2.6.0+). Emit structured events (`task_blocked`, `task_status_changed`, `patch_task_created`, `wave_check_passed`, `pipeline_tick_completed`, …) and the human-readable view stays current automatically.
+### Step 4: Wave Boundary Check (stage_ids: wave_N_boundary → _build → _refactor → _tests → _verify → _gate)
 
-### Step 4: Wave Boundary Check (stage_ids: wave_N_boundary → wave_N_build → wave_N_refactor → wave_N_tests → wave_N_verify → wave_N_gate)
+Each numbered item is its own stage; the cursor advances stage-by-stage. Under `/loop` each is one tick; under direct invocation they chain.
 
-Each numbered item below maps to a distinct stage ID; the cursor advances stage-by-stage through this sequence within a single wave. Under `/loop`, each item is its own tick. Under direct invocation, items chain.
+1. **Rebase + ff-merge, then gate, then tear down — in that order.** Integrate first, verify integration, then remove worktrees. Tearing a worktree down before its branch is merged is exactly what orphaned six verified task commits in the v2.8 incident.
+   a. **Integrate each `shipyard/wt-*` branch of a GATE-PASSED task**, one at a time in task-ID order: `git rebase <working-branch>` → `git checkout <working-branch>` → `git merge --ff-only`. **Do NOT remove the worktree yet.** Conflicts → AskUserQuestion with details; never fall back to a regular merge (creates fork lines). **A parked task's branch (timed-out / persistent-BLOCKED, marked `needs-attention`) is NOT merged** — salvage it instead: `shipyard-data anchor-commit <task> <sha-of-branch-tip>` → `git worktree remove --force <path>` → `git branch -D shipyard/wt-<name>` (safe: anchored), so `verify-wave-integrated` Check A passes without merging unverified work.
+   b. **Gate before teardown:** `shipyard-data verify-wave-integrated`. Over git ground truth (never the unreliable `worktreeBranch` field) it proves every live `shipyard/wt-*` branch is merged into the working branch AND no `COMPLETE` return commit is dangling. Exit 0 → it emits `wave_integration_verified`; proceed to (c). **Exit 3 → HARD STOP:** do NOT remove any worktree (work is safe on the `shipyard/wt-*` branches + `shipyard/keep-*` anchors). Integrate the named branches and re-run the gate once; if that one documented remediation doesn't clear it, invoke `shipyard:escalating-to-thinker` (trigger: `integration_gate`, subject: the wave / named branches); only if it declines, returns low confidence, or its recommendation also fails, AskUserQuestion with the un-integrated branches / dangling commits it printed.
+   c. **Tear down only past the gate:** per merged branch, `git worktree remove` → `git branch -d shipyard/wt-<id>` (`-d`, never `-D`: refuses an unmerged branch — the final backstop). Then `shipyard-data clean-worktrees` as a sweep.
+2. **Clean orchestrator branch.** `git status --porcelain` must be empty after merges. Legitimate state changes (task status frontmatter) → commit `chore(shipyard): wave [N] state update`. Unexpected source-file changes → AskUserQuestion. Never include manual PROGRESS.md edits.
+3. **Emit `wave_check_passed wave=<N>`** — the structural signal the wave completed cleanly. PROGRESS.md's `current_wave` updates on the next cursor write. **→ `wave_<N>_build`.**
+4. **Wave-scoped build (stage_id: wave_N_build)** — if `build_commands.scoped`/`.full` configured, invoke `shipyard:dispatching-operational-task`; failure → re-dispatch it for a bounded fix loop (`→ wave_<N>_build_fix_iter_1`). **If unconfigured, still advance as a pass-through tick** (the graph has no skip edges). **→ `wave_<N>_refactor`.**
+5. **Wave REFACTOR + MUTATE (stage_id: wave_N_refactor)** — dispatch a `general-purpose` subagent with an inline wave-refactor prompt (read the combined wave diff, dedupe + rename + add helpers, run a small mutation check, commit if changes). **Model tier (build):** pass `model: <models.build>` from the `!` context / `<SHIPYARD_DATA>/config.md` if non-empty, else OMIT `model:` (inherit session model); never hardcode a literal. Not a wave blocker — on failure emit `task_status_changed type=refactor_failed` and advance. **→ `wave_<N>_tests`.**
+6. **Wave-scoped tests + single fix (stage_id: wave_N_tests)** — invoke `shipyard:dispatching-operational-task` with `test_commands.scoped` (or `.unit` if no scoped variant). First time tests run for the wave's merged code; the operational task streams progress/failures via Monitor. Failure → ONE re-dispatch via `shipyard:dispatching-task-loop` with the failing-test list as `continuation_note` (`→ wave_<N>_tests_fix_iter_1`); persistent failure emits `task_status_changed type=wave_tests_failed` and advances. **→ `wave_<N>_verify`.**
+7. **Wave VERIFY (stage_id: wave_N_verify)** — invoke `shipyard:dispatching-spec-review` `scope: "wave"`, `target_ids: [task_ids]`, `base_ref` (pre-wave HEAD), `head_ref` (current HEAD). FINDINGS → single re-dispatch per task via `dispatching-task-loop` (`→ wave_<N>_redispatch_iter_1`); persistent gaps → `needs-attention` and surface to `/ship-review`. **→ `wave_<N>_gate`.**
+8. **Wave COMPLETION GATE (stage_id: wave_N_gate)** — invoke `shipyard:verifying-wave-completion` with `wave_number`, `task_ids`, `data_dir`, `working_branch`, `wave_base_sha`, `wave_head_sha`, `wave_probe_capture`, `wave_probe_exit_code`. It runs the six-invariant composite check with ScheduleWakeup-based recovery for RECOVERABLE misses and structured escalation otherwise.
 
-Between waves:
+   **Nested-loop note — the outer cursor must NOT duplicate this loop.** `verifying-wave-completion` has its OWN internal ScheduleWakeup state machine (budget 3, 180s warm-cache delay). From the outer cursor's view, `wave_N_gate` is ONE tick that either returns `STATUS: COMPLETE` (advance) or `STATUS: ESCALATED` (`cursor escalate`, AskUserQuestion, do not advance). Two layers, two pacers, no double-loop.
 
-1. **Rebase + ff-merge, then gate, then tear down — in that order.** Integrate first, *verify* integration, and only then remove worktrees. Tearing a worktree down before its branch is merged is exactly what orphaned six verified task commits in the v2.8 incident — the orchestrator read `worktreeBranch: undefined`, never merged, and `git worktree remove` deleted the branches out from under the commits.
-   a. **Integrate each `shipyard/wt-*` branch**, one at a time, in task-ID order: `git rebase <working-branch>` → `git checkout <working-branch>` → `git merge --ff-only`. **Do NOT remove the worktree yet.** Conflicts → AskUserQuestion with details; never fall back to a regular merge (creates fork lines).
-   b. **Gate before teardown:** run `shipyard-data verify-wave-integrated`. Over git ground truth — never the unreliable `worktreeBranch` field — it proves every live `shipyard/wt-*` branch is merged into the working branch AND that no `COMPLETE` subagent-return commit is dangling. Exit 0 → it emits `wave_integration_verified`; proceed to (c). **Exit 3 → HARD STOP:** do NOT remove any worktree. The work is safe (the `shipyard/wt-*` branches plus the `shipyard/keep-*` anchors written at dispatch-return still hold every commit) — integrate the named branches, then re-run the gate. If that one documented remediation (rebase + ff-merge the named branches, anchor-commit) does NOT clear the exit 3 after one attempt, invoke the `shipyard:escalating-to-thinker` capability skill (trigger: `integration_gate`, subject: the wave / named branches) before surfacing to the user — a think-tier consult can diagnose the ancestry problem. Only if it declines, returns low confidence, or its recommendation also fails do you then AskUserQuestion with the un-integrated branches / dangling task commits it printed.
-   c. **Tear down only past the gate:** for each merged branch, `git worktree remove` → `git branch -d shipyard/wt-<id>` (`-d`, never `-D`: it refuses an unmerged branch, the final backstop against deleting work). Then run `shipyard-data clean-worktrees` as a sweep for anything the per-branch cleanup missed.
-2. **Clean orchestrator branch.** `git status --porcelain` must be empty after all merges. Legitimate state changes (task status frontmatter) → commit `chore(shipyard): wave [N] state update`. Unexpected source-file changes → AskUserQuestion. PROGRESS.md is auto-rendered from the event log on every cursor write — never include manual PROGRESS.md edits in this commit; do not Write or Edit PROGRESS.md.
-3. **Emit `wave_check_passed wave=<N>`** via `shipyard-data events emit` — that's the structural signal that the wave completed cleanly. The PostToolUse render-progress hook picks it up on the next cursor write and updates PROGRESS.md `current_wave` automatically.
-4. **Wave-scoped build** (if `build_commands.scoped` or `build_commands.full` configured): invoke `shipyard:dispatching-operational-task` with the build command. Failure → re-dispatch the same capability skill to drive a bounded fix loop.
-5. **Wave REFACTOR + MUTATE**: dispatch a `general-purpose` subagent with an inline wave-refactor prompt (read the combined wave diff, dedupe + rename + add helpers, run a small mutation check, commit if changes). **Model tier (build)** — pass `model: <models.build>` read from the `!` context block / `<SHIPYARD_DATA>/config.md` if non-empty, else OMIT `model:` so it inherits the session model; never hardcode a literal. Not a wave blocker — emit a `task_status_changed type=refactor_failed` event on failure and advance.
-6. **Wave-scoped tests + single fix iteration**: invoke `shipyard:dispatching-operational-task` with `test_commands.scoped` (or `test_commands.unit` if no scoped variant). This is the first time tests run for the wave's merged code. The operational task runs the suite via Monitor, so progress and failures stream to the user as the wave-scoped run proceeds — no waiting on a single end-of-run blob. Failure → ONE re-dispatch via `shipyard:dispatching-task-loop` with the failing-test list as `continuation_note`. Persistent failure emits `task_status_changed type=wave_tests_failed` and advances.
-7. **Wave VERIFY**: invoke `shipyard:dispatching-spec-review` with `scope: "wave"`, `target_ids: [task_ids]`, `base_ref` (pre-wave HEAD), `head_ref` (current HEAD). FINDINGS → single re-dispatch per task via `dispatching-task-loop`; persistent gaps → `needs-attention` and surface to `/ship-review`.
-8. **Wave COMPLETION GATE (stage_id: wave_N_gate)**: invoke `shipyard:verifying-wave-completion` with `wave_number`, `task_ids`, `data_dir`, `working_branch`, `wave_base_sha`, `wave_head_sha`, `wave_probe_capture`, `wave_probe_exit_code`. The capability skill runs the six-invariant composite check (all builders returned structured contracts, every commit_sha exists, wave-probe passes with non-empty capture, completion events emitted, no silent-failure markers in window, no uncommitted worktree state) with ScheduleWakeup-based recovery for RECOVERABLE misses and structured escalation otherwise.
+9. **Report and continue** — emit `Wave [N]/[M] ✓ [████░░░░] [done]/[total] tasks • → Wave [N+1]`. Under direct invocation: auto-advance into the next wave's dispatch (no pause, no `/clear`, no "continue?"). **→ `wave_<N+1>_dispatch`** (`wave_number=<N+1> iteration=1 stuck_counter=0`), or **`sprint_full_build`** (`stuck_counter=0`) if `N == M`.
 
-   **Nested-loop note — the outer cursor must NOT duplicate this loop.** `verifying-wave-completion` has its OWN internal ScheduleWakeup state machine (budget 3, 180s warm-cache delay) that handles recoverable invariant misses inside this single tick. From the outer pipeline cursor's perspective, `wave_N_gate` is ONE tick that either returns `STATUS: COMPLETE` (cursor advances to `wave_<N+1>_dispatch` or `sprint_full_build`) or `STATUS: ESCALATED` (cursor sets `status: escalated`, surfaces to AskUserQuestion, does not advance). Two layers, two pacers, no double-loop: micro-recovery stays inside the wave gate; macro-flow stays in the outer cursor.
+**Context pressure: warn-only (dormant).** `compaction_count` on `.active-execution.json` is initialized but no longer incremented (the `post-compact` hook was retired), so this warning does not fire. Left as the re-wire point for a future `PreCompact` hook; the counter is informational and never auto-pauses.
 
-   `STATUS: ESCALATED` → AskUserQuestion with the `REASON:` text; do NOT advance the wave counter. `STATUS: COMPLETE` → proceed to step 9.
+### Recovery & resume
 
-9. **Report and continue** — emit a one-line wave status (`Wave [N]/[M] ✓ [████░░░░] [done]/[total] tasks • → Wave [N+1]`). **Under direct invocation:** do NOT pause, do NOT suggest `/clear`, do NOT ask "continue?" — auto-advance into the next wave's Step 2 dispatch. **Under `/loop`:** run `shipyard-data cursor advance execute wave_<N+1>_dispatch wave_number=<N+1> iteration=1 stuck_counter=0` (or `shipyard-data cursor advance execute sprint_full_build stuck_counter=0` if `N == M`). The CLI appends `pipeline_tick_completed`, re-renders PROGRESS.md, prints the marker; echo it and exit.
+Files are the source of truth — never rely on conversation memory for wave/task state. Triage by cursor state:
 
-10. **Context pressure: warn-only (currently dormant).** `compaction_count` on `.active-execution.json` is initialized but no longer incremented — the `post-compact` hook that bumped it was retired, so this warning does not currently fire. Left as the re-wire point: when a `PreCompact` hook re-increments the counter, append `⚠ Context summarised N times — consider /clear then /ship-execute` once `compaction_count ≥ 4`. The counter is informational; never auto-pause.
+| Situation | Signal | Action |
+|---|---|---|
+| **Compaction recovery** | context cleared mid-run; cursor present | The cursor's `stage:` is authoritative — dispatch to that handler and resume. Absent cursor → rebuild from PROGRESS.md `current_wave` + task-file `status`, confirm `git branch`, resume from the first non-done task, then `cursor advance execute wave_<N>_dispatch --force` (a mid-wave stage is never an entry stage, so recovery always needs `--force`). Corrupted cursor (unparseable YAML / missing fields) → refuse: *"EXECUTE-CURSOR.md is corrupted. Run `/ship-status --repair` first."* |
+| **Pause / resume** | `status: paused` | Read the paused cursor's `stage:` + body note. Confirm `git branch` matches SPRINT.md `branch`. Team mode only: `TeamCreate` + re-spawn teammates from the note (previous teammates are dead after a session break). Then `shipyard-data cursor resume execute` (flips `status` back to `in_progress` at the recorded stage) and continue from that stage. |
+| **/goal-mode crash** | `status: in_progress`, no clean pause | The event log is the source of truth. Follow [references/resume-from-event-log.md](references/resume-from-event-log.md): scan for the last `wave_check_passed`, cross-check the registry, re-verify last-clean-wave invariants with `wakeup_budget: 0`, re-dispatch incomplete tasks, advance. Empty/corrupted log → refuse, run `/ship-status --repair`. |
+| **Crash during `wave_N_waiting`** | cursor at `wave_N_waiting` from a prior session | The background agents died with that session — do NOT wait out their timeouts. Route the still-pending tasks straight to re-dispatch (`wave_<N>_redispatch_iter_1`); Step 0 salvage already recovered any worktree commits they committed. |
 
-**Cursor write summary for Step 4 items 1–7.** Each numbered item maps to a stage:
-- Items 1–3 → `stage: wave_<N>_boundary` (rebase + ff-merge + emit `wave_check_passed`). On success → `wave_<N>_build`.
-- Item 4 → `stage: wave_<N>_build`. On success → `wave_<N>_refactor`. On failure → `wave_<N>_build_fix_iter_1` (bounded by `dispatching-operational-task`'s cap).
-- Item 5 → `stage: wave_<N>_refactor`. On success or log-and-continue → `wave_<N>_tests` (refactor is never a wave blocker).
-- Item 6 → `stage: wave_<N>_tests`. On success → `wave_<N>_verify`. On failure → `wave_<N>_tests_fix_iter_1` (single re-dispatch via `dispatching-task-loop`).
-- Item 7 → `stage: wave_<N>_verify`. On success → `wave_<N>_gate`. FINDINGS → `wave_<N>_redispatch_iter_1` per failing task.
-
-Under `/loop`, each item ends with `shipyard-data cursor advance execute <that item's stage>` (the CLI appends `pipeline_tick_completed`, re-renders PROGRESS.md, prints the marker); echo it and exit. Under direct invocation, items chain through within the ~10-minute wall-clock budget; on budget exhaustion, `cursor advance execute <next pending stage>` and exit so the next invocation resumes cleanly.
-
-### Compaction Recovery
-
-If you're unsure which wave you're on or what's been completed (e.g., after auto-compaction cleared earlier context):
-
-1. **Read EXECUTE-CURSOR.md FIRST.** The cursor's `stage:` field is authoritative — it tells you exactly which stage was running when context was cleared. PROGRESS.md and SPRINT.md are confirmatory only. Dispatch to the cursor's stage handler and resume.
-2. **If the cursor is absent**, fall back to the file-based recovery:
-   - Read PROGRESS.md — `current_wave` in frontmatter tells you which wave to execute next
-   - Read SPRINT.md — get the wave structure (which task IDs are in each wave)
-   - For task IDs in waves ≤ `current_wave - 1`, read task files — confirm `status: done`
-   - For task IDs in wave `current_wave`, read task files — check which are `done` vs remaining
-   - Check git branch — `git branch --show-current` to confirm you're on the working branch (from SPRINT.md `branch` field). If not → `git checkout <branch>` before spawning any worktree agents.
-   - Resume execution from the first non-done task in `current_wave`, then `shipyard-data cursor advance execute wave_<N>_dispatch` (add `--force` if the transition graph rejects the recovered stage) so subsequent ticks have a cursor to read.
-3. **If the cursor is present but corrupted** (unparseable YAML frontmatter, missing required fields), refuse to resume. Halt with: "EXECUTE-CURSOR.md is corrupted. Run `/ship-status --repair` to rebuild from the event log before continuing." Do NOT guess from PROGRESS.md when a corrupted cursor exists — the divergence between cursor and registry needs explicit reconciliation.
-
-This takes ~5 tool calls and recovers full state from files. Do not rely on conversation memory for wave/task state — files are the source of truth, with the cursor as the authoritative top of the stack.
+Step 0 (worktree salvage) has already run before any resume path. Works alongside `claude --continue`, which restores conversation but not project state — the cursor bridges the gap. HANDOFF.md is retired (v2.9.0): the paused cursor is the single resume surface, superseding the old second file. Paused-duration accounting (`total_paused_minutes`) is not carried in v2.9.0; the pause note is the record of when/why.
 
 ### Step 5: Sprint Completion (stage_ids: sprint_full_build → sprint_full_tests → sprint_demo_probes → sprint_complete_gate → terminal_handoff_to_review)
 
-When all waves done:
+When all waves are done:
 
-1. **Full build (stage_id: sprint_full_build)** (if `build_commands.full` configured): invoke `shipyard:dispatching-operational-task` with that command. Catches cross-module compilation errors scoped wave builds missed. Failure → AskUserQuestion. On success — under `/loop`: `shipyard-data cursor advance execute sprint_full_tests` (CLI appends `pipeline_tick_completed`, re-renders PROGRESS.md, prints the marker); echo and exit. Under direct: chain into step 2.
-2. **Full test suite (stage_id: sprint_full_tests)**: invoke `shipyard:dispatching-operational-task` per tier (unit / integration / e2e) or combined. Persistent failure after the capability skill's iteration cap → re-dispatch via `shipyard:dispatching-task-loop` per failing cluster (stage `sprint_tests_fix_iter_1`, K bounded at 1). Sprint-level branch owns all errors. On success — under `/loop`: `shipyard-data cursor advance execute sprint_demo_probes`; echo and exit. Under direct: chain into step 3.
-3. **Per-feature demo probes (stage_id: sprint_demo_probes)** — the cross-task user-flow proof. Catches "all unit tests pass but the integrated feature doesn't work" (the failure mode that motivated this stage being added in v2.6.0 after the confedit incident). Read SPRINT.md `features:` list. For each feature in scope:
-   - Read the feature file's frontmatter `demo_probe:` field.
-   - **`demo_probe` absent** → halt with AskUserQuestion: *"Feature [F-NNN] has no `demo_probe`. Sprint completion is gated on a feature-level smoke test that exercises the cross-task user flow. (a) author one now via /ship-discuss [F-NNN], (b) skip with explicit reason, (c) abort completion."* Recommended: (a). Do NOT advance until the demo_probe is populated.
-   - **`demo_probe: skip-with-reason`** with populated `demo_probe_skip_reason` → emit `acceptance_probe_completed feature=<F> probe_type=demo exit_code=0 skipped=true reason=<short>` and continue (Invariant 8 treats this as PASS-with-warning).
-   - **Otherwise** → invoke `shipyard:running-acceptance-probe` with `probe_command: <feature.demo_probe>`, `cwd: <working branch checkout>`, `timeout_seconds: 120`. After the probe returns, emit `acceptance_probe_completed feature=<F> probe_type=demo exit_code=<n> verdict=<PASS|FAIL|TIMEOUT|ERROR>` to the event log.
-   - **FAIL / TIMEOUT / ERROR on any feature** → halt with AskUserQuestion: *"Feature [F-NNN] demo_probe returned [verdict]. The sprint cannot be marked complete until this passes. (a) investigate via /ship-debug [F-NNN], (b) abort completion and re-execute the failing tasks, (c) override with `skip-with-reason` (recorded; review will flag)."* Do NOT proceed to step 4 unless the user picks (c) with a justification or the probe passes on a retry. Treat (c) as Invariant 8's PASS-with-warning path.
-   - On all features PASS (or skip-with-reason): under `/loop` run `shipyard-data cursor advance execute sprint_complete_gate`; echo and exit. Under direct: chain into step 4.
-4. **Sprint-complete predicate (stage_id: sprint_complete_gate)**: invoke `shipyard:evaluating-sprint-complete` with `sprint_id`, `data_dir`, `working_branch`, `sprint_base_sha` (from SPRINT.md frontmatter), `sprint_head_sha` (current HEAD), `sprint_verify_capture` (from step 2), `sprint_verify_exit_code` (from step 2), `demo_probe_event_window_start` (SPRINT.md `started_at`), `review_verdict_path` (null at this stage; `/ship-review` will run after). The skill runs the eight-invariant composite gate. `STATUS: INCOMPLETE` → halt with the failing invariant list via AskUserQuestion; do NOT mark sprint complete. `STATUS: COMPLETE` → proceed to step 5. Invariant 7 (review-verdict-clean) is expected to FAIL at this stage because review hasn't run yet — that's by design. Invariant 8 (demo probes) MUST pass because step 3 just ran it; if it fails here, the events from step 3 are missing — diagnose with `shipyard-context scan-events acceptance_probe_completed`.
-5. **Finalize and emit terminal signal (stage_id: terminal_handoff_to_review)**: set SPRINT.md frontmatter via `shipyard-data sprint set status completed` then `shipyard-data sprint set completed_at <ISO>`. Features stay `in-progress` — only `/ship-review` transitions them to `done`. Then execute the terminal protocol in this exact order:
+1. **Full build (stage_id: sprint_full_build)** — if `build_commands.full` configured, invoke `shipyard:dispatching-operational-task` (catches cross-module compilation errors scoped builds missed). If unconfigured, advance as a pass-through tick. Failure → `shipyard-data cursor pause execute --note "sprint_full_build failed: <why>"` BEFORE AskUserQuestion (so a /loop wakeup can't re-run the whole build and re-ask), then AskUserQuestion. **→ `sprint_full_tests`.**
+2. **Full test suite (stage_id: sprint_full_tests)** — invoke `shipyard:dispatching-operational-task` per tier (unit/integration/e2e) or combined. This is the only time the entire suite runs. Persistent failure after the cap → re-dispatch via `shipyard:dispatching-task-loop` per failing cluster (`→ sprint_tests_fix_iter_1`, K bounded at 1). **→ `sprint_demo_probes`.**
+3. **Per-feature demo probes (stage_id: sprint_demo_probes)** — the cross-task user-flow proof; catches "all unit tests pass but the integrated feature doesn't work" (the confedit failure mode that motivated this stage in v2.6.0). Read SPRINT.md `features:`. For each feature:
+   - **`demo_probe` absent** → `shipyard-data cursor pause execute --note "demo_probe missing for <F>"` BEFORE AskUserQuestion: *"Feature [F-NNN] has no `demo_probe`. (a) author one via /ship-discuss [F-NNN], (b) skip with explicit reason, (c) abort completion."* Recommended (a). Do NOT advance until populated.
+   - **`demo_probe: skip-with-reason`** with populated `demo_probe_skip_reason` → emit `acceptance_probe_completed feature=<F> probe_type=demo exit_code=0 skipped=true reason=<short>` and continue (Invariant 8: PASS-with-warning).
+   - **Otherwise** → invoke `shipyard:running-acceptance-probe` (`probe_command: <feature.demo_probe>`, `cwd: <working branch checkout>`, `timeout_seconds: 120`), then emit `acceptance_probe_completed feature=<F> probe_type=demo exit_code=<n> verdict=<PASS|FAIL|TIMEOUT|ERROR>`.
+   - **FAIL/TIMEOUT/ERROR** → `shipyard-data cursor pause execute --note "demo_probe <verdict> for <F>"` BEFORE AskUserQuestion: *"Feature [F-NNN] demo_probe returned [verdict]. (a) investigate via /ship-debug [F-NNN], (b) abort and re-execute failing tasks, (c) override with `skip-with-reason` (recorded; review will flag)."* Do NOT proceed unless (c) with justification or the probe passes on retry.
+   - All PASS (or skip-with-reason) → **→ `sprint_complete_gate`.**
+4. **Sprint-complete predicate (stage_id: sprint_complete_gate)** — invoke `shipyard:evaluating-sprint-complete` with `sprint_id`, `data_dir`, `working_branch`, `sprint_base_sha`, `sprint_head_sha` (current HEAD), `sprint_verify_capture` + `sprint_verify_exit_code` (from step 2), `demo_probe_event_window_start` (SPRINT.md `started_at`), `review_verdict_path: null`. It runs the eight-invariant gate. `STATUS: INCOMPLETE` → escalate with the failing-invariant list via AskUserQuestion. `STATUS: COMPLETE` → step 5. Invariant 7 (review-verdict-clean) is expected to FAIL here (review hasn't run) — by design; Invariant 8 (demo probes) MUST pass (step 3 just ran it). **→ `terminal_handoff_to_review`.**
+5. **Finalize and emit terminal signal (stage_id: terminal_handoff_to_review)** — `shipyard-data sprint set status completed` then `shipyard-data sprint set completed_at <ISO>` (features stay `in-progress`; only `/ship-review` transitions them to `done`). Then, in this exact order:
 
-   a. **Print the narrative line first** (this is free-form; it MUST come before the CLI banner so the CLI's stop marker stays the final line):
+   a. **Print the narrative line first** (free-form; MUST precede the CLI banner so the stop marker stays last):
 
    ```
    Sprint complete. [N]/[M] tasks done. Full suite: [pass/fail].
    ```
 
-   b. **Advance the cursor to the terminal stage — the CLI enforces the gate, emits the event, and prints the banner:**
+   b. **Advance to the terminal stage — the CLI enforces the gate, emits the event, prints the banner:**
 
    ```
    shipyard-data cursor advance execute terminal_handoff_to_review status=complete \
@@ -499,65 +361,44 @@ When all waves done:
        next_action="Sprint complete — handoff to /ship-review"
    ```
 
-      **Terminal-gate enforcement (now in-process, v2.9.0).** The `cursor advance` CLI runs the terminal-evidence gate before writing. It refuses (exit 3, missing-signals list on stderr) unless the event log contains: (1) `pipeline_tick_completed pipeline=ship-execute stage=wave_<N>_gate` for every wave (emitted automatically by advancing through each `wave_<N>_gate`); (2) `task_dispatch_returned pipeline=ship-execute status=complete task=<id>` for every task across all waves; (3) `sprint_complete_passed` from `evaluating-sprint-complete`. On exit 3, do NOT retry blindly — re-run the missing stage to emit the evidence, then re-advance. The gate does NOT fire for `status: escalated` / `status: paused` terminals. Run `shipyard-context terminal-gate ship-execute` to preview what would block. On success the CLI appends `pipeline_terminal outcome=success reason=sprint_complete`, re-renders PROGRESS.md, and prints the banner — `▶ NEXT UP: /ship-review …` followed by `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` as the FINAL line. Echo the CLI output verbatim.
+      The CLI runs the terminal-evidence gate before writing: it refuses (exit 3, missing-signals list) unless the event log contains (1) `pipeline_tick_completed pipeline=ship-execute stage=wave_<N>_gate` for every wave, (2) `task_dispatch_returned pipeline=ship-execute status=complete task=<id>` for every task — a **parked** task with a `task_blocked` event or `task_dispatch_returned status=blocked` satisfies its slot, so a sprint with needs-attention tasks CAN terminate and hand them to /ship-review; only a task with NO evidence blocks — and (3) `sprint_complete_passed`. On exit 3, re-run the missing stage to emit the evidence, then re-advance. The gate does NOT fire for `status: escalated`/`paused`. Preview with `shipyard-context terminal-gate ship-execute`. On success the CLI appends `pipeline_terminal outcome=success reason=sprint_complete`, re-renders PROGRESS.md, and prints `▶ NEXT UP: /ship-review …` followed by `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` as the FINAL line. Echo the CLI output verbatim.
 
-      The banner order is deliberate and load-bearing (v2.8.2), and the CLI now guarantees it: the loop-driving model reads the LAST line as its continue-or-stop signal, so the stop marker MUST be the final line — never followed by a `NEXT UP` line, which an over-eager driver reads as "keep going." Do NOT call `ScheduleWakeup` after the terminal advance, do NOT print your own NEXT-UP line after the CLI output, and do NOT chain into `/ship-review` here — the execute `/loop` ends at this terminal; `/ship-review` is a separate cycle the user starts deliberately.
+      The loop-driving model reads the LAST line as its continue-or-stop signal, so the stop marker MUST be the final line — a `NEXT UP` line after it reads as "keep going." NEXT UP is framed as a SEPARATE cycle you start yourself. Do NOT call `ScheduleWakeup`, do NOT print your own NEXT-UP line after the CLI output, and do NOT chain into `/ship-review` — the execute `/loop` ends here; `/ship-review` is a separate cycle the user starts deliberately.
 
-   c. **Cron-fallback cleanup.** If this cycle emitted `pipeline_loop_bootstrap_fallback`, call `CronList` and `CronDelete` any cron whose prompt targets `/shipyard:ship-execute` before exiting — a one-shot fallback must not fire after terminal. Skip when no fallback was emitted (the happy path created no cron).
+   c. **Cron-fallback cleanup.** If this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-execute`. Skip on the happy path (no cron created).
 
 ---
 
 ## SINGLE TASK Mode (--task) (stage_id: single_task → terminal_single_task)
 
-Execute just one task following the TDD cycle above. Useful for:
-- Picking up a specific blocked task after unblocking
-- Re-executing a failed task
-- Running a patch task
+Execute one task following the TDD cycle above — for picking up a specific unblocked task, re-executing a failed task, or running a patch task. Same structure: builder writes tests + implementation (no test execution), then the wave REFACTOR+MUTATE+VERIFY sequence runs for the single-task wave.
 
-Single-task mode follows the same structure: builder writes tests + implementation (no test execution), then the wave REFACTOR+MUTATE+VERIFY sequence runs for the single-task wave.
-
-**Terminal protocol (stage_id: terminal_single_task).** On completion, print the narrative line `Task complete.` first, then run `shipyard-data cursor advance execute terminal_single_task status=complete outcome=success reason=task_complete next_action="Task complete"`. The CLI appends `pipeline_terminal`, re-renders PROGRESS.md, and prints the `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` marker as the final line; echo it.
+**Terminal (stage_id: terminal_single_task).** Print `Task complete.` first, then `shipyard-data cursor advance execute terminal_single_task status=complete outcome=success reason=task_complete next_action="Task complete"`. The CLI appends `pipeline_terminal`, re-renders PROGRESS.md, and prints the `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` marker as the final line; echo it.
 
 ---
 
 ## HOTFIX Mode (--hotfix) (stage_id: hotfix → terminal_hotfix)
 
-1. Read bug file (B-HOT-NNN)
-2. Verify the user is on the branch they want the hotfix applied to (AskUserQuestion if unclear)
-3. Execute TDD cycle (must include regression test)
-4. Commit: `fix(B-HOT-NNN): [description]`
-5. **Terminal protocol (stage_id: terminal_hotfix).** Print the narrative line `Hotfix ready. Review with /ship-review --hotfix B-HOT-NNN` first, then run `shipyard-data cursor advance execute terminal_hotfix status=complete outcome=success reason=hotfix_ready next_action="Hotfix ready — handoff to /ship-review --hotfix"`. The CLI appends `pipeline_terminal`, re-renders PROGRESS.md, and prints the `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` marker as the final line; echo it.
+1. Read bug file (B-HOT-NNN). 2. Verify the target branch (AskUserQuestion if unclear). 3. Execute TDD cycle (must include regression test). 4. Commit `fix(B-HOT-NNN): [description]`. 5. **Terminal (stage_id: terminal_hotfix).** Print `Hotfix ready. Review with /ship-review --hotfix B-HOT-NNN` first, then `shipyard-data cursor advance execute terminal_hotfix status=complete outcome=success reason=hotfix_ready next_action="Hotfix ready — handoff to /ship-review --hotfix"`. The CLI appends `pipeline_terminal`, re-renders PROGRESS.md, prints the `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` marker as the final line; echo it.
 
-Shipyard does not create branches, merge, or push for hotfixes — the user handles their own git workflow. Hotfix does NOT affect sprint state or velocity.
-
-Hotfix mode is the one exception that DOES run tests at task level — the regression test is the whole point of a hotfix, and you need to see it go red→green→still-red-after-revert→green to prove the fix actually catches the bug. Sprint tasks never run tests at task level (deferred to wave boundary); hotfix tasks always do.
+Shipyard does not create branches, merge, or push for hotfixes — the user handles their own git workflow. Hotfix does NOT affect sprint state or velocity. Hotfix is the one exception that DOES run tests at task level — the regression test is the whole point, and you need red→green→still-red-after-revert→green to prove the fix catches the bug.
 
 ---
 
 ## Blocked Task Handling
 
-If a task can't proceed:
-
-1. **Self-resolve** — try workaround within scope (< 5 min)
-2. **Escalate** — AskUserQuestion with blocker details + options
-3. **Swap-in** — skip blocked task, pull next unblocked task from wave
-4. **Park** — if still blocked at wave boundary:
-   - Update the task file's frontmatter: `status: blocked`, add `blocked_reason: "[reason]"` and `blocked_since: "[ISO date]"`
-   - Update the parent feature's status back to `approved` in feature frontmatter
-   - Add the parent feature ID back to BACKLOG.md (so it's visible in next sprint planning)
-   - This ensures blocked tasks survive sprint archival and are surfaced by the next `/ship-sprint`
-
-Blockers surface in PROGRESS.md automatically via the render-progress hook. Emit `task_blocked task=<id> reason="<short reason>" escalation=<code>` at the moment of blocking; the next cursor write triggers regeneration. Do not Write or Edit PROGRESS.md directly.
+1. **Self-resolve** — a workaround within scope (< 5 min); any code change goes through `shipyard:dispatching-task-loop`, never a hand-edit here.
+2. **Escalate** — AskUserQuestion with blocker details + options.
+3. **Swap-in** — skip the blocked task, pull the next unblocked task from the wave.
+4. **Park** (still blocked at wave boundary) — set the task file `status: blocked` + `blocked_reason` + `blocked_since`; set the parent feature back to `approved`; re-add the feature ID to BACKLOG.md (so it survives sprint archival and surfaces in the next `/ship-sprint`). Emit `shipyard-data events emit task_blocked task=<id> reason="<short>" escalation=<code>` at the moment of parking — that event is the terminal gate's parking evidence, so a parked task does not block sprint completion; it hands off to /ship-review. Do not Write/Edit PROGRESS.md; the render hook regenerates it.
 
 ## Loop Detection & Debug Escalation
 
-Loop detection lives inside `dispatching-task-loop`'s subagent context — the subagent's own iteration cap (5 internal iterations) plus the structured `STATUS: BLOCKED` return surface stuck tasks without per-Edit hook overhead.
+Loop detection lives inside `dispatching-task-loop`'s subagent context — its own iteration cap (5 internal iterations) plus the structured `STATUS: BLOCKED` return surface stuck tasks without per-Edit hook overhead.
 
-When the orchestrator sees `STATUS: BLOCKED` after the single re-dispatch budget (or recurring `BLOCKED` across waves on the same task), escalate to debug mode: write `<SHIPYARD_DATA>/debug/[task-id].md` with the BLOCKED reasons collected.
+When the orchestrator sees `STATUS: BLOCKED` after the single re-dispatch budget (or recurring `BLOCKED` across waves on the same task), escalate to debug mode: write `<SHIPYARD_DATA>/debug/[task-id].md` with the collected BLOCKED reasons.
 
-**Before falling to AskUserQuestion, if the BLOCKED return's `escalation_code` has no matching entry in `dispatching-task-loop`'s escalation-code routing (an uncovered blocker with no documented recovery path), invoke the `shipyard:escalating-to-thinker` capability skill (trigger: `uncovered_blocked`, subject: the task ID).** That skill checks the per-sprint consult cap, dispatches a think-tier consult, and returns a recommendation to execute through normal paths; only if it declines (cap reached), returns low confidence, or its recommendation also fails do you fall through to the AskUserQuestion below. A documented escalation-code path always runs first — don't escalate a blocker the rules already cover.
-
-Then `AskUserQuestion`:
+Before falling to AskUserQuestion, if the BLOCKED return's `escalation_code` has no matching entry in `dispatching-task-loop`'s escalation-code routing (an uncovered blocker), invoke `shipyard:escalating-to-thinker` (trigger: `uncovered_blocked`, subject: the task ID). It checks the per-sprint consult cap and returns a recommendation to execute through normal paths; only if it declines, returns low confidence, or its recommendation also fails do you fall through to AskUserQuestion. A documented escalation-code path always runs first. Then:
 
 > *"Task [TASK_ID] hit its dispatch budget after [N] BLOCKED returns. I've started a debug session.*
 > *1. Debug now — `/ship-debug --resume`*
@@ -565,48 +406,21 @@ Then `AskUserQuestion`:
 > *3. Describe the problem — I'll help directly*
 > *Recommended: 1."*
 
-## Pause / Resume
-
-Claude Code's `--continue` restores conversation history but not project state (which wave, which task). Shipyard bridges with the EXECUTE-CURSOR.md cursor — the single authoritative resume surface. HANDOFF.md is retired (v2.9.0): a pause is now a cursor state, not a second hand-written file.
-
-**On pause** (user says "pause"/"stop"/"break", or session ending): run
-
-```
-shipyard-data cursor pause execute --note "<resume context>"
-```
-
-The CLI sets `status: paused`, keeps the current `stage:`, and stores the note as the cursor body. Write the note as the human-readable handoff that used to live in HANDOFF.md — what was completed this session, what is in progress, what is blocked, next steps, decisions made, and (in team mode) the `team_name` / `teammates` / `queued_tracks` needed to re-spawn. The `/loop` driver sees a non-terminal cursor with `status: paused`; the next invocation resumes from it. Then clear the execution lock (see the Acquire Locks section).
-
-**On resume** (entry recipe found `status: paused`): (1) read the paused cursor's `stage:` and body note, (2) confirm git branch matches SPRINT.md `branch`, (3) team mode only — `TeamCreate` + re-spawn teammates from the note (previous teammates are always dead after a session break), (4) `shipyard-data cursor advance execute <documented next stage>` (this flips `status` back to `in_progress` and gives subsequent automatic ticks a cursor to read), (5) continue from that stage. PROGRESS.md auto-renders from the event log on the next cursor write.
-
-Step 0 (worktree salvage) has already run before reaching On Resume. Works alongside `claude --continue`.
-
-**Note — paused-duration accounting.** The old flow accumulated `paused_minutes` into SPRINT.md's `total_paused_minutes` frontmatter. `shipyard-data sprint set` does not expose that key, so this bookkeeping is not carried in v2.9.0; the pause note is the record of when/why a pause happened.
-
-## Resume-from-event-log (/goal-mode crash recovery)
-
-A user-initiated pause sets the cursor to `status: paused` (above). A /goal-mode interruption (Esc mid-loop, escalation halt, budget exhaustion, session crash without a clean pause) leaves the cursor at `status: in_progress` with no explicit resume note — the event log is the source of truth instead.
-
-When `/ship-execute` re-enters with a non-paused cursor (or none) but a non-empty `<SHIPYARD_DATA>/.shipyard-events.jsonl`, follow the protocol in [references/resume-from-event-log.md](references/resume-from-event-log.md). Short shape: scan the log for the last `wave_check_passed`, cross-check the registry, re-verify the last-clean-wave invariants with `wakeup_budget: 0`, re-dispatch incomplete tasks in the current wave, advance. PROGRESS.md is for humans; the event log is for machines — this protocol reads the machine surface.
-
-If the event log is empty or corrupted, refuse to resume — re-run `/ship-status --repair` first.
-
 ## Deviation Rules
 
 | Category | Examples | Action |
 |---|---|---|
-| **Bug / Missing Critical / Blocker** | runtime errors, missing null checks, missing auth, broken imports | allocate the id (`shipyard-data next-id tasks`), **write `spec/tasks/<id>-<slug>.md` FIRST**, then invoke `shipyard:dispatching-task-loop` with that `task_file_path`; only after the file exists, emit `patch_task_created task_id=<id> feature=<feature> source=execute-deviation` (PROGRESS.md auto-renders) |
+| **Bug / Missing Critical / Blocker** | runtime errors, missing null checks, missing auth, broken imports | allocate the id (`shipyard-data next-id tasks`), **write `spec/tasks/<id>-<slug>.md` FIRST**, then invoke `shipyard:dispatching-task-loop` with that `task_file_path`; only after the file exists, emit `patch_task_created task_id=<id> feature=<feature> source=execute-deviation` |
 | **Structural** | new DB table, new service, different design pattern | `AskUserQuestion` before proceeding |
 
 **The orchestrator never writes, edits, or fixes code directly.** Always delegate.
 
 ## Rules
 
-- NEVER skip TDD. Test *execution* is deferred to wave/sprint boundaries; the test-first discipline is unchanged. Tasks write tests before implementation; scoped tests run at the wave boundary; the full suite runs at sprint completion. Hotfix is the one exception (always runs tests at task level).
+- NEVER skip TDD. Test *execution* is deferred to wave/sprint boundaries; the test-first discipline is unchanged. Hotfix is the one exception (always runs tests at task level).
 - NEVER modify test assertions to pass — fix the implementation.
 - NEVER build beyond acceptance criteria.
 - ALWAYS commit atomically per task; update task `status: done` after each.
-- Surface blockers / deviations / session notes by emitting events (`task_blocked`, `patch_task_created`, `task_status_changed`, …) — PROGRESS.md auto-renders from them. Never Write or Edit PROGRESS.md.
+- Surface blockers / deviations / session notes by emitting events (`task_blocked`, `patch_task_created`, `task_status_changed`, …) — PROGRESS.md auto-renders. Never Write or Edit PROGRESS.md.
 - NEVER fix test failures, lint errors, or bugs directly in this session — invoke `shipyard:dispatching-task-loop` (code) or `shipyard:dispatching-operational-task` (command-shaped) to delegate.
-- Architectural changes → `AskUserQuestion`.
-- If in doubt → `AskUserQuestion`.
+- Architectural changes → `AskUserQuestion`. If in doubt → `AskUserQuestion`.

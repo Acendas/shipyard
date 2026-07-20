@@ -1143,6 +1143,10 @@ function verifyWaveIntegrated() {
     for (const name of readdirSync(returnsDir)) {
       // Legacy pre-2.9 model-written text contract; JSON wins on collision.
       if (!name.endsWith(".txt")) continue;
+      // The v2.9 builder writes `<task>.probe-tail.txt` (raw probe output
+      // fed to task-return) into the same dir — probe output that echoes
+      // STATUS:/COMMIT: tokens must not become a phantom Check-B return.
+      if (name.endsWith(".probe-tail.txt")) continue;
       const task = name.replace(/\.txt$/, "");
       if (seenJson.has(task)) continue;
       let content;

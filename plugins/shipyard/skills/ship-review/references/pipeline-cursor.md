@@ -20,6 +20,9 @@ Settable `k=v` fields: `sprint`, `iteration`, `loop_owner`, `status`, `next_acti
 
 Companions:
 
+- `shipyard-data cursor set review k=v [...]` — field-only update (e.g. the bootstrap sentinel): no transition, no gates, no events.
+- `shipyard-data cursor resume review` — flips an escalated/paused cursor back to `in_progress` at the same stage (emits `pipeline_resumed`); the documented recovery from `status: escalated`.
+- `shipyard-data cursor bootstrap-check review` — the auto-loop eligibility computation as one JSON line; sets the `auto_loop_attempted` sentinel itself when eligible.
 - `shipyard-data cursor pause review --note "<resume context>"` — `status: paused`, keeps the stage. Replaces HANDOFF.md (retired).
 - `shipyard-data cursor escalate review reason=<short>` — terminal escalation from any stage (e.g. `reason=hard_ceiling_stage_<id>`). Not a claim of success → bypasses the evidence gate by design.
 - `shipyard-data cursor noop review [sprint=<id>]` — the idempotent already-archived sweep (below).
@@ -99,11 +102,11 @@ One call: `shipyard-data cursor advance review <next-stage> next_action="<one li
 
 ## Self-looping stages: stuck detection
 
-`code_review_iter_N`, `gap_analysis`, `tests`, and `release_step_1` are the self-looping stages. Convergence is data-driven (scanners clean, checklist stable) — no arbitrary iteration cap. Pass `stuck_counter=<n+1>` on a self-loop advance when state did NOT change since the last tick (the CLI resets to 0 on stage change, carries on self-loop). At `stuck_counter >= 5`, emit `shipyard-data events emit pipeline_stuck pipeline=ship-review sprint=<id> stage=<id> iterations=<N> reason=no-state-change` and surface:
+`code_review_iter_N`, `gap_analysis`, `tests`, and `release_step_1` are the self-looping stages. Convergence is data-driven (scanners clean, checklist stable) — no arbitrary iteration cap. `stuck_counter` is CLI-owned: self-loop advances auto-increment it (pass `stuck_counter=0` when the loop made real progress), the CLI auto-emits `pipeline_stuck` when `stuck_counter >= 5` (5 ticks without progress), and at `hard_ceiling` it refuses the advance (exit 3) directing to `cursor escalate`. On the ≥5 warning, surface:
 
 > `⚠ Stage [X] has run [N] times without state change. /ship-status to inspect; consider manual intervention.`
 
-The warning is non-blocking. `hard_ceiling: 50` is the absolute stop: reached → `shipyard-data cursor escalate review reason=hard_ceiling_stage_<id>` and halt.
+The warning is non-blocking. `hard_ceiling: 50` is the absolute stop — the CLI refuses further self-loops there; run `shipyard-data cursor escalate review reason=hard_ceiling_stage_<id>`.
 
 ## No-op terminal: already-archived sprint
 
@@ -118,12 +121,14 @@ When `/ship-review` is invoked, the cursor does NOT exist, AND there is no activ
 
 | Event name | Fields | Emitted by |
 |---|---|---|
-| `pipeline_tick_started` | `pipeline=ship-review`, `sprint=<id>`, `stage=<id>`, `iteration=<N>`, `loop_owner=<owner>` | Skill, via `events emit`, at tick entry |
+| `pipeline_tick_started` | `pipeline=ship-review`, `sprint=<id>`, `stage=<id>`, `iteration=<N>`, `loop_owner=<owner>` | **CLI**, on every non-terminal `cursor advance` (no manual emit) |
 | `pipeline_tick_completed` | + `outcome=advanced\|self_loop`, `next_stage=<id>` | **CLI**, on every non-terminal `cursor advance` |
 | `pipeline_terminal` | + `outcome=success\|issues\|changes\|noop\|escalated`, `reason=<short>` | **CLI**, on terminal `cursor advance` / `escalate` / `noop` |
 | `pipeline_loop_leak_detected` | `pipeline=ship-review`, `sprint=<id>`, `noop_count=<N>` | **CLI**, inside `cursor noop` on a repeat no-op |
 | `pipeline_paused` | `pipeline=ship-review`, `sprint=<id>`, `stage=<id>` | **CLI**, on `cursor pause` |
-| `pipeline_stuck` | + `stage=<id>`, `iterations=<N>`, `reason=no-state-change` | Skill, via `events emit`, when `stuck_counter >= 5` |
+| `pipeline_stuck` | + `stage=<id>`, `iterations=<N>`, `reason=re-entry-without-progress\|hard-ceiling` | **CLI**, when an auto-counted self-loop hits ≥5 (and at the ceiling refusal) |
+| `pipeline_resumed` | `pipeline=ship-review`, `sprint=<id>`, `stage=<id>`, `from_status=<escalated\|paused>` | **CLI**, on `cursor resume` |
+| `pipeline_loop_bootstrap_eligible` | `pipeline=ship-review`, `sprint=<id>`, `stage=<id>` | **CLI**, inside `cursor bootstrap-check` when eligible |
 | `code_review_iteration` | + `must_fix=<N>`, `should_fix=<N>` | Skill, via `events emit`, when a Stage 0 iteration completes |
 | `code_review_escalated` | + `must_fix_remaining=<N>` | Skill, via `events emit`, at the hard ceiling |
 
@@ -133,10 +138,10 @@ Use these names verbatim — they're consumed by `/ship-status`, `shipyard-conte
 
 ```
 1. Read <SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md (Read tool — reads are fine).
-   - Exists with `terminal: true` → run `shipyard-data cursor noop review`, echo output, exit.
+   - Exists with `terminal: true` → run `shipyard-data cursor noop review`, echo output, exit. (On a `status: escalated` terminal the CLI prints the resume hint instead of a noop — the sprint is NOT complete; after the cause is fixed, `cursor resume review` re-opens it.)
    - Exists with `status: paused` → resume: the body note is the resume context;
      dispatch to the `stage:` handler.
-   - Exists, non-terminal → dispatch to the `stage:` handler. Emit pipeline_tick_started first.
+   - Exists, non-terminal → dispatch to the `stage:` handler (tick events are CLI-emitted).
    - Does NOT exist and current/ has a live sprint → fresh start: first advance targets `preflight`.
    - Does NOT exist and no live sprint → the no-op path above.
 

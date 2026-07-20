@@ -28,9 +28,11 @@ Grouped by emitter. Within each group, listed alphabetically.
 | Event type | When | Fields | Consumers |
 |---|---|---|---|
 | `task_loop_iteration` | Each internal iteration of the per-task /goal loop | `task` (str), `iteration` (int), `probe_exit` (int) | `/ship-status` (trajectory render), `verifying-wave-completion` (invariant 1) |
-| `task_loop_completed` | Subagent returns `STATUS: COMPLETE` | `task` (str), `commit_sha` (str), `iterations_run` (int) | `verifying-wave-completion` (invariant 4), `evaluating-sprint-complete` (invariant 1) |
-| `task_dispatch_returned` | Orchestrator records the structured return regardless of status | `task` (str), `status` ("complete" \| "blocked"), `commit_sha` (str — set for `status=complete`), `sprint` (str), `wave` (int), `escalation_code` (str \| null) | `verifying-wave-completion` (invariant 1), `terminal-gate` (per-task complete evidence) |
-| `subagent_completed` | Background-mode builder subagent finishes (emitted by `dispatching-task-loop`, step 9 of the Cycle) | `task` (str), `status` ("complete" \| "blocked"), `commit_sha` (str), `probe_exit_code` (int), `capture_file` (str) | `/ship-execute` `wave_N_waiting` (Monitor drains `pending_subagents`) |
+| `task_dispatch_returned` | Orchestrator records the structured return regardless of status | `task` (str), `status` ("complete" \| "blocked"), `commit_sha` (str — set for `status=complete`), `sprint` (str), `wave` (int), `escalation_code` (str \| null) | `verifying-wave-completion` (invariants 1, 4), `evaluating-sprint-complete` (invariant 1), `terminal-gate` (per-task complete evidence) |
+| `subagent_completed` | Background-mode builder subagent finishes (emitted by `dispatching-task-loop`, step 9 of the Cycle) | `task` (str), `status` ("complete" \| "blocked"), `commit_sha` (str), `probe_exit_code` (int), `capture_file` (str) | `/ship-execute` `wave_N_waiting` (Monitor drains `pending_subagents`); `verifying-wave-completion` (invariant 4 secondary signal) |
+| `task_blocked` | Orchestrator settles a feature task as blocked/needs-attention (parked and handed to review) | `task` (str), `reason` (str — e.g. `persistent_failure`, `presumed_dead`) | `verifying-wave-completion` (invariant 4 — a parked task is a legitimate wave outcome, not a missing completion); PROGRESS.md auto-render |
+
+**Retired — never emitted.** `task_loop_completed` was consumed by `verifying-wave-completion` (invariant 4) and the resume protocol but no code path ever emitted it. Completion is proven by the orchestrator-gate event `task_dispatch_returned status=complete` (primary) / `subagent_completed status=complete` (secondary); those consumers now key off it. Do not reintroduce `task_loop_completed`.
 
 ### Emitted by `dispatching-operational-task` (subagent context)
 

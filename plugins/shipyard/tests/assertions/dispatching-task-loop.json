@@ -156,5 +156,57 @@
     "name": "emits_real_sha_return",
     "type": "contains",
     "pattern": "task_dispatch_returned[\\s\\S]*commit_sha=|commit_sha=<sha>"
+  },
+  {
+    "name": "no_phantom_task_loop_completed",
+    "type": "not_contains",
+    "pattern": "task_loop_completed",
+    "why": "task_loop_completed has no emitter anywhere; consumers key off task_dispatch_returned status=complete instead"
+  },
+  {
+    "name": "template_branch_self_check",
+    "type": "contains",
+    "pattern": "git branch --show-current",
+    "why": "builder's first action must confirm it is on a shipyard/wt-* branch"
+  },
+  {
+    "name": "template_isolation_failure_code",
+    "type": "contains",
+    "pattern": "isolation_failure"
+  },
+  {
+    "name": "template_kind_refusal",
+    "type": "contains",
+    "pattern": "misrouted_kind"
+  },
+  {
+    "name": "template_portability_block",
+    "type": "contains",
+    "pattern": "mktemp",
+    "why": "the builder prompt must forbid non-portable shell tokens for any shell it writes"
+  },
+  {
+    "name": "template_base_ref_input",
+    "type": "contains",
+    "pattern": "base_ref",
+    "why": "step-6 self-scan needs diff bounds (git diff {{base_ref}}...HEAD)"
+  },
+  {
+    "name": "no_precreated_worktree_option",
+    "type": "not_contains",
+    "pattern": "orchestrator pre-creates the worktree",
+    "why": "isolation: worktree is the only path; pre-creation bypasses the WorktreeCreate hook"
+  },
+  {
+    "name": "timeout_salvage_protocol",
+    "type": "contains",
+    "pattern": "timeout salvage protocol",
+    "why": "presumed-dead handling must TaskStop the zombie and salvage the branch without merging"
+  },
+  {
+    "name": "gate_does_not_reexecute_probe",
+    "type": "not_contains",
+    "pattern": "probe re-execution",
+    "why": "the orchestrator gate reads the captured exit code; it cannot re-run the probe pre-merge"
   }
 ]

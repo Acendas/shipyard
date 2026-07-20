@@ -30,7 +30,8 @@ Invoke this capability skill from a command skill (`ship-execute`, `ship-quick`,
 - `working_branch` — git branch name for the sprint
 - `acceptance_probe` — the smoke command from the task frontmatter (required; if missing, halt and surface to the user — the task is unauthorable without one)
 - `data_dir` — literal `<SHIPYARD_DATA>` path
-- `worktree_path` — only when worktree-isolating (subagent/team mode); else null
+- `base_ref` — the git ref the subagent's work forks from (the working-branch HEAD at dispatch, or the worktree base). The subagent's step-6 anti-stub self-scan diffs `git diff {{base_ref}}...HEAD` against it; without bounds the scan has nothing to compare.
+- `worktree_path` — informational only. With `isolation: "worktree"` Claude Code owns worktree creation and sets the subagent's cwd; this value (when non-null) is passed to the subagent purely so it can name its own checkout in logs. The orchestrator never pre-creates a worktree — see the Integration Notes.
 - `sprint_id` — sprint ID for event-log scoping (the `id:` from `SPRINT.md` frontmatter)
 - `wave_number` — wave number for event-log scoping (current value of cursor `wave_number`)
 - `dispatch_mode` — `sync` or `background`. `sync` = today's behavior, orchestrator parses Agent return value. `background` = orchestrator dispatches via `Agent(run_in_background: true)` and recovers the structured return from `.shipyard-events.jsonl` + capture file. Default `sync` for backward compatibility.
@@ -50,8 +51,38 @@ You are executing one Shipyard sprint task in an isolated subagent context.
 
 ID: {{task_id}}
 Working branch: {{working_branch}}
-Worktree path: {{worktree_path_or_none}}
+Worktree path: {{worktree_path_or_none}}   (informational — your cwd is already this checkout)
+Base ref: {{base_ref}}                       (what your work forks from; used by the step-6 self-scan)
 Data dir: {{data_dir}}
+
+# Environment & rules (read before your first action)
+
+1. **Worktree branch self-check — your VERY FIRST action.** Run
+   `git branch --show-current`. It MUST match `shipyard/wt-*`. If it does not,
+   you are NOT in your isolated worktree — STOP immediately and return
+   STATUS: BLOCKED with ESCALATION_CODE: isolation_failure. Do NOT "fix" this by
+   checking out the working branch yourself; that bypasses isolation and races
+   the other builders in this wave.
+
+2. **Kind refusal.** This loop is for feature tasks only. Read the task file
+   frontmatter first: if `kind: operational` or `kind: research`, STOP and return
+   STATUS: BLOCKED with ESCALATION_CODE: misrouted_kind. Those kinds have different
+   deliverables and different dispatchers — do not attempt them here.
+
+3. **Stay in scope — capture deferred unknowns as IDEA files.** If you notice an
+   out-of-scope problem, improvement, or scope-adjacent rot while working, do NOT
+   expand the task to fix it — a wave depends on tasks staying independent, and
+   scope creep is what makes parallel merge-back conflict. Instead write up to
+   3 `IDEA-*` files to {{data_dir}}/spec/ideas/ (one short markdown file each:
+   what you saw, where, why it matters) and commit them atomically with your task
+   commit. They surface later in /ship-sprint's carry-over scan and /ship-backlog.
+
+4. **Cross-platform shell.** Any shell you write (in tests, scripts, or commit
+   hooks) must run on macOS, Linux, AND Windows. Do NOT use `mktemp`,
+   `readlink -f`, GNU `realpath`, `sed -i ''`, `stat -c`, or `/dev/stdin` — they
+   don't exist on plain Windows. Route temp-file needs through
+   `shipyard-logcap run <name> -- <cmd>` (ships a `.cmd` shim), or use Node inline
+   (`node -e "…"`).
 
 Reading list (read these files before doing anything else):
 - {{task_file_path}}                         (your task spec — frontmatter + acceptance criteria)
@@ -104,8 +135,9 @@ Loop until the acceptance probe passes AND no stubs remain. Do not exit otherwis
    of output verbatim.
 5. **If probe exit ≠ 0:** reflect on the output. What does the failure tell you about
    what's actually wired? Fix it. Re-run the probe. Loop.
-6. **If probe passes:** scan your own diff for stubs (the rules above). If any stub
-   remains, fix it and re-probe. Otherwise commit.
+6. **If probe passes:** scan your own diff for stubs (the rules above). Bound the
+   scan to your own work: `git diff {{base_ref}}...HEAD`. If any stub remains, fix
+   it and re-probe. Otherwise commit.
 7. **Commit atomically:** `feat({{task_id}}): <one-line>` with the probe output tail
    in the commit body.
 8. **Persist the structured return via the CLI (MANDATORY).** Do NOT hand-write
@@ -168,12 +200,14 @@ this order. Anything else around them is fine but the orchestrator parses these:
 OR, if blocked:
 
     STATUS: BLOCKED
-    ESCALATION_CODE: <one of: design_ambiguity | verify_flaky | spec_coverage_gap | external_dependency_unreachable | dispatch_loop_repeated | (omit if none fits)>
+    ESCALATION_CODE: <one of: isolation_failure | misrouted_kind | design_ambiguity | verify_flaky | spec_coverage_gap | external_dependency_unreachable | dispatch_loop_repeated | (omit if none fits)>
     REASON: <one paragraph, plain text, what you tried and what's stuck>
 
 Prefer a specific ESCALATION_CODE over BLOCKED-with-prose-only when one fits — the
 orchestrator routes on the code, not the prose. Codes:
 
+  - isolation_failure: the worktree branch self-check failed — you are not in a `shipyard/wt-*` checkout
+  - misrouted_kind: task frontmatter is `kind: operational` or `kind: research` — wrong dispatcher
   - design_ambiguity: AC conflicts with spec or with itself; can't decide without user
   - verify_flaky: probe passed once and failed once with different signatures
   - spec_coverage_gap: AC has no implementation marker; registry vs diff drift
@@ -207,6 +241,8 @@ After the Agent call returns, parse the reply:
 
 3. **If `STATUS: BLOCKED`:**
    - **Read `ESCALATION_CODE:` first.** If present, route directly:
+     - `isolation_failure` → the `WorktreeCreate` hook didn't place the subagent on a `shipyard/wt-*` branch. Do NOT redispatch blind — investigate the hook (`using-worktrees` "When Things Go Wrong"). Surface to the user via AskUserQuestion.
+     - `misrouted_kind` → the task is operational/research and was sent to the wrong dispatcher. Re-route to `dispatching-operational-task` / `dispatching-research-task`; do not redispatch here.
      - `design_ambiguity` → AskUserQuestion with the REASON; never auto-redispatch.
      - `verify_flaky` → emit `verify_flaky_suspected` event with the probe output; surface to user with a `bisect-flaky` recommendation.
      - `spec_coverage_gap` → surface to `/ship-spec` / user; do not advance the task.
@@ -225,7 +261,7 @@ When the orchestrator invokes `dispatching-task-loop` with `dispatch_mode: backg
 **Sync mode (default, today's behavior):**
 1. Orchestrator calls `Agent(subagent_type: "general-purpose", prompt: <template>)`.
 2. Agent blocks the orchestrator's iteration until the subagent returns.
-3. Orchestrator reads the Agent's return value, parses the structured contract inline, runs the gate (sha verify + probe re-execution + anti-stub-scan), advances.
+3. Orchestrator reads the Agent's return value, parses the structured contract inline, runs the gate (sha exists via `git cat-file -e` + `PROBE_EXIT: 0` + non-empty `PROBE_OUTPUT_TAIL` + anti-stub-scan on the diff), advances. The orchestrator does NOT re-run the probe — pre-merge, the worktree's environment isn't reconstructable in the orchestrator context; the probe's authoritative signal is the exit code the subagent captured, which the CLI already refused to record as COMPLETE if non-zero.
 
 **Background mode (v2.5.0+):**
 1. Orchestrator calls `Agent(subagent_type: "general-purpose", run_in_background: true, prompt: <template>)`. Returns immediately with a task handle.
@@ -235,11 +271,11 @@ When the orchestrator invokes `dispatching-task-loop` with `dispatch_mode: backg
    - Emits `subagent_completed` event with task / status / commit_sha / probe_exit_code / capture_file fields, `capture_file` pointing at the `.json` (step 9 of the Cycle).
    - Returns the inline structured response (step 10) — for sync-mode parity, but no orchestrator iteration reads it in background mode.
 4. The Monitor armed by step 2 wakes /loop the moment the event lands in the log.
-5. On the next /loop iteration, the orchestrator (ship-execute under `stage: wave_<N>_waiting`) sees the event, reads the `.json` capture file referenced in `capture_file=`, parses the structured contract from there, and runs the SAME orchestrator-side gate (sha verify + probe re-execution + anti-stub-scan). Removes `task_id` from `pending_subagents`. When `pending_subagents` is empty for the wave, advances cursor to `wave_<N>_boundary`.
+5. On the next /loop iteration, the orchestrator (ship-execute under `stage: wave_<N>_waiting`) sees the event, reads the `.json` capture file referenced in `capture_file=`, parses the structured contract from there, and runs the SAME orchestrator-side gate (sha exists via `git cat-file -e` + `probe_exit_code === 0` in the `.json` + non-empty output tail + anti-stub-scan). Removes `task_id` from `pending_subagents`. When `pending_subagents` is empty for the wave, advances cursor to `wave_<N>_boundary`.
 
 **Key invariants preserved across both modes:**
 - The structured-return contract is identical (STATUS / COMMIT / PROBE_EXIT / PROBE_OUTPUT_TAIL).
-- The orchestrator-side gate is identical (sha cat-file + probe re-execution + anti-stub-scan).
+- The orchestrator-side gate is identical (sha `cat-file` + `probe_exit_code === 0` from the capture + non-empty output tail + anti-stub-scan). Neither mode re-runs the probe — the captured exit code is authoritative, and `shipyard-data task-return` already refused to record COMPLETE with a non-zero exit.
 - The Iron Laws inside the subagent prompt are identical.
 
 The ONLY difference is **who reads the return**: the spawning iteration (sync) or a future iteration via event-log + capture file (background). This means background mode can be flipped on per-call without changing the subagent prompt template or the gate logic.
@@ -255,7 +291,12 @@ The ONLY difference is **who reads the return**: the spawning iteration (sync) o
 
 **Failure modes specific to background mode:**
 
-1. **Subagent dies without emitting the event.** The capture file may also be absent. The orchestrator's `wave_<N>_recovery` handler watches per-task spawned_at timestamps; if `now - spawned_at > max_execution_minutes` (default 60, configurable via task frontmatter) AND no `subagent_completed` event AND no recent `task_loop_iteration` event for that task → presume dead, mark task `status: needs-attention`, emit `task_blocked` (PROGRESS.md auto-renders), advance.
+1. **Subagent dies without emitting the event.** The capture file may also be absent. The orchestrator's `wave_<N>_recovery` handler watches per-task spawned_at timestamps. **Presume dead only when all three hold:** `now - spawned_at > max_execution_minutes` (default 60, configurable via task frontmatter) AND no `subagent_completed` event AND no recent `task_loop_iteration` event for that task. A live-but-slow builder still emits `task_loop_iteration` per cycle, so a recent one means "working, not dead" — do not reap it.
+
+   On presumed-dead, run the **timeout salvage protocol** (this skill owns the contract; `/ship-execute`'s waiting handler defers to it):
+   1. **TaskStop the background agent handle** for that task — a presumed-dead subagent may still be a running zombie holding its worktree; stopping it first prevents a late write racing the salvage.
+   2. **Salvage the worktree branch WITHOUT merging it.** The builder may have committed real work before dying, but it never passed the gate, so it must not reach the working branch. Anchor the branch tip so the commits survive teardown, then force-remove: `shipyard-data anchor-commit <task_id> <branch-tip-sha>` (pins `shipyard/keep-<task_id>`) → `git worktree remove --force .claude/worktrees/<id>` → `git branch -D shipyard/wt-<id>` (the `-D` is safe here precisely because the commits are already anchored; this is the one place `-D` is correct — teardown of *integrated* branches still uses `-d`).
+   3. Mark task `status: needs-attention`, emit `task_blocked task=<id> reason=presumed_dead` (PROGRESS.md auto-renders), advance. Also emit `task_dispatch_returned status=blocked` so the wave gate (invariant 1) sees a return for the task.
 
 2. **Capture `.json` missing but event present.** Contract violation — orchestrator treats as BLOCKED and follows the single-redispatch rule.
 
@@ -278,7 +319,7 @@ The subagent's exit contract is the same Iron Law as Ralph's promise — but at 
 
 ## Integration Notes
 
-- **Worktree mode.** When `worktree_path` is non-null, the orchestrator pre-creates the worktree (`git worktree add` from the working branch's HEAD). The subagent's `cd` is implicit because the orchestrator passes the worktree path; the subagent operates from there. With Anthropic's `isolation: worktree` fix, you may pass `isolation: "worktree"` directly on the Agent call instead — both work; pre-creation is more explicit.
+- **Worktree mode.** Pass `isolation: "worktree"` on the Agent call — this is the ONLY path (see `using-worktrees`). Claude Code creates the worktree, fires the `WorktreeCreate` hook (which owns the `shipyard/wt-*` branch), and sets the subagent's cwd. Never pre-create the worktree with `git worktree add` — that bypasses the hook's branch naming and the `worktree.baseRef` handling, and it is what the template's branch self-check exists to catch. `worktree_path` in the prompt is informational only.
 - **Test execution is deferred by default.** Tasks write tests but do NOT run them — scoped tests run at the wave boundary, full suite at sprint completion. The acceptance probe is the only check that runs inside the task; it's the wiring proof, the deferred suite is the unit-level proof. This is the only mode of operation; there's no opt-in flag.
 - **Hotfix is the one exception** that DOES run tests at task level. The regression-test cycle (Red → Green → Revert → Red → Restore → Green) requires watching the test go through the full red-green-red-green motion — a deferred suite can't prove a regression test catches the specific bug. Hotfix dispatches inline this discipline; sprint dispatches don't.
 

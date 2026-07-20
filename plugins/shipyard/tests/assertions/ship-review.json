@@ -443,9 +443,10 @@
     "pattern": "Skill\\(skill: \"loop\""
   },
   {
-    "name": "auto_loop_writes_sentinel_to_cursor",
+    "name": "bootstrap_check_owns_sentinel",
     "type": "contains",
-    "pattern": "auto_loop_attempted: true"
+    "pattern": "cursor bootstrap-check review",
+    "why": "v3.1.0: eligibility + sentinel-setting moved into the CLI (the old same-stage sentinel advance was an illegal transition on non-self-looping stages)"
   },
   {
     "name": "auto_loop_emits_bootstrap_event",
@@ -456,11 +457,6 @@
     "name": "auto_loop_skill_invocation_targets_ship_review",
     "type": "contains",
     "pattern": "Skill\\(skill: \"loop\", args: \"/shipyard:ship-review\"\\)"
-  },
-  {
-    "name": "auto_loop_cleanup_on_terminal",
-    "type": "contains",
-    "pattern": "do NOT carry .?auto_loop_attempted"
   },
   {
     "name": "auto_loop_has_cron_fallback",
@@ -512,22 +508,26 @@
   {
     "name": "bootstrap_runs_after_noop_terminal_sweep",
     "type": "contains",
-    "pattern": "Auto-loop bootstrap \\(run AFTER loop_owner detection AND the no-op terminal sweep"
+    "pattern": "Auto-loop bootstrap\\.",
+    "why": "bootstrap block still exists and runs in the entry flow; ordering is enforced by bootstrap-check refusing dead sprints itself"
   },
   {
-    "name": "bootstrap_has_sprint_liveness_re_check",
+    "name": "bootstrap_liveness_is_cli_owned",
     "type": "contains",
-    "pattern": "Sprint-liveness re-check"
+    "pattern": "sprint liveness",
+    "why": "v3.1.0: the liveness re-check runs inside cursor bootstrap-check (never bootstraps a completed/absent sprint)"
   },
   {
     "name": "bootstrap_refuses_dead_sprint",
     "type": "contains",
-    "pattern": "Never bootstrap .?/loop.? against a dead sprint"
+    "pattern": "dead sprint",
+    "why": "the skill still names the dead-sprint refusal; enforcement is CLI-side"
   },
   {
-    "name": "bootstrap_dead_sprint_emits_terminal",
+    "name": "bootstrap_dead_sprint_routes_to_noop",
     "type": "contains",
-    "pattern": "cursor noop review sprint=<id> reason=sprint_dead_at_bootstrap"
+    "pattern": "no-op sweep should already have exited|reason.*sprint_dead",
+    "why": "a dead sprint at bootstrap time routes through the no-op sweep / bootstrap-check refusal instead of a bespoke emit"
   },
   {
     "name": "has_quality_gate_stage",
