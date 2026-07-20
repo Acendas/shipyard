@@ -3,6 +3,7 @@ name: ship-help
 description: "Ask Shipyard questions or run workflow actions."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 argument-hint: "[question or request]"
+model: haiku
 ---
 
 # Shipyard Help Assistant

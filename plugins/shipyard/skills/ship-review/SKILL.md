@@ -2,7 +2,8 @@
 name: ship-review
 description: "Run multi-agent review, retrospective, and release."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion]
-effort: high
+model: opus
+effort: medium
 argument-hint: "[feature ID] [--demo] [--hotfix ID] [--retro-only] [--skip-code-review] [--single-tick]"
 ---
 
@@ -273,6 +274,14 @@ Any operational task that fails any of these is a **critical gap** — automatic
 
 ### Stage 4: Surface Gap Analysis (stage_id: gap_analysis, part 1)
 
+**Dispatch the analytical body to a think-tier gap-analysis agent (per gap_analysis tick).** The surface-gap detection below AND the Stage 4.5 10-check self-review are reasoning-heavy read-only analysis — dispatch them as **ONE** agent so the reviewer shell doesn't hold every feature spec, the full diff, and all test/spec-review evidence in context while it reasons. The shell keeps everything with a side effect: the cursor advance, the `stuck_counter` computation, the gap→persistence-target actions (patch task / debug session / IDEA file / inline-fix dispatch in the classification tree below), and all user-facing surfacing. The agent only analyzes and returns.
+
+**Model tier (think)** — read `models.think` from `<SHIPYARD_DATA>/config.md` (the context block above already carries config, or Read it). If non-empty, pass `model: <value>` on the `Agent(...)` call; if empty or absent, OMIT `model:` so the agent inherits the session model. Never hardcode a literal.
+
+Dispatch a single `Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>)` with a prompt that inlines: the sprint's feature and task file paths (under `<SHIPYARD_DATA>/spec/`), the verdict-relevant evidence paths gathered so far (Stage 1 test-output captures, Stage 1b spec-review findings, Stage 3 goal-verification results as recorded), the literal SHIPYARD_DATA path, and the Stage 4.5 10-check self-review table (inline it or point the agent at this section). The agent is **READ-ONLY analysis** — no writes, no commits, enforced by a post-return `git status --porcelain` check. It returns: (1) the structured gap list (each gap with a proposed classification — inline-fix / patch task / debug session / out-of-scope IDEA), and (2) the per-check results of the 10-check self-review table.
+
+The shell then acts on the returned gap list using the classification tree below (Stage 4) and drives the Stage 4.5 loop: it computes `stuck_counter` (set-equal on the gap list), advances the cursor, and re-dispatches the agent on the next `gap_analysis` tick when the gap list is still changing. **Fallback.** On dispatch failure, run the Stage 4 + 4.5 analysis inline in the shell as before.
+
 Additionally detect:
 - **Untested scenarios** — acceptance scenarios without end-to-end tests
 - **Missing edge cases** — empty states, error states, loading states
@@ -291,7 +300,9 @@ For each gap, classify into one of four destinations — this is a decision tree
 
 ### Stage 4.5: Quality Gate (stage_id: gap_analysis, part 2) (self-review loop)
 
-Before writing the verdict, review your own review. Re-read the feature spec and your findings:
+**The 10-check evaluation itself runs inside the Stage 4 gap-analysis agent** (dispatched above) — the agent applies this table to its findings and returns the per-check results alongside the gap list. The **shell** owns the loop control: it reads the returned results, updates the gap list, computes `stuck_counter`, advances the cursor, and decides whether to re-dispatch (gap list still changing) or proceed to `stage: critic` (gap list stable). On dispatch failure the shell evaluates the table inline.
+
+Before writing the verdict, the self-review re-reads the feature spec and the findings against this table:
 
 | # | Check | Fail criteria |
 |---|---|---|

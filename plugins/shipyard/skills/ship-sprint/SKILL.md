@@ -2,7 +2,8 @@
 name: ship-sprint
 description: "Plan a new sprint or cancel an active one."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, TaskCreate, TaskUpdate, TaskList, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
-effort: high
+model: opus
+effort: medium
 argument-hint: "[--cancel]"
 ---
 
@@ -254,27 +255,29 @@ Now that research has identified libraries, patterns, and utilities this sprint 
 
 Skip if no selected feature introduces new libraries/utilities/patterns. Routing: trivial → extend existing task; small → new cleanup task in final wave; medium/large → IDEA file. Scope guard: trivial+small ≤ 20% of sprint capacity. Then AskUserQuestion: "Apply these simplification opportunities? (all / pick / skip)".
 
-### Step 4: Decompose Tasks (5-stage protocol)
+### Steps 4-7: Decomposition Deep-Dive (dispatched to a think-tier agent)
 
-See `references/wave-decomposition.md` § "Step 4" for the full 5-stage protocol (Stage 1 map AC → drafts; Stage 2 walking-skeleton foundation → Wave 1; Stage 3 run drafts through the 11 splitting patterns (via `shipyard:splitting-stories`); Stage 4 write Red step + author acceptance probe via `shipyard:authoring-acceptance-probe` capability skill + write task file; Stage 5 effort assignment using S/M/L 8/80 rule).
+Steps 4-7 (task decomposition via the 5-stage protocol, dependency graph, bottleneck, wave assignment) are the heaviest analytical work in planning. Dispatch them as **ONE** deep-dive agent so the shell's context isn't burned holding every feature tree, the full splitting-pattern catalogue, and the decomposition reasoning. The shell keeps the user gates (Steps 3.5-3.7, 8-12) and all validation; the agent owns the decompose-and-wave analysis and writes the task files.
 
-Always include cleanup as explicit tasks. **Do not write task files until Stage 4.** Read `references/task-decomposition-patterns.md` first.
+**Model tier (think)** — read `models.think` from `<SHIPYARD_DATA>/config.md` (the context block above already carries config, or Read it). If non-empty, pass `model: <value>` on the `Agent(...)` call; if empty or absent, OMIT `model:` so the agent inherits the session model. Never hardcode a literal.
 
-After all stages: populate `## Technical Notes` per task using the template in `references/task-tech-notes-template.md`. Run the INVEST output check (Independent, Testable). Apply the Task Kinds taxonomy (`feature` / `operational` / `research`) — see `references/task-kinds.md`. Run the **kind auto-classifier** for operational signals; on a hit, AskUserQuestion: *"This task looks operational… Classify as `kind: operational` with `verify_command: [inferred]`? (yes, operational / no, it's a feature task / no, research)"* — recommended option first. Apply the **task size guard**: split anything with >8 discrete items.
+**Dispatch** a single `Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>)` with a prompt that inlines:
 
-If a task is estimated `effort: L` and you're uncertain, AskUserQuestion: *"This task is estimated L (1-2 days). Could it split into [specific suggestions]? (split / no, it's cohesive)"*.
+- The selected features (their file paths under `<SHIPYARD_DATA>/spec/features/`, plus any Step 3 analyst reports / Step 3.7 decisions already gathered).
+- Capacity (the story-point budget from Step 1).
+- Config knobs: `max_parallel_agents` and the execution-mode thresholds (from the config block).
+- The literal SHIPYARD_DATA path (substitute it — the agent Writes task files there; Write is auto-approved for the data dir).
+- The reference path `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/wave-decomposition.md`, which the agent **Reads and follows** — it is the full protocol for all four steps (Stage 1 map AC → drafts; Stage 2 walking-skeleton foundation → Wave 1; Stage 3 splitting patterns via `shipyard:splitting-stories`; Stage 4 Red step + acceptance probe via `shipyard:authoring-acceptance-probe` + write task file; Stage 5 effort; then Steps 5-7 dependency graph / bottleneck / wave assignment). The agent also reads `references/task-decomposition-patterns.md`, `references/task-kinds.md`, and `references/task-tech-notes-template.md` as that protocol directs, applies the kind auto-classifier and the >8-item task-size guard, and runs the INVEST output check.
 
-### Step 5: Build Task Dependency Graph
+**Task IDs and file writes happen inside the agent:** it allocates IDs via `shipyard-data next-id tasks` (it may run Bash for that) and Writes each `<SHIPYARD_DATA>/spec/tasks/TNNN-<slug>.md` from the template. Update each parent feature's `tasks:` frontmatter array with the final IDs.
 
-Build the dependency graph from task file frontmatter. Do NOT duplicate task data into SPRINT.md — the sprint file only stores task IDs grouped by wave. (Detail: `references/wave-decomposition.md` § "Step 5".)
+**Return contract (the agent's final text):** the wave plan — each wave with its task IDs, the critical path, the bottleneck, and points per wave — plus the explicit list of task file paths written.
 
-### Step 6: Find the Bottleneck
+**Shell structural verification (on return).** Before trusting the plan: (1) confirm every returned task file path actually exists on disk (cheap Read/Glob check), and (2) confirm each selected feature has ≥1 task file (Grep `feature:` frontmatter, or check the feature's `tasks:` array is non-empty). If both hold, mark checklist rows for Steps 4-7 `completed` and proceed to Step 8. This is a structural check only — the deep-dive owns the semantic decomposition quality; Step 9.5's quality gate and Step 9.7's critique are where the plan is challenged.
 
-Identify the longest chain of dependent tasks (the critical path).
+**Fallback.** On dispatch failure, or if the structural verification fails (missing task files, a selected feature with no task), fall back to running Steps 4-7 **inline** in the shell, following `references/wave-decomposition.md` directly (§ "Step 4" 5-stage protocol, § "Step 5" dependency graph, § "Step 7" wave assignment). Note the fallback in the user-facing text so the slower inline path is visible.
 
-### Step 7: Wave Assignment
-
-Group tasks into waves: Wave 1 = no dependencies, Wave N = depends only on earlier waves. Tasks within a wave have NO dependencies on each other. Each wave completes fully before the next starts. Mark which waves can run in parallel. (Detail: `references/wave-decomposition.md` § "Step 7".)
+Any AskUserQuestion the protocol would raise (operational-kind classification, `effort: L` split confirmation) is surfaced by the **shell** after the deep-dive returns — the dispatched agent flags candidates in its return, and the shell runs the user gate. Never run AskUserQuestion inside the dispatched agent.
 
 ### Step 8: Determine Execution Mode
 

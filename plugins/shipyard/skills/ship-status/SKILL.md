@@ -3,6 +3,7 @@ name: ship-status
 description: "Show the Shipyard project dashboard and next steps."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 argument-hint: "[sprint|backlog|health|spec|diagnose]"
+model: haiku
 ---
 
 # Shipyard Status Dashboard

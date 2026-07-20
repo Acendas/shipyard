@@ -3,6 +3,7 @@ name: ship-backlog
 description: "View and groom the Shipyard backlog."
 allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
 argument-hint: "[groom|rank|approve|bankruptcy]"
+model: haiku
 ---
 
 # Shipyard: Backlog Manager

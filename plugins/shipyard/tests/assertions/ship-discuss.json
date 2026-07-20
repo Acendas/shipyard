@@ -722,5 +722,37 @@
     "type": "contains",
     "pattern": "skipped: <reason>",
     "why": "a silently-deleted checklist item is indistinguishable from a silently-skipped phase"
+  },
+  {
+    "name": "deep_dive_dispatch_exists",
+    "type": "contains",
+    "pattern": "design deep-dive",
+    "why": "v3.0.0 re-altitudes Phase 1.5's analytical bulk into one dispatched design deep-dive agent on the think tier"
+  },
+  {
+    "name": "deep_dive_reads_models_think",
+    "type": "contains",
+    "pattern": "models\\.think",
+    "why": "the deep-dive dispatch reads models.think from config and passes model: <value> only when non-empty (never a literal)"
+  },
+  {
+    "name": "deep_dive_dossier_goes_to_research_draft",
+    "type": "contains",
+    "pattern": "dossier to <SHIPYARD_DATA>/spec/\\.research-draft\\.md|dossier.*\\.research-draft\\.md",
+    "dotall": true,
+    "why": "the deep-dive extends the existing compaction-checkpoint file rather than inventing a new artifact"
+  },
+  {
+    "name": "viability_decision_authority_stays_in_shell",
+    "type": "contains",
+    "pattern": "viability decision authority stays with the shell|pre-assessment is analysis, not a decision",
+    "why": "the user-facing viability gate decision never moves into the dispatched agent — the agent only pre-assesses"
+  },
+  {
+    "name": "deep_dive_has_inline_fallback",
+    "type": "contains",
+    "pattern": "Fallback \\(dispatch failed|fall back to running the .phase-1-research\\.md. protocol .{0,20}inline",
+    "dotall": true,
+    "why": "if the deep-dive dispatch fails or returns an unusable dossier, the shell falls back to the pre-4.0 inline research path"
   }
 ]

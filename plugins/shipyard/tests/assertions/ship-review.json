@@ -604,5 +604,38 @@
     "name": "cron_fallback_cleanup_at_terminal",
     "type": "contains",
     "pattern": "CronDelete"
+  },
+  {
+    "name": "gap_analysis_deepdive_reads_models_think",
+    "type": "contains",
+    "pattern": "models\\.think",
+    "why": "v3.0.0: the gap-analysis dispatch reads models.think and passes model: only when non-empty"
+  },
+  {
+    "name": "gap_analysis_dispatched_to_think_agent",
+    "type": "contains",
+    "pattern": "gap-analysis agent|Dispatch the analytical body",
+    "dotall": true,
+    "why": "v3.0.0: Stage 4 + 4.5 analytical body runs in one dispatched think-tier agent per gap_analysis tick"
+  },
+  {
+    "name": "gap_analysis_agent_is_read_only",
+    "type": "contains",
+    "pattern": "READ-ONLY analysis",
+    "why": "v3.0.0: the gap-analysis agent only analyzes; the shell owns all writes/dispatches"
+  },
+  {
+    "name": "gap_analysis_shell_keeps_cursor_and_stuck",
+    "type": "contains",
+    "pattern": "shell.*cursor advance.*stuck_counter|cursor advance, the .stuck_counter",
+    "dotall": true,
+    "why": "v3.0.0: cursor advance + stuck_counter computation stay shell-side, never in the dispatched agent"
+  },
+  {
+    "name": "gap_analysis_has_inline_fallback",
+    "type": "contains",
+    "pattern": "On dispatch failure.*inline|run the Stage 4 \\+ 4.5 analysis inline",
+    "dotall": true,
+    "why": "v3.0.0: on dispatch failure the shell evaluates gap analysis + self-review inline"
   }
 ]

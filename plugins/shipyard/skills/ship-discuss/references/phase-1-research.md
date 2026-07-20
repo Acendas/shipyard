@@ -2,6 +2,8 @@
 
 This is the full protocol for Phase 1.5 (Research) in `/ship-discuss`. The SKILL body summarizes; this file holds the how.
 
+**Who executes this.** As of v3.0.0 this protocol is executed by the **design deep-dive agent** dispatched by the `/ship-discuss` shell (on the `models.think` tier), which writes its output into the design dossier (`<SHIPYARD_DATA>/spec/.research-draft.md`). If that dispatch fails or returns an unusable dossier, the shell falls back to executing this same protocol **inline** — the steps below are the protocol either way.
+
 ## Order of operations
 
 Walk this in order. **Use LSP first** for code navigation; fall back to Grep/Read silently.

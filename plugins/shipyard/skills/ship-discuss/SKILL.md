@@ -2,7 +2,8 @@
 name: ship-discuss
 description: "Discover features from idea to full spec."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, TaskCreate, TaskUpdate, TaskList, "Bash(shipyard-context:*)"]
-effort: high
+model: opus
+effort: medium
 argument-hint: "[topic | feature ID | issue key | --idea <description>]"
 ---
 
@@ -162,7 +163,7 @@ If you lose context mid-discussion (e.g., after auto-compaction):
 0. **Call `TaskList()` first.** If the phase-checklist tasks from NEW mode Phase 0 are present, the last `in_progress` (or first non-`completed`) task names the phase to resume — use it as the structured position anchor, then confirm against the file evidence below before resuming (the tasks are a mirror, not authority; if tasks and files disagree, the files win).
 
 1. Use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md`. If it exists, parse its frontmatter — if `obsolete: true` is set, treat it as absent (skip to step 2). Otherwise:
-   - If found and `topic:` matches → research and challenge phases completed. Read it for findings. Resume from Phase 2 (Viability Gate)
+   - If found and `topic:` matches → the design deep-dive ran (the dossier carries `## Research Findings`, `## Constitution Gaps`, `## Diagrams`, `## Viability Pre-Assessment`, `## Impact Analysis`, `## Simplification Candidates`) and the research/challenge phases completed. Read it for findings and resume from Phase 2 (Viability Gate) — later phases consume their dossier sections rather than re-dispatching.
    - If found but its `topic:` doesn't match the current discussion topic → topic-mismatch fork. The user just typed `/ship-discuss [new topic]`, but stale research exists for `[old topic]`. The default behavior MUST favor the user's most recent intent (the new topic) — abandoning a fresh request to resume stale research is the wrong-by-default semantics that surfaced as HIGH-risk in the v2.4.0 audit (user picks "keep" thinking it means "keep my new topic", silently discards the new request). Use `AskUserQuestion` with options labeled by the topic they refer to, NOT by abstract verbs like "keep" or "discard":
      - **"Continue with the new topic '[new topic]' (recommended)"** → use Edit to set `obsolete: true` in the draft's frontmatter (preserving the old research as a soft-deleted record), proceed fresh into Phase 1.5 (Research) for the current topic. This is the default and should be presented first.
      - **"Resume the old discussion on '[old topic]' instead"** → switch to the old topic. Read `topic:` from `.research-draft.md`, load its research findings, and resume from Phase 2 (Viability Gate) for that topic. Inform the user: "Resuming discussion on [old topic]. To discuss [new topic], run /ship-discuss [new topic] in a new session." Only choose this if the user explicitly picks it — never default to it.
@@ -296,6 +297,8 @@ On entering NEW mode, `TaskCreate` one task per phase so the user can see where 
 
 Create all 15 in one batch (subjects prefixed with the topic slug, e.g. `[auth-flow] Phase 2: Viability Gate`, so parallel sessions don't collide). `TaskUpdate` each to `in_progress` when its phase starts and `completed` when it ends. If a mode variant legitimately skips a phase (e.g. REFINE entering mid-flow), mark the skipped tasks `completed` with a `skipped: <reason>` note in the description — never delete them silently.
 
+**Deep-dive dispatch coverage.** The analytical bulk of Phases 1.5, 3.5, and 3.8 runs inside the single dispatched **design deep-dive** agent (see Phase 1.5), which produces the dossier those phases consume. Those phases still exist as shell steps — they present the dossier's findings and drive the user-facing gates — so keep their tasks in the checklist. Mark task 2 (Phase 1.5) `in_progress` when the deep-dive is dispatched and `completed` once its dossier is written and presented; tasks 6 (Phase 3.5) and 8 (Phase 3.8) track the shell's present-and-apply steps as usual.
+
 **Guardrail (load-bearing): the task list is a progress surface and a recovery anchor, NEVER authority.** Do not gate any behavior on TaskList state, do not cite task status as evidence a phase ran, and never mark a phase's task completed before the phase's file/event artifacts exist. The spec files, `.research-draft.md`, and the event log remain the record; the tasks are the user-visible mirror. (Same discipline as PROGRESS.md vs the event log.)
 
 ### Phase 1: Understand
@@ -318,13 +321,71 @@ Have a natural conversation about the topic. **Always use AskUserQuestion — ne
 - **Referencing:** If it relates to an existing feature, use AskUserQuestion: "This connects to F003 — should we extend that or keep this separate?"
 - **Parking:** If user says "not now" about something, record it in the decision log as deferred with their reasoning.
 
-### Phase 1.5: Research
+### Phase 1.5: Research (via the design deep-dive dispatch)
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-1-research.md`
 
-Once you understand what the user wants, research before challenging. **Use LSP first** for code navigation; fall back to Grep/Read silently. Walk in order: (1) **Constitution check** — Glob `.claude/rules/project-*.md` and `.claude/rules/learnings/*.md`; flag both **tensions** (feature violates a rule → Phase 1.5b challenge) AND **gaps** (feature enters territory no rule covers → log to `.research-draft.md` `## Constitution Gaps` so Phase 1.5b resolves the gray area and Phase 6 offers to codify it as a new rule); (2) **Internal research** — Glob `<SHIPYARD_DATA>/spec/features/F*.md` and read `codebase-context.md`; (3) **How others solve it** — WebSearch established products, common user complaints, security pitfalls; WebFetch official docs; (4) **Architecture visualization** — generate diagrams gated on architectural *significance*, not participation. Seven types, each with its own trigger: **C4** (new boundary/service/component — Component level is the one monoliths need), **sequence** (2+ components with async/error-recovery, not raw count), **state machine** (≥3-state or branching lifecycle/UI graph), **ER** (2+ related entities), **deployment** (new runtime unit or trust boundary), **data-flow** (data crossing a trust boundary), and **user-journey** (multi-step before→during→after). Skip when the feature reuses existing structure with no new boundary, entity, runtime, or non-trivial state graph. Mandatory when a trigger fires — not optional polish. See `references/phase-1-research.md` Step 4 for the per-diagram triggers and the significance skip criteria. **(5) Data‑modeling guidance (gated)** — when the feature persists data (the ER/data‑model trigger fired, or it has a `## Data Model` concern), Read and apply `${CLAUDE_PLUGIN_ROOT}/project-files/references/data-modeling-guide.md` (normalization, keys, right‑sizing, schema anti‑patterns); skip for features with no persistence concern.
+The analytical bulk of this phase runs in **one dispatched design deep-dive agent** — the shell (this session) stays lean for conversation and gates; the heavy reasoning (research, diagram generation, viability pre-assessment, impact + simplification prep) runs on the think tier. The shell then **presents the dossier's findings conversationally** and drives the user-facing gates itself.
 
-Write findings to the feature file `## Technical Notes` (after Phase 3 creates it) with HIGH/MEDIUM/LOW confidence labels. Be prescriptive: "Use X" not "Consider X or Y" — the builder needs decisions. Fold findings into the conversation naturally before challenging. Phase 3 persists diagrams from Step 4 to the `## Flows` section as Mermaid.
+**Dispatch the design deep-dive.** After Phase 1 (Understand) completes, dispatch exactly ONE subagent:
+
+**Model tier (think).** Read `models.think` from config.md (the `/ship-discuss` context block already carries config, or Read `<SHIPYARD_DATA>/config.md`). If the value is non-empty, pass `model: <value>` on the Agent call; if empty or absent, OMIT the `model:` field so the subagent inherits the session model. Never hardcode a model literal.
+
+```
+Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, prompt: |
+
+You are the design deep-dive for a Shipyard feature discussion. Perform the
+analytical bulk of the discovery pipeline and write a structured design
+dossier. You have Read/Grep/Glob/LSP/WebSearch/WebFetch. You are READ-ONLY on
+source; the only file you WRITE is the dossier below. No commits, no subagents.
+
+# Input
+Feature topic + Phase 1 conversation summary (inlined here):
+  <paste the Phase 1 understanding: users, core behavior, value, constraints,
+   JTBD, journey, and any decisions the user already made>
+Data dir: <SHIPYARD_DATA>
+Plugin root: ${CLAUDE_PLUGIN_ROOT}
+
+# Do (in order)
+1. Run the full Phase 1.5 research protocol in
+   ${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/phase-1-research.md,
+   in its documented order: (1) constitution check (tensions + gaps);
+   (2) internal research; (3) how others solve it (WebSearch established
+   products / complaints / security pitfalls; WebFetch docs);
+   (4) Architecture visualization — diagrams gated on architectural
+   significance, not participation (the seven types, each with its own
+   trigger, plus the skip criteria); (5) data-modeling guidance (gated) —
+   when the feature persists data (ER/data-model trigger fired or a
+   `## Data Model` concern exists), Read and apply
+   ${CLAUDE_PLUGIN_ROOT}/project-files/references/data-modeling-guide.md;
+   skip for features with no persistence concern.
+2. Viability pre-assessment against the 5 gates (USER VALUE, DEFINABLE,
+   BUILDABLE, TESTABLE, SCOPED): per gate, cite the evidence and a
+   pass/concern verdict. This is INPUT for the shell to walk with the user —
+   you do NOT decide viability, you assess it.
+3. Impact-analysis prep: which existing features/specs/code areas this feature
+   depends on, overlaps, or would invalidate (Glob spec/features/F*.md).
+4. Simplification-scan candidates: places the feature's new libraries /
+   utilities / patterns could replace hand-rolled equivalents.
+
+# Return contract
+Write the dossier to <SHIPYARD_DATA>/spec/.research-draft.md with frontmatter
+`topic:` + `created:` and these sections (extend the existing checkpoint file;
+do not invent a new file):
+  ## Research Findings         (HIGH/MEDIUM/LOW confidence, prescriptive "Use X")
+  ## Constitution Gaps         (one line per gray area, per the protocol)
+  ## Diagrams                  (each diagram as Mermaid, labeled by type)
+  ## Viability Pre-Assessment  (per-gate evidence + pass/concern verdict)
+  ## Impact Analysis           (affected features/specs/code areas)
+  ## Simplification Candidates (reuse opportunities)
+Your final text is a SHORT summary (which gates look clean, top findings,
+biggest risk). The dossier file is the artifact the shell consumes.
+)
+```
+
+**Then present the findings conversationally.** Read `<SHIPYARD_DATA>/spec/.research-draft.md` and fold the `## Research Findings` and any `## Diagrams` into the conversation naturally ("I looked into how other apps handle this — most use [X] because [Y]"). Show diagrams inline (ASCII per `references/communication-design.md`). Later phases consume the remaining sections: Phase 1.5b resolves `## Constitution Gaps`, Phase 2 walks `## Viability Pre-Assessment`, Phase 3.5 reads `## Impact Analysis`, Phase 3.8 reads `## Simplification Candidates`. Phase 3 absorbs Research Findings into the feature's `## Technical Notes` (HIGH/MEDIUM/LOW labels) and persists the Diagrams to `## Flows` as Mermaid.
+
+**Fallback (dispatch failed or unusable dossier).** If the Agent call fails, returns nothing, or the dossier is missing the sections above, fall back to running the `phase-1-research.md` protocol **inline** in the shell (the pre-4.0 path — the reference is still the protocol either way). Note the fallback to the user in one line and continue; the shell can do the analysis itself, it just costs more of the session's context.
 
 ### Phase 1.5b: Challenge & Surface
 
@@ -345,7 +406,9 @@ Once you have a reasonable understanding of the feature, **proactively challenge
 
 ### Phase 2: Viability Gate
 
-Before writing to spec, evaluate each feature against the 5 gates AND echo the verdicts to the user. The historical "silently evaluate" pattern hid model misjudgments — USER VALUE, SCOPED, and TESTABLE are judgment calls the user has standing on, and silent-pass leaves no feedback channel when the model reads the feature wrong.
+The design deep-dive already produced a **viability pre-assessment** (per-gate evidence + a pass/concern verdict) in `<SHIPYARD_DATA>/spec/.research-draft.md` under `## Viability Pre-Assessment`. Read that section and use it as the input to this gate. **The pre-assessment is analysis, not a decision — the viability decision authority stays with the shell and the user.** If the dossier lacks the section (inline-fallback path), evaluate the 5 gates directly here.
+
+Evaluate each feature against the 5 gates AND echo the verdicts to the user. The historical "silently evaluate" pattern hid model misjudgments — USER VALUE, SCOPED, and TESTABLE are judgment calls the user has standing on, and silent-pass leaves no feedback channel when the model reads the feature wrong.
 
 **The gates:**
 
@@ -391,6 +454,8 @@ For each well-defined feature: generate the next FNNN ID, determine the epic (ex
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/impact-analysis.md`
 
+**Consume the dossier first.** The design deep-dive wrote the affected features/specs/code areas to `<SHIPYARD_DATA>/spec/.research-draft.md` under `## Impact Analysis`. Read that section and use it as the starting point — present and confirm-then-apply per the protocol rather than re-deriving the ripple set from scratch. If the section is absent (inline-fallback), run the analysis here as before.
+
 **Presentation:** Keep impact summaries under 200 words. Bold the single most important finding. Use the 3-layer pattern for any impact that changes existing behavior. Show an impact diagram for features with multiple ripple effects:
 ```
   F007 (new) ──impacts──▶ F003 (criteria change)
@@ -418,6 +483,8 @@ Present gaps via AskUserQuestion in groups of ≤4. For accepted gaps, write to 
 Scan the codebase for places that hand-roll what this feature's new libraries, utilities, or patterns provide. The scan detects five types of opportunities: new dependency replacements, new utility reuse, pattern consolidation, abstraction adoption, and dead code from supersession.
 
 **Skip if:** the feature is purely additive (new endpoint, new UI page) with no reusable infrastructure — nothing introduced that other code could benefit from.
+
+**Consume the dossier first.** The design deep-dive wrote reuse candidates to `<SHIPYARD_DATA>/spec/.research-draft.md` under `## Simplification Candidates`. Read that section and use it as the starting point for the findings below; if absent (inline-fallback), run the scan here.
 
 **At discuss time**, the scan operates on the feature's Technical Notes and research findings (not implementation code, which doesn't exist yet). Focus on:
 - Libraries referenced in Technical Notes → grep for hand-rolled equivalents

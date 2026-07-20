@@ -543,5 +543,38 @@
     "type": "contains",
     "pattern": "Step N:.*keeps the planning checklist distinguishable",
     "why": "ship-execute team mode shares the task system for build tasks; prefixes prevent cross-contamination"
+  },
+  {
+    "name": "decomposition_deepdive_reads_models_think",
+    "type": "contains",
+    "pattern": "models\\.think",
+    "why": "v3.0.0: Steps 4-7 dispatch reads models.think and passes model: only when non-empty"
+  },
+  {
+    "name": "decomposition_deepdive_dispatched",
+    "type": "contains",
+    "pattern": "Decomposition Deep-Dive|Steps 4-7.*[Dd]ispatch",
+    "dotall": true,
+    "why": "v3.0.0: Steps 4-7 run in one dispatched think-tier agent, not inline in the shell"
+  },
+  {
+    "name": "decomposition_deepdive_structural_verification",
+    "type": "contains",
+    "pattern": "structural verification|every returned task file path actually exists",
+    "dotall": true,
+    "why": "v3.0.0: shell verifies returned task files exist and each feature has >=1 task before trusting the plan"
+  },
+  {
+    "name": "decomposition_deepdive_has_inline_fallback",
+    "type": "contains",
+    "pattern": "[Ff]allback.*run.*Steps 4-7.*inline|fall back to running Steps 4-7",
+    "dotall": true,
+    "why": "v3.0.0: on dispatch failure or invalid return, fall back to inline decomposition"
+  },
+  {
+    "name": "decomposition_deepdive_no_askuser_in_agent",
+    "type": "contains",
+    "pattern": "Never run AskUserQuestion inside the dispatched agent",
+    "why": "v3.0.0: user gates stay shell-side; the deep-dive agent only analyzes and writes task files"
   }
 ]
