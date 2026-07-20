@@ -106,13 +106,22 @@ Loop until the acceptance probe passes AND no stubs remain. Do not exit otherwis
    remains, fix it and re-probe. Otherwise commit.
 7. **Commit atomically:** `feat({{task_id}}): <one-line>` with the probe output tail
    in the commit body.
-8. **Write the capture file (MANDATORY).** Use the Bash tool to write your full
-   structured return (the same text you'll inline below) to:
-       {{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.txt
-   The orchestrator reads this file when running in background mode — see the
-   "Background dispatch" section in the orchestrator notes below. Create the
-   parent directory with `mkdir -p` if it doesn't exist. Use heredoc with a
-   unique terminator (`SUBAGENT_RETURN_EOF`) to preserve newlines exactly.
+8. **Persist the structured return via the CLI (MANDATORY).** Do NOT hand-write
+   the return file. First write your probe output tail to a plain file (use the
+   Write tool — it is auto-approved for SHIPYARD_DATA):
+       {{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.probe-tail.txt
+   Then run:
+       shipyard-data task-return {{task_id}} \
+           status=<COMPLETE|BLOCKED> \
+           commit=<sha-or-empty> \
+           probe-exit=<code> \
+           output-tail-file={{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.probe-tail.txt \
+           [escalation-code=<code-if-blocked>]
+   The CLI writes `{{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.json`
+   (the orchestrator reads the `.json`, not a freeform `.txt`). It REFUSES a
+   `status=COMPLETE` with a non-zero `probe-exit` (exit 3) — you cannot record a
+   false completion. `shipyard-data` creates the `.subagent-returns/` directory
+   if it does not exist.
 9. **Emit the completion event (MANDATORY, LAST action before the inline return).**
    Use the Bash tool to run:
        shipyard-data events emit subagent_completed \
@@ -123,7 +132,7 @@ Loop until the acceptance probe passes AND no stubs remain. Do not exit otherwis
            status=<COMPLETE|BLOCKED> \
            commit_sha=<sha-or-empty> \
            probe_exit_code=<code> \
-           capture_file={{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.txt
+           capture_file={{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.json
    This event is the orchestrator's authoritative wake signal in background-
    dispatch mode. The orchestrator never relies on the Agent tool's return
    value being read (the iteration that spawned you may have exited before
@@ -202,7 +211,7 @@ After the Agent call returns, parse the reply:
      - `external_dependency_unreachable` → AskUserQuestion with infrastructure investigation hint; do not auto-retry.
      - `dispatch_loop_repeated` → mark `needs-attention` immediately; skip the single-redispatch rule below.
    - **If no ESCALATION_CODE**, fall back to prose routing: read `REASON:`. If it indicates a routing / context error (e.g., "feature spec missing", "no test command configured"), surface to the user via AskUserQuestion. Do not auto-redispatch — that loops on a structural blocker.
-   - If the reason indicates an implementation difficulty (e.g., "the existing API doesn't expose what the spec needs"), apply the **single redispatch rule**: redispatch ONCE with the prior reason inlined as `Previous attempt blocked at: <reason>; please retry with this context`. If the second attempt also returns BLOCKED, mark the task `needs-attention`, log to PROGRESS.md deviations, and continue to the next task. Do NOT redispatch a third time on the same task within one wave — that's the failure mode the cap exists to prevent.
+   - If the reason indicates an implementation difficulty (e.g., "the existing API doesn't expose what the spec needs"), apply the **single redispatch rule**: redispatch ONCE with the prior reason inlined as `Previous attempt blocked at: <reason>; please retry with this context`. If the second attempt also returns BLOCKED, mark the task `needs-attention`, emit `shipyard-data events emit task_blocked task=<id> reason=persistent_failure` (PROGRESS.md auto-renders from it), and continue to the next task. Do NOT redispatch a third time on the same task within one wave — that's the failure mode the cap exists to prevent.
    - Whenever a task settles as blocked/needs-attention, emit its return event so the wave gate (invariant 1) sees a return for every dispatched task: `shipyard-data events emit task_dispatch_returned pipeline=ship-execute sprint=<sprint_id> wave=<wave_number> task=<task_id> status=blocked escalation_code=<code-or-empty>`. No `commit_sha` and no anchor for a blocked task — there is no verified commit to pin.
 
 4. **Always invoke `verifying-completion` mentally** before flipping the task to `done`. The Iron Law applies at the orchestrator boundary too: "subagent said COMPLETE" is not by itself evidence; the sha-existence check, probe-output presence, and anti-stub-clean check are.
@@ -220,11 +229,11 @@ When the orchestrator invokes `dispatching-task-loop` with `dispatch_mode: backg
 1. Orchestrator calls `Agent(subagent_type: "general-purpose", run_in_background: true, prompt: <template>)`. Returns immediately with a task handle.
 2. Orchestrator writes the cursor with `stage: wave_<N>_waiting` and adds `task_id` to `pending_subagents` list. Arms a Monitor on the event log for `subagent_completed` events. Exits.
 3. The subagent runs through its internal cycle in the background. At the end:
-   - Writes the full structured return text to `{{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.txt` (step 8 of the Cycle).
-   - Emits `subagent_completed` event with task / status / commit_sha / probe_exit_code / capture_file fields (step 9 of the Cycle).
+   - Persists the structured return via `shipyard-data task-return`, which writes `{{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.json` (step 8 of the Cycle).
+   - Emits `subagent_completed` event with task / status / commit_sha / probe_exit_code / capture_file fields, `capture_file` pointing at the `.json` (step 9 of the Cycle).
    - Returns the inline structured response (step 10) — for sync-mode parity, but no orchestrator iteration reads it in background mode.
 4. The Monitor armed by step 2 wakes /loop the moment the event lands in the log.
-5. On the next /loop iteration, the orchestrator (ship-execute under `stage: wave_<N>_waiting`) sees the event, reads the capture file referenced in `capture_file=`, parses the structured contract from there, and runs the SAME orchestrator-side gate (sha verify + probe re-execution + anti-stub-scan). Removes `task_id` from `pending_subagents`. When `pending_subagents` is empty for the wave, advances cursor to `wave_<N>_boundary`.
+5. On the next /loop iteration, the orchestrator (ship-execute under `stage: wave_<N>_waiting`) sees the event, reads the `.json` capture file referenced in `capture_file=`, parses the structured contract from there, and runs the SAME orchestrator-side gate (sha verify + probe re-execution + anti-stub-scan). Removes `task_id` from `pending_subagents`. When `pending_subagents` is empty for the wave, advances cursor to `wave_<N>_boundary`.
 
 **Key invariants preserved across both modes:**
 - The structured-return contract is identical (STATUS / COMMIT / PROBE_EXIT / PROBE_OUTPUT_TAIL).
@@ -244,9 +253,9 @@ The ONLY difference is **who reads the return**: the spawning iteration (sync) o
 
 **Failure modes specific to background mode:**
 
-1. **Subagent dies without emitting the event.** The capture file may also be absent. The orchestrator's `wave_<N>_recovery` handler watches per-task spawned_at timestamps; if `now - spawned_at > max_execution_minutes` (default 60, configurable via task frontmatter) AND no `subagent_completed` event AND no recent `task_loop_iteration` event for that task → presume dead, mark task `status: needs-attention`, log to PROGRESS.md, advance.
+1. **Subagent dies without emitting the event.** The capture file may also be absent. The orchestrator's `wave_<N>_recovery` handler watches per-task spawned_at timestamps; if `now - spawned_at > max_execution_minutes` (default 60, configurable via task frontmatter) AND no `subagent_completed` event AND no recent `task_loop_iteration` event for that task → presume dead, mark task `status: needs-attention`, emit `task_blocked` (PROGRESS.md auto-renders), advance.
 
-2. **Capture file missing but event present.** Contract violation — orchestrator treats as BLOCKED and follows the single-redispatch rule.
+2. **Capture `.json` missing but event present.** Contract violation — orchestrator treats as BLOCKED and follows the single-redispatch rule.
 
 3. **Event present but malformed (missing fields).** Contract violation — orchestrator treats as BLOCKED. The `shipyard-data events emit` CLI enforces key=value parsing so this should be rare.
 

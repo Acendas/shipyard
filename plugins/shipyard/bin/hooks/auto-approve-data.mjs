@@ -8,24 +8,28 @@
  * `permissionDecision: "allow"` runs before the permission evaluator and
  * short-circuits the prompt.
  *
- * Terminal-cursor gate (v2.6.0). Layered on top: for Write/Edit targeting
- * `sprints/current/EXECUTE-CURSOR.md` or `sprints/current/REVIEW-CURSOR.md`
- * with proposed content claiming success (execute: terminal + status complete;
- * review: terminal + stage terminal_approved/terminal_changes/terminal_issues),
- * the hook calls into `terminal-gate.mjs` to verify the supporting event-log
- * evidence. Missing evidence → emit `permissionDecision: "deny"` with the
- * specific gaps in the reason field. This is the structural enforcement
- * point that prevents the inline-execute bypass surfaced by the confedit
- * sprint-001 incident on 2026-05-19. The "never blocking" rule below is
- * relaxed for this one explicit case — it was about preventing accidental
- * blocks; the terminal-gate deny is intentional.
+ * Deterministic-state deny (v2.9.0). Model Write/Edit to the pipeline
+ * state files — EXECUTE-CURSOR.md, REVIEW-CURSOR.md, PROGRESS.md,
+ * HANDOFF.md — is DENIED outright with a pointer to
+ * `shipyard-data cursor advance|pause|escalate|noop`. The CLI is the only
+ * writer; it runs the same terminal-evidence gate and loop-leak guard
+ * in-process (bin/cursor-cli.mjs), appends the pipeline event, and
+ * rewrites the cursor atomically — so the event log and the cursor can no
+ * longer disagree, and the v2.6.0 hook-era gates (evaluateTerminalGate /
+ * evaluateLoopLeakGuard, still exported by terminal-gate.mjs) execute on
+ * every advance instead of only on writes the model happened to route
+ * through Write/Edit. This supersedes — and is strictly stronger than —
+ * the v2.6.0 terminal-cursor gate and the v2.8.2 loop-leak guard that
+ * previously ran here; both incidents (confedit 2026-05-19 inline bypass,
+ * afm-app leaked-wakeup phantom start) are blocked at this layer because
+ * the model cannot author cursor state at all.
  *
  * STDOUT CONTRACT: outputs JSON to stdout when approving OR denying. When
  * the file is outside the data dir and not a cursor path, returns 0
  * silently and lets the default permission evaluator decide.
  */
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { basename, dirname, resolve as pathResolve } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -33,15 +37,17 @@ import {
   logBreadcrumb,
   resolveShipyardData,
 } from "../_hook_lib.mjs";
-import { evaluateTerminalGate, evaluateLoopLeakGuard } from "../terminal-gate.mjs";
 
 const LOG_NAME = ".auto-approve.log";
 
-// Cursor-file basenames that get terminal-gate evaluation. Anything else
-// in the data dir falls through to the existing auto-approve path.
-const CURSOR_BASENAMES = new Set([
+// Pipeline state files with a single deterministic writer (the
+// shipyard-data CLI / the render-progress pipeline). Model writes to these
+// under sprints/current/ are denied — see the v2.9.0 header note.
+const CLI_OWNED_BASENAMES = new Set([
   "EXECUTE-CURSOR.md",
   "REVIEW-CURSOR.md",
+  "PROGRESS.md",
+  "HANDOFF.md",
 ]);
 
 // Mirror the matcher in hooks.json. CLAUDE.md's "mirror the tool allowlist"
@@ -128,75 +134,34 @@ export async function run(hookInput, _env) {
   if (!shipyardData) return 0;
 
   if (dataDirContains(filePath, shipyardData)) {
-    // Terminal-cursor gate. Runs only for the two cursor basenames; every
-    // other data-dir write skips straight to the auto-approve branch
-    // below. The gate's job is to refuse "claim of success" terminal
-    // writes that lack the supporting event-log evidence — this is the
-    // structural enforcement that prevents the inline-execute bypass
-    // surfaced by the v2.5.0 confedit incident.
+    // Deterministic-state deny (v2.9.0). These files have exactly one
+    // writer — the shipyard-data CLI (which runs the terminal-evidence
+    // gate + loop-leak guard in-process on every advance). A model
+    // Write/Edit here is either an outdated skill body or an improvising
+    // model routing around the pipeline; both get the same answer.
     const base = basename(filePath);
-    if (CURSOR_BASENAMES.has(base)) {
-      const proposedContent = computeProposedContent(toolName, toolInput, filePath);
-      if (proposedContent !== null) {
-        // Loop-leak guard (v2.8.2). Runs BEFORE the terminal-evidence gate.
-        // Denies a non-terminal cursor write when there is no live sprint to
-        // justify it — the phantom-start signature of a leaked /loop wakeup
-        // firing after the cycle already completed. Unlike the model-side
-        // no-op sweep, this fires on the Write unconditionally, so it can't
-        // be skipped. See the v2.8.2 handoff-seam wakeup-leak incident.
-        const leak = evaluateLoopLeakGuard({
-          dataDir: shipyardData,
-          proposedContent,
-          cursorBasename: base,
-        });
-        if (!leak.allowed) {
-          logBreadcrumb(shipyardData, LOG_NAME, "deny", [
-            toolName,
-            filePath,
-            "loop_leak",
-            ...leak.reasons,
-          ]);
-          const reason =
-            "Loop-leak guard refused this cursor write — there is no active sprint to run this pipeline against:\n" +
-            leak.reasons.map((r) => `  - ${r}`).join("\n") +
-            "\n\nThis looks like a leaked /loop wakeup firing after the sprint already completed. Cancel the /loop and do not schedule another wakeup; do not start a new sprint here.";
-          const response = {
-            hookSpecificOutput: {
-              hookEventName: "PreToolUse",
-              permissionDecision: "deny",
-              permissionDecisionReason: reason,
-            },
-          };
-          process.stdout.write(JSON.stringify(response));
-          return 0;
-        }
-
-        const verdict = evaluateTerminalGate({
-          dataDir: shipyardData,
-          proposedContent,
-        });
-        if (!verdict.allowed) {
-          logBreadcrumb(shipyardData, LOG_NAME, "deny", [
-            toolName,
-            filePath,
-            "terminal_gate",
-            ...verdict.reasons,
-          ]);
-          const reason =
-            "Terminal-cursor gate refused this write — the claim of success is missing required event-log evidence:\n" +
-            verdict.reasons.map((r) => `  - ${r}`).join("\n") +
-            "\n\nFix the gap (re-run the relevant skill stage so the events are emitted) and retry, or write a non-terminal cursor first to preserve in-progress state.";
-          const response = {
-            hookSpecificOutput: {
-              hookEventName: "PreToolUse",
-              permissionDecision: "deny",
-              permissionDecisionReason: reason,
-            },
-          };
-          process.stdout.write(JSON.stringify(response));
-          return 0;
-        }
-      }
+    if (CLI_OWNED_BASENAMES.has(base)) {
+      logBreadcrumb(shipyardData, LOG_NAME, "deny", [
+        toolName,
+        filePath,
+        "cli_owned_state",
+      ]);
+      const response = {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason:
+            `${base} is deterministic pipeline state with a single writer — the shipyard-data CLI. ` +
+            "Do not Write/Edit it. Use instead:\n" +
+            "  - advance a stage:  shipyard-data cursor advance <execute|review> <stage> [k=v ...] [--note \"...\"]\n" +
+            "  - pause:            shipyard-data cursor pause <execute|review> --note \"...\"\n" +
+            "  - escalate:         shipyard-data cursor escalate <execute|review> reason=<short>\n" +
+            "  - already-complete: shipyard-data cursor noop <execute|review>\n" +
+            "PROGRESS.md is auto-rendered from the event log; HANDOFF.md is retired (pause state lives in the cursor).",
+        },
+      };
+      process.stdout.write(JSON.stringify(response));
+      return 0;
     }
 
     logBreadcrumb(shipyardData, LOG_NAME, "allow", [toolName, filePath, shipyardData]);
@@ -214,66 +179,4 @@ export async function run(hookInput, _env) {
   // Outside the data dir → let default permission evaluation proceed.
   logBreadcrumb(shipyardData, LOG_NAME, "pass", [toolName, filePath, shipyardData]);
   return 0;
-}
-
-/**
- * Compute the post-tool content of a cursor file for gate evaluation.
- *
- * For Write the proposed content is the tool input's `content` directly.
- * For Edit / MultiEdit we read the existing file (the cursor lives in
- * the data dir so the hook has read access) and apply the substitutions
- * in order, the same way Claude Code's tool runner would. NotebookEdit
- * doesn't apply to cursor files; if it ever does, fall back to null and
- * let the auto-approve branch take over.
- *
- * Returns null if we can't compute the proposed content (the gate then
- * skips, which is the fail-open default consistent with the rest of the
- * hook's permissive design — only explicit detection of a non-evidenced
- * success claim should result in a deny).
- */
-function computeProposedContent(toolName, toolInput, filePath) {
-  if (toolName === "Write") {
-    return typeof toolInput.content === "string" ? toolInput.content : null;
-  }
-  let current = "";
-  if (existsSync(filePath)) {
-    try {
-      current = readFileSync(filePath, "utf8");
-    } catch {
-      return null;
-    }
-  }
-  if (toolName === "Edit") {
-    const oldStr = toolInput.old_string;
-    const newStr = toolInput.new_string;
-    if (typeof oldStr !== "string" || typeof newStr !== "string") return null;
-    const replaceAll = !!toolInput.replace_all;
-    if (replaceAll) {
-      // No regex — escape the old string and run a global replace.
-      return current.split(oldStr).join(newStr);
-    }
-    const idx = current.indexOf(oldStr);
-    if (idx < 0) return current; // edit doesn't match — leave content as-is
-    return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
-  }
-  if (toolName === "MultiEdit") {
-    const edits = toolInput.edits;
-    if (!Array.isArray(edits)) return null;
-    let proposed = current;
-    for (const edit of edits) {
-      const oldStr = edit?.old_string;
-      const newStr = edit?.new_string;
-      if (typeof oldStr !== "string" || typeof newStr !== "string") return null;
-      const replaceAll = !!edit?.replace_all;
-      if (replaceAll) {
-        proposed = proposed.split(oldStr).join(newStr);
-      } else {
-        const idx = proposed.indexOf(oldStr);
-        if (idx < 0) continue;
-        proposed = proposed.slice(0, idx) + newStr + proposed.slice(idx + oldStr.length);
-      }
-    }
-    return proposed;
-  }
-  return null;
 }

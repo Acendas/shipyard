@@ -112,7 +112,7 @@ class TestViewSubcommand(NamedSubcommandBase):
         """Sanity: every registered name either returns its fallback or reads a file.
         Catches a future typo where the registry points at a path safeJoin rejects."""
         for name in ['config', 'codebase', 'backlog', 'sprint', 'sprint-progress',
-                     'sprint-handoff', 'metrics', 'data-version']:
+                     'metrics', 'data-version']:  # sprint-handoff retired in v2.9.0 (HANDOFF.md → paused cursor)
             out, err, rc = run_cli(['view', name], env_extra=self.env, cwd=self.project_dir)
             self.assertEqual(rc, 0, f"{name}: rc={rc} err={err}")
             self.assertTrue(out.strip(), f"{name}: empty output")

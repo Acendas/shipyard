@@ -300,7 +300,7 @@
   {
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
-    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+    "pattern": "Never use .?`?echo`?.*(redirect|shell|state)|Never use `echo`, `printf`, or shell redirects"
   },
   {
     "name": "code_review_loop_goal_mode",
@@ -495,12 +495,14 @@
   {
     "name": "wakeup_leak_protection_emits_pipeline_terminal_on_noop",
     "type": "contains",
-    "pattern": "pipeline_terminal pipeline=ship-review sprint=.+? outcome=noop reason=sprint_already_archived"
+    "pattern": "cursor noop review sprint=<[^>]+> reason=sprint_already_archived",
+    "why": "v2.9.0: the noop emit routes through `shipyard-data cursor noop` (emit-first pinned in test_cursor_cli.mjs)"
   },
   {
     "name": "wakeup_leak_protection_prints_cycle_complete_marker",
     "type": "contains",
-    "pattern": "CYCLE COMPLETE — sprint already complete and archived\\. /loop should stop\\."
+    "pattern": "prints the stop marker|CYCLE COMPLETE",
+    "why": "v2.9.0: the CLI prints the stop marker; the skill echoes it"
   },
   {
     "name": "wakeup_leak_protection_references_v2_2_0_lesson",
@@ -525,7 +527,7 @@
   {
     "name": "bootstrap_dead_sprint_emits_terminal",
     "type": "contains",
-    "pattern": "pipeline_terminal pipeline=ship-review sprint=.+? outcome=noop reason=sprint_dead_at_bootstrap"
+    "pattern": "cursor noop review sprint=<id> reason=sprint_dead_at_bootstrap"
   },
   {
     "name": "has_quality_gate_stage",
@@ -587,9 +589,10 @@
     "pattern": "LOOP LEAK"
   },
   {
-    "name": "loop_leak_uses_scan_events",
+    "name": "loop_leak_detection_is_cli_owned",
     "type": "contains",
-    "pattern": "scan-events --tail \\d+ pipeline_terminal"
+    "pattern": "repeat-leak|pipeline_loop_leak_detected",
+    "why": "v2.9.0: repeat-leak detection runs inside `cursor noop`"
   },
   {
     "name": "loop_leak_event_in_vocabulary",

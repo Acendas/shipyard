@@ -61,9 +61,10 @@
     "pattern": "stale|2.*hour|escape hatch"
   },
   {
-    "name": "has_handoff_detection",
+    "name": "detects_paused_cursor",
     "type": "contains",
-    "pattern": "HANDOFF\\.md"
+    "pattern": "status: paused",
+    "why": "v2.9.0: HANDOFF.md retired — a paused pipeline is a cursor with status: paused; ship-status surfaces it as RESUME"
   },
   {
     "name": "has_id_reference_integrity",
@@ -134,7 +135,7 @@
   {
     "name": "status_indicator_for_needs_attention",
     "type": "contains",
-    "pattern": "\u26a0\ufe0f needs-attention|\u26a0 needs-attention|needs-attention.*\u26a0"
+    "pattern": "⚠️ needs-attention|⚠ needs-attention|needs-attention.*⚠"
   },
   {
     "name": "needs_attention_distinct_from_blocked",

@@ -20,10 +20,9 @@ Read all project state, validate it, auto-fix issues, and present a clear dashbo
 !`shipyard-context view backlog`
 !`shipyard-context view metrics 50`
 !`shipyard-context debug-count`
-!`shipyard-context view sprint-handoff`
 !`shipyard-context status-counts`
 
-**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. No bash invocation of `shipyard-data` or `shipyard-context` — use Read / Grep / Glob. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
+**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. No bash invocation of `shipyard-data` or `shipyard-context` — use Read / Grep / Glob. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA) for the reconcile-log, metrics rollover, and sentinel files this skill maintains. **`/ship-status` only READS the pipeline cursors, PROGRESS.md, and SPRINT.md frontmatter — never writes them** (the PreToolUse hook denies model writes to those; the `shipyard-data` CLI is their only writer). HANDOFF.md is retired — a paused pipeline is a cursor with `status: paused`.
 
 ## Input
 
@@ -193,7 +192,7 @@ Determine the single most important action:
 1. **PIPELINE-TERMINAL** — EXECUTE-CURSOR or REVIEW-CURSOR has `terminal: true` AND `current/` not yet archived → "Pipeline complete; /loop should stop. Run /ship-review (or /ship-discuss) for the next cycle."
 2. **PIPELINE-STUCK** — A cursor has `stuck_counter >= 5` or pipeline_stuck event in last 24h → "Stage [X] of [pipeline] hasn't progressed in [N] ticks. Inspect: /ship-status diagnose."
 3. **PIPELINE-IN-FLIGHT** — A cursor exists with `terminal: false` and `last_advance_at` < 30 min ago → "Pipeline [pipeline] is mid-tick at [stage]. Next: [next_action]."
-4. **RESUME** — HANDOFF.md exists → "Run /ship-execute to resume from [task]"
+4. **RESUME** — EXECUTE-CURSOR.md has `status: paused` → "Run /ship-execute to resume from [stage] ([cursor note])"
 5. **DEBUG** — active debug sessions → "Run /ship-debug --resume"
 6. **BLOCKER** — blocked task needs human input → "Unblock [task]: [reason]"
 7. **REVIEW** — completed work waiting for approval → "Run /ship-review"

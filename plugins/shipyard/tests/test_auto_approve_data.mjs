@@ -260,224 +260,118 @@ test("auto-approve: breadcrumb log written on pass (file outside data dir)", asy
   });
 });
 
-// --- Terminal-cursor gate integration (v2.6.0) -------------------------
+// --- CLI-owned state deny (v2.9.0) ------------------------------------
 //
-// The gate fires only on Write/Edit to EXECUTE-CURSOR.md or REVIEW-CURSOR.md
-// when the proposed final content is a "claim of success" terminal. These
-// tests cover the hook ↔ gate wiring; the gate logic itself is exercised
-// in test_terminal_gate.mjs.
+// Cursor files, PROGRESS.md and HANDOFF.md have a single deterministic
+// writer: the shipyard-data CLI (which runs the terminal-evidence gate and
+// loop-leak guard in-process — see test_cursor_cli.mjs). The hook's job is
+// now simply to DENY any model Write/Edit to these basenames inside the
+// data dir, with a hint pointing at the CLI. These tests replace the
+// v2.6.0 gate-wiring and v2.8.2 loop-leak hook tests — that logic moved
+// into `shipyard-data cursor advance`.
 
-import { mkdirSync as mkdirSyncFs, writeFileSync as writeFileSyncFs } from "node:fs";
+import { mkdirSync as mkdirSyncFs } from "node:fs";
 
-function writeSprintFixture(sd, opts = {}) {
-  const sprintsCurrent = join(sd, "sprints", "current");
-  mkdirSyncFs(sprintsCurrent, { recursive: true });
-  const waves = opts.waves ?? [{ wave: 1, tasks: ["T001"] }];
-  const waveBlock = waves
-    .map((w) => `### Wave ${w.wave}\nTasks: [${w.tasks.join(", ")}]\n`)
-    .join("\n");
-  writeFileSyncFs(
-    join(sprintsCurrent, "SPRINT.md"),
-    `---\nid: sprint-001\nstatus: in-progress\nfeatures: [F001]\nstarted_at: 2026-05-19T00:00:00Z\n---\n\n## Waves\n\n${waveBlock}\n`,
-  );
+const CLI_OWNED = ["EXECUTE-CURSOR.md", "REVIEW-CURSOR.md", "PROGRESS.md", "HANDOFF.md"];
+
+for (const base of CLI_OWNED) {
+  test(`cli-owned deny: Write to ${base} in the data dir is DENIED with a CLI hint`, async () => {
+    await withTempDir(async (sd) => {
+      mkdirSyncFs(join(sd, "sprints", "current"), { recursive: true });
+      const { stdout, code } = await runWithEnv(
+        {
+          tool_name: "Write",
+          tool_input: {
+            file_path: join(sd, "sprints", "current", base),
+            content: "anything",
+          },
+        },
+        { SHIPYARD_DATA: sd },
+      );
+      assert.equal(code, 0);
+      const resp = JSON.parse(stdout);
+      assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+      assert.match(
+        resp.hookSpecificOutput.permissionDecisionReason,
+        /shipyard-data cursor/,
+        "deny reason must point the model at the CLI",
+      );
+    });
+  });
 }
 
-function writeEventsFixture(sd, events) {
-  const lines = events.map((e) => JSON.stringify({ ts: new Date().toISOString(), ...e })).join("\n") + "\n";
-  writeFileSyncFs(join(sd, ".shipyard-events.jsonl"), lines);
-}
-
-test("terminal gate: non-terminal cursor Write passes through to allow", async () => {
+test("cli-owned deny: Edit to a cursor file is DENIED (not just Write)", async () => {
   await withTempDir(async (sd) => {
-    writeSprintFixture(sd);
-    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
-    const { stdout, code } = await runWithEnv(
-      {
-        tool_name: "Write",
-        tool_input: {
-          file_path: cursorPath,
-          content: `---\npipeline: ship-execute\nstage: wave_1_dispatch\nterminal: false\nstatus: in_progress\n---\n\nbody`,
-        },
-      },
-      { SHIPYARD_DATA: sd },
-    );
-    assert.equal(code, 0);
-    const resp = JSON.parse(stdout);
-    assert.equal(resp.hookSpecificOutput.permissionDecision, "allow");
-  });
-});
-
-test("terminal gate: success terminal Write without evidence is DENIED", async () => {
-  await withTempDir(async (sd) => {
-    writeSprintFixture(sd);
-    // No events log → gate denies
-    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
-    const { stdout, code } = await runWithEnv(
-      {
-        tool_name: "Write",
-        tool_input: {
-          file_path: cursorPath,
-          content: `---\npipeline: ship-execute\nstage: terminal_handoff_to_review\nterminal: true\nstatus: complete\n---\n\nSprint complete.`,
-        },
-      },
-      { SHIPYARD_DATA: sd },
-    );
-    assert.equal(code, 0);
-    const resp = JSON.parse(stdout);
-    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
-    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /missing required event-log evidence/i);
-    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /wave_1_gate/);
-    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /sprint_complete_passed/);
-  });
-});
-
-test("terminal gate: escalated terminal Write bypasses gate", async () => {
-  await withTempDir(async (sd) => {
-    writeSprintFixture(sd);
-    // status: escalated is NOT a success claim — gate must not fire
-    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
-    const { stdout, code } = await runWithEnv(
-      {
-        tool_name: "Write",
-        tool_input: {
-          file_path: cursorPath,
-          content: `---\npipeline: ship-execute\nstage: wave_1_redispatch_iter_1\nterminal: true\nstatus: escalated\n---\n\nEscalated for review.`,
-        },
-      },
-      { SHIPYARD_DATA: sd },
-    );
-    assert.equal(code, 0);
-    const resp = JSON.parse(stdout);
-    assert.equal(resp.hookSpecificOutput.permissionDecision, "allow");
-  });
-});
-
-test("terminal gate: complete evidence allows success terminal Write", async () => {
-  await withTempDir(async (sd) => {
-    writeSprintFixture(sd);
-    writeEventsFixture(sd, [
-      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_1_gate" },
-      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task: "T001" },
-      { type: "sprint_complete_passed", sprint_id: "sprint-001" },
-    ]);
-    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
-    const { stdout, code } = await runWithEnv(
-      {
-        tool_name: "Write",
-        tool_input: {
-          file_path: cursorPath,
-          content: `---\npipeline: ship-execute\nstage: terminal_handoff_to_review\nterminal: true\nstatus: complete\n---\n\nDone.`,
-        },
-      },
-      { SHIPYARD_DATA: sd },
-    );
-    assert.equal(code, 0);
-    const resp = JSON.parse(stdout);
-    assert.equal(resp.hookSpecificOutput.permissionDecision, "allow");
-  });
-});
-
-test("terminal gate: Edit on cursor file uses post-edit content for evaluation", async () => {
-  await withTempDir(async (sd) => {
-    writeSprintFixture(sd);
-    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
-    // Pre-existing cursor at non-terminal state
-    writeFileSyncFs(
-      cursorPath,
-      `---\npipeline: ship-execute\nstage: wave_1_dispatch\nterminal: false\nstatus: in_progress\n---\n\nbody`,
-    );
-    // Edit flips terminal: false → true + status: in_progress → complete
-    const { stdout, code } = await runWithEnv(
+    mkdirSyncFs(join(sd, "sprints", "current"), { recursive: true });
+    const { stdout } = await runWithEnv(
       {
         tool_name: "Edit",
         tool_input: {
-          file_path: cursorPath,
-          old_string: `terminal: false\nstatus: in_progress`,
-          new_string: `terminal: true\nstatus: complete`,
+          file_path: join(sd, "sprints", "current", "EXECUTE-CURSOR.md"),
+          old_string: "terminal: false",
+          new_string: "terminal: true",
         },
       },
       { SHIPYARD_DATA: sd },
     );
-    assert.equal(code, 0);
     const resp = JSON.parse(stdout);
-    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny",
-      "Edit that flips cursor to terminal: true status: complete without evidence must be denied");
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
   });
 });
 
-// --- Loop-leak guard (v2.8.2) hook integration -------------------------
-
-function writeSprintFixtureCompleted(sd) {
-  const sprintsCurrent = join(sd, "sprints", "current");
-  mkdirSyncFs(sprintsCurrent, { recursive: true });
-  writeFileSyncFs(
-    join(sprintsCurrent, "SPRINT.md"),
-    `---\nid: sprint-001\nstatus: completed\nfeatures: [F001]\nstarted_at: 2026-05-19T00:00:00Z\n---\n\n## Waves\n\n### Wave 1\nTasks: [T001]\n`,
-  );
-}
-
-test("loop-leak guard: leaked execute non-terminal Write against archived sprint is DENIED", async () => {
+test("cli-owned deny: same basename OUTSIDE the data dir passes through (no deny)", async () => {
+  // A user project can legitimately have its own PROGRESS.md — the deny is
+  // scoped to the Shipyard data dir.
   await withTempDir(async (sd) => {
-    // current/ exists (so the cursor path resolves) but no SPRINT.md → archived.
+    const outside = mkdtempSync(join(tmpdir(), "outside-progress-"));
+    try {
+      const { stdout, code } = await runWithEnv(
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(outside, "PROGRESS.md"), content: "x" },
+        },
+        { SHIPYARD_DATA: sd },
+      );
+      assert.equal(code, 0);
+      assert.equal(stdout, "", "outside the data dir the hook stays silent (default permission flow)");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test("cli-owned deny: other data-dir files (e.g. SPRINT.md body, spec files) still auto-approved", async () => {
+  await withTempDir(async (sd) => {
     mkdirSyncFs(join(sd, "sprints", "current"), { recursive: true });
-    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
-    const { stdout, code } = await runWithEnv(
+    const { stdout } = await runWithEnv(
       {
         tool_name: "Write",
         tool_input: {
-          file_path: cursorPath,
-          content: `---\npipeline: ship-execute\nstage: preflight\nterminal: false\nstatus: in_progress\n---\n\nbody`,
+          file_path: join(sd, "sprints", "current", "SPRINT.md"),
+          content: "---\nid: sprint-001\n---\n\n### Wave 1\nTasks: [T001]\n",
         },
       },
       { SHIPYARD_DATA: sd },
     );
-    assert.equal(code, 0);
-    const resp = JSON.parse(stdout);
-    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
-    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /loop-leak guard/i);
-    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /leaked \/loop wakeup/i);
-  });
-});
-
-test("loop-leak guard: leaked execute non-terminal Write against completed sprint is DENIED", async () => {
-  await withTempDir(async (sd) => {
-    writeSprintFixtureCompleted(sd);
-    const cursorPath = join(sd, "sprints", "current", "EXECUTE-CURSOR.md");
-    const { stdout, code } = await runWithEnv(
-      {
-        tool_name: "Write",
-        tool_input: {
-          file_path: cursorPath,
-          content: `---\npipeline: ship-execute\nstage: wave_1_dispatch\nterminal: false\nstatus: in_progress\n---\n\nbody`,
-        },
-      },
-      { SHIPYARD_DATA: sd },
-    );
-    assert.equal(code, 0);
-    const resp = JSON.parse(stdout);
-    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
-    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /loop-leak guard/i);
-  });
-});
-
-test("loop-leak guard: review non-terminal Write on a completed (not archived) sprint is ALLOWED", async () => {
-  // Review legitimately runs ON a status: completed sprint — must not be
-  // misclassified as a leak.
-  await withTempDir(async (sd) => {
-    writeSprintFixtureCompleted(sd);
-    const cursorPath = join(sd, "sprints", "current", "REVIEW-CURSOR.md");
-    const { stdout, code } = await runWithEnv(
-      {
-        tool_name: "Write",
-        tool_input: {
-          file_path: cursorPath,
-          content: `---\npipeline: ship-review\nstage: code_review_iter_1\nterminal: false\nstatus: in_progress\n---\n\nbody`,
-        },
-      },
-      { SHIPYARD_DATA: sd },
-    );
-    assert.equal(code, 0);
     const resp = JSON.parse(stdout);
     assert.equal(resp.hookSpecificOutput.permissionDecision, "allow");
+  });
+});
+
+test("cli-owned deny: breadcrumb log records the deny", async () => {
+  await withTempDir(async (sd) => {
+    mkdirSyncFs(join(sd, "sprints", "current"), { recursive: true });
+    await runWithEnv(
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: join(sd, "sprints", "current", "REVIEW-CURSOR.md"),
+          content: "x",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const log = readFileSync(join(sd, ".auto-approve.log"), "utf8");
+    assert.ok(log.includes("cli_owned_state"));
   });
 });

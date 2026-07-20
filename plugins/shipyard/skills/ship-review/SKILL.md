@@ -19,7 +19,9 @@ Verify completed work against spec. Auto-test, screenshot, demo to user, get app
 !`shipyard-context view sprint-progress`
 !`shipyard-context view metrics 50`
 
-**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Bash is for project tests, git, and `shipyard-data archive-sprint <id>` (Release stage) only — never for reading or writing Shipyard state. **Never `cd` into the data directory before running `shipyard-data` commands** — they resolve the data directory internally via git and env vars; `cd`-ing into a non-git directory breaks the resolver. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files** — use the Write tool, which is auto-approved for SHIPYARD_DATA and avoids permission prompts. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
+**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Bash is for project tests, git, and the `shipyard-data` CLI (cursor/sprint mutations + `archive-sprint`). **Never `cd` into the data directory before running `shipyard-data` commands** — they resolve the data directory internally via git and env vars; `cd`-ing into a non-git directory breaks the resolver. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files.**
+
+**The pipeline cursor, PROGRESS.md, and HANDOFF.md are CLI-owned — the model never writes them.** A PreToolUse hook DENIES any Write/Edit targeting `REVIEW-CURSOR.md`, `PROGRESS.md`, or `HANDOFF.md`. The only writer is the `shipyard-data cursor` CLI, which validates the stage transition against the stage graph, runs the terminal-evidence gate + loop-leak guard in-process (exit 3 with reasons on failure), appends the pipeline event atomically with the cursor write, re-renders PROGRESS.md, and prints the tick/terminal marker lines itself (stop marker guaranteed LAST). So: advance a tick with `shipyard-data cursor advance review <stage> [k=v ...] [--note "<narrative>"]`; do NOT emit `pipeline_tick_completed`/`pipeline_terminal` yourself and do NOT print your own `▶ TICK COMPLETE`/`▶ CYCLE COMPLETE` markers — echo the CLI's output as the final lines of the tick. SPRINT.md frontmatter is mutated via `shipyard-data sprint set <key> <value>` (never a model Edit). Verdict files (`verify/<F>-verdict.md`) and other narrative artifacts stay model Writes. Use the Write tool (auto-approved for SHIPYARD_DATA) for those. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
 
 ## Input
 
@@ -32,41 +34,40 @@ $ARGUMENTS
 - `--hotfix B-HOT-001` → Fast-track hotfix review
 - `--retro-only` → Skip review, run only the retrospective (for cancelled sprints or re-running retro)
 - No args → Review all completed tasks in current sprint, then run retrospective
-- No active sprint and no feature ID (sprint already archived: `current/` directory is empty or absent of `SPRINT.md`) → **No-op terminal path.** Emit `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<last-known-or-unknown> outcome=noop reason=sprint_already_archived` and print the terminal marker: `▶ CYCLE COMPLETE — sprint already complete and archived. /loop should stop.` Exit cleanly without invoking AskUserQuestion. (This is the exact path that fired the original /loop bug — there was no terminal signal so /loop kept scheduling wakeups against an archived sprint.)
+- No active sprint and no feature ID (sprint already archived: `current/` directory is empty or absent of `SPRINT.md`) → **No-op terminal path.** Run `shipyard-data cursor noop review sprint=<last-known-or-unknown> reason=sprint_already_archived` and echo its output (it emits `pipeline_terminal outcome=noop`, runs repeat-leak detection, and prints the stop marker as the final line). Exit cleanly without invoking AskUserQuestion. (This is the exact path that fired the original /loop bug — there was no terminal signal so /loop kept scheduling wakeups against an archived sprint.)
 
 ---
 
 ## Cursor + Per-Tick Advance
 
-`/ship-review` is a multi-stage pipeline. To make it `/loop`-friendly, each invocation reads a persistent cursor at `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md`, dispatches to the matching stage handler, writes the cursor for the next tick, and emits structured events. Full cursor schema, stage map, terminal protocol, event vocabulary, and stuck-detection rules live in `references/pipeline-cursor.md` — read it before changing the cursor surface.
+`/ship-review` is a multi-stage pipeline. To make it `/loop`-friendly, each invocation reads a persistent cursor at `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md`, dispatches to the matching stage handler, then advances the cursor for the next tick via the CLI. Full cursor schema, stage map, terminal protocol, event vocabulary, and stuck-detection rules live in `references/pipeline-cursor.md` — read it before changing the cursor surface.
 
 **Cursor read at entry.** Begin every invocation with:
 
-1. Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` (use the Read tool).
-   - **If the file exists and `terminal: true`**: print the terminal marker (`▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.`), emit `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<id> outcome=noop reason=cursor_already_terminal`, exit.
+1. Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` (use the Read tool — reads are unchanged; only writes are CLI-owned).
+   - **If the file exists and `terminal: true`**: run `shipyard-data cursor noop review sprint=<id> reason=cursor_already_terminal`, echo its output, exit.
    - **If the file exists and `terminal: false`**: emit `shipyard-data events emit pipeline_tick_started pipeline=ship-review sprint=<id> stage=<cursor.stage> iteration=<cursor.iteration> loop_owner=<owner>`, then dispatch to the handler for `cursor.stage` (per the stage map in `references/pipeline-cursor.md`).
-   - **If the file does NOT exist**: fresh start. Set `stage: preflight`, `iteration: 1`, `terminal: false`, `status: in_progress`. Emit `pipeline_tick_started`. Dispatch to the preflight handler.
+   - **If the file does NOT exist**: fresh start. Emit `pipeline_tick_started` (stage `preflight`, iteration 1). Dispatch to the preflight handler; the handler's `cursor advance` call materializes the cursor.
 
 2. **No-op terminal sweep (MANDATORY — load-bearing for /loop safety).** Even if step 1 read a non-terminal cursor (or no cursor at all), verify the sprint is actually alive by checking all THREE conditions:
    - cursor exists with `terminal: true` (already covered in step 1; re-checking here is belt-and-braces)
    - `<SHIPYARD_DATA>/sprints/current/SPRINT.md` frontmatter has `status: completed`
    - There is no active sprint in `<SHIPYARD_DATA>/sprints/current/` (already archived — `current/` directory empty or absent of SPRINT.md)
 
-   If ANY of these hold AND no feature ID was passed as an argument, run the no-op terminal path (the emit is **non-optional** — skipping it is what made the original leak invisible in the audit log):
-   - **Emit FIRST:** `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<id-or-unknown> outcome=noop reason=sprint_already_archived`.
-   - **Repeat-leak check** via `shipyard-context scan-events --tail 50 pipeline_terminal`: count prior `outcome=noop` lines for this `sprint=<id>` (the one just emitted included). First no-op (count == 1) → print `▶ CYCLE COMPLETE — sprint already complete and archived. /loop should stop.` and exit. Repeat no-op (count ≥ 2, the driver ignored the earlier stop) → emit `shipyard-data events emit pipeline_loop_leak_detected pipeline=ship-review sprint=<id> noop_count=<N>` and print `⛔ LOOP LEAK — /loop is still firing /shipyard:ship-review against an already-archived sprint (<N> no-op wakeups). It is NOT self-stopping. There is no further work — cancel this /loop now and do NOT schedule another wakeup.`, then exit.
+   If ANY of these hold AND no feature ID was passed as an argument, run the no-op terminal path via a single CLI call:
+   - Run `shipyard-data cursor noop review sprint=<id-or-unknown> reason=sprint_already_archived`. This does the whole sweep in-process: emits `pipeline_terminal outcome=noop` FIRST (non-optional — skipping it is what made the original leak invisible in the audit log), runs the repeat-leak detection (a 2nd no-op for the same dead sprint emits `pipeline_loop_leak_detected` + prints the `⛔ LOOP LEAK …` marker), and prints the stop marker as the final line. Echo its output.
    - **Cron-fallback cleanup:** if this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-review`.
 
    Exit cleanly without invoking AskUserQuestion. NEVER skip this sweep — it is the exact protection that closed the original `/loop` wakeup-leak bug. The auto-loop bootstrap below explicitly depends on this sweep having run with no exit triggered. Full protocol in `references/pipeline-cursor.md`.
 
-3. After the chosen stage's handler returns, use the Write tool to write the cursor for tick N+1 (or for terminal exit). Emit `pipeline_tick_completed` (advancing or self-looping) or `pipeline_terminal` (terminal stage). Print the appropriate marker text.
+3. After the chosen stage's handler returns, advance the cursor for tick N+1 (or for terminal exit) with `shipyard-data cursor advance review <next-stage> [k=v ...] [--note "..."]` (terminal stages use `advance review terminal|terminal_issues|terminal_changes`, or `cursor escalate review reason=<r>` for a mid-stage escalation). The CLI emits the `pipeline_tick_completed`/`pipeline_terminal` event atomically with the cursor write and prints the marker text.
 
-The cursor write uses the Write tool against the literal SHIPYARD_DATA path (auto-approved by the PreToolUse hook). The marker text is load-bearing — `/loop` drivers (and the loop-driving model) read `CYCLE COMPLETE` + `/loop should stop` as the structural signal to refrain from scheduling another wakeup.
+The CLI is the single cursor writer (auto-approved; a direct model Write to the cursor is DENIED by the hook). The marker text it prints is load-bearing — `/loop` drivers (and the loop-driving model) read `CYCLE COMPLETE` + `/loop should stop` as the structural signal to refrain from scheduling another wakeup, and the CLI guarantees that marker is the LAST line.
 
 **Direct invocation vs /loop driver.** The same skill body serves both callers:
 
 - **Direct invocation** (user runs `/ship-review` or `/ship-review F-NNN` from the prompt): after a handler returns, if the next stage is non-terminal AND non-blocking (no `AskUserQuestion` required AND no expensive long-running operation), the dispatcher MAY chain into it within the same invocation. Bound the chain by an approximate wall-clock budget of **~10 minutes** per invocation to keep ticks responsive and interruptible.
-- **`/loop` driver** (the invocation is one tick of a `/loop` schedule): each tick is exactly one handler. After writing the cursor and emitting `pipeline_tick_completed`, exit. The chain-within-invocation logic is suppressed when `loop_owner == "/loop"`. The next `/loop` wakeup picks up from the cursor's `stage:`.
+- **`/loop` driver** (the invocation is one tick of a `/loop` schedule): each tick is exactly one handler. After the handler's `shipyard-data cursor advance` returns (it emits `pipeline_tick_completed` and prints the marker), exit. The chain-within-invocation logic is suppressed when `loop_owner == "/loop"`. The next `/loop` wakeup picks up from the cursor's `stage:`.
 
 **`loop_owner` detection.** Determine the caller by reading the most recent `pipeline_tick_completed` event from `<SHIPYARD_DATA>/.shipyard-events.jsonl` (a 30-minute lookback window): if its `next_stage` matches the current cursor's `stage` AND its timestamp is within the last 30 minutes, treat the current invocation as a `/loop` re-entry and set `loop_owner: "/loop"`. Otherwise treat as a direct user invocation (`loop_owner: "user"`). A user explicitly passing `--single-tick` forces `/loop` semantics — this is the override for "I want one tick now and that's it."
 
@@ -76,11 +77,11 @@ The cursor write uses the Write tool against the literal SHIPYARD_DATA path (aut
 - Cursor exists and `terminal: false`.
 - Cursor's `auto_loop_attempted` field is not `true`.
 - Mode is not `--retro-only` (single-pass retro, no looping needed).
-- **Sprint-liveness re-check (defense in depth):** `<SHIPYARD_DATA>/sprints/current/SPRINT.md` exists AND its frontmatter `status` is NOT `completed`. The step 2 sweep should have already exited if either is false — this re-check guards against a refactor that moves the sweep, since bootstrapping against a dead sprint is the exact precondition for the v2.2.0 wakeup-leak regression. If this re-check fires, emit `pipeline_terminal pipeline=ship-review sprint=<id> outcome=noop reason=sprint_dead_at_bootstrap` and print the standard `▶ CYCLE COMPLETE — sprint already complete and archived. /loop should stop.` marker, then exit. Never bootstrap `/loop` against a dead sprint.
+- **Sprint-liveness re-check (defense in depth):** `<SHIPYARD_DATA>/sprints/current/SPRINT.md` exists AND its frontmatter `status` is NOT `completed`. The step 2 sweep should have already exited if either is false — this re-check guards against a refactor that moves the sweep, since bootstrapping against a dead sprint is the exact precondition for the v2.2.0 wakeup-leak regression. If this re-check fires, run `shipyard-data cursor noop review sprint=<id> reason=sprint_dead_at_bootstrap`, echo its output, then exit. Never bootstrap `/loop` against a dead sprint.
 
 When eligible, in this exact order:
 
-1. Use the Write tool to update the cursor: preserve every existing field, set `auto_loop_attempted: true`. This MUST land before the `Skill(loop, ...)` call — `/loop` fires its iteration 1 immediately and re-enters this skill, and that re-entry must see the sentinel so it skips this block and proceeds to real work.
+1. Set the sentinel via `shipyard-data cursor advance review <current-stage> auto_loop_attempted=true --note "auto-loop bootstrap sentinel"` (self-tick on the current stage — the only field changing is `auto_loop_attempted`). This MUST land before the `Skill(loop, ...)` call — `/loop` fires its iteration 1 immediately and re-enters this skill, and that re-entry must see the sentinel so it skips this block and proceeds to real work. (Do not Write the cursor directly — the hook denies it.)
 2. Emit `shipyard-data events emit pipeline_loop_bootstrap pipeline=ship-review sprint=<id> via=auto`.
 3. Invoke `Skill(skill: "loop", args: "/shipyard:ship-review")`. `/loop` will set up dynamic-mode self-pacing AND immediately fire `/shipyard:ship-review` as iteration 1. The re-entry sees `auto_loop_attempted: true`, skips this bootstrap, and does the current tick's actual stage work. `/loop`'s pacer then schedules subsequent ticks via `ScheduleWakeup`.
 4. Return from this outer invocation as soon as the `Skill` call returns. Do NOT do tick work in this outer frame — the re-entry owns it. Print the one-line marker `▶ AUTO-LOOP STARTED — /shipyard:ship-review is now driven by /loop. Subsequent stages will fire automatically.`
@@ -98,7 +99,7 @@ Two stages can self-loop until they converge by data: `code_review_iter_N` (Stag
 - Each self-loop tick increments `stuck_counter:` if state did NOT change since the previous tick. For `code_review_iter_N`, state = the (must_fix, should_fix) tuple from the most recent scanner pass. For `gap_analysis`, state = the gap list (set-equal).
 - If `stuck_counter >= 5` (5 ticks without state change), emit `shipyard-data events emit pipeline_stuck pipeline=ship-review sprint=<id> stage=<id> iterations=<N> reason=no-state-change` AND surface a non-blocking one-line warning in the user-facing text: `⚠ Stage [X] has run [N] times without state change. /ship-status to inspect; consider manual intervention.` The loop keeps running — the warning is informational.
 - Reset `stuck_counter` to 0 on the first tick where state changes.
-- `hard_ceiling: 50` is the absolute safety stop. If a self-loop stage reaches `iteration: 50`, write `status: escalated`, `terminal: true`, emit `pipeline_terminal pipeline=ship-review outcome=escalated reason=hard_ceiling_stage_<id>`, and halt. In practice the 5-tick warning surfaces intervention long before the ceiling is reached; the ceiling exists only as a backstop against a runaway loop with broken state-change detection.
+- `hard_ceiling: 50` is the absolute safety stop. If a self-loop stage reaches `iteration: 50`, run `shipyard-data cursor escalate review reason=hard_ceiling_stage_<id>` (terminal escalation from the current stage — sets `status: escalated`, `terminal: true`, emits `pipeline_terminal outcome=escalated`, prints the stop marker), echo its output, and halt. In practice the 5-tick warning surfaces intervention long before the ceiling is reached; the ceiling exists only as a backstop against a runaway loop with broken state-change detection.
 
 ---
 
@@ -129,7 +130,7 @@ Verify we're on the working branch from SPRINT.md frontmatter:
 
 This ensures review and any patch fixes happen on the correct branch.
 
-- **Cursor write**: on success, write `stage: code_review_iter_1` (or `stage: tests` if `--skip-code-review`, or `stage: retro_step_1` if `--retro-only`), `iteration: 1`, `terminal: false`, `next_action: "Run Stage 0 code review iteration 1"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed pipeline=ship-review sprint=<id> stage=preflight outcome=advanced next_stage=<next>` and print `▶ TICK COMPLETE — pipeline at stage [next_stage]. /loop continues.` then exit. When direct invocation: chain into the next stage's handler (subject to the ~10-minute wall-clock budget).
+- **Cursor advance**: on success, run `shipyard-data cursor advance review code_review_iter_1` (or `... tests` if `--skip-code-review`, or `... retro_step_1` if `--retro-only`) with `iteration=1 --note "Run Stage 0 code review iteration 1"`. The CLI emits `pipeline_tick_completed` and prints the tick marker — echo its output. When `loop_owner == "/loop"`: exit after the advance. When direct invocation: chain into the next stage's handler (subject to the ~10-minute wall-clock budget).
 
 **Anti-improvisation assertion (v2.6.0).** Stage 0 (multi-agent code review) MUST run whenever `/ship-review` is invoked WITHOUT one of `--skip-code-review`, `--hotfix`, or `--retro-only`. The sprint's frontmatter `status:` field (`completed`, `in-progress`, `approved`, …) DOES NOT affect this — code review runs on the diff regardless of how upstream pipelines have annotated the sprint. If Stage 0 genuinely cannot run on this invocation (e.g., the diff is empty because the working branch matches the base), emit a structured `stage_0_skipped reason=<short reason>` event via `shipyard-data events emit ...` and continue to `stage: tests`. Do NOT improvise a `notes:` field in the cursor body to justify skipping stages — the cursor body is free-form narrative per the schema in `references/pipeline-cursor.md`, and structured claims about which stages ran or didn't run live in the event log, not in cursor prose. **Why this is load-bearing:** in the v2.5.0 confedit incident, the review-side model wrote `"Running review pipeline directly with --skip-code-review semantics (Stages 0/0.5/4.6/4.7 deferred — not run)"` into the cursor body to justify skipping Stage 0 because the sprint had `status: completed`. There is no documented code path for that decision; the model invented it. With Stage 0 skipped, three real defects (T-P001 missing `liveValidate`, T-P002 `aria-describedby` clone, T-P003 missing Playwright spec) were filed as manual patch tasks instead of being auto-fixed by the Stage 0 → `dispatching-task-loop` pipeline.
 
@@ -147,9 +148,9 @@ Run the multi-agent code review on the sprint's diff before tests and spec compl
 
 **Stuck detection (replaces the prior hard iteration limit):** `pipeline_stuck` warns when `stuck_counter >= 5` (5 consecutive ticks with no change in the (must_fix, should_fix) tuple) — non-blocking, the loop keeps running. The absolute safety stop is `hard_ceiling: 50` iterations; in practice the 5-tick stuck warning surfaces intervention much sooner. See the "Self-looping stages" section above for the full protocol.
 
-**At hard ceiling only** (`iteration == 50`): emit `shipyard-data events emit code_review_escalated sprint=<id> must_fix_remaining=<count> should_fix_remaining=<count>`, write `B-CR-*` bugs for the residual findings, write the cursor with `status: escalated`, `terminal: true`, and surface ONCE via AskUserQuestion: *"Code review hit its hard ceiling of 50 iterations with [N] must-fix items remaining. (a) write B-CR bugs and proceed to demo, (b) hand back without demo so I can investigate manually."* Recommended: (a). Out-of-scope scanner findings become IDEAs (see Stage 4 protocol). Full mechanics — checkpoint tags, fixer parameters, event-log trajectory, scope guard — in `references/scanner-dispatch.md`.
+**At hard ceiling only** (`iteration == 50`): emit `shipyard-data events emit code_review_escalated sprint=<id> must_fix_remaining=<count> should_fix_remaining=<count>`, write `B-CR-*` bugs for the residual findings, run `shipyard-data cursor escalate review reason=hard_ceiling_stage_code_review_iter` (sets `status: escalated`, `terminal: true`, prints the stop marker), and surface ONCE via AskUserQuestion: *"Code review hit its hard ceiling of 50 iterations with [N] must-fix items remaining. (a) write B-CR bugs and proceed to demo, (b) hand back without demo so I can investigate manually."* Recommended: (a). Out-of-scope scanner findings become IDEAs (see Stage 4 protocol). Full mechanics — checkpoint tags, fixer parameters, event-log trajectory, scope guard — in `references/scanner-dispatch.md`.
 
-- **Cursor write**: on iteration completing with `must_fix > 0`: write `stage: code_review_iter_<N+1>`, increment `iteration`, update `stuck_counter` (increment if state unchanged, reset to 0 if changed), `terminal: false`, `next_action: "Re-scan after fixer iteration <N+1>"`. Emit `pipeline_tick_completed outcome=self_loop next_stage=code_review_iter_<N+1>` and print `▶ TICK COMPLETE — pipeline at stage [code_review_iter_<N+1>]. /loop continues.` On iteration completing with `must_fix == 0 && should_fix == 0`: advance to `stage: simplify`, emit `pipeline_tick_completed outcome=advanced next_stage=simplify`. On hard ceiling (`iteration == 50`): emit `pipeline_terminal outcome=escalated reason=hard_ceiling_stage_code_review_iter` and print `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.`
+- **Cursor advance**: on iteration completing with `must_fix > 0`: run `shipyard-data cursor advance review code_review_iter_<N+1> iteration=<N+1> stuck_counter=<n> --note "Re-scan after fixer iteration <N+1>"` (compute `stuck_counter` yourself: increment if the (must_fix, should_fix) state is unchanged, reset to 0 if changed). The CLI emits the self-loop `pipeline_tick_completed` and prints the tick marker — echo it. On iteration completing with `must_fix == 0 && should_fix == 0`: run `shipyard-data cursor advance review simplify`. On hard ceiling (`iteration == 50`): `shipyard-data cursor escalate review reason=hard_ceiling_stage_code_review_iter` (see the hard-ceiling bullet above).
 
 ### Stage 0.5: Code Simplification (stage_id: simplify)
 
@@ -157,13 +158,13 @@ Skip if `--skip-code-review` is passed (same gate as Stage 0).
 
 After Stage 0 exits clean, spawn a general-purpose simplifier subagent (inline prompt — no external-plugin dependency) against the sprint diff to clean up quick patches the fixer may have introduced. Scope-guarded to sprint-diff files only — reverts via `git reset --hard HEAD~1` if the simplifier touches unexpected files. Mechanics in `references/scanner-dispatch.md`.
 
-- **Cursor write**: on completion (success or logged-and-continue), write `stage: tests`, `terminal: false`, `next_action: "Run Stage 1a full test suite via dispatching-operational-task"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=tests` and print `▶ TICK COMPLETE — pipeline at stage [tests]. /loop continues.` then exit. Direct invocation: chain into the next stage.
+- **Cursor advance**: on completion (success or logged-and-continue), run `shipyard-data cursor advance review tests --note "Run Stage 1a full test suite via dispatching-operational-task"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain into the next stage.
 
 ### Stage 1: Run Tests & Spec Verification (stage_id: tests, then spec_review)
 
 **1a. Run all tests** — invoke the **`shipyard:dispatching-operational-task` capability skill** to avoid polluting the review context with raw test output. Pass `verify_command` resolved to each tier from `<SHIPYARD_DATA>/config.md` (`test_commands.unit`, `test_commands.integration`, `test_commands.e2e`); the capability skill captures output to `<SHIPYARD_DATA>/captures/` and returns the structured verdict (PASS/FAIL counts in `LAST_LINES:`). One operational dispatch per tier, or one combined dispatch if your project supports a single command. Use the returned verdicts for Stages 3–5 — do not re-run tests yourself.
 
-- **Cursor write (after 1a)**: write `stage: spec_review`, `terminal: false`, `next_action: "Run Stage 1b spec review per feature"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=spec_review` and print `▶ TICK COMPLETE — pipeline at stage [spec_review]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor advance (after 1a)**: run `shipyard-data cursor advance review spec_review --note "Run Stage 1b spec review per feature"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
 **1b. Spec review via specialized scanner** — invoke the **`shipyard:dispatching-spec-review` capability skill** with `scope: "feature"` and `target_ids: [FEATURE_ID]`. The capability skill:
 
@@ -185,7 +186,7 @@ Pass to the capability skill:
 
 Use the capability skill's structured findings (`STATUS: PASS` or `STATUS: FINDINGS` with classification) in Stages 3–5. Security, bugs, silent failures, patterns, and tests are NOT this skill's job — those went through `dispatching-code-review` in Stage 0.
 
-- **Cursor write (after 1b)**: write `stage: quality_gates`, `terminal: false`, `next_action: "Run Stage 1.5 quality gate enforcement"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=quality_gates` and print `▶ TICK COMPLETE — pipeline at stage [quality_gates]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor advance (after 1b)**: run `shipyard-data cursor advance review quality_gates --note "Run Stage 1.5 quality gate enforcement"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
 ### Stage 1.5: Quality Gate Enforcement (stage_id: `quality_gates`)
 
@@ -195,7 +196,7 @@ Read `<SHIPYARD_DATA>/sprints/current/QUALITY-GATE.md`. For each probe/tool gate
 
 **Skip if:** QUALITY-GATE.md doesn't exist or is empty.
 
-- **Cursor write**: on completion, write `stage: visual` (or `stage: goal_verify` if no UI), `terminal: false`. Emit `pipeline_tick_completed outcome=advanced next_stage=<next>`.
+- **Cursor advance**: on completion, run `shipyard-data cursor advance review visual` (or `... goal_verify` if no UI) and echo its output.
 
 ### Stage 2: Visual Verification (stage_id: visual) (UI tasks)
 
@@ -207,7 +208,7 @@ If the feature has UI components:
 
 **Live-capture the dev server and E2E runs.** Anything you run here to observe behavior (dev server startup logs, E2E runner output, `curl` sanity checks against the running app) goes through `shipyard-logcap run <name> --max-size <S> --max-files <N> -- <command>` unless the command already writes its own log file. Review re-runs are the most expensive kind — Opus-level reasoning burning tokens on output you already saw. If the first run surfaces something you want to inspect more closely, `shipyard-logcap grep` the existing capture with a different pattern **before** re-running the thing. For bound-picking guidance, see the logcap usage notes in `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/context-management.md`.
 
-- **Cursor write**: write `stage: goal_verify`, `terminal: false`, `next_action: "Run Stage 3 goal verification"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=goal_verify` and print `▶ TICK COMPLETE — pipeline at stage [goal_verify]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor advance**: run `shipyard-data cursor advance review goal_verify --note "Run Stage 3 goal verification"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
 ### Stage 3: Did We Actually Achieve the Goal? (stage_id: goal_verify)
 
@@ -268,7 +269,7 @@ Check each operational task:
 
 Any operational task that fails any of these is a **critical gap** — automatically upgraded to must-fix regardless of what the acceptance criteria say, because the task's deliverable was running a command and we have no evidence the command ran. If you find a silent-pass, also recommend the user add the task to `ship-sprint`'s carry-over scan (Step 1.5, check #5) as a safety net for the next sprint.
 
-- **Cursor write**: write `stage: gap_analysis`, `terminal: false`, `next_action: "Run Stages 4 + 4.5 surface-gap + self-review"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=gap_analysis` and print `▶ TICK COMPLETE — pipeline at stage [gap_analysis]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor advance**: run `shipyard-data cursor advance review gap_analysis --note "Run Stages 4 + 4.5 surface-gap + self-review"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
 ### Stage 4: Surface Gap Analysis (stage_id: gap_analysis, part 1)
 
@@ -307,7 +308,7 @@ Before writing the verdict, review your own review. Re-read the feature spec and
 
 Iterate the checklist against your findings. If any check reveals a missed gap, add it to the gap list and re-run. **There is no arbitrary iteration cap** — loop until the checklist stabilizes (no new gaps added in a pass). Stuck detection: `pipeline_stuck` warns when `stuck_counter >= 5` (5 ticks with the same gap-list set), non-blocking, the loop keeps running. Hard ceiling: `hard_ceiling: 50` is the absolute safety stop — in practice the 5-tick warning surfaces intervention much sooner. See the "Self-looping stages" section near the top for the protocol. **Hold the table in mind across iterations — emit only per-iteration deltas (which gaps were added). Do not re-print the table on each pass.** Proceed to verdict (`stage: critic`) when the checklist stabilizes.
 
-- **Cursor write**: on iteration completing with a non-empty gap-list delta: write `stage: gap_analysis`, increment `iteration`, update `stuck_counter` (increment if gap-list set unchanged, reset if changed), `terminal: false`, `next_action: "Re-run self-review iteration <N+1>"`. Emit `pipeline_tick_completed outcome=self_loop next_stage=gap_analysis` and print `▶ TICK COMPLETE — pipeline at stage [gap_analysis]. /loop continues.` On iteration completing with the gap-list stable: advance to `stage: critic`, emit `pipeline_tick_completed outcome=advanced next_stage=critic`. On hard ceiling: emit `pipeline_terminal outcome=escalated reason=hard_ceiling_stage_gap_analysis`.
+- **Cursor advance**: on iteration completing with a non-empty gap-list delta: run `shipyard-data cursor advance review gap_analysis iteration=<N+1> stuck_counter=<n> --note "Re-run self-review iteration <N+1>"` (compute `stuck_counter` yourself: increment if the gap-list set is unchanged, reset if changed); the CLI emits the self-loop tick and prints the marker — echo it. On iteration completing with the gap-list stable: run `shipyard-data cursor advance review critic`. On hard ceiling: `shipyard-data cursor escalate review reason=hard_ceiling_stage_gap_analysis`.
 
 ### Stage 4.6: Critic Challenge (stage_id: critic)
 
@@ -315,7 +316,7 @@ After the self-review loop stabilizes, dispatch a **`general-purpose`** subagent
 
 The full subagent prompt template (with `<SHIPYARD_DATA>`, `[FEATURE_ID]`, stakes, and findings substitutions) and the consumption protocol live in `references/critic-prompt.md`. The critic returns a structured `STATUS: CHALLENGES` or `STATUS: NO_CHALLENGES` report — Stage 4.7 processes the findings with one surgical pass.
 
-- **Cursor write**: write `stage: final_pass`, `terminal: false`, `next_action: "Run Stage 4.7 final pass on critic findings"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=final_pass` and print `▶ TICK COMPLETE — pipeline at stage [final_pass]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor advance**: run `shipyard-data cursor advance review final_pass --note "Run Stage 4.7 final pass on critic findings"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
 ### Stage 4.7: Final Review Pass (stage_id: final_pass)
 
@@ -328,7 +329,7 @@ Process the critic's findings with **one** targeted pass — no iteration loop:
 
 Do not re-run the full review pipeline. This is a surgical pass on the critic's specific findings only. Update the gap counts and classifications, then proceed to the verdict.
 
-- **Cursor write**: write `stage: verdict`, `terminal: false`, `next_action: "Write verdict file"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=verdict` and print `▶ TICK COMPLETE — pipeline at stage [verdict]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor advance**: run `shipyard-data cursor advance review verdict --note "Write verdict file"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
 ### Checkpoint: Write Verdict (stage_id: verdict)
 
@@ -350,7 +351,7 @@ recommendation: approve|issues|changes
 
 Body: test summary, goal verification results (observable truths, artifacts, wiring), and gap list. After Stage 5 (Demo) completes, update the verdict: set `complete: true`. This file persists as a review artifact — no cleanup needed. Incomplete verdicts (from interrupted sessions) are re-entered at the review pipeline.
 
-- **Cursor write**: write `stage: demo_probe`, `terminal: false`, `next_action: "Run Stage 4.8 demo probe per feature"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=demo_probe` and print `▶ TICK COMPLETE — pipeline at stage [demo_probe]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor advance**: run `shipyard-data cursor advance review demo_probe --note "Run Stage 4.8 demo probe per feature"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
 ### Stage 4.8: Demo-Path Verification (stage_id: demo_probe)
 
@@ -382,7 +383,7 @@ sprint-level full test suite →  regression / integration proof (Stage 1)
 
 Mid-tier failures (passing tasks, failing demo) are exactly the bug class the customer-reported "review rubber-stamps stubs" complaint described — the task tests passed against properly wired code, but the cross-task user flow was broken because nobody ever ran it end-to-end.
 
-- **Cursor write**: on all probes PASS (or skip-with-reason): write `stage: demo_user`, `terminal: false`, `next_action: "Present results, AskUserQuestion approval"`. Emit `pipeline_tick_completed outcome=advanced next_stage=demo_user` and print `▶ TICK COMPLETE — pipeline at stage [demo_user]. /loop continues.` On any FAIL/TIMEOUT: handler routes to AskUserQuestion (blocking) — write the cursor with `stage: demo_probe`, `status: paused`, `next_action: "Awaiting user decision on demo failure"` before invoking AskUserQuestion.
+- **Cursor advance**: on all probes PASS (or skip-with-reason): run `shipyard-data cursor advance review demo_user --note "Present results, AskUserQuestion approval"` and echo its output. On any FAIL/TIMEOUT: handler routes to AskUserQuestion (blocking) — run `shipyard-data cursor pause review --note "Awaiting user decision on demo failure"` (keeps `stage: demo_probe`, sets `status: paused`) before invoking AskUserQuestion.
 
 ### Stage 5: Demo to User (stage_id: demo_user)
 
@@ -422,7 +423,7 @@ Then use `AskUserQuestion` for approval:
 - **Refine** — give feedback on specific features, iterate
 - **Fix first** — create patch tasks, show: "/ship-execute --task [patch task ID]"
 
-- **Cursor write**: after the user answers, write `stage: process_approved` / `process_issues` / `process_changes` based on the answer, `terminal: false`, `next_action: "Process Stage 6 decision branch"`. Emit `pipeline_tick_completed outcome=advanced next_stage=<branch>` and print `▶ TICK COMPLETE — pipeline at stage [<branch>]. /loop continues.`
+- **Cursor advance**: after the user answers, run `shipyard-data cursor advance review process_approved` (or `... process_issues` / `... process_changes` per the answer) with `--note "Process Stage 6 decision branch"` and echo its output.
 
 ### Stage 6: Process Decision (stage_id: process_approved | process_issues | process_changes)
 
@@ -436,9 +437,9 @@ Based on the approval:
     (tip: /clear first for a fresh context window)
   ```
 
-- **Cursor write**: on `process_approved` → write `stage: retro_step_1`, `terminal: false`. Emit `pipeline_tick_completed outcome=advanced next_stage=retro_step_1`. On `process_issues` → write `stage: terminal_issues`, `status: escalated`, `terminal: true`, emit `pipeline_terminal outcome=issues reason=user_flagged_issues` and print `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` On `process_changes` → write `stage: terminal_changes`, `status: escalated`, `terminal: true`, emit `pipeline_terminal outcome=changes reason=user_requested_changes` and print the terminal marker.
+- **Cursor advance**: on `process_approved` → run `shipyard-data cursor advance review retro_step_1` and echo its output. On `process_issues` → run `shipyard-data cursor advance review terminal_issues outcome=issues reason=user_flagged_issues`. On `process_changes` → run `shipyard-data cursor advance review terminal_changes outcome=changes reason=user_requested_changes`. The CLI emits the terminal event and prints the stop marker as the final line.
 
-- **Terminal-gate enforcement (v2.6.0).** The two **escalation** terminal cursor writes — `stage: terminal_changes` and `stage: terminal_issues` (with `terminal: true`) — are structurally gated by the auto-approve PreToolUse hook. The gate refuses the write unless: (1) `pipeline_tick_completed pipeline=ship-review stage=demo_user` is in the event log (proving the user-approval step ran); **and** (2) at least one `patch_task_created` or `bug_created` event was emitted in this review window (this is why process_issues/process_changes MUST emit those events — see Stage 6 above). **The approved-success path does NOT write a gated `terminal_approved` cursor** — it archives the sprint (rotating `current/` away) and emits the `pipeline_terminal outcome=approved` event, so the gate's `terminal_approved` branch (per-feature approve-verdict enforcement in `bin/terminal-gate.mjs`) is a **defensive path the current flow doesn't exercise**; the approve-verdicts and the user-approval gate are enforced upstream (per-feature `verify/<F>-verdict.md` files + the demo_user tick). Skipping `process_changes`'s cursor write — leaving the cursor at an intermediate stage while editing feature/backlog files — leaves the cursor inconsistent with the work done. Either emit the events the gate needs and write the terminal cursor cleanly, or don't claim terminal at all. Run `shipyard-context terminal-gate ship-review` to inspect what would block a terminal write right now.
+- **Terminal-gate enforcement (v2.6.0).** The two **escalation** terminal advances — `terminal_changes` and `terminal_issues` — run the terminal-evidence gate in-process inside `shipyard-data cursor advance`. The advance is refused (exit 3, reasons printed) unless: (1) `pipeline_tick_completed pipeline=ship-review stage=demo_user` is in the event log (proving the user-approval step ran); **and** (2) at least one `patch_task_created` or `bug_created` event was emitted in this review window (this is why process_issues/process_changes MUST emit those events — see Stage 6 above; those non-cursor events are still emitted via `shipyard-data events emit`). If the advance exits 3, fix the missing evidence (or escalate) — do NOT try to Write the cursor directly, the hook denies it. **The approved-success path does NOT run a gated `terminal_approved` advance** — it archives the sprint (rotating `current/` away) and the terminal advance emits `pipeline_terminal outcome=approved`, so the gate's `terminal_approved` branch (per-feature approve-verdict enforcement in `bin/terminal-gate.mjs`) is a **defensive path the current flow doesn't exercise**; the approve-verdicts and the user-approval gate are enforced upstream (per-feature `verify/<F>-verdict.md` files + the demo_user tick). Run `shipyard-context terminal-gate ship-review` to inspect what would block a terminal advance right now.
 
 ## Hotfix Review
 
@@ -459,7 +460,7 @@ The retro runs in four steps with compaction recovery via `RETRO-DATA.md`'s `ste
 ### Retro Step 1: Gather Data (stage_id: retro_step_1)
 Compute planned-vs-delivered, velocity, carry-over, bugs, blocked time, swaps, patch tasks, estimate accuracy, throughput from SPRINT.md + task/feature files. Write to `RETRO-DATA.md` (`step: data_gathered`) and present the summary block.
 
-- **Cursor write**: write `stage: retro_step_2`, `terminal: false`, `next_action: "Facilitate retro discussion (3× AskUserQuestion)"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=retro_step_2` and print `▶ TICK COMPLETE — pipeline at stage [retro_step_2]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor advance**: run `shipyard-data cursor advance review retro_step_2 --note "Facilitate retro discussion (3× AskUserQuestion)"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
 ### Retro Step 2: Facilitate Discussion (stage_id: retro_step_2)
 Three sequential AskUserQuestion calls — lead each with the data-driven observation, then ask:
@@ -469,17 +470,17 @@ Three sequential AskUserQuestion calls — lead each with the data-driven observ
 
 Append responses to `RETRO-DATA.md` under `## Team Feedback`. Update frontmatter: `step: feedback_collected`.
 
-- **Cursor write**: after all three AskUserQuestion responses are collected: write `stage: retro_step_3`, `terminal: false`, `next_action: "Create IDEA action items"`. Emit `pipeline_tick_completed outcome=advanced next_stage=retro_step_3` and print `▶ TICK COMPLETE — pipeline at stage [retro_step_3]. /loop continues.`
+- **Cursor advance**: after all three AskUserQuestion responses are collected, run `shipyard-data cursor advance review retro_step_3 --note "Create IDEA action items"` and echo its output.
 
 ### Retro Step 3: Create Action Items (stage_id: retro_step_3)
 For each actionable improvement, allocate an ID via `shipyard-data next-id ideas` (never `ls`-and-guess) and Write `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with `source: retro/<sprint-id>` (slash form — matches the carry-over scan regex). Update `RETRO-DATA.md`: `step: action_items_created`.
 
-- **Cursor write**: write `stage: retro_step_4`, `terminal: false`, `next_action: "Update metrics"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=retro_step_4` and print `▶ TICK COMPLETE — pipeline at stage [retro_step_4]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor advance**: run `shipyard-data cursor advance review retro_step_4 --note "Update metrics"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
 ### Retro Step 4: Update Metrics (stage_id: retro_step_4)
 Append velocity, carry-over rate, bug rate, estimate accuracy, anti-pattern flags to `<SHIPYARD_DATA>/memory/metrics.md` (quarterly rollover at 300 lines). Save key insights to memory.
 
-- **Cursor write**: write `stage: release_step_1`, `terminal: false`, `next_action: "Present release plan, AskUserQuestion approval"`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=release_step_1` and print `▶ TICK COMPLETE — pipeline at stage [release_step_1]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor advance**: run `shipyard-data cursor advance review release_step_1 --note "Present release plan, AskUserQuestion approval"` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
 ### Shipyard Plugin Issue Detection
 
@@ -519,17 +520,17 @@ Then use `AskUserQuestion` for approval:
 - **Edit changelog** — adjust changelog text, then re-approve
 - **Skip release** — skip release record, still archive sprint
 
-- **Cursor write**: on **Release** → write `stage: release_step_2`, `terminal: false`. Emit `pipeline_tick_completed outcome=advanced next_stage=release_step_2` and print `▶ TICK COMPLETE — pipeline at stage [release_step_2]. /loop continues.` On **Skip release** → write `stage: archive`, `terminal: false`. Emit `pipeline_tick_completed outcome=advanced next_stage=archive`. On **Edit changelog** → write `stage: release_step_1`, increment `iteration`, `next_action: "Re-present after changelog edit"`. Emit `pipeline_tick_completed outcome=self_loop next_stage=release_step_1`.
+- **Cursor advance**: on **Release** → run `shipyard-data cursor advance review release_step_2`. On **Skip release** → run `shipyard-data cursor advance review archive`. On **Edit changelog** → run `shipyard-data cursor advance review release_step_1 iteration=<N+1> --note "Re-present after changelog edit"` (self-tick). Echo the CLI output in each case.
 
 ### Release Step 2: Write Release Record (stage_id: release_step_2)
 Update feature frontmatter (`status: released`, `released_at: [date]`) and prepend the new entry to `CHANGELOG.md` in the **project root** (not plugin data — this is a project deliverable that belongs in git).
 
-- **Cursor write**: write `stage: release_step_3`, `terminal: false`. When `loop_owner == "/loop"`: emit `pipeline_tick_completed outcome=advanced next_stage=release_step_3` and print `▶ TICK COMPLETE — pipeline at stage [release_step_3]. /loop continues.` then exit. Direct invocation: chain.
+- **Cursor advance**: run `shipyard-data cursor advance review release_step_3` and echo its output. When `loop_owner == "/loop"`: exit after the advance. Direct invocation: chain.
 
 ### Release Step 3: Archive Sprint (stage_id: release_step_3)
 Run `shipyard-data archive-sprint sprint-NNN` from Bash. This atomically renames `current/` → `sprint-NNN/` and recreates an empty `current/`. Do NOT synthesize raw `cp`/`mv`/`mkdir` against the plugin data dir — they're not portable and not atomic.
 
-- **Cursor write**: the archive operation rotates `current/` so the cursor file goes with it. Advance to `stage: terminal` semantically — the next handler runs the terminal wrap-up against the now-archived sprint context.
+- **Cursor advance**: the archive operation rotates `current/` so the cursor file goes with it. Advance to `stage: terminal` semantically — the wrap-up below runs the terminal advance. Because archive already rotated `current/` away, the terminal advance runs with no live cursor to write; the CLI still emits the canonical `pipeline_terminal` event and prints the stop marker (the event, not a cursor file, is the terminal signal here).
 
 ### Final: Run Status
 After archiving, run `/ship-status` to give the user a clean project health snapshot and auto-fix any state issues before the next cycle.
@@ -538,9 +539,7 @@ After archiving, run `/ship-status` to give the user a clean project health snap
 
 The skip-release path (`stage: archive`) and the full-release path (after `release_step_3`) both converge here. Run the terminal protocol:
 
-1. Emit the terminal event: `shipyard-data events emit pipeline_terminal pipeline=ship-review sprint=<id> outcome=success reason=cycle_complete`.
-2. Use the Write tool to write the cursor with `terminal: true`, `status: complete`, `stage: terminal`, `next_action: "Pipeline complete — no further work."` (Note: the cursor file may already have rotated into the archived sprint directory after `archive-sprint`; if the new `current/` is empty, skip the cursor write — the terminal event is the canonical signal.)
-3. Print the sprint-complete banner:
+1. Print the sprint-complete banner (everything EXCEPT the stop marker — the marker is the CLI's job and must land last):
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -555,12 +554,12 @@ The skip-release path (`stage: archive`) and the full-release path (after `relea
   /ship-discuss — explore new features
   /ship-sprint — plan next sprint (if backlog has approved features)
   (tip: /clear first for a fresh context window)
-
-▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-The marker line `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` is load-bearing and **must be the final line** — `/loop` drivers read the LAST line as the structural continue-or-stop signal, so the NEXT-UP hint prints BEFORE it, never after (the v2.8.2 ordering fix; a `NEXT UP` line printed last reads as "keep going" to an over-eager driver). Before exiting, if this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-review`.
+2. Run `shipyard-data cursor advance review terminal outcome=success reason=cycle_complete --note "Pipeline complete — no further work."`. The CLI emits `pipeline_terminal outcome=success` and prints `▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.` Echo its output so that marker is the FINAL line of your response. (If `archive-sprint` already rotated `current/` away, there is no cursor file to write — the CLI still emits the terminal event and prints the marker; the event is the canonical terminal signal.)
+
+The stop marker is load-bearing and **must be the final line** — `/loop` drivers read the LAST line as the structural continue-or-stop signal, so the NEXT-UP hint (printed in step 1) comes BEFORE it, never after (the v2.8.2 ordering fix; a `NEXT UP` line printed last reads as "keep going" to an over-eager driver). The CLI guarantees the marker is last as long as you echo its output after the banner and print nothing further. Before exiting, if this cycle emitted `pipeline_loop_bootstrap_fallback`, `CronList` + `CronDelete` any cron whose prompt targets `/shipyard:ship-review`.
 
 ---
 

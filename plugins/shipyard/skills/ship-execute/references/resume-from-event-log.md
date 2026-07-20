@@ -1,8 +1,8 @@
 # Resume from Event Log (/goal-mode crash recovery)
 
-A user-initiated pause writes HANDOFF.md (see the Pause/Resume section in SKILL.md). A /goal-mode interruption — Esc mid-loop, escalation halt, budget exhaustion, session crash without HANDOFF.md — leaves no hand-written artifact. The event log at `<SHIPYARD_DATA>/.shipyard-events.jsonl` is the source of truth instead.
+A user-initiated pause sets the cursor to `status: paused` (see the Pause/Resume section in SKILL.md). A /goal-mode interruption — Esc mid-loop, escalation halt, budget exhaustion, session crash without a clean pause — leaves no explicit resume note. The event log at `<SHIPYARD_DATA>/.shipyard-events.jsonl` is the source of truth instead.
 
-When `/ship-execute` re-enters without HANDOFF.md but with a non-empty event log, run this protocol.
+When `/ship-execute` re-enters with a non-paused cursor (or none) but a non-empty event log, run this protocol.
 
 ## Protocol
 
@@ -40,7 +40,7 @@ PROGRESS.md is for humans; the event log is for machines. /goal-mode resume read
 - **PROGRESS.md is summary-shaped** — "Wave 2 in progress, 3 of 5 tasks done." The event log carries the actual task IDs and structured data needed to identify the missing tasks.
 - **PROGRESS.md doesn't capture failure modes** — the event log carries silent-failure markers, escalations, and the specific reason an interruption happened. Resume can match the recovery action to the failure shape.
 
-PROGRESS.md is still the right surface for the user to glance at — *"where are we in the sprint?"* — and for the orchestrator to update with human-readable status during normal flow. It just isn't the right surface for crash-recovery state reconstruction.
+PROGRESS.md is still the right surface for the user to glance at — *"where are we in the sprint?"* — and it stays current because the renderer regenerates it from the event log on every cursor write (no one writes it by hand). It just isn't the right surface for crash-recovery state reconstruction.
 
 ## When the event log is empty or corrupted
 
@@ -56,8 +56,8 @@ In any of these cases, fall back to:
 2. If state is consistent, re-enter `/ship-execute` from the start of the current wave (per the existing Compaction Recovery protocol).
 3. If state is inconsistent, halt and surface to the user — manual intervention required.
 
-## Interaction with HANDOFF.md
+## Interaction with a paused cursor
 
-When both HANDOFF.md exists AND the event log is non-empty, HANDOFF.md takes precedence — it captures user-intent for the pause (which the event log doesn't). The event log is the fallback when HANDOFF.md is missing.
+When the cursor is `status: paused` AND the event log is non-empty, the paused cursor takes precedence — its `stage:` and body note capture user-intent for the pause (which the event log doesn't). The event log is the fallback when the cursor was not cleanly paused (`status: in_progress` after a crash).
 
-A clean shutdown should always write HANDOFF.md. The event-log resume is for the cases where shutdown wasn't clean.
+A clean shutdown should always `shipyard-data cursor pause execute --note …`. The event-log resume is for the cases where shutdown wasn't clean.

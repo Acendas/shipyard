@@ -99,7 +99,8 @@
   {
     "name": "v250_subagent_writes_capture_file",
     "type": "contains",
-    "pattern": "Write the capture file \\(MANDATORY\\)"
+    "pattern": "Persist the structured return via the CLI \\(MANDATORY\\)",
+    "why": "v2.9.0: the builder persists its return via `shipyard-data task-return` (JSON), not a hand-written capture file"
   },
   {
     "name": "v250_capture_file_path_canonical",

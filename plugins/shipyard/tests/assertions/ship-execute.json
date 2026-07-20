@@ -5,9 +5,10 @@
     "pattern": "\\bgit\\s+push\\b"
   },
   {
-    "name": "documents_with_lock_for_progress",
+    "name": "progress_is_render_owned",
     "type": "contains",
-    "pattern": "shipyard-data with-lock"
+    "pattern": "PROGRESS\\.md.*(auto-render|render|never written|CLI)|re-renders PROGRESS\\.md",
+    "why": "v2.9.0: PROGRESS.md has a single deterministic writer (the renderer, invoked by cursor advance); no with-lock choreography needed"
   },
   {
     "name": "test_delegation_no_raw_data_dir_redirect",
@@ -208,12 +209,12 @@
   {
     "name": "wave_status_progress_bar",
     "type": "contains",
-    "pattern": "\u2588.*\u2591|progress bar"
+    "pattern": "█.*░|progress bar"
   },
   {
     "name": "wave_status_projection",
     "type": "contains",
-    "pattern": "Wave \\[N\\]/\\[M\\]|\u2192 Wave"
+    "pattern": "Wave \\[N\\]/\\[M\\]|→ Wave"
   },
   {
     "name": "uses_shipyard_data_path",
@@ -242,9 +243,10 @@
     "target": "ref:team-mode.md"
   },
   {
-    "name": "handoff_tracks_queued_tracks",
+    "name": "pause_note_carries_team_state",
     "type": "contains",
-    "pattern": "queued_tracks"
+    "pattern": "cursor pause execute",
+    "why": "v2.9.0: HANDOFF.md is retired; the paused cursor's body note carries resume context (team_name / queued tracks)"
   },
   {
     "name": "has_step0_worktree_salvage",
@@ -649,7 +651,7 @@
   {
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
-    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+    "pattern": "Never use .?`?echo`?.*(redirect|shell|state)|Never use `echo`, `printf`, or shell redirects"
   },
   {
     "name": "refactor_loop_replaces_old_fixer_flow",
@@ -834,7 +836,7 @@
   {
     "name": "auto_loop_cleanup_on_terminal",
     "type": "contains",
-    "pattern": "do NOT carry .?auto_loop_attempted"
+    "pattern": "does not carry .?auto_loop_attempted.? forward|do NOT carry .?auto_loop_attempted"
   },
   {
     "name": "auto_loop_has_cron_fallback",
@@ -874,7 +876,8 @@
   {
     "name": "wakeup_leak_protection_three_conditions_named",
     "type": "contains",
-    "pattern": "all THREE conditions"
+    "pattern": "cursor .?terminal: true.?, SPRINT\\.md .?status: completed.?, or no active sprint|all THREE conditions",
+    "why": "the three dead-sprint conditions must stay named in the sweep instruction"
   },
   {
     "name": "wakeup_leak_protection_sprint_md_completed_checked",
@@ -889,12 +892,13 @@
   {
     "name": "wakeup_leak_protection_emits_pipeline_terminal_on_noop",
     "type": "contains",
-    "pattern": "pipeline_terminal pipeline=ship-execute sprint=.+? outcome=noop reason=sprint_already_complete"
+    "pattern": "cursor noop execute.*reason=<?sprint_already_complete|cursor noop execute \\[sprint=<id>\\] \\[reason=<sprint_already_complete",
+    "why": "v2.9.0: the noop emit is done by `shipyard-data cursor noop` (emit-first is pinned in test_cursor_cli.mjs); the skill must route through it with the canonical reason"
   },
   {
     "name": "wakeup_leak_protection_prints_cycle_complete_marker",
     "type": "contains",
-    "pattern": "CYCLE COMPLETE \u2014 sprint already complete\\. /loop should stop\\."
+    "pattern": "CYCLE COMPLETE — sprint already complete\\. /loop should stop\\."
   },
   {
     "name": "wakeup_leak_protection_references_v2_2_0_lesson",
@@ -919,7 +923,8 @@
   {
     "name": "bootstrap_dead_sprint_emits_terminal",
     "type": "contains",
-    "pattern": "pipeline_terminal pipeline=ship-execute sprint=.+? outcome=noop reason=sprint_dead_at_bootstrap"
+    "pattern": "cursor noop execute reason=sprint_dead_at_bootstrap",
+    "why": "v2.9.0: bootstrap-time dead-sprint detection routes through cursor noop with the dedicated reason"
   },
   {
     "name": "v250_background_dispatch_documented",
@@ -934,7 +939,8 @@
   {
     "name": "v250_pending_subagents_cursor_field",
     "type": "contains",
-    "pattern": "pending_subagents: \\[\\{ task_id, spawned_at, max_execution_minutes \\}\\]"
+    "pattern": "pending_subagents=",
+    "why": "v2.9.0: pending_subagents is passed to cursor advance as a JSON k=v; the CLI renders the YAML list"
   },
   {
     "name": "v250_wave_waiting_stage_documented",
@@ -1032,9 +1038,10 @@
     "pattern": "LOOP LEAK"
   },
   {
-    "name": "loop_leak_uses_scan_events",
+    "name": "loop_leak_detection_is_cli_owned",
     "type": "contains",
-    "pattern": "scan-events --tail \\d+ pipeline_terminal"
+    "pattern": "repeat-leak|pipeline_loop_leak_detected",
+    "why": "v2.9.0: repeat-leak detection runs inside `cursor noop` (pinned in test_cursor_cli.mjs); the skill documents it"
   },
   {
     "name": "loop_leak_event_in_vocabulary",

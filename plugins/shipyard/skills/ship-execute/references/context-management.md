@@ -42,11 +42,11 @@ Don't pre-load files the subagent might not need. Let it read on demand.
 
 Claude's auto-compaction clears old tool outputs first, then summarizes if needed. To work well with this:
 
-- **State lives in files, not conversation.** PROGRESS.md, HANDOFF.md, debug files — these survive compaction.
+- **State lives in files, not conversation.** The pipeline cursor (EXECUTE-CURSOR.md), the event log, PROGRESS.md, debug files — these survive compaction. (A pause is a cursor state now — `shipyard-data cursor pause execute --note …`; HANDOFF.md is retired.)
 - **Don't rely on early conversation for late decisions.** If something matters, it should be in a file.
 - **Large outputs get cleared first.** If you ran a big test suite, the output will be compacted before your recent messages.
-- **Recovery is file-based.** If you lose track of execution state after compaction, follow the Compaction Recovery protocol in SKILL.md — re-read PROGRESS.md (`current_wave`), SPRINT.md (wave structure), and task files (status). Full state reconstructs in ~5 tool calls.
-- **Checkpoint pattern.** All long-running skills write a transient checkpoint file at their critical boundary — the point where the most autonomous work has accumulated. Each skill's Compaction Recovery section documents how to reconstruct state from these files. This pattern applies to: ship-execute (PROGRESS.md `current_wave`), ship-sprint (`<SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md`), ship-review (`<SHIPYARD_DATA>/verify/*-verdict.md` + `RETRO-DATA.md` + `<SHIPYARD_DATA>/releases/*-draft.md`), ship-discuss (`<SHIPYARD_DATA>/releases/*-draft.md`), and ship-discuss (`<SHIPYARD_DATA>/spec/.research-draft.md`).
+- **Recovery is file-based.** If you lose track of execution state after compaction, follow the Compaction Recovery protocol in SKILL.md — read EXECUTE-CURSOR.md first (authoritative `stage:`), then PROGRESS.md (`current_wave`), SPRINT.md (wave structure), and task files (status). Full state reconstructs in ~5 tool calls.
+- **Checkpoint pattern.** All long-running skills write a transient checkpoint file at their critical boundary — the point where the most autonomous work has accumulated. Each skill's Compaction Recovery section documents how to reconstruct state from these files. This pattern applies to: ship-execute (EXECUTE-CURSOR.md `stage:` + PROGRESS.md `current_wave`), ship-sprint (`<SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md`), ship-review (`<SHIPYARD_DATA>/verify/*-verdict.md` + `RETRO-DATA.md` + `<SHIPYARD_DATA>/releases/*-draft.md`), ship-discuss (`<SHIPYARD_DATA>/releases/*-draft.md`), and ship-discuss (`<SHIPYARD_DATA>/spec/.research-draft.md`).
 
 ## Solo Mode Context
 

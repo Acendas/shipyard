@@ -83,7 +83,7 @@ NOTE: The task file's `status: done` is the single source of truth (Shipyard dat
 The TaskUpdate status is a coordination signal for the lead's monitoring loop only.
 If they ever diverge, the task file wins. On recovery, read task file status.
 
-NOTE: PROGRESS.md is updated by the lead, not teammates. Don't write to it.
+NOTE: PROGRESS.md is a derived artifact — the render-progress hook regenerates it from the event log. Neither teammates nor the lead write it directly.
 
 ## Interface Change Protocol
 When you modify a shared type, API endpoint, schema, or public interface:
@@ -197,7 +197,7 @@ Recovery steps:
 
 ## Session Resume Prompt
 
-When re-spawning teammates after a session break (from HANDOFF.md resume) or after a crash, use the standard teammate prompt with this addition appended:
+When re-spawning teammates after a session break (resuming from a paused cursor — its body note carries the `team_name` / teammate list) or after a crash, use the standard teammate prompt with this addition appended:
 
 ```
 RECOVERY NOTE: You are resuming after a session break or teammate crash.

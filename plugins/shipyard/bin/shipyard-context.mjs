@@ -210,11 +210,8 @@ const VIEW_REGISTRY = {
     lines: 50,
     fallback: "No sprint progress yet",
   },
-  "sprint-handoff": {
-    path: ["sprints", "current", "HANDOFF.md"],
-    lines: 10,
-    fallback: "No sprint handoff",
-  },
+  // "sprint-handoff" retired in v2.9.0 — HANDOFF.md no longer exists; pause
+  // state lives in the pipeline cursor (status: paused + body note).
   metrics: {
     path: ["memory", "metrics.md"],
     lines: 20,

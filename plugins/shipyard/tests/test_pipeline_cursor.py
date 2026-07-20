@@ -168,11 +168,17 @@ class TestTickContinueMarker(unittest.TestCase):
     def test_execute_ref_has_tick_continue(self):
         self._assert_tick_continue_in(SHIP_EXECUTE_CURSOR_REF)
 
-    def test_review_skill_has_tick_continue(self):
-        self._assert_tick_continue_in(SHIP_REVIEW_SKILL)
+    def test_review_skill_advances_via_cli_and_echoes_marker(self):
+        # v2.9.0: the CLI prints the tick marker; the skill's contract is to
+        # advance via `cursor advance` and echo the CLI output.
+        text = read(SHIP_REVIEW_SKILL)
+        self.assertIn("cursor advance review", text)
+        self.assertRegex(text, r"[Ee]cho (the CLI|its output|the CLI's)")
 
-    def test_execute_skill_has_tick_continue(self):
-        self._assert_tick_continue_in(SHIP_EXECUTE_SKILL)
+    def test_execute_skill_advances_via_cli_and_echoes_marker(self):
+        text = read(SHIP_EXECUTE_SKILL)
+        self.assertIn("cursor advance execute", text)
+        self.assertRegex(text, r"[Ee]cho (the CLI|its output|the CLI's)")
 
 
 class TestEventVocabularyConsistent(unittest.TestCase):
@@ -245,6 +251,7 @@ class TestStageMapDocumented(unittest.TestCase):
         "simplify",
         "tests",
         "spec_review",
+        "quality_gates",
         "goal_verify",
         "gap_analysis",
         "critic",
@@ -428,10 +435,13 @@ class TestHandoffSeamWakeupLeak(unittest.TestCase):
 
     def test_execute_handoff_stop_marker_is_the_last_signal(self):
         """In the execute terminal_handoff banner, the /loop-stop marker
-        must come AFTER the NEXT UP /ship-review line."""
+        must come AFTER the NEXT UP /ship-review line. Since v2.9.0 the CLI
+        prints the banner (cursor-cli.mjs — behavior pinned in
+        test_cursor_cli.mjs); this asserts the skill documents the same
+        ordering so the model doesn't append output after the marker."""
         text = read(SHIP_EXECUTE_SKILL)
-        anchor = text.find("Print the sprint-complete report")
-        self.assertNotEqual(anchor, -1, "handoff sprint-complete report block not found")
+        anchor = text.find("cursor advance execute terminal_handoff_to_review")
+        self.assertNotEqual(anchor, -1, "terminal_handoff advance block not found")
         region = text[anchor:anchor + 1400]
         nextup = region.find("NEXT UP: /ship-review")
         stop = region.find(LOOP_STOP_MARKER)
@@ -470,12 +480,17 @@ class TestHandoffSeamWakeupLeak(unittest.TestCase):
                 f"{p.name} must print the hard '{LOOP_LEAK_MARKER}' marker on a repeat no-op",
             )
 
-    def test_noop_leak_detection_uses_scan_events(self):
+    def test_noop_leak_detection_is_cli_owned(self):
+        # v2.9.0: repeat-leak detection moved from a model-side
+        # `shipyard-context scan-events` sweep into `cursor noop` itself
+        # (behavior pinned in test_cursor_cli.mjs). The refs must route the
+        # no-op path through the CLI and document that it self-detects.
         for p in (SHIP_EXECUTE_CURSOR_REF, SHIP_REVIEW_CURSOR_REF):
+            text = read(p)
+            self.assertIn("cursor noop", text, f"{p.name} must route the no-op path through the CLI")
             self.assertRegex(
-                read(p), r"scan-events --tail \d+ pipeline_terminal",
-                f"{p.name} must detect a repeat no-op by scanning prior "
-                f"pipeline_terminal events via shipyard-context scan-events",
+                text, r"repeat-leak|pipeline_loop_leak_detected",
+                f"{p.name} must document the CLI's repeat-leak self-detection",
             )
 
     def test_noop_emit_is_non_optional(self):

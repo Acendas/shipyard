@@ -19,7 +19,7 @@ Plan a new sprint by pulling features from the backlog and decomposing into wave
 !`shipyard-context view metrics`
 !`shipyard-context view codebase 30`
 
-**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Shipyard binaries you may invoke from Bash: `shipyard-data archive-sprint <id>` and `shipyard-data init-sprint <id>` (Step 11.1). **Never `cd` into the data directory before running `shipyard-data` commands** — they resolve the data directory internally via git and env vars; `cd`-ing into a non-git directory breaks the resolver. Just run the command bare from the project root. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files** — use the Write tool for arbitrary frontmatter (auto-approved for SHIPYARD_DATA) or the `init-sprint` CLI for SPRINT.md / PROGRESS.md creation (template-canonical). When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
+**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Shipyard binaries you may invoke from Bash: `shipyard-data archive-sprint <id>`, `shipyard-data init-sprint <id>` (Step 12), `shipyard-data sprint set <key> <value>` and `shipyard-data sprint check` (Step 12). **Never `cd` into the data directory before running `shipyard-data` commands** — they resolve the data directory internally via git and env vars; `cd`-ing into a non-git directory breaks the resolver. Just run the command bare from the project root. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files.** SPRINT.md and PROGRESS.md are created by the `init-sprint` CLI (template-canonical); **SPRINT.md frontmatter is thereafter mutated only via `shipyard-data sprint set`, never a hand Edit** (hand-editing frontmatter is the corruption class that welds keys together). **PROGRESS.md and the pipeline cursors are CLI/render-owned — the model never writes them** (a PreToolUse hook denies such writes). Use the Write tool (auto-approved for SHIPYARD_DATA) for arbitrary *narrative* artifacts (feature files, task files, SPRINT-DRAFT.md); the SPRINT.md *body* (Goal, `### Wave N`, Critical Path, Risks, Swap Log) stays a model Edit on the CLI-created file. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
 
 ## Input
 
@@ -342,11 +342,13 @@ Then use `AskUserQuestion` for approval:
 
 If approved:
 
-1. Use Edit to set `status: superseded` in SPRINT-DRAFT.md frontmatter (the soft-deleted record stays in place; physical removal is manual for now — do not physically delete). Run `shipyard-data init-sprint <sprint-id> --data-dir <SHIPYARD_DATA>` (Bash) to atomically create SPRINT.md and PROGRESS.md from the canonical templates at `project-files/templates/`. The `--data-dir` flag bypasses the git-based resolver — use it with the literal SHIPYARD_DATA path from the context block. **If init-sprint fails, STOP and surface the error to the user — do NOT fall back to Write.** Writing SPRINT.md or PROGRESS.md from memory causes schema drift (missing `started_at: null` comments, wrong default `status`, extra sections not in the template) that breaks downstream invariants. The CLI substitutes `id:` and `created:` only; everything else stays at template defaults and gets filled in via Edit below.
-2. Use Edit on SPRINT.md to fill the frontmatter (`goal`, `capacity`, `features`, `execution_mode`) and body sections (Goal, Waves, Critical Path, Risks, Swap Log) from the approved plan.
+1. Use Edit to set `status: superseded` in SPRINT-DRAFT.md frontmatter (the soft-deleted record stays in place; physical removal is manual for now — do not physically delete). Run `shipyard-data init-sprint <sprint-id> --data-dir <SHIPYARD_DATA>` (Bash) to atomically create SPRINT.md and PROGRESS.md from the canonical templates at `project-files/templates/`. The `--data-dir` flag bypasses the git-based resolver — use it with the literal SHIPYARD_DATA path from the context block. **If init-sprint fails, STOP and surface the error to the user — do NOT fall back to Write.** Writing SPRINT.md or PROGRESS.md from memory causes schema drift (missing `started_at: null` comments, wrong default `status`, extra sections not in the template) that breaks downstream invariants. The CLI substitutes `id:` and `created:` only; everything else stays at template defaults and gets filled in via `shipyard-data sprint set` (frontmatter) and a model Edit of the body, below.
+2. Fill SPRINT.md from the approved plan in two parts:
+   - **Frontmatter fields** — set each via `shipyard-data sprint set <key> <value>` (typed atomic frontmatter mutation): `sprint set goal "<goal>"`, `sprint set capacity <N>`, `sprint set features "<F001,F005>"`, `sprint set execution_mode <solo|subagent|team>`. Do NOT Edit SPRINT.md frontmatter by hand — hand-edits are the corruption class that welds frontmatter keys together; the CLI merges atomically.
+   - **Body sections** — the narrative body (Goal, `### Wave N` sections, Critical Path, Risks, Swap Log) stays a model Edit on SPRINT.md. After writing the wave body, run `shipyard-data sprint check` to validate the `### Wave N` structure parses. If it exits 3, fix the wave formatting and re-run until it passes — the terminal gate parses this structure later, so unparseable waves would block sprint completion.
 3. Update feature statuses to `in-progress` in feature frontmatter.
 4. Remove pulled feature IDs from BACKLOG.md.
-5. **Record working branch** — capture the user's current branch: `git branch --show-current`. Use Edit to write `branch: <current branch>` into SPRINT.md frontmatter. Shipyard works on whatever branch the user is already on — it does not create sprint branches.
+5. **Record working branch** — capture the user's current branch: `git branch --show-current`. Set it via `shipyard-data sprint set branch <current branch>` (not a hand Edit of SPRINT.md frontmatter). Shipyard works on whatever branch the user is already on — it does not create sprint branches.
 
 **Clean up active-skill mutex:** Use the Write tool to overwrite `<SHIPYARD_DATA>/.active-session.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel — the mutex pattern treats `skill: null` as inactive). Planning is complete.
 
@@ -415,8 +417,8 @@ Never reorder or modify already-completed waves. Only add to the current wave (i
 
 ### Step E5: Update Sprint Files
 
-1. Add new task IDs to SPRINT.md wave structure
-2. Update SPRINT.md frontmatter: add new feature IDs to `features:`, update capacity used
+1. Add new task IDs to SPRINT.md wave structure (body Edit), then run `shipyard-data sprint check` to confirm the `### Wave N` structure still parses
+2. Update SPRINT.md frontmatter via `shipyard-data sprint set features "<full updated list>"` (not a hand Edit of frontmatter). If the total capacity budget changes, also `shipyard-data sprint set capacity <N>`; used-capacity is derived and not a stored frontmatter field.
 3. Update feature statuses to `in-progress` in feature frontmatter
 4. Remove new feature IDs from BACKLOG.md
 5. Log in SPRINT.md swap log: `| [date] | [added IDs] | — | Mid-sprint extension |`
@@ -454,7 +456,7 @@ Then show:
    - **In-progress tasks** → commit work-in-progress with `wip(cancel):` prefix, update status to `approved` in task file frontmatter, update parent **feature** status to `approved` in feature frontmatter, add feature ID back to BACKLOG.md
    - **Not started tasks** → update status to `approved` in task file frontmatter, update parent **feature** status to `approved` in feature frontmatter, add feature ID back to BACKLOG.md
    - For all cancelled features (not done): clear the `tasks:` array in feature frontmatter so the next sprint planning re-decomposes them fresh
-3. Sprint status → `cancelled`
+3. Sprint status → `cancelled` via `shipyard-data sprint set status cancelled` (not a hand Edit of SPRINT.md frontmatter)
 4. Git cleanup:
    - Any uncommitted work is committed as WIP
    - Clean up any isolated working copies (worktrees)

@@ -51,13 +51,13 @@ Use Edit to update QUALITY-GATE.md `Status` column for each processed gate:
 - **>50% of probe/tool gates fail**: AskUserQuestion: "Over half the quality gates failed ([N] of [M]). Continue review or abort? (continue — address in Stage 4 / abort — fix gates first)"
 - **All gates pass**: Proceed to next stage. Emit event: `quality_gates_passed sprint=<id> standing=<n> sprint_specific=<n> integration=<n>`
 
-## Cursor Write
+## Cursor Advance
 
-On completion, write to REVIEW-CURSOR.md:
-- If UI features exist: `stage: visual`, `terminal: false`, `next_action: "Run Stage 2 visual verification"`
-- If no UI features: `stage: goal_verify`, `terminal: false`, `next_action: "Run Stage 3 goal verification"`
+On completion, advance the CLI-owned cursor (never Write REVIEW-CURSOR.md directly — the PreToolUse hook denies it; the CLI emits `pipeline_tick_completed` and prints the tick marker):
+- If UI features exist: `shipyard-data cursor advance review visual --note "Run Stage 2 visual verification"`
+- If no UI features: `shipyard-data cursor advance review goal_verify --note "Run Stage 3 goal verification"`
 
-Emit: `pipeline_tick_completed pipeline=ship-review sprint=<id> stage=quality_gates outcome=advanced next_stage=<next>`
+Echo the CLI's output as the final lines of the tick.
 
 ## Event Log
 

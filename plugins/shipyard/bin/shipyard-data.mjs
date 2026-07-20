@@ -34,6 +34,8 @@ import { basename, dirname, join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
 import { ensureDataDirLink, getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
+import { cursorCmd } from "./cursor-cli.mjs";
+import { parseWaves } from "./terminal-gate.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -1119,8 +1121,30 @@ function verifyWaveIntegrated() {
   const returnsDir = join(dataDir, "sprints", "current", ".subagent-returns");
   const returns = [];
   if (existsSync(returnsDir)) {
+    const seenJson = new Set();
     for (const name of readdirSync(returnsDir)) {
+      // v2.9.0+: structured JSON written by `shipyard-data task-return`.
+      if (name.endsWith(".json")) {
+        let rec;
+        try {
+          rec = JSON.parse(readFileSync(join(returnsDir, name), "utf8"));
+        } catch {
+          continue;
+        }
+        const task = rec.task || name.replace(/\.json$/, "");
+        seenJson.add(task);
+        returns.push({
+          task,
+          status: String(rec.status || "").toUpperCase(),
+          sha: /^[0-9a-fA-F]{7,40}$/.test(rec.commit_sha || "") ? rec.commit_sha : "",
+        });
+      }
+    }
+    for (const name of readdirSync(returnsDir)) {
+      // Legacy pre-2.9 model-written text contract; JSON wins on collision.
       if (!name.endsWith(".txt")) continue;
+      const task = name.replace(/\.txt$/, "");
+      if (seenJson.has(task)) continue;
       let content;
       try {
         content = readFileSync(join(returnsDir, name), "utf8");
@@ -1129,7 +1153,7 @@ function verifyWaveIntegrated() {
       }
       const status = (content.match(/^STATUS:\s*(\S+)/m) || [])[1] || "";
       const sha = (content.match(/^COMMIT:\s*([0-9a-fA-F]{7,40})/m) || [])[1] || "";
-      returns.push({ task: name.replace(/\.txt$/, ""), status: status.toUpperCase(), sha });
+      returns.push({ task, status: status.toUpperCase(), sha });
     }
   }
 
@@ -1182,6 +1206,212 @@ function verifyWaveIntegrated() {
     }
   }
   process.exit(3);
+}
+
+/**
+ * `shipyard-data sprint set <key> <value>` — typed, atomic frontmatter
+ * mutation on sprints/current/SPRINT.md.
+ *
+ * Why a CLI, not a model Edit: SPRINT.md frontmatter is machine-parsed
+ * (terminal-gate reads `status:` and `features:`; the loop-leak guard keys
+ * off `status: completed`), and model Edits on frontmatter are the
+ * corruption class that welded YAML keys together in the perl-glue
+ * incident. The wave/body narrative stays model-authored — this command
+ * touches only the leading frontmatter block.
+ *
+ * Key allowlist mirrors the lifecycle fields skills legitimately flip.
+ * Unknown keys are refused so drift shows up as an error, not silent state.
+ */
+const SPRINT_SETTABLE_KEYS = new Set([
+  "status",
+  "goal",
+  "capacity",
+  "features",
+  "execution_mode",
+  "branch",
+  "started_at",
+  "completed_at",
+]);
+
+function sprintSet(key, value) {
+  if (!key || value === undefined) {
+    process.stderr.write(
+      "shipyard-data sprint set: usage: sprint set <key> <value>\n" +
+        `  Settable keys: ${[...SPRINT_SETTABLE_KEYS].join(", ")}\n`,
+    );
+    process.exit(2);
+  }
+  if (!SPRINT_SETTABLE_KEYS.has(key)) {
+    process.stderr.write(
+      `shipyard-data sprint set: key "${key}" is not settable. ` +
+        `Allowed: ${[...SPRINT_SETTABLE_KEYS].join(", ")}\n`,
+    );
+    process.exit(2);
+  }
+  const dataDir = getDataDir({ silent: true });
+  const sprintPath = join(dataDir, "sprints", "current", "SPRINT.md");
+  if (!existsSync(sprintPath)) {
+    process.stderr.write(`shipyard-data sprint set: no ${sprintPath} — run init-sprint first\n`);
+    process.exit(1);
+  }
+  const content = readFileSync(sprintPath, "utf8");
+  const fmMatch = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
+  if (!fmMatch) {
+    process.stderr.write("shipyard-data sprint set: SPRINT.md has no frontmatter block — refusing\n");
+    process.exit(1);
+  }
+  const [, open, block, close] = fmMatch;
+  const lineRe = new RegExp(`^${key}:.*$`, "m");
+  let newBlock;
+  if (lineRe.test(block)) {
+    newBlock = block.replace(lineRe, `${key}: ${value}`);
+  } else {
+    newBlock = block.replace(/\s*$/, "") + `\n${key}: ${value}`;
+  }
+  const newContent = open + newBlock + close + content.slice(fmMatch[0].length);
+  const tmp = sprintPath + ".tmp";
+  writeFileSync(tmp, newContent, "utf8");
+  renameSync(tmp, sprintPath);
+  try {
+    logEvent(dataDir, "sprint_frontmatter_set", { key, value });
+  } catch { /* best-effort */ }
+  process.stdout.write(`${key}: ${value}\n`);
+}
+
+/**
+ * `shipyard-data sprint check` — validate the model-authored SPRINT.md
+ * wave body against what the machine consumers can actually parse.
+ *
+ * SPRINT.md is dual-purpose: freeform plan narrative AND a machine
+ * contract (terminal-gate parseWaves extracts `### Wave N` headings +
+ * task IDs to know which evidence to demand). A formatting drift in the
+ * wave headings silently changed what the gate enforced. This check makes
+ * the drift loud at authoring time: ship-sprint runs it right after
+ * writing the wave body; cursor preflight can re-run it cheaply.
+ *
+ * Exit 0 with a parse report, or exit 3 naming what's unparseable.
+ */
+function sprintCheck() {
+  const dataDir = getDataDir({ silent: true });
+  const sprintPath = join(dataDir, "sprints", "current", "SPRINT.md");
+  if (!existsSync(sprintPath)) {
+    process.stderr.write(`✗ sprint check: no ${sprintPath}\n`);
+    process.exit(3);
+  }
+  const content = readFileSync(sprintPath, "utf8");
+  const waves = parseWaves(content);
+  const problems = [];
+  if (waves.length === 0) {
+    problems.push("no `### Wave N` headings parsed — the terminal gate would have no waves to verify");
+  }
+  const empty = waves.filter((w) => w.tasks.length === 0);
+  for (const w of empty) {
+    problems.push(
+      `Wave ${w.wave} parsed with ZERO task IDs — use \`Tasks: [T001, T002]\` or \`- T001\` bullets under the heading`,
+    );
+  }
+  const seen = new Set();
+  for (const w of waves) {
+    if (seen.has(w.wave)) problems.push(`duplicate \`### Wave ${w.wave}\` heading`);
+    seen.add(w.wave);
+  }
+  if (problems.length > 0) {
+    process.stderr.write("✗ sprint check FAILED — SPRINT.md wave structure is not machine-parseable:\n");
+    for (const p of problems) process.stderr.write(`  - ${p}\n`);
+    process.exit(3);
+  }
+  const total = waves.reduce((n, w) => n + w.tasks.length, 0);
+  process.stdout.write(
+    `✓ sprint check — ${waves.length} wave(s), ${total} task(s): ` +
+      waves.map((w) => `W${w.wave}[${w.tasks.join(",")}]`).join(" ") +
+      "\n",
+  );
+}
+
+/**
+ * `shipyard-data task-return <task-id> status=<COMPLETE|BLOCKED> ...` —
+ * record a builder subagent's structured return contract as JSON.
+ *
+ * Replaces the model-Written `.subagent-returns/<id>.txt` free-text files
+ * (v2.9.0). The orchestrator gate and `verify-wave-integrated` Check B
+ * previously regex-parsed the model's text; JSON written by this CLI
+ * removes the parse-the-model's-prose step. `.txt` files from older
+ * versions are still read by verify-wave-integrated for one release.
+ *
+ * Usage:
+ *   shipyard-data task-return T-007 status=COMPLETE commit=<sha> \
+ *     probe-exit=0 [output-tail-file=<path>] [escalation-code=<c>]
+ */
+function taskReturn(args) {
+  const taskId = args[0];
+  if (!taskId || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(taskId)) {
+    process.stderr.write(
+      `shipyard-data task-return: invalid task id ${JSON.stringify(taskId)} — expected [A-Za-z][A-Za-z0-9_-]{0,63}\n`,
+    );
+    process.exit(2);
+  }
+  const kv = {};
+  for (const a of args.slice(1)) {
+    const eq = a.indexOf("=");
+    if (eq <= 0) {
+      process.stderr.write(`shipyard-data task-return: unrecognized argument "${a}" — expected k=v\n`);
+      process.exit(2);
+    }
+    kv[a.slice(0, eq)] = a.slice(eq + 1);
+  }
+  const status = (kv.status || "").toUpperCase();
+  if (status !== "COMPLETE" && status !== "BLOCKED") {
+    process.stderr.write("shipyard-data task-return: status=COMPLETE|BLOCKED is required\n");
+    process.exit(2);
+  }
+  const sha = kv.commit || "";
+  if (status === "COMPLETE" && !/^[0-9a-fA-F]{7,40}$/.test(sha)) {
+    process.stderr.write("shipyard-data task-return: status=COMPLETE requires commit=<7-40 hex sha>\n");
+    process.exit(2);
+  }
+  const probeExit = kv["probe-exit"] !== undefined ? parseInt(kv["probe-exit"], 10) : null;
+  if (status === "COMPLETE" && probeExit !== 0) {
+    process.stderr.write(
+      `shipyard-data task-return: status=COMPLETE requires probe-exit=0 (got ${kv["probe-exit"] ?? "(missing)"}) — a COMPLETE claim with a failing probe is the false-completion class this contract exists to block\n`,
+    );
+    process.exit(3);
+  }
+  let outputTail = "";
+  if (kv["output-tail-file"]) {
+    try {
+      const raw = readFileSync(kv["output-tail-file"], "utf8");
+      outputTail = raw.length > 4096 ? raw.slice(-4096) : raw;
+    } catch (err) {
+      process.stderr.write(`shipyard-data task-return: cannot read output-tail-file: ${err.message}\n`);
+      process.exit(2);
+    }
+  }
+
+  const dataDir = getDataDir({ silent: true });
+  const returnsDir = join(dataDir, "sprints", "current", ".subagent-returns");
+  mkdirSync(returnsDir, { recursive: true });
+  const record = {
+    task: taskId,
+    status,
+    commit_sha: sha || null,
+    probe_exit_code: probeExit,
+    escalation_code: kv["escalation-code"] || null,
+    output_tail: outputTail,
+    recorded_at: new Date().toISOString(),
+  };
+  const path = join(returnsDir, `${taskId}.json`);
+  const tmp = path + ".tmp";
+  writeFileSync(tmp, JSON.stringify(record, null, 2) + "\n", "utf8");
+  renameSync(tmp, path);
+  try {
+    logEvent(dataDir, "task_return_recorded", {
+      task: taskId,
+      status: status.toLowerCase(),
+      commit_sha: sha || null,
+      probe_exit_code: probeExit,
+    });
+  } catch { /* best-effort */ }
+  process.stdout.write(path + "\n");
 }
 
 /**
@@ -1416,6 +1646,28 @@ function main() {
       verifyWaveIntegrated();
       break;
     }
+    case "cursor": {
+      cursorCmd(getDataDir({ silent: true }), process.argv.slice(3));
+      break;
+    }
+    case "sprint": {
+      const rest = process.argv.slice(3);
+      if (rest[0] === "set") {
+        sprintSet(rest[1], rest.slice(2).join(" "));
+      } else if (rest[0] === "check") {
+        sprintCheck();
+      } else {
+        process.stderr.write(
+          `shipyard-data sprint: unknown subcommand "${rest[0] ?? ""}". Expected: set <key> <value> | check\n`,
+        );
+        process.exit(2);
+      }
+      break;
+    }
+    case "task-return": {
+      taskReturn(process.argv.slice(3));
+      break;
+    }
     case "doctor": {
       doctor();
       break;
@@ -1424,7 +1676,7 @@ function main() {
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated | doctor\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated | doctor\n`,
       );
       process.exit(1);
   }
