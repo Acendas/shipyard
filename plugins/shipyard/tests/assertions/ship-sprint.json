@@ -519,5 +519,29 @@
     "type": "contains",
     "pattern": "skip entirely for non-data sprints|data features only",
     "target": "ref:spec-validation.md"
+  },
+  {
+    "name": "step_checklist_created",
+    "type": "contains",
+    "pattern": "Step 0: Create the Step Checklist",
+    "why": "PLAN mode creates the 20-step task checklist so skipped steps are visible"
+  },
+  {
+    "name": "task_list_never_authority",
+    "type": "contains",
+    "pattern": "NEVER authority",
+    "why": "tasks are a progress mirror + recovery anchor, never evidence a step ran"
+  },
+  {
+    "name": "recovery_uses_tasklist_anchor",
+    "type": "contains",
+    "pattern": "Call `TaskList\\(\\)` first",
+    "why": "compaction recovery anchors on the checklist, confirms against files"
+  },
+  {
+    "name": "checklist_distinguishable_from_team_tasks",
+    "type": "contains",
+    "pattern": "Step N:.*keeps the planning checklist distinguishable",
+    "why": "ship-execute team mode shares the task system for build tasks; prefixes prevent cross-contamination"
   }
 ]

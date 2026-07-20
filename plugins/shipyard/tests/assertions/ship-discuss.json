@@ -698,5 +698,29 @@
     "pattern": "[Ss]kip entirely\\s+for features with no persistence",
     "dotall": true,
     "target": "ref:phase-quality-and-critique.md"
+  },
+  {
+    "name": "phase_checklist_created",
+    "type": "contains",
+    "pattern": "Phase 0: Create the Phase Checklist",
+    "why": "NEW mode creates the 15-phase task checklist so skipped phases are visible"
+  },
+  {
+    "name": "task_list_never_authority",
+    "type": "contains",
+    "pattern": "NEVER authority",
+    "why": "tasks are a progress mirror + recovery anchor; gating behavior on TaskList state would recreate the dual-authority drift class"
+  },
+  {
+    "name": "recovery_uses_tasklist_anchor",
+    "type": "contains",
+    "pattern": "Call `TaskList\\(\\)` first",
+    "why": "compaction recovery gets a structured position anchor before re-deriving from prose, but files win on disagreement"
+  },
+  {
+    "name": "skipped_phases_marked_not_deleted",
+    "type": "contains",
+    "pattern": "skipped: <reason>",
+    "why": "a silently-deleted checklist item is indistinguishable from a silently-skipped phase"
   }
 ]

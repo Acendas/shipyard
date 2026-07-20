@@ -1,7 +1,7 @@
 ---
 name: ship-discuss
 description: "Discover features from idea to full spec."
-allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, "Bash(shipyard-context:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, TaskCreate, TaskUpdate, TaskList, "Bash(shipyard-context:*)"]
 effort: high
 argument-hint: "[topic | feature ID | issue key | --idea <description>]"
 ---
@@ -159,6 +159,8 @@ Flesh out later with: /ship-discuss IDEA-NNN
 
 If you lose context mid-discussion (e.g., after auto-compaction):
 
+0. **Call `TaskList()` first.** If the phase-checklist tasks from NEW mode Phase 0 are present, the last `in_progress` (or first non-`completed`) task names the phase to resume — use it as the structured position anchor, then confirm against the file evidence below before resuming (the tasks are a mirror, not authority; if tasks and files disagree, the files win).
+
 1. Use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md`. If it exists, parse its frontmatter — if `obsolete: true` is set, treat it as absent (skip to step 2). Otherwise:
    - If found and `topic:` matches → research and challenge phases completed. Read it for findings. Resume from Phase 2 (Viability Gate)
    - If found but its `topic:` doesn't match the current discussion topic → topic-mismatch fork. The user just typed `/ship-discuss [new topic]`, but stale research exists for `[old topic]`. The default behavior MUST favor the user's most recent intent (the new topic) — abandoning a fresh request to resume stale research is the wrong-by-default semantics that surfaced as HIGH-risk in the v2.4.0 audit (user picks "keep" thinking it means "keep my new topic", silently discards the new request). Use `AskUserQuestion` with options labeled by the topic they refer to, NOT by abstract verbs like "keep" or "discard":
@@ -269,6 +271,32 @@ Idea archival happens inside Phase 6 (Finalize), between the BACKLOG.md append a
 ---
 
 ## NEW Mode: Discover Features
+
+### Phase 0: Create the Phase Checklist (task list)
+
+On entering NEW mode, `TaskCreate` one task per phase so the user can see where the discussion is and skipped phases become visible instead of silent:
+
+| # | Subject |
+|---|---------|
+| 1 | Phase 1: Understand — discovery conversation |
+| 2 | Phase 1.5: Research (constitution, internal, external, diagrams) |
+| 3 | Phase 1.5b: Challenge & Surface |
+| 4 | Phase 2: Viability Gate (5 gates) |
+| 5 | Phase 3: Write to Spec |
+| 6 | Phase 3.5: Impact Analysis |
+| 7 | Phase 3.7: E2E AC Validation |
+| 8 | Phase 3.8: Simplification Scan |
+| 9 | Phase 4: Capture Tangential Ideas |
+| 10 | Phase 4.5: Backlog Re-evaluation |
+| 11 | Phase 4.9: Quality Gate (self-review loop) |
+| 12 | Phase 4.95: Adversarial Critique |
+| 13 | Phase 4.97: Scope-Drift Check |
+| 14 | Phase 5: Spec Approval Gate |
+| 15 | Phase 6: Finalize |
+
+Create all 15 in one batch (subjects prefixed with the topic slug, e.g. `[auth-flow] Phase 2: Viability Gate`, so parallel sessions don't collide). `TaskUpdate` each to `in_progress` when its phase starts and `completed` when it ends. If a mode variant legitimately skips a phase (e.g. REFINE entering mid-flow), mark the skipped tasks `completed` with a `skipped: <reason>` note in the description — never delete them silently.
+
+**Guardrail (load-bearing): the task list is a progress surface and a recovery anchor, NEVER authority.** Do not gate any behavior on TaskList state, do not cite task status as evidence a phase ran, and never mark a phase's task completed before the phase's file/event artifacts exist. The spec files, `.research-draft.md`, and the event log remain the record; the tasks are the user-visible mirror. (Same discipline as PROGRESS.md vs the event log.)
 
 ### Phase 1: Understand
 

@@ -1,7 +1,7 @@
 ---
 name: ship-sprint
 description: "Plan a new sprint or cancel an active one."
-allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, TaskCreate, TaskUpdate, TaskList, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 effort: high
 argument-hint: "[--cancel]"
 ---
@@ -99,6 +99,8 @@ This file is the active-skill mutex (see the `acquiring-skill-lock` capability s
 
 If you lose context mid-planning (e.g., after auto-compaction):
 
+0. **Call `TaskList()` first.** If the step-checklist tasks from PLAN mode Step 0 are present, the last `in_progress` (or first non-`completed`) task names the step to resume — a structured position anchor. Confirm against the file evidence below before resuming (tasks are a mirror, not authority; if tasks and files disagree, the files win).
+
 1. Use the Read tool on `<SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md` (substitute the literal SHIPYARD_DATA path).
    - If draft exists, check staleness: read `created` from frontmatter. If the draft is from a previous session (more than a few hours old) → AskUserQuestion: "A sprint draft from [date] exists with features [list]. Resume it, or start fresh (the existing draft will be overwritten)? (resume / start fresh)"
    - If current/resumed → load it, skip to Step 11 (Present Plan and Confirm)
@@ -118,6 +120,37 @@ The draft captures the full sprint plan (waves, critical path, execution mode). 
 ## PLAN Mode
 
 **Communication design:** Follow the 3-layer explanation pattern and hard targets from `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` for all user-facing questions. Frame velocity as what's achievable, not limiting: "Based on past sprints, you can comfortably deliver ~20 points" not "Your velocity limits you to 20 points." When capacity is exceeded, name the tradeoff: "Ambitious (proceed, risk overrun)" vs "Focused (drop F-005, clean finish)" vs "Flexible (you pick what to drop)."
+
+### Step 0: Create the Step Checklist (task list)
+
+On entering PLAN mode, `TaskCreate` one task per step so the user can watch the plan take shape and no step gets silently skipped:
+
+| # | Subject |
+|---|---------|
+| 1 | Step 1: Determine Capacity |
+| 2 | Step 1.5: Carry-Over Scan |
+| 3 | Step 2: Select Features |
+| 4 | Step 3: Research Before Planning |
+| 5 | Step 3.5: Rules Compliance Check |
+| 6 | Step 3.55: Terminology Alignment Check |
+| 7 | Step 3.6: Definition of Ready Gate |
+| 8 | Step 3.7: Surface Implementation Decisions |
+| 9 | Step 3.75: Simplification Scan |
+| 10 | Step 4: Decompose Tasks (5-stage protocol) |
+| 11 | Step 5: Build Task Dependency Graph |
+| 12 | Step 6: Find the Bottleneck |
+| 13 | Step 7: Wave Assignment |
+| 14 | Step 8: Determine Execution Mode |
+| 15 | Step 9: Prepare Sprint Plan |
+| 16 | Step 9.5: Quality Gate (self-review loop) |
+| 17 | Step 9.7: Adversarial Critique |
+| 18 | Step 10: Generate Quality Gate Manifest |
+| 19 | Step 11: Present Sprint Plan |
+| 20 | Step 12: Create Sprint (after approval) |
+
+Create all 20 in one batch (subjects prefixed with a plan slug, e.g. `[sprint-plan] Step 7: Wave Assignment`). `TaskUpdate` to `in_progress` when a step starts, `completed` when it ends. A legitimately-skipped step (nothing to carry over, no data-model concern) is marked `completed` with `skipped: <reason>` in the description — never deleted silently.
+
+**Guardrail (load-bearing): the task list is a progress surface and a recovery anchor, NEVER authority.** Do not gate any behavior on TaskList state, do not cite task status as evidence a step ran, and never mark a step's task completed before its file artifacts exist (task files, SPRINT-DRAFT.md, the manifest). SPRINT-DRAFT.md, the task files, and the event log remain the record; tasks are the user-visible mirror. (Note: /ship-execute team mode also uses the task system for *build* tasks — the `[sprint-plan] Step N:` subject prefix keeps the planning checklist distinguishable.)
 
 ### Step 1: Determine Capacity
 
