@@ -511,3 +511,48 @@ test("sprint check: placeholder tokens (TBD) are not parsed as task IDs", () => 
     p.cleanup();
   }
 });
+
+test("config set-model: flips think tier opus <-> fable atomically, preserves the rest", () => {
+  const p = makeProject();
+  try {
+    writeFileSync(
+      join(p.dataDir, "config.md"),
+      `---\nconfig_version: 4\nproject_name: "x"\nmodels:\n  think: opus  # comment kept\n  build: sonnet\n  orchestrate: opus\nescalation:\n  enabled: true\n---\n\n# Project Configuration\n`,
+    );
+    let r = p.run(["config", "set-model", "think", "fable"], { expectFail: false });
+    assert.match(r.stdout, /models\.think: fable/);
+    let cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(cfg, /^  think: fable\s*# comment kept$/m, "value flipped, trailing comment preserved");
+    assert.match(cfg, /^  build: sonnet$/m, "sibling keys untouched");
+    assert.match(cfg, /enabled: true/, "other blocks untouched");
+    r = p.run(["config", "set-model", "think", "opus"], { expectFail: false });
+    cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(cfg, /^  think: opus\s*# comment kept$/m, "flipped back");
+    p.run(["config", "set-model", "build", "inherit"], { expectFail: false });
+    cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(cfg, /^  build: ""$/m);
+    assert.equal(p.run(["config", "set-model", "think", "gpt5"]).code, 2);
+    assert.equal(p.run(["config", "set-model", "reviewer", "opus"]).code, 2);
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(events, /config_model_set/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("config set-model: pre-v4 config (no models block) gets one appended", () => {
+  const p = makeProject();
+  try {
+    writeFileSync(
+      join(p.dataDir, "config.md"),
+      `---\nconfig_version: 3\nproject_name: "x"\n---\n\n# Project Configuration\n`,
+    );
+    p.run(["config", "set-model", "think", "fable"], { expectFail: false });
+    const cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    const fmEnd = cfg.indexOf("---", 4);
+    assert.ok(cfg.indexOf("models:") < fmEnd, "models block added inside frontmatter");
+    assert.match(cfg, /^  think: fable$/m);
+  } finally {
+    p.cleanup();
+  }
+});

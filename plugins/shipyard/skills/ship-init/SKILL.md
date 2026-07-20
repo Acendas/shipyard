@@ -171,7 +171,7 @@ Scan the project first — auto-detect as much as possible. Only ask what you ca
    > - No / not sure (Recommended default — keeps `think: opus`)
    > - Yes — set `think: fable`"
 
-   Do NOT ask about `build` — it stays `sonnet` (high-volume labor; fast and economical). A dispatch with an unavailable model errors at spawn time, so "not sure" keeps opus. Advanced users can hand-edit `models:` later (empty string = inherit session model). `escalation.enabled` defaults to `true` with `max_consults_per_sprint: 3` — mention it, only ask if the user pushes back.
+   Do NOT ask about `build` — it stays `sonnet` (high-volume labor; fast and economical). A dispatch with an unavailable model errors at spawn time, so "not sure" keeps opus. After the answer, tell the user the toggle is never locked in: **"You can flip this anytime with `shipyard-data config set-model think fable` or `... think opus` — the next dispatch picks it up, no re-init needed."** `escalation.enabled` defaults to `true` with `max_consults_per_sprint: 3` — mention it, only ask if the user pushes back.
 
 **Auto-detect these (confirm, don't ask):**
 Scan the project and present findings: "I detected [X]. Correct?" Only ask if detection fails.

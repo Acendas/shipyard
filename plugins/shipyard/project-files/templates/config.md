@@ -40,7 +40,7 @@ models:
   # Model tier per work class. Values are Agent-tool model names
   # (fable | opus | sonnet | haiku); empty string = omit the model
   # override and inherit the session model.
-  think: opus                 # deep reasoning: critics, spec review, sprint analysts, decomposition deep-dives, escalation consults. /ship-init asks one question: if Fable is enabled on your plan, this becomes `fable`.
+  think: opus                 # deep reasoning: critics, spec review, sprint analysts, decomposition deep-dives, escalation consults. Flip anytime: `shipyard-data config set-model think fable|opus` — the next dispatch picks it up.
   build: sonnet               # labor: builder task loops, operational runs, research sweeps, fixers, simplifiers. Fixed default — high-volume work stays fast and economical.
   orchestrate: opus           # the user-session shell tier (enforced via skill frontmatter; recorded here for visibility)
 escalation:

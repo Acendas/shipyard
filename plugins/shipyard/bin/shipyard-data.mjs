@@ -1333,6 +1333,79 @@ function sprintCheck() {
 }
 
 /**
+ * `shipyard-data config set-model <tier> <model>` — typed, atomic mutation
+ * of the `models:` block in config.md frontmatter.
+ *
+ * The user can flip the think tier between opus and fable at any time
+ * (not just at /ship-init) — the next dispatch reads the new value; no
+ * session restart needed. A typed setter (not a model Edit) because
+ * config.md frontmatter is machine-read by every dispatch site and
+ * nested-YAML hand edits are the frontmatter-welding corruption class.
+ *
+ *   shipyard-data config set-model think fable
+ *   shipyard-data config set-model think opus
+ *   shipyard-data config set-model build sonnet
+ *   shipyard-data config set-model think inherit   ("" — omit model:, inherit session)
+ */
+const MODEL_TIERS = new Set(["think", "build", "orchestrate"]);
+const MODEL_VALUES = new Set(["fable", "opus", "sonnet", "haiku", "inherit"]);
+
+function configSetModel(tier, value) {
+  if (!MODEL_TIERS.has(tier) || !MODEL_VALUES.has(value)) {
+    process.stderr.write(
+      "shipyard-data config set-model: usage: config set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit>\n",
+    );
+    process.exit(2);
+  }
+  const written = value === "inherit" ? '""' : value;
+  const dataDir = getDataDir({ silent: true });
+  const configPath = join(dataDir, "config.md");
+  if (!existsSync(configPath)) {
+    process.stderr.write(`shipyard-data config set-model: no ${configPath} — run /ship-init first\n`);
+    process.exit(1);
+  }
+  const content = readFileSync(configPath, "utf8");
+  const fmMatch = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
+  if (!fmMatch) {
+    process.stderr.write("shipyard-data config set-model: config.md has no frontmatter block — refusing\n");
+    process.exit(1);
+  }
+  let [, open, block, close] = fmMatch;
+  const tierLineRe = new RegExp(`^(\\s+${tier}:)[^\\n#]*(#.*)?$`, "m");
+  const modelsBlockRe = /^models:\s*$/m;
+  if (modelsBlockRe.test(block)) {
+    // Replace the tier line INSIDE the models: block only (scan the
+    // indented run following `models:`), preserving any trailing comment.
+    const lines = block.split("\n");
+    const start = lines.findIndex((l) => /^models:\s*$/.test(l));
+    let done = false;
+    for (let i = start + 1; i < lines.length; i++) {
+      if (/^\S/.test(lines[i])) break; // left the models: block
+      const m = lines[i].match(new RegExp(`^(\\s+${tier}:)\\s*\\S*(\\s*#.*)?$`));
+      if (m) {
+        lines[i] = `${m[1]} ${written}${m[2] ?? ""}`;
+        done = true;
+        break;
+      }
+    }
+    if (!done) {
+      lines.splice(start + 1, 0, `  ${tier}: ${written}`);
+    }
+    block = lines.join("\n");
+  } else {
+    block = block.replace(/\s*$/, "") + `\nmodels:\n  ${tier}: ${written}`;
+  }
+  const newContent = open + block + close + content.slice(fmMatch[0].length);
+  const tmp = configPath + ".tmp";
+  writeFileSync(tmp, newContent, "utf8");
+  renameSync(tmp, configPath);
+  try {
+    logEvent(dataDir, "config_model_set", { tier, value });
+  } catch { /* best-effort */ }
+  process.stdout.write(`models.${tier}: ${written}\n`);
+}
+
+/**
  * `shipyard-data task-return <task-id> status=<COMPLETE|BLOCKED> ...` —
  * record a builder subagent's structured return contract as JSON.
  *
@@ -1663,6 +1736,18 @@ function main() {
       } else {
         process.stderr.write(
           `shipyard-data sprint: unknown subcommand "${rest[0] ?? ""}". Expected: set <key> <value> | check\n`,
+        );
+        process.exit(2);
+      }
+      break;
+    }
+    case "config": {
+      const rest = process.argv.slice(3);
+      if (rest[0] === "set-model") {
+        configSetModel(rest[1], rest[2]);
+      } else {
+        process.stderr.write(
+          `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit>\n`,
         );
         process.exit(2);
       }
