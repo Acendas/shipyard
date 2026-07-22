@@ -162,13 +162,9 @@ Max patch tasks (scope guard): {{max_patch_tasks}}
    large suites, prefer summary-line filters over per-case PASS lines —
    see `references/monitor-filters.md` for runner-specific recipes.
 
-2. **Update task frontmatter.** Append the iteration to verify_history:
-       verify_history:
-         - iteration: <N>
-           command: "<resolved command>"
-           exit: <code>
-           capture: "captures/{{task_id}}/run-<N>.log"
-           at: "<ISO timestamp>"
+2. **Update task frontmatter.** Run:
+       shipyard-data task append-verify {{task_id}} iteration=<N> command="<resolved command>" exit=<code> capture=captures/{{task_id}}/run-<N>.log
+   The CLI appends the structured `verify_history:` entry atomically (with `at:` defaulting to now) and refuses a duplicate `iteration`. Never hand-Edit `verify_history:`.
 
 3. **If exit == 0:** stop. Set verify_output: pointing at the latest capture.
    Return STATUS: COMPLETE.

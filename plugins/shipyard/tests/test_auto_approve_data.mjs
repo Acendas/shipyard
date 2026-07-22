@@ -358,6 +358,33 @@ test("cli-owned deny: other data-dir files (e.g. SPRINT.md body, spec files) sti
   });
 });
 
+const LOCK_BASENAMES = [".active-session.json", ".active-execution.json"];
+
+for (const base of LOCK_BASENAMES) {
+  test(`cli-owned deny: Write to ${base} in the data dir is DENIED with a lock-CLI hint`, async () => {
+    await withTempDir(async (sd) => {
+      const { stdout, code } = await runWithEnv(
+        {
+          tool_name: "Write",
+          tool_input: {
+            file_path: join(sd, base),
+            content: '{"skill":"ship-discuss"}',
+          },
+        },
+        { SHIPYARD_DATA: sd },
+      );
+      assert.equal(code, 0);
+      const resp = JSON.parse(stdout);
+      assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+      assert.match(
+        resp.hookSpecificOutput.permissionDecisionReason,
+        /shipyard-data lock acquire\|release\|check/,
+        "deny reason must point the model at the lock CLI",
+      );
+    });
+  });
+}
+
 test("cli-owned deny: breadcrumb log records the deny", async () => {
   await withTempDir(async (sd) => {
     mkdirSyncFs(join(sd, "sprints", "current"), { recursive: true });

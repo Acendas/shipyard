@@ -36,16 +36,17 @@ operational_tasks:
   max_patch_tasks: 5          # scope-creep guard — escalate if cumulative patch tasks > this
 execution:
   max_parallel_agents: 3      # max concurrent builder subagents per wave (1-4, hard ceiling 4)
+  max_tasks_per_wave: 6       # max tasks in one wave; wider dependency layers split into consecutive waves along track boundaries (wave COUNT is never capped — it's dependency depth)
 models:
   # Model tier per work class. Values are Agent-tool model names
   # (fable | opus | sonnet | haiku); empty string = omit the model
   # override and inherit the session model.
   think: opus                 # deep reasoning: critics, spec review, sprint analysts, decomposition deep-dives, escalation consults. Flip anytime: `shipyard-data config set-model think fable|opus` — the next dispatch picks it up.
   build: sonnet               # labor: builder task loops, operational runs, research sweeps, fixers, simplifiers. Fixed default — high-volume work stays fast and economical.
-  orchestrate: opus           # the user-session shell tier (enforced via skill frontmatter; recorded here for visibility)
+  orchestrate: sonnet         # ship-execute shell tier. Set by the skill's frontmatter model: — this value is informational (must match it). Editing here does NOT change the shell; edit skills/ship-execute/SKILL.md frontmatter.
 escalation:
   enabled: true               # allow orchestrators to dispatch a models.think consult when stuck
-  max_consults_per_sprint: 3  # hard cap on escalation consults per sprint
+  max_consults_per_sprint: 6  # hard cap on escalation consults per sprint
 quality_gates:
   standing: []              # standing gates applied to every sprint release
   # Examples of standing gates:

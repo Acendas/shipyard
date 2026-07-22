@@ -5,24 +5,19 @@
     "pattern": "session_id"
   },
   {
-    "name": "has_acquire_procedure",
+    "name": "uses_shipyard_data_lock_cli",
     "type": "contains",
-    "pattern": "## Acquire Procedure"
+    "pattern": "shipyard-data lock"
   },
   {
-    "name": "has_release_procedure",
+    "name": "documents_depth_field",
     "type": "contains",
-    "pattern": "## Release Procedure"
+    "pattern": "depth"
   },
   {
-    "name": "has_reentry_section",
+    "name": "documents_session_unverified_asymmetry",
     "type": "contains",
-    "pattern": "## Re-Entry Within the Same Session"
-  },
-  {
-    "name": "has_stale_recovery",
-    "type": "contains",
-    "pattern": "## Stale Lock Recovery"
+    "pattern": "session-unverified|session_unverified"
   },
   {
     "name": "references_two_lock_files",
@@ -32,7 +27,22 @@
   {
     "name": "references_two_hour_stale",
     "type": "contains",
-    "pattern": "2 hours|2h"
+    "pattern": "2 hours|2h|>2h"
+  },
+  {
+    "name": "no_compaction_count",
+    "type": "not_contains",
+    "pattern": "compaction_count:\\s*0|\"compaction_count\""
+  },
+  {
+    "name": "no_old_procedure_headers",
+    "type": "not_contains",
+    "pattern": "## Acquire Procedure|## Release Procedure|## Re-Entry Within the Same Session|## Stale Lock Recovery"
+  },
+  {
+    "name": "no_step_by_step_write_instructions",
+    "type": "not_contains",
+    "pattern": "Use the .Write. tool to overwrite the lock file|Use .Write. to overwrite the lock file"
   },
   {
     "name": "no_registered_shipyard_agent",

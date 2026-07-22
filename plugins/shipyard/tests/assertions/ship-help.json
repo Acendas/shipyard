@@ -85,5 +85,30 @@
     "name": "diagram_help_check16_type_aware",
     "type": "contains",
     "pattern": "type-aware"
+  },
+  {
+    "name": "mentions_think_override",
+    "type": "contains",
+    "pattern": "--think"
+  },
+  {
+    "name": "mentions_config_set_model",
+    "type": "contains",
+    "pattern": "config set-model"
+  },
+  {
+    "name": "mode3_routes_state_through_cli",
+    "type": "contains",
+    "pattern": "shipyard-data feature set-status|shipyard-data backlog|CLI-owned"
+  },
+  {
+    "name": "no_hand_edit_cli_owned_state",
+    "type": "contains",
+    "pattern": "NEVER hand-Edit|never a hand-edit|auto-approve hook denies"
+  },
+  {
+    "name": "has_shipyard_data_scope",
+    "type": "contains",
+    "pattern": "Bash\\(shipyard-data"
   }
 ]

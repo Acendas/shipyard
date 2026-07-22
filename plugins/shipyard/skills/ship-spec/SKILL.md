@@ -1,7 +1,7 @@
 ---
 name: ship-spec
 description: "View, search, and manage the product spec."
-allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 argument-hint: "[feature/epic ID] or [search term] or [subcommand]"
 ---
 
@@ -15,7 +15,9 @@ Browse, search, and manage the product specification.
 
 !`shipyard-context spec-counts`
 
-**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. No bash invocation of `shipyard-data` or `shipyard-context` — use Read / Grep / Glob. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
+**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash is for `shipyard-context` (reads) and `shipyard-data feature|backlog|idea ...` (state mutations) ONLY — no other shell. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA). Never hand-Edit feature-file frontmatter or BACKLOG.md IDs/`last_groomed` — those are CLI-owned (`feature set`, `feature set-status`, `backlog add|remove|rank|set`). Feature/epic bodies and the BACKLOG.md Overrides section remain Edit-tool surface.
+
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
 
 ## Input
 
@@ -172,11 +174,11 @@ IDEAS — [N] pending discussion
 
   If no ideas exist: "No ideas captured yet. Run /ship-discuss with a quick one-liner to capture one."
 
-`/ship-spec status F001 approved` — Change feature F001 status to approved
+`/ship-spec status F001 approved` — Change feature F001 status to approved. Run `shipyard-data feature set-status F001 approved`. On exit 3 (illegal transition), the CLI's stderr names the valid next states from the current status — relay them and AskUserQuestion: "F001 is [current status]. Valid next states: [list from the CLI's error]. Which would you like?"
 
-`/ship-spec move F001 E002` — Move feature F001 to epic E002
+`/ship-spec move F001 E002` — Move feature F001 to epic E002. Run `shipyard-data feature set F001 epic=E002` (the CLI verifies E002 exists under `spec/epics/` before writing).
 
-`/ship-spec archive F001` — Archive feature: use Edit to set frontmatter `status: deferred` (do NOT physically move the file — the soft-deleted record stays in place; physical removal is manual for now).
+`/ship-spec archive F001` — Archive feature: run `shipyard-data feature set-status F001 deferred` (do NOT physically move the file — the soft-deleted record stays in place; physical removal is manual for now). The CLI removes F001's ID from BACKLOG.md automatically as part of the status change — no separate BACKLOG.md edit needed.
 
 `/ship-spec diff F001` — Show change history for F001 (git log for the file)
 
@@ -198,8 +200,8 @@ IDEAS — [N] pending discussion
   4. Use the Write tool to create `<SHIPYARD_DATA>/spec/references/F001-<slug>.md`:
      - If the source file has no YAML frontmatter: prepend `---\nfeature: F001\nsource: <original-path>\n---\n` then the full content.
      - If the source file already has YAML frontmatter (starts with `---`): merge `feature: F001` and `source: <original-path>` into the existing frontmatter block rather than prepending a second one.
-  5. Use Edit to add the full path `<SHIPYARD_DATA>/spec/references/F001-<slug>.md` to the `references:` array in F001's frontmatter. Always store full relative paths, not bare filenames.
-  6. **External reference detection:** If the absorbed document mentions issue keys matching common patterns (`[A-Z]+-\d+` for Jira/Linear, `#\d+` for GitHub/GitLab), offer to add them to the feature's `external_refs` array via AskUserQuestion: "Document references [KEY]. Link it to this feature? (yes / no)"
+  5. Run `shipyard-data feature add-ref F001 <SHIPYARD_DATA>/spec/references/F001-<slug>.md` to add the full path to F001's `references:` array (the CLI dedupes — re-absorbing the same path is a no-op).
+  6. **External reference detection:** If the absorbed document mentions issue keys matching common patterns (`[A-Z]+-\d+` for Jira/Linear, `#\d+` for GitHub/GitLab), offer to add them via AskUserQuestion: "Document references [KEY]. Link it to this feature? (yes / no)" — on yes, run `shipyard-data feature add-external-ref F001 [KEY]`.
   7. Confirm: "Absorbed [filename] → <SHIPYARD_DATA>/spec/references/F001-<slug>.md and linked to F001."
   If F001 doesn't exist yet, AskUserQuestion: "F001 not found. Create it first with /ship-discuss, then absorb."
 
@@ -222,7 +224,7 @@ IDEAS — [N] pending discussion
   **Step 1: Find the user's product spec**
   - Read `<SHIPYARD_DATA>/codebase-context.md` → check `## Existing Specs` section for indexed doc paths
   - If no indexed specs → AskUserQuestion: "Where is your product spec? Provide a path or directory (e.g., `docs/spec/`, `SPEC.md`, `docs/product/`)"
-  - Use Edit to cache the path in `<SHIPYARD_DATA>/config.md` under `product_spec_path:` for future syncs
+  - Run `shipyard-data config set product-spec-path <path>` to cache it in `<SHIPYARD_DATA>/config.md` for future syncs
 
   **Step 2: Find syncable features**
   - Use Glob `<SHIPYARD_DATA>/spec/features/F*.md` to enumerate feature files, then Read each and check `synced_at` vs `updated` in frontmatter to find features changed since last sync
@@ -301,7 +303,7 @@ IDEAS — [N] pending discussion
   ```
 
   Then use `AskUserQuestion` for approval:
-  - **Apply sync (Recommended)** — apply patches to the user's spec files, set `synced_at: [date]` in each feature's frontmatter
+  - **Apply sync (Recommended)** — apply patches to the user's spec files, then run `shipyard-data feature set F00N synced_at=<today's date>` for each synced feature
   - **Edit** — adjust specific patches, then re-approve
   - **Skip** — don't sync, features remain unsynced for next time
 
@@ -351,16 +353,15 @@ deferred → proposed (revisit)
 - **deployed** → released (feature flag removed)
 - **deferred** → proposed (revisit later)
 
-Any transition not listed here is invalid — explain why and suggest the correct path. This matches the canonical state machine in `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-data-model.md` (rules live in the plugin in 2.0, no longer copied into `.claude/rules/`).
+Any transition not listed here is invalid — explain why and suggest the correct path. This matches the canonical state machine in `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-data-model.md` (rules live in the plugin in 2.0, no longer copied into `.claude/rules/`). **Canonical source: `bin/spec-lifecycle.mjs`** — `shipyard-data feature set-status` enforces this graph; the diagram above is documentation, not the authority.
 
-When changing status, update it **in the feature file frontmatter** (single source of truth). Do NOT update status in BACKLOG.md or SPRINT.md — those are generated views.
+When changing status, run `shipyard-data feature set-status <FID> <status>` (single source of truth is the CLI-written feature file frontmatter). Do NOT update status in BACKLOG.md or SPRINT.md — those are generated views.
 
 ## Rules
 
 - Read-only by default. Only modify files when an explicit subcommand is used.
-- When changing status, validate the transition is legal using the state machine above.
-- When archiving, use Edit to set `status: deferred` in the feature's frontmatter and Edit BACKLOG.md to remove the ID. Do NOT physically move files — physical removal is manual; the soft-delete keeps history queryable.
-- For status changes that remove from backlog (approved → deferred), use Edit to remove the ID from BACKLOG.md. No other data needs updating — BACKLOG.md only stores IDs.
+- Status changes go through `shipyard-data feature set-status` — it validates the transition against `spec-lifecycle.mjs` and refuses illegal ones with the valid next states.
+- When archiving, run `shipyard-data feature set-status <FID> deferred`. Do NOT physically move files — physical removal is manual; the soft-delete keeps history queryable. The CLI removes the ID from BACKLOG.md automatically as part of the same call — no separate edit needed.
 - **Always use AskUserQuestion when clarification is needed:**
   - ID not found → AskUserQuestion: "[ID] doesn't exist. Did you mean [closest match]? Or provide the correct ID."
   - Ambiguous search returns multiple matches → AskUserQuestion: "Found [N] matches: [list]. Which one?"

@@ -72,5 +72,11 @@ ASSUMED: <decision> — <evidence one-liner> — reversible: yes
 ## Bulk-ask discipline (perceived speed)
 
 - **Think first, ask once.** Derive everything derivable, run the confidence gate over every open item, THEN compose one AskUserQuestion call with up to 4 questions (each with up to 4 options + Other). A second call in the same phase only when the first call's answers genuinely fork the design.
-- **Target interruption budget for a full feature discussion: 4–5 rounds total** (bulk understanding → challenge+viability → post-spec decisions → AC sign-off [→ approval, foldable into sign-off]). Every ask-round beyond that needs a reason.
+- **Target interruption budget for a full feature discussion: 4–5 rounds total** (bulk understanding → challenge+viability → post-spec decisions → consolidated approval). Round 4 is a SINGLE gate: the acceptance scenarios (verbatim), the scope-drift check, and the spec are approved together. Every ask-round beyond that needs a reason.
 - **Never leave silence.** Long-running work (research deep-dive, critic) gets a one-line dispatch banner with an expected duration, runs concurrently with the user's thinking time wherever possible, and announces its return with a one-line summary. Between rounds, narrate transitions in one line ("→ Impact analysis: 2 ripples found").
+
+## Render before asking (applies to every skill, not just discuss)
+
+Before every `AskUserQuestion`, render the decision context as chat text — the concrete scenarios, examples, tradeoffs, and any verbatim content the user is being asked to approve. The tool call then carries only the short question and the option labels. The AskUserQuestion window is small: labels and descriptions cannot hold a scenario, a diagram, or a block of acceptance criteria. A bare ask with no rendered context above it is a bug (the 2026-07-21 ship-backlog blind-ask class: a delegated gather produced an AskUserQuestion with nothing rendered).
+
+For hard questions — the LOW-tier / one-way-door decisions, and anything a non-expert user can't answer from a label alone — the rendered context MUST include concrete scenarios and examples (the same scenario-framing the rulebook requires), not just a restated question. This is what makes the consolidated Phase 5 approval safe: the acceptance scenarios are quoted verbatim on screen, so "Approve" means approve-having-read.

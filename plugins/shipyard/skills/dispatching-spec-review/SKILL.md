@@ -152,7 +152,7 @@ Begin.
 
 2. **`STATUS: FINDINGS`** — parse the per-finding block. Two sub-rules:
 
-   - **Any MISSING or critical PARTIAL** (test asserts a stub) → re-dispatch the corresponding task via `dispatching-task-loop` with the findings inlined: *"Spec review found gaps: <list>; please re-implement and re-probe."* Single redispatch per task per wave (consistent with `dispatching-task-loop`'s rule). If a second pass still has findings → mark task `needs-attention`, log to PROGRESS.md, continue.
+   - **Any MISSING or critical PARTIAL** (test asserts a stub) → re-dispatch the corresponding task via `dispatching-task-loop` with the findings inlined: *"Spec review found gaps: <list>; please re-implement and re-probe."* Single redispatch per task per wave (consistent with `dispatching-task-loop`'s rule). If a second pass still has findings → `shipyard-data task set-status <id> needs-attention --reason "spec_review_findings_persist"`, log to PROGRESS.md, continue.
    - **Only OVER-BUILT findings** → flag in PROGRESS.md deviations table; do NOT auto-revert (the user may want to keep extras). `/ship-review` surfaces these for explicit user decision.
 
 3. **`STATUS: BLOCKED`** — surface to user via AskUserQuestion. Likely causes: spec missing, target IDs invalid, diff range malformed. None of these are recoverable by retry.

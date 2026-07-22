@@ -1,7 +1,7 @@
 ---
 name: ship-debug
 description: "Systematic debugging with persistent cross-session state."
-allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, AskUserQuestion, "Bash(shipyard-context:*)", "Bash(shipyard-logcap:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, AskUserQuestion, "Bash(shipyard-context:*)", "Bash(shipyard-logcap:*)", "Bash(shipyard-data:*)"]
 effort: high
 argument-hint: "[description of the problem] [--resume]"
 ---
@@ -17,7 +17,9 @@ Systematic debugging that doesn't lose progress when context compacts or session
 !`shipyard-context list debug-sessions`
 !`shipyard-context view config 5`
 
-**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. No bash invocation of `shipyard-data` or `shipyard-context` — use Read / Grep / Glob. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
+**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash invocation of `shipyard-data` is limited to the `lock check`/`lock acquire`/`lock release` subcommands (see Step 4's mutex checks) and `shipyard-context` reads — no other shell-out; use Read / Grep / Glob for everything else. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
+
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
 
 ## Input
 
@@ -177,28 +179,9 @@ Then use `AskUserQuestion` for approval:
 
 Once root cause is identified and fix plan is approved:
 
-**Planning-session mutex check** — before writing code, use the Read tool on `<SHIPYARD_DATA>/.active-session.json`. Parse the JSON if it exists. If `cleared` is not set, `skill` is not null, AND `started` is less than 2 hours ago, **hard block**:
-```
-⛔ Planning session active — cannot apply debug fix.
-  Skill:   /{skill from file}
-  Topic:   {topic from file}
-  Started: {started from file}
+**Planning-session mutex check** — before writing code, run `shipyard-data lock check planning`. Exit 0 → continue to the execution lock check below (echo any recovery-relevant `state` only if useful; `check` never recovers a stale/corrupt lock itself, it only reports). Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP. The investigation phases (Steps 1-3) are read-only and don't need this check; only the fix-application phase does.
 
-A discussion or sprint planning session is in progress. Finish or pause it first.
-If the planning session crashed: /ship-status (will offer to clear the stale lock)
-```
-Do not proceed. If `cleared` is set, `skill` is null, or `started` is more than 2 hours ago, treat the planning session as inactive — print "(recovered stale planning lock from `/{previous skill}`)" if the lock was stale, then continue to the execution lock check below. The investigation phases (Steps 1-3) are read-only and don't need this check; only the fix-application phase does.
-
-**Execution lock check** — before writing code, use the Read tool on `<SHIPYARD_DATA>/.active-execution.json`. Parse the JSON. If `cleared` is not set AND `started` is less than 2 hours ago, **hard block**:
-```
-⛔ BLOCKED: Another execution session is active.
-  Skill: [skill name]
-  Started: [timestamp]
-
-Finish or pause the active session first, then apply the debug fix.
-If the other session crashed or was closed: /ship-status (will ask to clear the lock)
-```
-Do not proceed. Do not offer an override. If no lock exists, the lock has `cleared` set, or the lock is stale → use the Write tool to write a new lock JSON `{"skill": "ship-debug", "task": "[debug slug]", "started": "[ISO]"}` while fixing. When done, use Write to overwrite the lock with `{"skill": null, "cleared": "<iso>"}` (soft-delete sentinel).
+**Execution lock acquire** — before writing code, run `shipyard-data lock acquire execution --skill ship-debug`. Exit 0 → proceed with the fix (the mutex is now held, so a concurrent `/ship-execute` or `/ship-quick` can't race the same working tree; echo the recovery line if the CLI printed one). Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP; do not offer an override. Release with `shipyard-data lock release execution --skill ship-debug` at the end of Step 5 (after verification), and on ANY abnormal exit from the fix phase — a debug session that dies holding the lock self-heals via the 2h staleness recovery, but don't rely on it.
 
 1. Set status → `fixing`
 2. Write the fix (follow project patterns)
@@ -212,6 +195,7 @@ Do not proceed. Do not offer an override. If no lock exists, the lock has `clear
 2. **Run the reproduction steps via `shipyard-logcap run <debug-slug>-verify-repro -- <repro-command>`** — the bug should no longer reproduce. The capture proves it; a naked "I ran the repro and it's fixed" claim is exactly what the logcap wrapper prevents (silent-pass failure mode, identical to the operational-task silent-pass bug).
 3. **Run tests for the affected feature via `shipyard-logcap run <debug-slug>-verify-tests -- <test-command>`** — all should pass.
 4. Update `## Resolution.verification` with results AND the two capture names so the resolution is independently verifiable.
+5. Run `shipyard-data lock release execution --skill ship-debug` — verification is done, the fix-phase mutex is no longer needed (Steps 5.5 and 6 are additive hardening and bookkeeping, safe without the lock).
 
 ### Step 5.5: Defense-in-Depth
 

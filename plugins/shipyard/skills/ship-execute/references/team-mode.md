@@ -24,6 +24,15 @@ Before spawning teammates, group wave tasks by parent feature:
 
 If a feature has only 1 task, it still gets its own teammate (simpler than special-casing).
 
+## Within-Track Autonomy
+
+Teammates are not limited to a strict lead-assigns-one-task-at-a-time loop:
+
+- A teammate MAY spawn its own subagents (e.g. via `dispatching-task-loop`, or an ad-hoc `Agent(...)` call) to parallelize sub-work within a task it owns, as long as it stays responsible for that task's commit and structured completion.
+- A teammate MAY proactively pick up the next pending task IN ITS OWN TRACK without waiting for the lead to assign it — the whole point of a persistent per-track teammate is that it doesn't need lead intervention between tasks in the same feature.
+- **Never cross tracks.** A teammate must not pick up, edit, or commit to another track's task or worktree, even when idle and another track is backlogged — track boundaries are the lead's concurrency control, not a suggestion.
+- Dependency ordering and the Wave Sync gate are always authoritative over this autonomy: a teammate does not skip a same-track dependency it hasn't seen complete, and does not proceed past a wave boundary until it receives the `WAVE SYNC` message, no matter how idle it is.
+
 ## Setup
 
 **WORKAROUND: `isolation: worktree` is silently ignored when `team_name` is set (Claude Code bug #37549).** Teammates spawned with both parameters run in the main repo directory — no isolation. Shipyard works around this by manually creating worktrees before spawning teammates, then passing the worktree path in the prompt.
@@ -76,9 +85,11 @@ Repeat until no pending tasks remain for your feature:
    - REFACTOR: Clean up, your tests still pass.
    - MUTATE: Flip a key line, verify your test catches it.
    - COMMIT: feat([TASK_ID]): [description]
-7. Update task file frontmatter status to `done` (this is the canonical status record)
-8. TaskUpdate(taskId: "N", status: "completed") — coordination signal for the lead
-9. Go to step 1
+7. **MANDATORY — persist the structured return FIRST:** `shipyard-data task-return [TASK_ID] status=COMPLETE commit=<sha-of-your-commit> probe-exit=<n> output-tail-file=<path-to-captured-output>`. The CLI refuses to record COMPLETE with a nonzero probe-exit — if it refuses, the task is NOT done; fix the failure and retry this step before proceeding.
+8. `shipyard-data task set-status [TASK_ID] done` (canonical status record — only after step 7 succeeds)
+9. TaskUpdate(taskId: "N", status: "completed") — coordination signal for the lead
+10. **You are NOT done until step 7 has written `.subagent-returns/[TASK_ID].json`.** Done-without-task-return is a contract violation — the lead treats a task reported complete with no matching `.json` as BLOCKED and re-dispatches it.
+11. Go to step 1
 
 NOTE: The task file's `status: done` is the single source of truth (Shipyard data model).
 The TaskUpdate status is a coordination signal for the lead's monitoring loop only.
@@ -151,15 +162,30 @@ If blocked: describe the blocker and move on — do not guess.
 
 ## Lead Monitoring Loop
 
+**The verification spine is delegation-shape-independent: every task — solo, subagent, or teammate, however many layers of sub-delegation produced it — exits through task-return → this gate → `task_dispatch_returned`. A teammate cannot self-certify.**
+
 ```
 while tasks remain incomplete:
   1. TaskList() — get current status of all wave tasks
-  2. For each newly completed task:
-     - Spot-check: verify files exist + commits present in worktree
-     - If spot-check fails → TaskUpdate back to "in_progress",
+  2. For each task a teammate reports "completed" (via TaskUpdate):
+     - Read `<SHIPYARD_DATA>/sprints/current/.subagent-returns/[TASK_ID].json`.
+       Missing or unparseable → TaskUpdate the task back to "in_progress",
        SendMessage(type: "message", recipient: "teammate-FEATURE_ID",
-         content: "RECHECK: [TASK_ID] — [issue found]",
-         summary: "Spot-check failed for [TASK_ID]")
+         content: "RECHECK: [TASK_ID] — no valid task-return found; you are not done until `shipyard-data task-return` succeeds",
+         summary: "Missing task-return for [TASK_ID]") and treat the task as BLOCKED
+       (do not emit `task_dispatch_returned` for it).
+     - If the `.json` exists, run the SAME orchestrator-side gate `wave_N_recovery`
+       runs, per `dispatching-task-loop`'s "Orchestrator-Side Parsing and Gating":
+       the commit sha exists (`git cat-file -e <sha>`), `probe_exit_code === 0`,
+       a non-empty output tail, and an anti-stub-scan pass on the diff.
+     - Gate fails → SendMessage(type: "message", recipient: "teammate-FEATURE_ID",
+         content: "RECHECK: [TASK_ID] — [which check failed]",
+         summary: "Verification gate failed for [TASK_ID]") — single re-dispatch;
+       if the retry also fails, park the task `needs-attention` via
+       `shipyard-data task set-status [TASK_ID] needs-attention --reason "..."`
+       rather than looping indefinitely.
+     - Gate passes → `shipyard-data anchor-commit [TASK_ID] <sha>`, then emit
+       `shipyard-data events emit task_dispatch_returned pipeline=ship-execute sprint=<id> wave=<N> task=[TASK_ID] status=complete commit_sha=<sha>`.
   3. For each blocked task (in_progress + lead received BLOCKED message):
      - Apply standard blocker handling from SKILL.md (reassign → swap-in → escalate → park)
   4. Check teammate heartbeats for liveness:
@@ -214,7 +240,8 @@ RECOVERY NOTE: You are resuming after a session break or teammate crash.
 When all wave tasks complete and spot-checks pass:
 
 1. **Feature-level rebase and merge** — for each completed feature branch, rebase onto the working branch, then fast-forward merge. If ff fails, AskUserQuestion with conflict details (never fall back to regular merge — it creates fork lines).
-2. **Clean up finished worktrees** — `git worktree remove` for completed feature tracks only
+1a. **Integration gate — `shipyard-data verify-wave-integrated` — BEFORE any teardown.** Run it immediately after the rebase+ff-merge above and before worktree cleanup (step 2). Exit 3 is a HARD STOP: do not remove any worktree, do not shut down any teammate. Integrate the branches it names, re-run the gate once; if it still fails, this is an `integration_gate` escalation trigger — invoke `shipyard:escalating-to-thinker`, do not tear down unverified state on your own judgment.
+2. **Clean up finished worktrees** — `git worktree remove` for completed feature tracks only, and only after step 1a has passed
 3. **Create next wave tasks** — `TaskCreate` for each task in the new wave
 4. **Message continuing teammates** — tell them to rebase onto updated working branch:
    ```

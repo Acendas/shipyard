@@ -489,6 +489,32 @@ test("terminal advance clears the execute advisory lock", () => {
   }
 });
 
+test("resting-path lock clear routes through skill-lock.mjs (force ignores depth, exact 2-key sentinel shape)", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    // `depth` is a skill-lock.mjs-only concept — the pre-v3.7.0 inline
+    // writer in cursor-cli.mjs had no notion of it and always overwrote
+    // unconditionally. Seed a depth:3 held lock: only if the resting-path
+    // clear now genuinely calls skill-lock.mjs's releaseLock(...,
+    // {force:true}) will a depth>1 lock still be FULLY released (force
+    // skips the decrement-only path); the old code would have "worked" by
+    // accident (blind overwrite), but this pins the new call, not the old
+    // coincidence.
+    writeFileSync(
+      join(p.dataDir, ".active-execution.json"),
+      JSON.stringify({ skill: "ship-execute", sprint: "sprint-001", wave: 1, started: new Date().toISOString(), session_id: "sess-x", cleared: null, depth: 3 }),
+    );
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    p.run(["cursor", "escalate", "execute", "reason=test"], { expectFail: false });
+    const lock = JSON.parse(readFileSync(join(p.dataDir, ".active-execution.json"), "utf8"));
+    assert.deepEqual(Object.keys(lock).sort(), ["cleared", "skill"], "sentinel shape is exactly {skill, cleared} — skill-lock.mjs's writeLockObj shape");
+    assert.equal(lock.skill, null, "force fully releases even a depth:3 lock, not a decrement");
+  } finally {
+    p.cleanup();
+  }
+});
+
 test("advance emits pipeline_tick_started for the new stage (CLI-owned, no model ritual)", () => {
   const p = makeProject();
   try {

@@ -20,7 +20,9 @@ Execute a one-off task outside of sprint planning but with Shipyard's guarantees
 
 ## Path Rules
 
-All file ops use the absolute SHIPYARD_DATA prefix from the context block. **No `~`, `$HOME`, or shell variables in `file_path`** — the hooks resolve paths via a shared resolver, and a tilde in `file_path` lands state in the wrong data dir on worktrees. **No bash invocation of `shipyard-data` or `shipyard-context`** in this skill body — use Read / Grep / Glob. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA). The `!`-prefixed context block at the top is the only sanctioned place to shell out to the plugin CLIs.
+All file ops use the absolute SHIPYARD_DATA prefix from the context block. **No `~`, `$HOME`, or shell variables in `file_path`** — the hooks resolve paths via a shared resolver, and a tilde in `file_path` lands state in the wrong data dir on worktrees. Bash invocation of `shipyard-data` is limited to the skill-mutex `lock` subcommands (see Session Guard Cleanup / Execution Lock Check below) — no other `shipyard-data`/`shipyard-context` shell-out in this skill body; use Read / Grep / Glob for everything else. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA). The `!`-prefixed context block at the top and the `lock` calls are the only sanctioned places to shell out to the plugin CLIs.
+
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
 
 ## Input
 
@@ -28,52 +30,15 @@ $ARGUMENTS
 
 ## Session Guard Cleanup
 
-**First action — planning-session mutex check:** Use the Read tool on `<SHIPYARD_DATA>/.active-session.json` (substitute the literal SHIPYARD_DATA path from the context block above). Then decide:
-
-- **File does not exist** → no planning session active. Skip to "Execution Lock Check" below.
-- **File exists.** Parse the JSON and check:
-  1. If `cleared` is set OR `skill` is `null` → previous planning session ended cleanly. Use Write to overwrite the file with `{"skill": null, "cleared": "<iso-timestamp>"}` (idempotent — the soft-delete sentinel keeps the mutex inactive for any other skill that reads it). Skip to "Execution Lock Check" below.
-  2. If `started` is more than 2 hours old → stale lock from a crashed planning session. Print "(recovered stale planning lock from `/{previous skill}` started {N}h ago)", use Write to overwrite with the cleared sentinel, then proceed.
-  3. Otherwise → **HARD BLOCK.** A planning session is active and quick tasks cannot start until it ends:
-  ```
-  ⛔ Planning session active — cannot start a quick task.
-    Skill:   /{skill from file}
-    Topic:   {topic from file}
-    Started: {started from file}
-
-  Finish or pause the planning session first, then run /ship-quick.
-  If the planning session crashed: /ship-status (will offer to clear the stale lock)
-  ```
-  Print this message as the entire response and STOP.
+**First action — planning-session mutex check:** run `shipyard-data lock check planning` (read-only — `/ship-quick` never holds the planning lock itself, it only needs to confirm nothing else is blocking it). Exit 0 → proceed to "Execution Lock Check" below (echo any `state` info only if useful; no action needed for free/released/stale/mine). Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP.
 
 This prevents the failure mode where a discussion is in progress and `/ship-quick` would otherwise trip the active-skill mutex on every Edit. Quick tasks are implementing work — they need a clear runway.
 
 ## Execution Lock Check
 
-**Before starting work**, check for concurrent execution:
+**Before starting work**, run `shipyard-data lock acquire execution --skill ship-quick`. Exit 0 → proceed (the CLI handles cleared-sentinel detection and 2h-stale recovery internally — echo any recovery note it prints on stderr). Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP — do not proceed, do not offer an override.
 
-1. Use the Read tool to read `<SHIPYARD_DATA>/.active-execution.json`. If the file exists, parse the JSON and check `cleared` (sentinel marker) and `started` timestamp. If `cleared` is not set AND `started` is less than 2 hours ago:
-   ```
-   ⛔ BLOCKED: Another execution session is active.
-     Skill: [skill name]
-     Started: [timestamp]
-
-   Concurrent execution causes git conflicts, duplicate commits, and corrupted state.
-   Finish or pause the active session first, then run /ship-quick.
-   If the other session crashed or was closed: /ship-status (will ask to clear the lock)
-   ```
-   **Hard block — do not proceed. Do not offer an override.** Stop immediately.
-
-2. If no lock exists, the lock has `cleared` set, or the lock is stale (>2 hours) → use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with:
-   ```json
-   {
-     "skill": "ship-quick",
-     "task": "[task description]",
-     "started": "[ISO date]"
-   }
-   ```
-
-3. **On completion**, use the Write tool to overwrite `<SHIPYARD_DATA>/.active-execution.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel).
+**On completion**, run `shipyard-data lock release execution --skill ship-quick` (soft-delete sentinel — CLI-owned, never a hand Write).
 
 ## Process
 

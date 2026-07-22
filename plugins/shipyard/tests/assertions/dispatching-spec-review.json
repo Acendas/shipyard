@@ -53,5 +53,11 @@
     "name": "no_dead_reference_links",
     "type": "not_contains",
     "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+  },
+  {
+    "name": "needs_attention_uses_task_state_cli",
+    "type": "contains",
+    "pattern": "task set-status.*needs-attention --reason",
+    "why": "v3.6.0 wave 2 follow-up: persistent spec-review findings route the needs-attention transition through the task-state CLI instead of a hand-Edit."
   }
 ]

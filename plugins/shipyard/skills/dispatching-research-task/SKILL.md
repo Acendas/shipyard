@@ -174,7 +174,7 @@ After the Agent call returns, before flipping the task to `done`:
    d. **Write-scope porcelain check** (the hard gate that catches subagents that "helpfully" edit code while researching):
       - Snapshot the working tree's status before dispatch (or rely on a clean tree).
       - After return, run `git status --porcelain` and `git diff --name-only`. The ONLY new/modified file should be the expected `OUTPUT_PATH` (relative to repo root if findings_dir is in-tree; or no in-tree changes if findings_dir is in `<SHIPYARD_DATA>` outside repo).
-      - Any other write → emit `research_out_of_scope_write` event with the unexpectedly modified files. Escalate directly via AskUserQuestion. Do NOT retry — retrying produces another out-of-scope write. The task moves to `needs-attention`.
+      - Any other write → emit `research_out_of_scope_write` event with the unexpectedly modified files (keep this emit — it carries the modified-files list, which the generic task-status event doesn't capture). Escalate directly via AskUserQuestion. Do NOT retry — retrying produces another out-of-scope write. Run `shipyard-data task set-status <id> needs-attention --reason "out_of_scope_write"` to move the task.
 
    e. **Update the task file's `research_output:` field** with the relative path to `OUTPUT_PATH` (relative to `findings_dir`). The task is now done.
 

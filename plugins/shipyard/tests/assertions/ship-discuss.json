@@ -94,7 +94,7 @@
   {
     "name": "has_session_guard",
     "type": "contains",
-    "pattern": "\\.active-session\\.json"
+    "pattern": "lock acquire planning|lock release planning"
   },
   {
     "name": "has_compaction_recovery",
@@ -199,12 +199,12 @@
   {
     "name": "has_visual_finding_summary",
     "type": "contains",
-    "pattern": "compact visual summary|⚠️.*Finding.*recommend"
+    "pattern": "compact visual summary|\u26a0\ufe0f.*Finding.*recommend"
   },
   {
     "name": "has_impact_diagram",
     "type": "contains",
-    "pattern": "impact diagram|──impacts──|──depends──"
+    "pattern": "impact diagram|\u2500\u2500impacts\u2500\u2500|\u2500\u2500depends\u2500\u2500"
   },
   {
     "name": "has_c4_diagram_ref",
@@ -257,19 +257,20 @@
     "pattern": "Session Mutex Check|session mutex check"
   },
   {
-    "name": "mutex_reads_active_session",
+    "name": "mutex_acquires_via_cli",
     "type": "contains",
-    "pattern": "Read tool on `<SHIPYARD_DATA>/\\.active-session\\.json`|Read.*<SHIPYARD_DATA>/\\.active-session"
+    "pattern": "shipyard-data lock acquire planning --skill ship-discuss"
   },
   {
     "name": "mutex_has_2hr_staleness",
     "type": "contains",
-    "pattern": "more than 2 hours old|2 hours ago"
+    "pattern": "stale.*recovery line|stale/corrupt-lock recovery",
+    "why": "v3.7.0 wave 3: the 2h threshold itself is defined once in skill-lock.mjs (pinned in acquiring-skill-lock.json) \u2014 the calling skill only needs to know it must echo the CLI's recovery line."
   },
   {
     "name": "mutex_hard_blocks_active",
     "type": "contains",
-    "pattern": "HARD BLOCK|hard block.*planning session",
+    "pattern": "\u26d4.*STOP|exit 3",
     "dotall": true
   },
   {
@@ -336,17 +337,18 @@
   {
     "name": "h3_phase5_ac_signoff_gate_exists",
     "type": "contains",
-    "pattern": "Acceptance-criteria sign-off gate"
+    "pattern": "Consolidated approval gate"
   },
   {
     "name": "h3_phase5_ac_signoff_gate_must_not_skip",
     "type": "contains",
-    "pattern": "Do not skip this gate"
+    "pattern": "Do not skip rendering the verbatim scenarios"
   },
   {
     "name": "h3_phase5_ac_signoff_loops_until_clean",
     "type": "contains",
-    "pattern": "Loop until all scenario sets read"
+    "pattern": "until the user picks \\*\\*Approve everything\\*\\*",
+    "dotall": true
   },
   {
     "name": "h4_critic_classifies_fixes_by_shape",
@@ -747,7 +749,7 @@
     "name": "viability_decision_authority_stays_in_shell",
     "type": "contains",
     "pattern": "viability decision authority stays with the shell|pre-assessment is analysis, not a decision",
-    "why": "the user-facing viability gate decision never moves into the dispatched agent — the agent only pre-assesses"
+    "why": "the user-facing viability gate decision never moves into the dispatched agent \u2014 the agent only pre-assesses"
   },
   {
     "name": "deep_dive_has_inline_fallback",
@@ -813,8 +815,8 @@
   {
     "name": "round_budget_stated",
     "type": "contains",
-    "pattern": "interruption round|4.5 interruption|≤5 asks",
-    "why": "the 15 phases collapse into a 4-5 interruption-round budget with ≤5 asks through Phases 1-2"
+    "pattern": "interruption round|4.5 interruption|\u22645 asks",
+    "why": "the 15 phases collapse into a 4-5 interruption-round budget with \u22645 asks through Phases 1-2"
   },
   {
     "name": "round2_challenge_viability_merged",
@@ -841,9 +843,65 @@
     "why": "the detailed-topic heuristic (two-way door) proceeds into NEW with a stated assumption instead of costing a confirmation round; CAPTURE/EPIC still confirm"
   },
   {
-    "name": "verbatim_ac_signoff_keeps_own_round",
+    "name": "idea_graduation_uses_cli_with_to",
     "type": "contains",
-    "pattern": "verbatim AC sign-off keeps its own round",
-    "why": "the audit-critical verbatim AC sign-off survives the round merge and is never folded away"
+    "pattern": "idea set-status.*graduated --to",
+    "why": "v3.6.0 wave 2: idea graduation (status + graduated_to) routes through the CLI in one atomic call instead of a hand-Edit. Un-targeted 'contains' check scans SKILL.md + references/ (per eval-run.py's check_skill_assertions \u2014 verified: contains checks rglob every *.md under the skill dir except SKILL.md itself, in addition to SKILL.md), so this single assertion covers both the SKILL.md:646 site and references/phase-finalize.md's steps 3 + 'Idea graduation target' section."
+  },
+  {
+    "name": "uses_lock_acquire_planning",
+    "type": "contains",
+    "pattern": "lock acquire (planning|execution)",
+    "why": "v3.7.0 wave 3: the Session Mutex Check routes through shipyard-data lock acquire instead of hand-Read/Write."
+  },
+  {
+    "name": "uses_lock_release",
+    "type": "contains",
+    "pattern": "lock release",
+    "why": "v3.7.0 wave 3: mutex release (Phase 6 finalize, IDEA-CAPTURE mode) routes through shipyard-data lock release instead of a hand Write."
+  },
+  {
+    "name": "no_hand_write_lock_file",
+    "type": "not_contains",
+    "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned \u2014 no skill body hand-Writes them anymore."
+  },
+  {
+    "name": "consolidated_approval_covers_ac_scope_spec",
+    "type": "contains",
+    "dotall": true,
+    "pattern": "approves the acceptance scenarios as written.*scope.*approves the spec",
+    "why": "v3.8.0: the consolidated gate's Approve-everything option must cover all three things it replaces \u2014 AC sign-off, scope-drift check, and spec approval \u2014 in one option description."
+  },
+  {
+    "name": "render_before_ask_rule_in_question_design",
+    "type": "contains",
+    "target": "ref:question-design.md",
+    "pattern": "## Render before asking",
+    "why": "v3.8.0: the render-before-ask rule's canonical definition lives in question-design.md \u2014 verified the assertion schema supports a ref: target the same way ship-review's not_contains checks target ref:pipeline-cursor.md."
+  },
+  {
+    "name": "render_before_ask_inline_rule",
+    "type": "contains",
+    "pattern": "Render before asking",
+    "why": "v3.8.0: ship-discuss's own Rules section restates the render-before-ask one-liner inline (every command skill that asks gets this, not just discuss)."
+  },
+  {
+    "name": "has_think_override_flag",
+    "type": "contains",
+    "pattern": "--think",
+    "why": "v3.9.0: per-invocation think-tier override, parsed from $ARGUMENTS."
+  },
+  {
+    "name": "emits_think_override_used_event",
+    "type": "contains",
+    "pattern": "think_override_used",
+    "why": "v3.9.0: emits shipyard-data events emit think_override_used model=<m> once at first use of the override."
+  },
+  {
+    "name": "has_spawn_failure_fallback",
+    "type": "contains",
+    "pattern": "unavailable.*falling back|falling back to .models\\.think.",
+    "why": "v3.9.0: if a think-tier dispatch errors at spawn because the model is unavailable, fall back to models.think and re-dispatch, printed as one line."
   }
 ]

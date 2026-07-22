@@ -748,5 +748,11 @@
     "target": "ref:pipeline-cursor.md",
     "pattern": "cursor directory itself is gone",
     "why": "v3.4.0: removed the old 'if current/ is gone use cursor noop' workaround"
+  },
+  {
+    "name": "stage6_approved_uses_feature_set_status_done",
+    "type": "contains",
+    "pattern": "feature set-status.*done",
+    "why": "v3.6.0 wave 2: Stage 6 Approved branch routes the feature-done transition through the CLI instead of a generic 'update feature statuses' hand-Edit instruction."
   }
 ]

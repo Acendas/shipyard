@@ -172,5 +172,29 @@
     "name": "renders_stuck_warning",
     "type": "contains",
     "pattern": "pipeline_stuck|stuck_counter|stuck"
+  },
+  {
+    "name": "no_backlog_hand_edit_instruction",
+    "type": "not_contains",
+    "pattern": "archive completed items by Edit",
+    "why": "v3.6.0 wave 2 binding resolution: ship-status stays read-only — Check 7 surfaces the recommendation instead of hand-Editing BACKLOG.md."
+  },
+  {
+    "name": "backlog_size_check_points_at_ship_backlog_archive",
+    "type": "contains",
+    "pattern": "/ship-backlog archive",
+    "why": "v3.6.0 wave 2: Check 7's BACKLOG.md-oversize remediation now tells the user to run /ship-backlog archive rather than mutating BACKLOG.md itself."
+  },
+  {
+    "name": "uses_lock_status",
+    "type": "contains",
+    "pattern": "lock status",
+    "why": "v3.7.0 wave 3: File Hygiene's skill-mutex rendering reads both lock files in one call via shipyard-data lock status instead of hand-parsing JSON."
+  },
+  {
+    "name": "uses_lock_release_force",
+    "type": "contains",
+    "pattern": "lock release.*--force",
+    "why": "v3.7.0 wave 3: stale/user-confirmed lock clearing routes through shipyard-data lock release --force instead of a hand Write of the cleared sentinel."
   }
 ]

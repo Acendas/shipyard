@@ -70,10 +70,10 @@ Then AskUserQuestion: "Apply these impacts? (yes / adjust / skip)"
 
 ## What Gets Changed on Approval
 
-- **Dependencies** — Bidirectional linking: update BOTH features. Example: if F010 depends on F003, add `F003` to F010's `dependencies:` AND add `F010` to F003's `dependencies:`. Both files must be written.
+- **Dependencies** — Run `shipyard-data feature add-dep F010 F003` — the CLI writes both sides atomically; never Edit `dependencies:` by hand.
 - **Acceptance criteria** — Edit the affected feature file's acceptance criteria. Record the change in that feature's decision log with date and reasoning: "Acceptance criteria updated due to [new feature ID]: [what changed]."
 - **Re-estimation flags** — Do NOT recalculate RICE/points for other features. Add decision log entry: "Re-estimation needed: scope changed due to [ID]." The backlog note in the summary will suggest `/ship-backlog groom`.
-- **Epic reassignment** — Update `epic:` in feature frontmatter only. Epic membership is derived, never stored in epic files.
+- **Epic reassignment** — Run `shipyard-data feature set FNNN epic=ENNN`. Epic membership is derived, never stored in epic files.
 - **NEVER reorder BACKLOG.md** — BACKLOG.md is an ordered index managed by `/ship-backlog`. Note in wrap-up summary: "Run `/ship-backlog rank` to re-prioritize."
 - **Impact diagram** — when the impact summary showed an impact diagram (a feature with multiple ripple effects), persist it so the ripple map survives the session. The inline ASCII is ephemeral; convert it to a Mermaid `graph LR` and write it into the new/refined feature's `## Decision Log` (a short "Impact map:" entry). Only persist when **2+ ripple edges** exist — a single dependency is a sentence, not a diagram (per `communication-design.md` "fewer than 3 data points"). Example:
 

@@ -208,5 +208,11 @@
     "type": "not_contains",
     "pattern": "probe re-execution",
     "why": "the orchestrator gate reads the captured exit code; it cannot re-run the probe pre-merge"
+  },
+  {
+    "name": "needs_attention_uses_task_state_cli",
+    "type": "contains",
+    "pattern": "task set-status.*needs-attention --reason",
+    "why": "v3.6.0 wave 2 follow-up: dispatch_loop_repeated / persistent-failure / presumed_dead paths route the needs-attention transition through the task-state CLI instead of a hand-Edit."
   }
 ]

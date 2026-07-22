@@ -45,6 +45,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { logEvent } from "./_hook_lib.mjs";
+import { releaseLock } from "./skill-lock.mjs";
 import {
   canonicalPipeline,
   isTerminalStage,
@@ -284,15 +285,12 @@ function splitEventFields(fields) {
  */
 function clearExecutionLock(dataDir, pipeline) {
   if (pipeline !== "ship-execute") return;
-  try {
-    const path = join(dataDir, ".active-execution.json");
-    if (!existsSync(path)) return;
-    writeFileSync(
-      path,
-      JSON.stringify({ skill: null, cleared: new Date().toISOString() }) + "\n",
-      "utf8",
-    );
-  } catch { /* advisory lock — never fail the state transition over it */ }
+  // v3.7.0: skill-lock.mjs is the single writer of both lock files now.
+  // {force:true} unconditionally soft-deletes regardless of holder;
+  // {bestEffort:true} swallows any error internally (returns null) so a
+  // lock-file hiccup never fails the cursor's state transition over it —
+  // same never-fail contract the old inline try/catch had.
+  releaseLock(dataDir, "execution", { force: true, bestEffort: true });
 }
 
 function buildProposed({ pipeline, stage, prior, cursorFields, note, terminal, nowIso }) {

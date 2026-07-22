@@ -79,7 +79,7 @@ Feature specs, backlog grooming, sprint planning, test-driven execution, code re
 - Spec is a machine-enforced contract verified at every stage
 - Crash recovery salvages uncommitted work from orphaned worktrees automatically
 - Velocity, retro insights, and carry-over items persist across sprints
-- TDD enforced at four layers — agent, skill, hook, and rule. Nearly impossible to skip
+- TDD enforced in skill + rule prose and by orchestrator-side gates (commit-sha verification, anti-stub scan, probe-output match)
 - "It works" means a separate reviewer verified every acceptance scenario against the code
 - Fixed context budgets per skill — token cost doesn't grow with project size
 - Bugs, blocked tasks, and retro action items auto-surface in the next sprint
@@ -229,15 +229,16 @@ You probably have a product spec already. Shipyard doesn't replace it — it wor
 
 Shipyard assumes the AI will cut corners, lose context, and hallucinate — because it will. Every safety net exists because we don't trust the AI to police itself.
 
-- **Tests before code** — TDD is enforced at four independent layers: agent instructions, skill body, hooks, and rules. Any single layer can be bypassed. All four together? Nearly impossible to skip tests.
+- **Tests before code** — TDD is enforced in skill + rule prose and by orchestrator-side gates: commit-sha verification, an anti-stub scan of the diff, and a probe-output match before any task is marked complete. A model can't hand-wave "done" past a gate that checks git ground truth.
 - **Agents don't review their own work** — the builder writes code. A separate reviewer checks it against the spec. A separate critic reviews the reviewer. Three different model invocations, three different prompts, three different perspectives.
-- **You approve every plan** — features, sprint plans, debug fixes, releases, and spec syncs all go through plan mode for your explicit approval. Nothing ships without your sign-off.
+- **You approve every plan** — features, sprint plans, debug fixes, releases, and spec syncs all go through plan mode for your explicit approval. Nothing ships without your sign-off. `/ship-discuss` renders the acceptance scenarios verbatim, the scope-drift check, and the spec together in one consolidated approval gate — you read the real content, not a summary count, before approving.
 - **Nothing is pushed** — Shipyard never pushes to remote or creates branches. It works on your current branch. You push when ready.
 - **Concurrent sessions blocked** — running `/ship-execute` in two terminals is hard-blocked. No git conflicts from parallel sessions.
 - **Crash recovery** — session dies from quota, crash, or closed terminal? Run the command again. Shipyard scans for orphaned worktrees, commits their uncommitted work as salvage, rebases onto main, and resumes from the exact wave where it stopped. Zero work lost.
-- **Auto-pause under pressure** — a hook tracks context compaction. At 2 compactions, it warns you. At 3, it writes a handoff file and stops the sprint before the AI gets dumber. It knows when to pull its own emergency brake.
+- **Pause on demand, resume safely** — say "pause" mid-sprint and the pipeline cursor flips to `status: paused`; a crashed or closed session self-recovers on the next run instead of needing a handoff file (there isn't one — it was retired in favor of the cursor's own state).
 - **Nothing gets lost** — bugs, retro action items, blocked tasks, and incomplete features persist on disk and auto-surface in the next sprint's carry-over scan. The system won't let you forget what you committed to fixing.
 - **Git doesn't lie** — before any agent dismisses a test failure as "pre-existing," it must prove via `git diff` that the failing test isn't on its own branch. No excuses, no handwaving.
+- **State has one writer, not a model with a text editor** — pipeline cursors, feature/backlog frontmatter, and skill-mutex locks are all CLI-owned (`shipyard-data cursor|feature|backlog|lock ...`); a PreToolUse hook denies any model attempt to hand-Write or hand-Edit them directly.
 
 ## Gets Smarter About YOUR Project
 
@@ -257,12 +258,12 @@ The result: sprint 5 is meaningfully better planned than sprint 1 — because Sh
 
 Shipyard is built for teams that care about their API bill.
 
-- **Model routing** — Opus thinks (planning, critique). Sonnet builds (execution, review). Haiku reports (status, tests). The right model for each job, not the most expensive one for everything.
+- **Config-driven model tiers** — `think` (Opus by default — critique, spec review, decomposition) and `build` (Sonnet, fixed — execution labor) are set in `config.md`'s `models:` block, not hardcoded. Flip `think` to Fable for a single discussion (`/ship-discuss --think fable`, if Fable's enabled on your plan) or permanently (`shipyard-data config set-model think fable`). The right model for each job, not the most expensive one for everything.
 - **Effort levels** — each skill sets a thinking budget. Status checks get minimal reasoning. Sprint planning gets full depth. No wasted thinking tokens.
 - **Fixed context budgets** — every skill loads project state through hard line caps (`head -50`, `head -30`). A 500-line backlog costs the same tokens as a 5-line backlog.
 - **Lazy-loaded references** — detailed protocols (TDD cycle, git strategy, team mode, communication design) live in separate files, loaded only when the model actually needs them. Not inline, not always-on.
 - **Subagent isolation** — each agent starts with a clean, purpose-built context and dies when done. No conversation history accumulation across a 3-hour session.
-- **Hooks run outside the model** — TDD enforcement, loop detection, session guards, progress tracking, auto-approval — all Python scripts that cost zero tokens. Eight behaviors enforced for free.
+- **Hooks run outside the model** — three Node hooks (plugin-data breadcrumb, auto-approve/deny for CLI-owned state, worktree branch setup) cost zero tokens. Everything else that used to be advisory hook enforcement moved into skill-prose Iron Laws plus the orchestrator-side gates above, which are stronger because they check git ground truth instead of trusting a model's self-report.
 - **Agent memory scoping** — the test runner loads zero project memory. The critic loads only project-level context. Every agent carries exactly the context it needs, nothing more.
 
 The real comparison isn't "Shipyard vs one clean AI session." It's Shipyard vs the realistic cost of re-doing failed work, re-explaining lost context, and debugging code that wasn't tested properly the first time.
@@ -275,31 +276,21 @@ Shipyard is a [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-cod
 
 Each `/ship-*` command is a [skill](https://docs.anthropic.com/en/docs/claude-code/skills) — a markdown file with YAML frontmatter and dynamic context injection via `!` backtick commands.
 
-### Agents (6)
+### Capability skills, not registered agents
 
-| Agent | Role |
-|---|---|
-| **Builder** | Executes tasks in worktree isolation with strict TDD |
-| **Researcher** | Investigates APIs, codebase patterns, and external docs |
-| **Reviewer** | Read-only verification against acceptance criteria and code quality |
-| **Critic** | Adversarial review of specs and plans before user approval |
-| **Skill Writer** | Auto-generates project-specific SME skills from codebase analysis |
-| **Test Runner** | Lightweight agent for running tests without polluting orchestrator context |
+There's no fixed roster of named agents. Instead, capability skills (`dispatching-task-loop`, `dispatching-spec-review`, `dispatching-code-review`, `discovering-edge-cases`, and others) dispatch fresh-context `general-purpose` subagents on demand, each with a structured-return contract the orchestrator verifies independently (commit sha exists, probe exit code is 0, no stub patterns in the diff) rather than trusting the subagent's own claim of success. A builder, a reviewer, and a critic are all the same underlying subagent type, inlined with a different prompt for the job at hand.
 
-### Rules (7)
+### Rules (4)
 
-Path-scoped [rules](https://docs.anthropic.com/en/docs/claude-code/rules) that lazy-load when Claude touches matching files. TDD enforcement, spec formatting, execution conventions, data model, and review standards.
+Path-scoped [rules](https://docs.anthropic.com/en/docs/claude-code/rules) that lazy-load when Claude touches matching files: `shipyard-ask-user` (question design), `shipyard-data-model` (source-of-truth discipline), `shipyard-next-up` (routing conventions), `shipyard-spec` (spec formatting).
 
-### Hooks (6)
+### Hooks (3)
 
-Python [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) that enforce discipline automatically:
+Node [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) that enforce discipline automatically:
 
-- **TDD check** — blocks commits lacking tests for staged implementation code
-- **Session guard** — prevents code writes during planning/discussion sessions
-- **Loop detection** — flags repeated edits to the same file without committing
-- **On-commit** — captures learnings when an agent struggles
-- **Worktree branch** — creates worktrees from current branch, handles nested worktrees
-- **Post-compact** — restores sprint context after compaction, tracks compaction pressure
+- **Plugin-data breadcrumb** (`SessionStart`) — writes a resolvable path to the plugin data directory so skill subprocesses can find it even when the platform doesn't propagate the env var.
+- **Auto-approve / deny for CLI-owned state** (`PreToolUse`) — auto-approves Writes/Edits inside Shipyard's data directory, and denies outright any model attempt to hand-write a pipeline cursor, feature/BACKLOG.md frontmatter, or a skill-mutex lock file — all of those are single-writer CLI surfaces (`shipyard-data cursor|feature|backlog|lock ...`).
+- **Worktree branch** (`WorktreeCreate`) — creates the task worktree's branch from the current local HEAD, guards against orphaning a prior agent's un-integrated commits on a branch-name collision.
 
 ### Project Data
 
@@ -337,9 +328,9 @@ arguments. Skills shipped with Shipyard do not pass such arguments.
 ## Key Design Decisions
 
 <details>
-<summary><strong>Why enforce TDD at four layers?</strong></summary>
+<summary><strong>Why enforce TDD via prose + orchestrator gates, not a hook?</strong></summary>
 <br>
-Agent instructions, skill body, hooks, and rules all enforce TDD independently. Any single layer can be bypassed — all four together make it nearly impossible to skip tests.
+Skill body and rule prose state the Iron Law (tests before code) at every entry point. The gates that actually catch a skipped or faked test live in the orchestrator: it verifies the returned commit sha exists in git, runs an anti-stub scan over the diff, and checks the acceptance probe's exit code — none of which trust the subagent's own "I wrote the tests" claim. A prose rule alone can be talked past; a gate checking git ground truth can't.
 </details>
 
 <details>
@@ -369,9 +360,9 @@ During /ship-init, the skill-writer agent scans your codebase and generates proj
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
-- Python 3
+- Node.js ≥ 18 (already present wherever Claude Code runs — Shipyard's CLIs and hooks are Node)
 - Git
-- macOS or Linux
+- macOS, Linux, or Windows
 
 ## Contributing
 

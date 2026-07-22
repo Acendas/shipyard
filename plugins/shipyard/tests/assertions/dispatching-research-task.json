@@ -43,5 +43,11 @@
     "name": "no_registered_shipyard_agent",
     "type": "not_contains",
     "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "needs_attention_uses_task_state_cli",
+    "type": "contains",
+    "pattern": "task set-status.*needs-attention --reason",
+    "why": "v3.6.0 wave 2 follow-up: an out-of-scope write escalation routes the needs-attention transition through the task-state CLI instead of a hand-Edit."
   }
 ]

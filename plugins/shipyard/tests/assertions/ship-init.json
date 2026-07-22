@@ -199,5 +199,10 @@
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
     "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+  },
+  {
+    "name": "node_preflight_check",
+    "type": "contains",
+    "pattern": "node --version"
   }
 ]

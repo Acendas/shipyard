@@ -109,5 +109,10 @@
     "type": "contains",
     "pattern": "ESCALATION_CODE.*verify_flaky",
     "dotall": true
+  },
+  {
+    "name": "uses_task_append_verify_cli",
+    "type": "contains",
+    "pattern": "task append-verify"
   }
 ]

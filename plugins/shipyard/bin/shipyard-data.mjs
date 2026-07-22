@@ -36,6 +36,8 @@ import { logEvent, withLockfile } from "./_hook_lib.mjs";
 import { ensureDataDirLink, getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
 import { cursorCmd } from "./cursor-cli.mjs";
 import { parseWaves } from "./terminal-gate.mjs";
+import { specStateCmd } from "./spec-state-cli.mjs";
+import { releaseLock, skillLockCmd } from "./skill-lock.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -103,12 +105,21 @@ function init() {
   }
 
   // Remove transient state files left from prior sessions (idempotent)
-  for (const f of [".loop-state.json", ".active-session.json", ".test-output.tmp"]) {
+  for (const f of [".loop-state.json", ".test-output.tmp"]) {
     rmSync(join(dataDir, f), { force: true });
   }
   // Remove legacy scripts/ dir if a previous ship-init copied scripts in
   // (now served from the plugin, not the data dir)
   rmSync(join(dataDir, "scripts"), { recursive: true, force: true });
+
+  // v3.7.0: both skill-mutex lock files are pre-created as a valid
+  // released-sentinel via skill-lock.mjs (the single writer) rather than
+  // deleted (planning) or left untouched entirely (execution, previously
+  // not touched by init at all — asymmetric). A fresh or re-initialized
+  // project always starts with a well-formed sentinel instead of an
+  // absent file or a leftover pre-v3.7.0 shape.
+  releaseLock(dataDir, "planning", { force: true, bestEffort: true });
+  releaseLock(dataDir, "execution", { force: true, bestEffort: true });
 
   process.stdout.write(dataDir + "\n");
 }
@@ -1745,9 +1756,15 @@ function main() {
       const rest = process.argv.slice(3);
       if (rest[0] === "set-model") {
         configSetModel(rest[1], rest[2]);
+      } else if (rest[0] === "set") {
+        // Generic allowlisted config.md fields outside the `models:` block
+        // (currently just product-spec-path) route through spec-state-cli's
+        // shared conventions (withLockfile, temp+rename, logEvent) rather
+        // than a second copy of that machinery here.
+        specStateCmd(getDataDir({ silent: true }), ["config", "set", ...rest.slice(1)]);
       } else {
         process.stderr.write(
-          `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit>\n`,
+          `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit> | set <key> <value>\n`,
         );
         process.exit(2);
       }
@@ -1761,11 +1778,22 @@ function main() {
       doctor();
       break;
     }
+    case "feature":
+    case "backlog":
+    case "idea":
+    case "task": {
+      specStateCmd(getDataDir({ silent: true }), process.argv.slice(2));
+      break;
+    }
+    case "lock": {
+      skillLockCmd(getDataDir({ silent: true }), process.argv.slice(3));
+      break;
+    }
     // For project-id / project-root use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash|project-root`.
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated | doctor\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated | doctor | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|clear-tasks> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify> ... | config set <key> <value> | lock <acquire|release|check|status> ...\n`,
       );
       process.exit(1);
   }

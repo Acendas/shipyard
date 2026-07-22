@@ -37,7 +37,7 @@ After the self-review quality gate passes, spawn the critic agent to challenge t
 
 **Spawn the critic:** dispatch a `general-purpose` subagent with the inline critic prompt below. The critic role is reused across ship-review, ship-sprint, and ship-discuss with mode-specific framing; per S-1's granularity criterion, the prompt stays inline.
 
-Substitute the literal SHIPYARD_DATA path before spawning. **Model tier (think):** read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-discuss` context block already carries config, or Read it). If non-empty, pass `model: <value>` on the Agent call; if empty or absent, OMIT `model:` so the critic inherits the session model. Never hardcode a literal.
+Substitute the literal SHIPYARD_DATA path before spawning. **Model tier (think):** if a `--think` override is active for this invocation, pass `model: <think_override>` on the Agent call — do not read config.md for this dispatch. Otherwise, read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-discuss` context block already carries config, or Read it): if non-empty, pass `model: <value>` on the Agent call; if empty or absent, OMIT `model:` so the critic inherits the session model. Never hardcode a literal. **Spawn-failure fallback:** if the dispatch errors at spawn because the requested model is unavailable, print one line ("`<model>` unavailable — falling back to `models.think`") and re-dispatch using the config value.
 
 ```
 Agent(subagent_type: "general-purpose", prompt: |

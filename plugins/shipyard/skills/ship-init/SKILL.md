@@ -20,6 +20,8 @@ You are setting up (or updating) Shipyard for this project.
 
 **Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
 
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
+
 ## Detect Mode
 
 ### Legacy Shipyard Footprint Cleanup
@@ -123,6 +125,11 @@ Shipyard needs updating:
 
 ### Step 0: Ensure Git Repository
 
+**Node.js preflight first.** Shipyard's CLIs (`shipyard-data`, `shipyard-context`) and all three hooks are Node programs — without a working `node`, nothing else in this skill or the pipeline functions. Run `node --version` (works on every platform; no shell-specific syntax):
+- Succeeds with major version ≥ 18 → continue silently.
+- Succeeds but major version < 18 → warn: "Node.js [version] found, but Shipyard needs ≥ 18 — some CLI features may fail. Upgrade from https://nodejs.org or via your version manager." Continue (don't block — most features still work on 16/17, and Claude Code itself normally guarantees a modern Node).
+- Command not found → STOP with an actionable message: "Node.js is not on PATH. Shipyard's CLIs and hooks cannot run without it. Install from https://nodejs.org (or `brew install node` / `winget install OpenJS.NodeJS.LTS`), restart the terminal, then re-run /ship-init." Do not proceed to Step 1 — every later step depends on the CLIs.
+
 Shipyard requires git (worktree isolation, branch strategy, TDD hooks all depend on it).
 
 1. Check: `git rev-parse --git-dir 2>/dev/null`
@@ -165,13 +172,7 @@ Scan the project first — auto-detect as much as possible. Only ask what you ca
 
    Default: empty (`quality_gates.standing: []`). Quality gates are opt-in. Write accepted gates to `config.md` under `quality_gates.standing`. Each gate is a free-text description — verification type is inferred during sprint planning.
 
-   **Model tiers (`models:` block, config v4)** — one question only. Defaults ship as `think: opus`, `build: sonnet`, `orchestrate: opus`. AskUserQuestion:
-
-   > "Is Fable enabled on your Claude plan? If yes, Shipyard's thinking/planning work (critics, spec review, decomposition deep-dives, escalation consults) will run on Fable instead of Opus.
-   > - No / not sure (Recommended default — keeps `think: opus`)
-   > - Yes — set `think: fable`"
-
-   Do NOT ask about `build` — it stays `sonnet` (high-volume labor; fast and economical). A dispatch with an unavailable model errors at spawn time, so "not sure" keeps opus. After the answer, tell the user the toggle is never locked in: **"You can flip this anytime with `shipyard-data config set-model think fable` or `... think opus` — the next dispatch picks it up, no re-init needed."** `escalation.enabled` defaults to `true` with `max_consults_per_sprint: 3` — mention it, only ask if the user pushes back.
+   **Model tiers (`models:` block, config v4)** — no question. Defaults ship as `think: opus`, `build: sonnet`, `orchestrate: sonnet` (the `ship-execute` shell tier — informational here, actually set by that skill's frontmatter) and init writes them without asking. State it as one line, don't gate on an answer: "Thinking/planning work (critics, spec review, decomposition deep-dives, escalation consults) defaults to Opus; `/ship-discuss --think fable` overrides it for a single discussion when Fable is enabled on your plan, or run `shipyard-data config set-model think fable` (or `... think opus`) to change the project default persistently — either way, no re-init needed." `escalation.enabled` defaults to `true` with `max_consults_per_sprint: 6` — mention it, only ask if the user pushes back.
 
 **Auto-detect these (confirm, don't ask):**
 Scan the project and present findings: "I detected [X]. Correct?" Only ask if detection fails.
@@ -586,7 +587,7 @@ Never remove existing fields — only add missing ones. If a field was renamed b
 
 **If migrating from v2 (or earlier) to v3:** proceed to Step 2b for data model migration.
 
-**If migrating from v3 to v4:** the generic backfill above covers it — v4 adds `models:` (defaults: `think: opus`, `build: sonnet`, `orchestrate: opus`) and `escalation:` (enabled: true, max_consults_per_sprint: 3). After backfilling, ask the single Fable question from Step 1 (yes → `think: fable`). An existing config whose `models:` values are empty strings is a valid manual choice (inherit) — leave those alone.
+**If migrating from v3 to v4:** the generic backfill above covers it — v4 adds `models:` (defaults: `think: opus`, `build: sonnet`, `orchestrate: sonnet`) and `escalation:` (enabled: true, max_consults_per_sprint: 6). No question after backfilling — the defaults are written directly (see Step 1's note on the model-tiers default). An existing config whose `models:` values are empty strings is a valid manual choice (inherit) — leave those alone.
 
 ### Step 2b: Data Model Migration (v2 → v3)
 

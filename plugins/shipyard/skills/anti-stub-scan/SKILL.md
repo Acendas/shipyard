@@ -135,7 +135,7 @@ The orchestrator aggregates findings:
 
 ## Re-Dispatch Rules
 
-The single-redispatch rule from `dispatching-task-loop` still applies: at most one extra iteration per task per wave. If the second pass also produces HIGH findings, mark the task `needs-attention` and continue. Do NOT loop indefinitely on stub-fix.
+The single-redispatch rule from `dispatching-task-loop` still applies: at most one extra iteration per task per wave. If the second pass also produces HIGH findings, run `shipyard-data task set-status <id> needs-attention --reason "stub_findings_persist"` and continue. Do NOT loop indefinitely on stub-fix.
 
 ## Implementation Notes for the Orchestrator
 

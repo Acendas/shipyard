@@ -142,9 +142,9 @@
     "path": "skills/ship-execute/references/context-management.md"
   },
   {
-    "name": "has_execution_lock",
+    "name": "acquire_locks_names_sprint_flag",
     "type": "contains",
-    "pattern": "\\.active-execution\\.json"
+    "pattern": "lock acquire execution --skill ship-execute --sprint"
   },
   {
     "name": "has_preflight_status_check",
@@ -160,11 +160,6 @@
     "name": "has_readiness_check",
     "type": "contains",
     "pattern": "[Rr]eadiness [Cc]heck"
-  },
-  {
-    "name": "has_compaction_counter",
-    "type": "contains",
-    "pattern": "compaction_count|context pressure|[Cc]ompaction [Pp]ressure"
   },
   {
     "name": "no_legacy_compaction_count_file",
@@ -1140,7 +1135,7 @@
     "type": "contains",
     "pattern": "terminal but still in `current/`|finish /ship-review \\(which archives",
     "dotall": true,
-    "why": "v3.4.0: --task/--hotfix also refuse a TERMINAL execute cursor still in current/ (execute done, review pending) — never --force."
+    "why": "v3.4.0: --task/--hotfix also refuse a TERMINAL execute cursor still in current/ (execute done, review pending) \u2014 never --force."
   },
   {
     "name": "readiness_banner_no_ask",
@@ -1171,5 +1166,100 @@
     "type": "contains",
     "pattern": "tick NEVER exits with a pending question and no marker",
     "why": "v3.4.0: the tick-exit contract states the pause-before-blocking-ask rule once."
+  },
+  {
+    "name": "park_uses_task_set_status_blocked",
+    "type": "contains",
+    "pattern": "task set-status.*blocked --reason",
+    "why": "v3.6.0 wave 2: Park handling routes through the task-state CLI, which writes blocked_reason/blocked_since atomically and auto-emits task_blocked."
+  },
+  {
+    "name": "park_does_not_double_emit_task_blocked",
+    "type": "not_contains",
+    "pattern": "Emit `shipyard-data events emit task_blocked task=<id> reason=\"<short>\" escalation=<code>`",
+    "why": "v3.6.0 wave 2: the old Park-handling sentence emitted task_blocked manually; task set-status blocked now auto-emits it, so a separate emit would double the event. Scoped to the OLD PARK SENTENCE specifically (not a blanket ban on the phrase). Follow-up (needs-attention now CLI-covered): dispatching-task-loop's persistent-failure/presumed_dead paths were migrated to `task set-status ... needs-attention --reason ...`, which deliberately does NOT auto-emit task_blocked (documented as distinct from blocked) \u2014 see spec-state-cli's TASK_HELD_STATUS_FIELDS comment."
+  },
+  {
+    "name": "salvage_uses_task_set_status_needs_attention",
+    "type": "contains",
+    "pattern": "task set-status.*needs-attention --reason",
+    "why": "v3.6.0 wave 2 follow-up: needs-attention transitions (salvage persistent-failure, timeout) route through the task-state CLI now that it covers this status."
+  },
+  {
+    "name": "uses_lock_acquire_execution",
+    "type": "contains",
+    "pattern": "lock acquire (planning|execution)",
+    "why": "v3.7.0 wave 3: Acquire Locks section routes through shipyard-data lock acquire execution instead of the acquiring-skill-lock prose procedure."
+  },
+  {
+    "name": "uses_lock_release",
+    "type": "contains",
+    "pattern": "lock release",
+    "why": "v3.7.0 wave 3: abnormal-exit manual release routes through shipyard-data lock release execution."
+  },
+  {
+    "name": "no_hand_write_lock_file",
+    "type": "not_contains",
+    "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned \u2014 no skill body hand-Writes them anymore."
+  },
+  {
+    "name": "shell_is_sonnet",
+    "type": "frontmatter_field",
+    "field": "model",
+    "value": "sonnet"
+  },
+  {
+    "name": "zero_thinking_doctrine",
+    "type": "contains",
+    "pattern": "does NO thinking",
+    "why": "v3.10.0: the shell's Operating Principles state the zero-thinking doctrine as the first bullet \u2014 the shell executes the checklist and escalates judgment calls, it does not reason about them."
+  },
+  {
+    "name": "teams_default_when_available",
+    "type": "contains",
+    "pattern": "Team is the DEFAULT",
+    "why": "v3.10.0: teams-default dispatch shape \u2014 Team is the default whenever TeamCreate is available and a track has 2+ same-feature tasks, not gated on a raw task-count threshold."
+  },
+  {
+    "name": "subagent_is_fallback",
+    "type": "contains",
+    "pattern": "Subagent is the FALLBACK",
+    "why": "v3.10.0: Subagent mode is now explicitly the fallback shape (Teams unavailable, or no track has 2+ tasks), not a tier of its own picked by task count."
+  },
+  {
+    "name": "verification_spine_delegation_independent",
+    "type": "contains",
+    "target": "ref:team-mode.md",
+    "pattern": "delegation-shape-independent",
+    "why": "v3.10.0: the load-bearing invariant \u2014 every task, however delegated, exits through task-return \u2192 the orchestrator gate \u2192 task_dispatch_returned. A teammate cannot self-certify completion."
+  },
+  {
+    "name": "team_task_return_mandatory",
+    "type": "contains",
+    "target": "ref:team-mode.md",
+    "pattern": "MANDATORY.*persist the structured return",
+    "why": "v3.10.0: teammates were previously bypassing the task-return contract entirely \u2014 the spawn prompt now makes shipyard-data task-return step 7, mandatory and first, before status flips to done."
+  },
+  {
+    "name": "team_no_taskreturn_is_blocked",
+    "type": "contains",
+    "target": "ref:team-mode.md",
+    "pattern": "contract violation",
+    "why": "v3.10.0: done-without-task-return is explicitly named a contract violation \u2014 the lead treats it as BLOCKED and re-dispatches rather than trusting the teammate's TaskUpdate."
+  },
+  {
+    "name": "team_lead_runs_orchestrator_gate",
+    "type": "contains",
+    "target": "ref:team-mode.md",
+    "pattern": "Orchestrator-Side Parsing and Gating",
+    "why": "v3.10.0: the Lead Monitoring Loop runs the SAME orchestrator-side gate as wave_N_recovery (sha cat-file, PROBE_EXIT:0, anti-stub-scan) instead of a lightweight spot-check \u2014 closing the verification gap unique to team mode."
+  },
+  {
+    "name": "team_wave_boundary_integration_gate",
+    "type": "contains",
+    "target": "ref:team-mode.md",
+    "pattern": "verify-wave-integrated.*BEFORE any teardown",
+    "why": "v3.10.0: Wave Boundary Protocol step 1a runs the integration gate before any worktree teardown or teammate shutdown, matching the non-team wave-boundary discipline that was previously only enforced outside team mode."
   }
 ]

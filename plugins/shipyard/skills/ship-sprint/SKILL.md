@@ -22,48 +22,15 @@ Plan a new sprint by pulling features from the backlog and decomposing into wave
 
 **Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Shipyard binaries you may invoke from Bash: `shipyard-data archive-sprint <id>`, `shipyard-data init-sprint <id>` (Step 12), `shipyard-data sprint set <key> <value>` and `shipyard-data sprint check` (Step 12). **Never `cd` into the data directory before running `shipyard-data` commands** — they resolve the data directory internally via git and env vars; `cd`-ing into a non-git directory breaks the resolver. Just run the command bare from the project root. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files.** SPRINT.md and PROGRESS.md are created by the `init-sprint` CLI (template-canonical); **SPRINT.md frontmatter is thereafter mutated only via `shipyard-data sprint set`, never a hand Edit** (hand-editing frontmatter is the corruption class that welds keys together). **PROGRESS.md and the pipeline cursors are CLI/render-owned — the model never writes them** (a PreToolUse hook denies such writes). Use the Write tool (auto-approved for SHIPYARD_DATA) for arbitrary *narrative* artifacts (feature files, task files, SPRINT-DRAFT.md); the SPRINT.md *body* (Goal, `### Wave N`, Critical Path, Risks, Swap Log) stays a model Edit on the CLI-created file. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
 
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
+
 ## Input
 
 $ARGUMENTS
 
 ## Session Mutex Check
 
-**Absolute first action — before reading any context, before mode detection, before anything.** Use the Read tool on `<SHIPYARD_DATA>/.active-session.json` (substitute the literal SHIPYARD_DATA path from the context block above). Then decide:
-
-- **File does not exist** → no other planning session is active. Proceed to "Session Guard" below.
-- **File exists.** Parse the JSON and check three fields:
-  1. If `cleared` is set OR `skill` is `null` → previous session ended cleanly (soft-delete sentinel). Proceed.
-  2. If `started` timestamp is more than 2 hours old → stale lock (probably a crashed session). Print one line to the user: "(recovered stale lock from `/{previous skill}` started {N}h ago)". Proceed.
-  3. Otherwise → **HARD BLOCK.** Another planning session is active. Print this message as the entire response and STOP — do not continue with any other instructions, do not load any context, do not call any other tools:
-
-  ```
-  ⛔ Another planning session is active.
-    Skill:   /{skill from file}
-    Topic:   {topic from file}
-    Started: {started from file}
-
-  Concurrent planning sessions can corrupt the backlog and allocate
-  duplicate task IDs. Finish or pause the active session first.
-
-  If the other session crashed or was closed:
-    Run /ship-status — it will offer to clear the stale lock.
-  ```
-
-This is a Read+Write mutex. There is a small theoretical race window between the Read and the Write below, but in practice two human-typed `/ship-sprint` invocations cannot collide within milliseconds.
-
-## Session Guard
-
-**Second action — only if the mutex check above said proceed:** Use the Write tool to write `.active-session.json` to the SHIPYARD_DATA directory (use the full literal path from the context block — e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/.active-session.json`). This both claims the mutex (overwriting any stale or cleared marker) AND prevents post-compaction implementation drift:
-
-```json
-{
-  "skill": "ship-sprint",
-  "topic": "sprint planning",
-  "started": "[ISO date]"
-}
-```
-
-This file is the active-skill mutex (see the `acquiring-skill-lock` capability skill). Any other Shipyard skill entering will see the held lock and refuse. The mutex is advisory — no hook physically blocks tool calls — so the discipline is yours: if you find yourself wanting to write implementation code, STOP. Planning is for decomposing the work, not building it.
+**Absolute first action — before reading any context, before mode detection, before anything.** Run `shipyard-data lock acquire planning --skill ship-sprint`. Exit 0 → proceed. Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP — do not continue with any other instructions, do not load any context, do not call any other tools. If the CLI printed a stale/corrupt-lock recovery line on stderr, echo it, then proceed (see the `acquiring-skill-lock` capability skill for the full contract — locks are CLI-owned as of v3.7.0, never Read or Write either lock file by hand).
 
 ## Detect Mode
 
@@ -281,7 +248,7 @@ Steps 4-7 (task decomposition via the 5-stage protocol, dependency graph, bottle
 - Capacity (the story-point budget from Step 1).
 - Config knobs: `max_parallel_agents` and the execution-mode thresholds (from the config block).
 - The literal SHIPYARD_DATA path (substitute it — the agent Writes task files there; Write is auto-approved for the data dir).
-- The reference path `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/wave-decomposition.md`, which the agent **Reads and follows** — it is the full protocol for all four steps (Stage 1 map AC → drafts; Stage 2 walking-skeleton foundation → Wave 1; Stage 3 splitting patterns via `shipyard:splitting-stories`; Stage 4 Red step + acceptance probe via `shipyard:authoring-acceptance-probe` + write task file; Stage 5 effort; then Steps 5-7 dependency graph / bottleneck / wave assignment). The agent also reads `references/task-decomposition-patterns.md`, `references/task-kinds.md`, and `references/task-tech-notes-template.md` as that protocol directs, applies the kind auto-classifier and the >8-item task-size guard, and runs the INVEST output check.
+- The reference path `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/wave-decomposition.md`, which the agent **Reads and follows** — it is the full protocol for all four steps (Stage 1 map AC → drafts; Stage 2 walking-skeleton foundation → Wave 1; Stage 3 splitting patterns via `shipyard:splitting-stories`; Stage 4 Red step + acceptance probe via `shipyard:authoring-acceptance-probe` + write task file; Stage 5 effort; then Steps 5-7 dependency graph / bottleneck / wave assignment). The agent also reads `references/task-decomposition-patterns.md`, `references/task-kinds.md`, and `references/task-tech-notes-template.md` as that protocol directs, applies the kind auto-classifier, the >8-item task-size guard, and the `execution.max_tasks_per_wave` wave-size cap (read the value from config; split oversized dependency layers along track boundaries per the protocol — wave COUNT is never capped), and runs the INVEST output check.
 
 **Task IDs and file writes happen inside the agent:** it allocates IDs via `shipyard-data next-id tasks` (it may run Bash for that) and Writes each `<SHIPYARD_DATA>/spec/tasks/TNNN-<slug>.md` from the template. Update each parent feature's `tasks:` frontmatter array with the final IDs.
 
@@ -326,7 +293,7 @@ Include a `## Risks` section derived from: critical path tasks, external deps, k
 
 ### Step 9.5: Quality Gate (self-review loop)
 
-Before presenting the plan, review your own output. Re-read each task file and the sprint draft against a 22-check table covering files-to-modify, architecture, dependency integrity, prescriptive strategy, cleanup, no-cycles, AC clarity, effort, critical path, wave/dep alignment, test strategy, cross-cutting, risks, MoSCoW, PERT, kind-specific required fields (`verify_command`, `research_scope`, `First failing test:`), no nested operational loops, no "and"-titles in feature tasks, Technical Notes deliverable → task mapping, and data-model decomposition (gated — data features only).
+Before presenting the plan, review your own output. Re-read each task file and the sprint draft against a 23-check table covering files-to-modify, architecture, dependency integrity, prescriptive strategy, cleanup, no-cycles, AC clarity, effort, critical path, wave/dep alignment, wave size (no wave exceeds `execution.max_tasks_per_wave`; oversized layers split along track boundaries), test strategy, cross-cutting, risks, MoSCoW, PERT, kind-specific required fields (`verify_command`, `research_scope`, `First failing test:`), no nested operational loops, no "and"-titles in feature tasks, Technical Notes deliverable → task mapping, and data-model decomposition (gated — data features only).
 
 See `references/spec-validation.md` § "Step 9.5" for the full 22-row checklist with fail criteria. **Check 21 (Technical Notes → task mapping)** is load-bearing: a feature's Technical Notes section can name concrete artifacts that never become anyone's deliverable — F002's "Author must write a Playwright spec covering the demo-schema golden path" was such an artifact in the v2.5.0 confedit incident; the sprint shipped with `tests/e2e/` empty because no task owned the deliverable. Iterate up to 3 times, fixing failures and re-running. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag any remaining gaps in the sprint plan summary as "Planning gaps — review during execution". Then proceed to Step 9.7.
 
@@ -403,7 +370,7 @@ If approved:
 4. Remove pulled feature IDs from BACKLOG.md.
 5. **Record working branch** — capture the user's current branch: `git branch --show-current`. Set it via `shipyard-data sprint set branch <current branch>` (not a hand Edit of SPRINT.md frontmatter). Shipyard works on whatever branch the user is already on — it does not create sprint branches.
 
-**Clean up active-skill mutex:** Use the Write tool to overwrite `<SHIPYARD_DATA>/.active-session.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel — the mutex pattern treats `skill: null` as inactive). Planning is complete.
+**Clean up active-skill mutex:** run `shipyard-data lock release planning --skill ship-sprint` (soft-delete sentinel — CLI-owned, never a hand Write). Planning is complete.
 
 Then show:
 ```
@@ -506,9 +473,9 @@ Then show:
 1. AskUserQuestion: "Why are you cancelling this sprint? (This feeds the retro — 'skip' is fine.)"
 2. For each task in the sprint:
    - **Done tasks** → keep commits, status stays `done`
-   - **In-progress tasks** → commit work-in-progress with `wip(cancel):` prefix, update status to `approved` in task file frontmatter, update parent **feature** status to `approved` in feature frontmatter, add feature ID back to BACKLOG.md
-   - **Not started tasks** → update status to `approved` in task file frontmatter, update parent **feature** status to `approved` in feature frontmatter, add feature ID back to BACKLOG.md
-   - For all cancelled features (not done): clear the `tasks:` array in feature frontmatter so the next sprint planning re-decomposes them fresh
+   - **In-progress tasks** → commit work-in-progress with `wip(cancel):` prefix, then per task `shipyard-data task set-status <TID> approved`; per parent feature `shipyard-data feature set-status <FID> approved` followed by `shipyard-data backlog add <FID>`
+   - **Not started tasks** → per task `shipyard-data task set-status <TID> approved`; per parent feature `shipyard-data feature set-status <FID> approved` followed by `shipyard-data backlog add <FID>`
+   - For all cancelled features (not done): `shipyard-data feature clear-tasks <FID>` so the next sprint planning re-decomposes them fresh
 3. Sprint status → `cancelled` via `shipyard-data sprint set status cancelled` (not a hand Edit of SPRINT.md frontmatter)
 4. Git cleanup:
    - Any uncommitted work is committed as WIP

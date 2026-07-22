@@ -99,7 +99,7 @@
   {
     "name": "has_session_guard",
     "type": "contains",
-    "pattern": "\\.active-session\\.json"
+    "pattern": "lock acquire planning|lock release planning"
   },
   {
     "name": "has_compaction_recovery",
@@ -189,12 +189,12 @@
   {
     "name": "has_wave_timeline_visual",
     "type": "contains",
-    "pattern": "visual timeline|Wave.*████"
+    "pattern": "visual timeline|Wave.*\u2588\u2588\u2588\u2588"
   },
   {
     "name": "has_dependency_dag",
     "type": "contains",
-    "pattern": "DEPENDENCY GRAPH|DAG|─┬─▶"
+    "pattern": "DEPENDENCY GRAPH|DAG|\u2500\u252c\u2500\u25b6"
   },
   {
     "name": "has_lsp_in_tools",
@@ -232,19 +232,20 @@
     "pattern": "Session Mutex Check|session mutex check"
   },
   {
-    "name": "mutex_reads_active_session",
+    "name": "mutex_acquires_via_cli",
     "type": "contains",
-    "pattern": "Read tool on `<SHIPYARD_DATA>/\\.active-session\\.json`|Read.*<SHIPYARD_DATA>/\\.active-session"
+    "pattern": "shipyard-data lock acquire planning --skill ship-sprint"
   },
   {
     "name": "mutex_has_2hr_staleness",
     "type": "contains",
-    "pattern": "more than 2 hours old|2 hours ago"
+    "pattern": "stale.*recovery line|stale/corrupt-lock recovery",
+    "why": "v3.7.0 wave 3: the 2h threshold itself is defined once in skill-lock.mjs (pinned in acquiring-skill-lock.json) \u2014 the calling skill only needs to know it must echo the CLI's recovery line."
   },
   {
     "name": "mutex_hard_blocks_active",
     "type": "contains",
-    "pattern": "HARD BLOCK|hard block.*planning session",
+    "pattern": "\u26d4.*STOP|exit 3",
     "dotall": true
   },
   {
@@ -612,5 +613,52 @@
     "type": "contains",
     "pattern": "Resume the draft with|Discard it and replan",
     "why": "v3.4.0: stale-draft resume options are labeled by feature content, not abstract keep/discard verbs"
+  },
+  {
+    "name": "cancel_clears_tasks_via_cli",
+    "type": "contains",
+    "pattern": "feature clear-tasks",
+    "why": "v3.6.0 wave 2: sprint-cancel's per-feature tasks: array reset is a dedicated CLI verb, not a hand-Edit."
+  },
+  {
+    "name": "cancel_uses_task_set_status_approved",
+    "type": "contains",
+    "pattern": "task set-status.*approved",
+    "why": "v3.6.0 wave 2: sprint-cancel's task-frontmatter status reset routes through the task-state CLI."
+  },
+  {
+    "name": "uses_lock_acquire_planning",
+    "type": "contains",
+    "pattern": "lock acquire (planning|execution)",
+    "why": "v3.7.0 wave 3: the Session Mutex Check routes through shipyard-data lock acquire instead of hand-Read/Write."
+  },
+  {
+    "name": "uses_lock_release",
+    "type": "contains",
+    "pattern": "lock release",
+    "why": "v3.7.0 wave 3: mutex cleanup routes through shipyard-data lock release instead of a hand Write."
+  },
+  {
+    "name": "no_hand_write_lock_file",
+    "type": "not_contains",
+    "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned \u2014 no skill body hand-Writes them anymore."
+  },
+  {
+    "name": "wave_size_cap_in_deep_dive",
+    "type": "contains",
+    "pattern": "max_tasks_per_wave"
+  },
+  {
+    "name": "wave_count_never_capped",
+    "type": "contains",
+    "pattern": "Never cap the number of WAVES",
+    "target": "ref:wave-decomposition.md"
+  },
+  {
+    "name": "wave_size_cap_check_in_validation",
+    "type": "contains",
+    "pattern": "No wave exceeds .execution.max_tasks_per_wave",
+    "target": "ref:spec-validation.md"
   }
 ]

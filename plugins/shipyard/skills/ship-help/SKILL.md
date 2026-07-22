@@ -1,7 +1,7 @@
 ---
 name: ship-help
 description: "Ask Shipyard questions or run workflow actions."
-allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 argument-hint: "[question or request]"
 model: haiku
 ---
@@ -20,6 +20,8 @@ You are Shipyard's conversational assistant. You know the full Shipyard workflow
 !`shipyard-context view sprint`
 !`shipyard-context view sprint-progress 20`
 !`shipyard-context view backlog 30`
+
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
 
 ## User Request
 
@@ -40,8 +42,13 @@ User asks how to accomplish something. Walk them through step by step.
 Reference the right `/ship-*` command. Explain what it does and what to expect.
 
 ### Mode 3: Action → Do It
-User asks you to do something (move a feature, update a status, reorder backlog).
-DO IT — update the files directly. Confirm what you changed.
+User asks you to do something (move a feature, update a status, reorder backlog). DO IT — but route the mutation through the right layer, not a blind Edit:
+
+- **State mutations go through `shipyard-data`, never a hand-Edit.** Feature status/fields → `shipyard-data feature set-status <FID> <status>` / `feature set <FID> k=v`. Backlog membership/order → `shipyard-data backlog add|remove|rank|set`. Idea graduation → `shipyard-data idea set-status <IDEA-NNN> graduated --to <FID>` (or `rejected`). Task status → `shipyard-data task set-status <TID> <status>`.
+- **NEVER hand-Edit feature-file or BACKLOG.md frontmatter, the pipeline cursors, or the skill-mutex lock files** — all four are CLI-owned; the auto-approve PreToolUse hook denies a model Write/Edit to any of them outright, so an Edit attempt there fails, not just violates convention.
+- **Body prose stays Edit-tool surface** — feature/epic body sections, decision logs, and free-text notes are not CLI-owned; Edit them directly as always.
+- **Anything the CLI doesn't cover** (e.g. sprint planning, running a wave, filing a bug) is out of scope for a direct Edit here — route the user to the owning skill (`/ship-sprint`, `/ship-execute`, `/ship-bug`, …) instead of improvising a workaround.
+- Confirm what changed, in one line, after the CLI call succeeds.
 
 ### Mode 4: Lost → Suggest
 User seems uncertain about what to do next. Read the project state and suggest:
@@ -121,7 +128,7 @@ You talk.  Shipyard plans.  Claude builds.  You approve.
   ✅ Nothing pushed to remote — you push when ready
   ✅ Concurrent sessions blocked (no git conflicts)
   ✅ Crashed sessions auto-recover
-  ✅ Auto-pauses before quota runs out
+  ✅ Type "pause" to stop cleanly; crashed sessions auto-recover on re-run
   ✅ Bugs and retro items tracked and surface in next sprint
 ```
 
@@ -189,6 +196,25 @@ Configure standing gates during `/ship-init` or edit `config.md quality_gates.st
 `/ship-review` Stage 1.5 reads the manifest:
 - `probe` / `tool` gates → dispatched as operational tasks
 - `manual` gates → collected as checklist for Stage 5 approval
+
+### Model & thinking tier
+
+Shipyard dispatches work across three model tiers, config-driven via `config.md`'s `models:` block:
+
+| Tier | Default | Used for |
+|------|---------|----------|
+| `think` | Opus | Deep reasoning — critics, spec review, sprint analysts, decomposition deep-dives, escalation consults |
+| `build` | Sonnet (fixed) | High-volume labor — builder task loops, operational runs, research sweeps, fixers, simplifiers |
+| `orchestrate` | Opus | The user-session shell tier itself (set via skill frontmatter, not runtime-configurable) |
+
+Two ways to change the `think` tier:
+
+| Scope | How |
+|-------|-----|
+| One discussion only | `/ship-discuss --think fable\|opus\|sonnet` — applies to that invocation's dispatches only, nothing persisted |
+| Every project dispatch, going forward | `shipyard-data config set-model think fable\|opus` — writes `config.md`, the next dispatch anywhere picks it up |
+
+Fable availability depends on the user's Claude plan — a dispatch to an unavailable model errors at spawn time and falls back to the configured `think` value with a one-line notice. `build` is never asked about or overridden per-run; it stays Sonnet. Either tier can also be set to `inherit` (omit `model:`, the dispatch inherits the session's own model) via `shipyard-data config set-model <tier> inherit`.
 
 ## Rules
 - Always use AskUserQuestion when the request is ambiguous

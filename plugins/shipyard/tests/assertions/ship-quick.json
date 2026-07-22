@@ -23,12 +23,12 @@
   {
     "name": "has_execution_lock",
     "type": "contains",
-    "pattern": "\\.active-execution\\.json"
+    "pattern": "lock acquire execution|lock release execution"
   },
   {
     "name": "has_session_guard_cleanup",
     "type": "contains",
-    "pattern": "\\.active-session\\.json"
+    "pattern": "lock check planning"
   },
   {
     "name": "has_scope_escalation_guard",
@@ -86,9 +86,9 @@
     "pattern": "planning-session mutex check|Planning session active"
   },
   {
-    "name": "planning_check_reads_active_session",
+    "name": "planning_check_uses_lock_check_cli",
     "type": "contains",
-    "pattern": "Read.*<SHIPYARD_DATA>/\\.active-session"
+    "pattern": "shipyard-data lock check planning"
   },
   {
     "name": "uses_chore_commit",
@@ -131,14 +131,14 @@
     "pattern": "allowed-tools:.*Write"
   },
   {
-    "name": "execution_lock_clear_sentinel",
+    "name": "execution_lock_release_named_skill",
     "type": "contains",
-    "pattern": "\"cleared\""
+    "pattern": "shipyard-data lock release execution --skill ship-quick"
   },
   {
-    "name": "execution_lock_soft_delete",
+    "name": "execution_lock_acquire_named_skill",
     "type": "contains",
-    "pattern": "\"skill\": null"
+    "pattern": "shipyard-data lock acquire execution --skill ship-quick"
   },
   {
     "name": "q_nnn_task_file_path",
@@ -234,5 +234,29 @@
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
     "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+  },
+  {
+    "name": "uses_lock_check_planning",
+    "type": "contains",
+    "pattern": "lock check planning",
+    "why": "v3.7.0 wave 3: the planning-session mutex check is read-only via shipyard-data lock check planning (ship-quick never holds the planning lock itself)."
+  },
+  {
+    "name": "uses_lock_acquire_execution",
+    "type": "contains",
+    "pattern": "lock acquire (planning|execution)",
+    "why": "v3.7.0 wave 3: the execution lock check/acquire routes through shipyard-data lock acquire execution."
+  },
+  {
+    "name": "uses_lock_release",
+    "type": "contains",
+    "pattern": "lock release",
+    "why": "v3.7.0 wave 3: completion cleanup routes through shipyard-data lock release execution."
+  },
+  {
+    "name": "no_hand_write_lock_file",
+    "type": "not_contains",
+    "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned \u2014 no skill body hand-Writes them anymore."
   }
 ]

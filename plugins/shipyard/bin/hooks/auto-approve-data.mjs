@@ -30,11 +30,12 @@
  */
 
 import { realpathSync } from "node:fs";
-import { basename, dirname, resolve as pathResolve } from "node:path";
+import { basename, dirname, join, resolve as pathResolve } from "node:path";
 import { homedir } from "node:os";
 import {
   dataDirContains,
   logBreadcrumb,
+  logEvent,
   resolveShipyardData,
 } from "../_hook_lib.mjs";
 
@@ -49,6 +50,13 @@ const CLI_OWNED_BASENAMES = new Set([
   "PROGRESS.md",
   "HANDOFF.md",
 ]);
+
+// v3.7.0: the two skill-mutex lock files are now CLI-owned too —
+// bin/skill-lock.mjs is the single writer (shipyard-data lock
+// acquire|release|check|status). Kept as a separate set (rather than
+// merged into CLI_OWNED_BASENAMES) because the deny hint text differs —
+// see the basename branch below.
+const LOCK_BASENAMES = new Set([".active-session.json", ".active-execution.json"]);
 
 // Mirror the matcher in hooks.json. CLAUDE.md's "mirror the tool allowlist"
 // rule exists because these drifted for months in the past — the MultiEdit
@@ -162,6 +170,42 @@ export async function run(hookInput, _env) {
       };
       process.stdout.write(JSON.stringify(response));
       return 0;
+    }
+    if (LOCK_BASENAMES.has(base)) {
+      logBreadcrumb(shipyardData, LOG_NAME, "deny", [
+        toolName,
+        filePath,
+        "cli_owned_state",
+      ]);
+      const response = {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason:
+            `${base} is a skill-mutex lock file with a single writer — the shipyard-data CLI. ` +
+            "Do not Write/Edit it. Skill locks are CLI-owned — use shipyard-data lock acquire|release|check.",
+        },
+      };
+      process.stdout.write(JSON.stringify(response));
+      return 0;
+    }
+
+    // Audit-only (v3.5.0 CLI-absorption): feature-file frontmatter and
+    // BACKLOG.md are now CLI-owned surfaces (shipyard-data feature set|
+    // set-status, backlog add|remove|rank|set) — skill bodies should route
+    // mutations through the CLI instead of hand-Editing these files. This
+    // does NOT deny the write (feature/epic *bodies* and the BACKLOG.md
+    // Overrides section remain legitimate Edit-tool surface, and denying
+    // here would be a false-positive on those). It only leaves a event-log
+    // breadcrumb so drift back to hand-editing frontmatter is visible in
+    // `shipyard-context diagnose` instead of silent.
+    const featuresDir = join(shipyardData, "spec", "features");
+    const isBacklogMd = base === "BACKLOG.md";
+    const isFeatureFile = /^F\d{3}-.*\.md$/.test(base) && dataDirContains(filePath, featuresDir);
+    if (isBacklogMd || isFeatureFile) {
+      try {
+        logEvent(shipyardData, "model_state_file_write", { file: filePath });
+      } catch { /* audit-only, never block on it */ }
     }
 
     logBreadcrumb(shipyardData, LOG_NAME, "allow", [toolName, filePath, shipyardData]);

@@ -46,11 +46,6 @@
     "pattern": "Eliminated"
   },
   {
-    "name": "has_execution_lock",
-    "type": "contains",
-    "pattern": "\\.active-execution\\.json"
-  },
-  {
     "name": "has_fix_attempt_limit",
     "type": "contains",
     "pattern": "fix_attempts|3.*failed|attempt.*3"
@@ -121,9 +116,9 @@
     "pattern": "Planning-session mutex check|Planning session active"
   },
   {
-    "name": "planning_check_reads_active_session",
+    "name": "planning_check_uses_lock_check_cli",
     "type": "contains",
-    "pattern": "Read.*<SHIPYARD_DATA>/\\.active-session"
+    "pattern": "shipyard-data lock check planning"
   },
   {
     "name": "debug_runs_through_logcap",
@@ -154,5 +149,27 @@
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
     "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+  },
+  {
+    "name": "uses_lock_check",
+    "type": "contains",
+    "pattern": "lock check",
+    "why": "v3.7.0 wave 3: both the planning and execution mutex checks are read-only via shipyard-data lock check \u2014 ship-debug never acquires either lock, it only verifies neither is held by someone else."
+  },
+  {
+    "name": "no_hand_write_lock_file",
+    "type": "not_contains",
+    "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned \u2014 no skill body hand-Writes them anymore."
+  },
+  {
+    "name": "fix_phase_acquires_execution_lock",
+    "type": "contains",
+    "pattern": "lock acquire execution --skill ship-debug"
+  },
+  {
+    "name": "fix_phase_releases_execution_lock",
+    "type": "contains",
+    "pattern": "lock release execution --skill ship-debug"
   }
 ]

@@ -767,6 +767,73 @@ def check_session_mutex_pattern(result):
         result.ok(f"session_mutex:{skill_dir.name}:read_before_write")
 
 
+def check_render_before_ask(result):
+    """Structural guard: every skill body that uses AskUserQuestion must also
+    state the render-before-ask rule — render the decision context (scenarios,
+    concrete examples, tradeoffs, verbatim content) as chat text BEFORE the
+    tool call, since the AskUserQuestion window is too small to carry a real
+    decision on its own.
+
+    Motivated by the 2026-07-21 ship-backlog blind-ask incident: a delegated
+    gather produced an AskUserQuestion with nothing rendered above it. The
+    fix landed as a rule in question-design.md plus a one-liner near the top
+    of every command skill that asks; this check catches a future skill (or
+    a future edit to an existing one) that drops the one-liner.
+
+    Skills with no AskUserQuestion at all are not-applicable — nothing to
+    check. Frontmatter is stripped before scanning so the rule text can't be
+    satisfied by an unrelated frontmatter field.
+    """
+    import re
+
+    RENDER_RULE_RE = re.compile(r"Render before asking", re.IGNORECASE)
+    # ship-backlog already had its own domain-specific render-before-ask rule
+    # ("Render the full board as text output BEFORE the first AskUserQuestion")
+    # predating this generic check — equivalent in substance, different
+    # wording by design (it names the board specifically). Exempt rather
+    # than force it onto the generic phrase.
+    ALREADY_COMPLIANT = {"ship-backlog"}
+
+    # Scoped to command skills (the `ship-*` directories), same filter
+    # check_session_mutex_pattern uses just above. The 2b instruction
+    # enumerated 11 specific command skills to receive the one-liner;
+    # capability skills (dispatching-*, authoring-*, verifying-*, etc.)
+    # were never in scope for this pass and may have their own AskUserQuestion
+    # usage patterns worth revisiting separately.
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+        if not skill_dir.is_dir() or not skill_dir.name.startswith("ship-"):
+            continue
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            continue
+        raw = read_file(skill_md)
+        rel = skill_md.relative_to(PROJECT_ROOT) if skill_md.is_relative_to(PROJECT_ROOT) else skill_md
+
+        # Strip the leading frontmatter block before scanning the body.
+        body = re.sub(r"^---\s*\n.*?\n---\s*\n", "", raw, count=1, flags=re.DOTALL)
+
+        if "AskUserQuestion" not in body:
+            result.ok(f"render_before_ask:{skill_dir.name}:not-applicable")
+            continue
+
+        if skill_dir.name in ALREADY_COMPLIANT:
+            result.ok(f"render_before_ask:{skill_dir.name}:already_compliant")
+            continue
+
+        if not RENDER_RULE_RE.search(body):
+            result.fail(
+                f"render_before_ask:{skill_dir.name}:missing_rule",
+                f"{rel} uses AskUserQuestion but never states the render-before-ask rule "
+                f"(\"Render before asking...\"). Add the one-liner near the top of the "
+                f"skill body (see references/question-design.md § 'Render before asking' "
+                f"in ship-discuss, or ship-backlog's board-render rule for a domain-specific "
+                f"equivalent).",
+            )
+            continue
+
+        result.ok(f"render_before_ask:{skill_dir.name}:has_rule")
+
+
 def check_no_python_in_plugin(result):
     """Phase H5 guard rail: fail if any .py file appears under bin/ or
     project-files/scripts/.
@@ -1189,6 +1256,7 @@ def main():
     check_skill_bash_allowlist_consistency(result)
     check_no_python_in_plugin(result)
     check_session_mutex_pattern(result)
+    check_render_before_ask(result)
     check_no_hardcoded_dispatch_model(result)
     check_cross_skill_consistency(result)
 

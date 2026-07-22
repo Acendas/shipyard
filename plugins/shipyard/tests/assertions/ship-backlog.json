@@ -132,5 +132,50 @@
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
     "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+  },
+  {
+    "name": "no_subagent_gather",
+    "type": "contains",
+    "pattern": "NEVER dispatch a subagent"
+  },
+  {
+    "name": "board_before_first_ask",
+    "type": "contains",
+    "pattern": "[Bb]oard.*BEFORE the first AskUserQuestion"
+  },
+  {
+    "name": "model_not_haiku",
+    "type": "not_contains",
+    "pattern": "model: haiku"
+  },
+  {
+    "name": "uses_backlog_rank",
+    "type": "contains",
+    "pattern": "backlog rank"
+  },
+  {
+    "name": "uses_backlog_add",
+    "type": "contains",
+    "pattern": "backlog add"
+  },
+  {
+    "name": "groom_uses_set_status",
+    "type": "contains",
+    "pattern": "feature set-status"
+  },
+  {
+    "name": "allows_shipyard_data_bash",
+    "type": "contains",
+    "pattern": "Bash\\(shipyard-data"
+  },
+  {
+    "name": "last_groomed_via_cli",
+    "type": "contains",
+    "pattern": "backlog set last_groomed"
+  },
+  {
+    "name": "board_always_groups_by_epic",
+    "type": "contains",
+    "pattern": "ALWAYS group by epic"
   }
 ]

@@ -1,7 +1,7 @@
 ---
 name: ship-status
 description: "Show the Shipyard project dashboard and next steps."
-allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, AskUserQuestion, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 argument-hint: "[sprint|backlog|health|spec|diagnose]"
 model: haiku
 ---
@@ -23,7 +23,9 @@ Read all project state, validate it, auto-fix issues, and present a clear dashbo
 !`shipyard-context debug-count`
 !`shipyard-context status-counts`
 
-**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. No bash invocation of `shipyard-data` or `shipyard-context` — use Read / Grep / Glob. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA) for the reconcile-log, metrics rollover, and sentinel files this skill maintains. **`/ship-status` only READS the pipeline cursors, PROGRESS.md, and SPRINT.md frontmatter — never writes them** (the PreToolUse hook denies model writes to those; the `shipyard-data` CLI is their only writer). HANDOFF.md is retired — a paused pipeline is a cursor with `status: paused`.
+**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash is for `shipyard-context` (reads) and `shipyard-data lock status|release` (skill-lock housekeeping — see Check 6/7) ONLY — no other `shipyard-data` subcommand and no other shell. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA) for the reconcile-log, metrics rollover, and sentinel files this skill maintains. **`/ship-status` only READS the pipeline cursors, PROGRESS.md, and SPRINT.md frontmatter — never writes them** (the PreToolUse hook denies model writes to those; the `shipyard-data` CLI is their only writer). HANDOFF.md is retired — a paused pipeline is a cursor with `status: paused`. The two skill-mutex lock files (`.active-session.json`, `.active-execution.json`) are CLI-owned too — this skill never hand-Writes them, only `shipyard-data lock status` (read) / `lock release ... --force` (clear).
+
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
 
 ## Input
 
@@ -94,9 +96,12 @@ State files use the soft-delete sentinel pattern: overwrite with a "cleared" mar
 - Orphan task files (not in any feature's `tasks:` array) → log as warning
 - Epic files with `features:` arrays → remove the array (membership is derived)
 - Stale `<SHIPYARD_DATA>/.loop-state.json` → Write `{"cleared": "<iso>", "events": []}`
-- Stale `<SHIPYARD_DATA>/.active-session.json` (>24h old) → Write `{"skill": null, "cleared": "<iso>"}`
-- Stale `<SHIPYARD_DATA>/.compaction-count` file (legacy) → harmless dead state from an older plugin version; ignore it (no longer written or read). Do not shell out to `rm` — `/ship-status` never invokes `shipyard-data`/`shipyard-context` via bash (see Paths rule above).
-- `<SHIPYARD_DATA>/.active-execution.json` — Read it, parse JSON. If `cleared` is set, ignore. Otherwise: if `started` is >2h old, Write the cleared sentinel automatically; if <2h, show it in the dashboard and AskUserQuestion: "Execution lock found ([skill], started [time]). Still running? (yes, leave it / no, clear it)". On clear, Write the cleared sentinel (which also clears any `compaction_count` field on the old lock).
+- Stale `<SHIPYARD_DATA>/.compaction-count` file (legacy) → harmless dead state from an older plugin version; ignore it (no longer written or read). Do not shell out to `rm` — `/ship-status` never invokes generic shell commands against the data dir (see Paths rule above); `shipyard-data lock ...` is the one sanctioned exception.
+- **Skill-mutex locks** — run `shipyard-data lock status` to read both `.active-session.json` (planning) and `.active-execution.json` (execution) in one call; never Read/parse the raw JSON by hand and never hand-Write either file (both are CLI-owned — see Paths rule above). The CLI's own 2-hour stale threshold applies to both locks uniformly (the old 24h-for-planning / 2h-for-execution split is gone — one constant, defined once in `bin/skill-lock.mjs`). `lock status` reports each lock's `state` as one of `free | released | stale | mine | held`. Render:
+  - **`state: "stale"`** (either kind) → run `shipyard-data lock release <planning|execution> --force` automatically, no AskUserQuestion — matches the old auto-clear-when-stale behavior for planning, and extends the same auto-clear to a stale execution lock (previously execution never auto-cleared even when stale).
+  - **Execution, `state: "held"` or `"mine"`** (fresh) → show it in the dashboard and AskUserQuestion: "Execution lock found ([skill], started [time]). Still running? (yes, leave it / no, clear it)". On "no, clear it" → run `shipyard-data lock release execution --force`.
+  - **Planning, `state: "held"` or `"mine"`** (fresh) → informational only in this check (surfaced elsewhere in the dashboard's pipeline/state sections) — do not auto-clear or ask here; a live planning session ending normally releases its own lock.
+  - `state: "free"` or `"released"` → nothing to report.
 
 ### Check 7a: Pipeline Cursor Health
 
@@ -115,7 +120,7 @@ Detection rules:
 ### Check 7: File Size Health
 
 - `metrics.md` > 300 lines → quarterly rollover. Read the file, split off the older content, use Write to create `<SHIPYARD_DATA>/memory/metrics-[quarter].md`, then use Edit to truncate the original `metrics.md` to the current quarter only.
-- `BACKLOG.md` > 200 lines → archive completed items by Edit (remove their IDs); the underlying feature files keep their `status: done|released` on disk.
+- `BACKLOG.md` > 200 lines → surface it, do not mutate it (`/ship-status` is read-only and BACKLOG.md IDs are CLI-owned as of v3.5.0 — `shipyard-data backlog remove/rank`, not a hand-Edit): "BACKLOG.md over 200 lines — run `/ship-backlog archive`."
 - `reconcile-log.md` > 200 lines → Read it, then use Write to overwrite with the last 10 entries.
 
 **All fixes are silent.** The dashboard shows a summary line at the bottom: "Auto-fixed: N items" with a brief list. Only use AskUserQuestion for destructive ambiguous issues (duplicate IDs, tasks referencing deleted features).

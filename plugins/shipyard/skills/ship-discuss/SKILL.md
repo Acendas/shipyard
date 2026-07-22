@@ -1,10 +1,10 @@
 ---
 name: ship-discuss
 description: "Discover features from idea to full spec."
-allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, TaskCreate, TaskUpdate, TaskList, "Bash(shipyard-context:*)"]
+allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, TaskCreate, TaskUpdate, TaskList, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 model: opus
 effort: medium
-argument-hint: "[topic | feature ID | issue key | --idea <description>]"
+argument-hint: "[topic | feature ID | issue key | --idea <description>] [--think <fable|opus|sonnet>]"
 ---
 
 # Shipyard: Feature Discussion
@@ -26,44 +26,11 @@ You are facilitating a feature discovery conversation. This is fluid — not a q
 
 $ARGUMENTS
 
+**`--think <model>` override (this invocation only).** If `$ARGUMENTS` contains `--think <value>`, validate `<value>` against `{fable, opus, sonnet}`. Valid → strip `--think <value>` from the arguments before mode detection and remember it as `think_override` for the rest of this session; every think-tier dispatch below (the design deep-dive, the critic) passes `model: <think_override>` instead of reading `models.think` from config.md. Invalid value (anything else) → print one line ("`--think <value>` isn't a recognized model — ignoring, using the configured think tier") and fall back to `models.think` as normal; do not block on it or ask a follow-up question. No config.md mutation — this never persists past the current invocation. On first dispatch that actually uses the override, emit `shipyard-data events emit think_override_used model=<think_override>` (once per session, not once per dispatch).
+
 ## Session Mutex Check
 
-**Absolute first action — before reading any context, before mode detection, before anything.** Use the Read tool on `<SHIPYARD_DATA>/.active-session.json` (substitute the literal SHIPYARD_DATA path from the context block above). Then decide:
-
-- **File does not exist** → no other planning session is active. Proceed to "Session Guard" below.
-- **File exists.** Parse the JSON and check three fields:
-  1. If `cleared` is set OR `skill` is `null` → previous session ended cleanly (soft-delete sentinel). Proceed.
-  2. If `started` timestamp is more than 2 hours old → stale lock (probably a crashed session). Print one line to the user: "(recovered stale lock from `/{previous skill}` started {N}h ago)". Proceed.
-  3. Otherwise → **HARD BLOCK.** Another planning session is active. Print this message as the entire response and STOP — do not continue with any other instructions, do not load any context, do not call any other tools:
-
-  ```
-  ⛔ Another planning session is active.
-    Skill:   /{skill from file}
-    Topic:   {topic from file}
-    Started: {started from file}
-
-  Concurrent planning sessions can corrupt the spec and lose research notes.
-  Finish or pause the active session first.
-
-  If the other session crashed or was closed:
-    Run /ship-status — it will offer to clear the stale lock.
-  ```
-
-This is a Read+Write mutex. There is a small theoretical race window between the Read and the Write below, but in practice two human-typed `/ship-discuss` invocations cannot collide within milliseconds.
-
-## Session Guard
-
-**Second action — only if the mutex check above said proceed:** Use the Write tool to write `.active-session.json` to the SHIPYARD_DATA directory (use the full literal path from the context block — e.g., `/Users/x/.claude/plugins/data/shipyard/projects/abc123/.active-session.json`). This both claims the mutex (overwriting any stale or cleared marker) AND prevents post-compaction implementation drift:
-
-```json
-{
-  "skill": "ship-discuss",
-  "topic": "[user's topic or feature ID from $ARGUMENTS]",
-  "started": "[ISO date]"
-}
-```
-
-This file is the active-skill mutex (see the `acquiring-skill-lock` capability skill for semantics). Any other Shipyard skill entering will see the held lock and refuse. The mutex is advisory — no hook physically blocks tool calls — so the discipline is yours: if you find yourself wanting to write implementation code, STOP. Discussion is for shaping the spec, not building the thing.
+**Absolute first action — before reading any context, before mode detection, before anything.** Run `shipyard-data lock acquire planning --skill ship-discuss`. Exit 0 → proceed to "Detect Mode" below. Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP — do not continue with any other instructions, do not load any context, do not call any other tools. If the CLI printed a stale/corrupt-lock recovery line on stderr, echo it, then proceed (see the `acquiring-skill-lock` capability skill for the full contract — locks are CLI-owned as of v3.7.0, never Read or Write either lock file by hand).
 
 ## Detect Mode
 
@@ -147,7 +114,7 @@ Captured: IDEA-NNN — [title]
 Flesh out later with: /ship-discuss IDEA-NNN
 ```
 
-6. Release the session mutex (Write `.active-session.json` with `{"skill": null, "cleared": "<iso>"}`). Done. No follow-up question, no Phase 1, no depth offer.
+6. Release the session mutex: `shipyard-data lock release planning --skill ship-discuss`. Done. No follow-up question, no Phase 1, no depth offer.
 
 **Rules for IDEA-CAPTURE mode:**
 - Be instant. The user typed `--idea` because they want zero friction.
@@ -174,7 +141,7 @@ If you lose context mid-discussion (e.g., after auto-compaction):
 2. Check for feature file matching the topic: use Glob `<SHIPYARD_DATA>/spec/features/F*-*.md` to enumerate, then Read each and match by title against the current topic.
    - If found with empty acceptance criteria → Phase 3 incomplete, resume Phase 3
    - If found with acceptance criteria and `status: proposed` → Phase 3 done, resume from Phase 3.5 (Impact Analysis)
-   - If found with `status: approved` but `.active-session.json` still has `skill: ship-discuss` (not cleared) → Phase 6 (Finalize) was interrupted mid-sequence. Read BACKLOG.md: if the feature ID is already listed, resume from Phase 6 step 3 (idea archival) or step 4 (Next Up) depending on whether an idea file still has `status: proposed`. If the feature ID is missing from BACKLOG.md, resume from Phase 6 step 2 (append to BACKLOG.md). Either way, the final mutex-release write still runs last.
+   - If found with `status: approved` but `shipyard-data lock check planning` still reports `state: "mine"` for `skill: ship-discuss` (not released) → Phase 6 (Finalize) was interrupted mid-sequence. Read BACKLOG.md: if the feature ID is already listed, resume from Phase 6 step 3 (idea archival) or step 4 (Next Up) depending on whether an idea file still has `status: proposed`. If the feature ID is missing from BACKLOG.md, resume from Phase 6 step 2 (append to BACKLOG.md). Either way, the final `lock release` call still runs last.
 3. If neither file exists → pre-research phases only (interactive). AskUserQuestion: "A previous discussion session was interrupted before research completed. Can you summarize what was decided so far?" Resume from Phase 1.5 (Research)
 
 Research findings are the most expensive state to lose (WebSearch/WebFetch results). The research draft file preserves them.
@@ -300,7 +267,7 @@ Create all 15 in one batch (subjects prefixed with the topic slug, e.g. `[auth-f
 
 **Deep-dive dispatch coverage.** The analytical bulk of Phases 1.5, 3.5, and 3.8 runs inside the single dispatched **design deep-dive** agent (see Phase 1.5), which produces the dossier those phases consume. Those phases still exist as shell steps — they present the dossier's findings and drive the user-facing gates — so keep their tasks in the checklist. The deep-dive is dispatched **concurrently at Phase 0.6** (seeded with the topic) so its no-user-input passes overlap the Phase-1 conversation; mark task 2 (Phase 1.5) `in_progress` at that dispatch and `completed` once the dossier is written and presented. Tasks 6 (Phase 3.5) and 8 (Phase 3.8) track the shell's present-and-apply steps as usual.
 
-**Interruption-round budget (load-bearing).** The 15 phases collapse into **4–5 user-interruption rounds**, not 15 asks: Round 1 = Phase 1 bulk understanding; Round 2 = Phase 1.5b challenge + Phase 2 viability echo in one call; Round 3 = Phases 3.5/3.7/3.8/4.5 consolidated post-spec decisions in one call; Round 4 = Phase 5 AC sign-off (+ overall approval folded in when scenarios fit one batch). The phases stay as checklist steps and present-and-apply work; only their **interruption points** merge. See `references/question-design.md` for the discipline.
+**Interruption-round budget (load-bearing).** The 15 phases collapse into **4–5 user-interruption rounds**, not 15 asks: Round 1 = Phase 1 bulk understanding; Round 2 = Phase 1.5b challenge + Phase 2 viability echo in one call; Round 3 = Phases 3.5/3.7/3.8/4.5 consolidated post-spec decisions in one call; Round 4 = Phase 5 consolidated approval (verbatim ACs + scope-drift + spec approved in one gate). The phases stay as checklist steps and present-and-apply work; only their **interruption points** merge. See `references/question-design.md` for the discipline.
 
 **Guardrail (load-bearing): the task list is a progress surface and a recovery anchor, NEVER authority.** Do not gate any behavior on TaskList state, do not cite task status as evidence a phase ran, and never mark a phase's task completed before the phase's file/event artifacts exist. The spec files, `.research-draft.md`, and the event log remain the record; the tasks are the user-visible mirror. (Same discipline as PROGRESS.md vs the event log.)
 
@@ -352,7 +319,7 @@ When the agent returns, **lead with its one-line summary** ("→ Deep-dive back:
 
 **Fallback (background dispatch or SendMessage unavailable/failed).** If the background launch, the agent `name` addressing, or the `SendMessage` hand-off is unavailable or errors, fall back to the documented path: dispatch **the whole deep-dive as ONE synchronous subagent after Phase 1 completes** (seeded with the full Phase-1 summary up front). Note the fallback to the user in one line and continue. Either way the Agent template and prompt below are identical — only the timing and the seed-vs-summary split differ.
 
-**Model tier (think).** Read `models.think` from config.md (the `/ship-discuss` context block already carries config, or Read `<SHIPYARD_DATA>/config.md`). If the value is non-empty, pass `model: <value>` on the Agent call; if empty or absent, OMIT the `model:` field so the subagent inherits the session model. Never hardcode a model literal.
+**Model tier (think).** If a `--think` override is active for this invocation, pass `model: <think_override>` on the Agent call — do not read config.md for this dispatch. Otherwise, read `models.think` from config.md (the `/ship-discuss` context block already carries config, or Read `<SHIPYARD_DATA>/config.md`): if the value is non-empty, pass `model: <value>` on the Agent call; if empty or absent, OMIT the `model:` field so the subagent inherits the session model. Never hardcode a model literal. **Spawn-failure fallback:** if the dispatch errors at spawn because the requested model is unavailable, print one line ("`<model>` unavailable — falling back to `models.think`") and re-dispatch using the config value instead (this applies whether the unavailable model came from `--think` or from config.md itself).
 
 ```
 Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, prompt: |
@@ -624,16 +591,17 @@ Output the discussion outcome as text. Use these sections only — describe what
 - **SCOPE-DRIFT DIFF** — the Phase 4.97 two-column "Started with → Landed at" diff (below), shown here rather than as a separate interruption.
 - **UNRESOLVED** — quality-gate items flagged for follow-up
 
-**Acceptance-criteria sign-off gate — this IS Round 4.** Before asking for overall approval, run an AC-only review using `AskUserQuestion`. Quote each scenario verbatim in the question text (or batch into groups of ≤4 scenarios per question if there are many). For each scenario set, ask: "Are these acceptance scenarios correct as written? (looks good / edit a scenario / a scenario is wrong / missing a scenario)". If the user picks anything other than "looks good", surface the specific scenario and use a follow-up AskUserQuestion to capture the correction, then update the feature file and re-present that scenario set for re-confirmation. Loop until all scenario sets read "looks good". **Do not skip this gate.** Approving a count is not the same as approving the criteria — the v2.4.0 audit flagged this as the single largest risk surface in `/ship-discuss` because wrong-by-default ACs become the test contract that `/ship-execute` enforces downstream and there is no other point in the pipeline where the user is shown the actual scenario text for sign-off. The verbatim AC sign-off keeps its own round — audit-critical, never merged away.
+**Consolidated approval gate — this IS Round 4 (the single endgame interruption).** Everything the user approves — the acceptance scenarios, the scope coverage, and the spec — is approved in ONE gate. The safeguard that used to justify a separate AC round is preserved structurally by the render-before-ask rule (see `references/question-design.md` § "Render before asking"): every acceptance scenario is quoted VERBATIM in the summary text above (the ACCEPTANCE SCENARIOS (VERBATIM) section), the SCOPE-DRIFT DIFF is shown, and the ASSUMPTIONS MADE are listed — all as chat text — BEFORE the single AskUserQuestion. The user reads the real scenario text and scope diff on screen; the tool call carries only the short question and option labels. Approving is therefore approve-having-read, not approve-a-count.
 
-**Fold the scope-drift question and the overall approval into this same call when the scenarios fit one batch.** When all scenario sets fit in a single `AskUserQuestion` (≤4 questions total), add the Phase 4.97 scope-drift question and the overall-approval question as the remaining questions of that same call — so the clean-pass path completes Round 4 in one interruption. When scenarios need multiple batches, the AC sign-off loops first, then the scope-drift + approval questions come as the final call.
+Render the full summary as text first (all sections above — this is the render-before-ask step). Then ONE `AskUserQuestion`:
 
-**Scope-drift question (Phase 4.97, embedded here):** using the SCOPE-DRIFT DIFF shown in the summary, ask "Did anything important from the original idea NOT make it into the spec? (nothing dropped — proceed to approval / something is missing — let me add it / a piece I wanted got captured as an IDEA instead — promote it)". Default-recommend "nothing dropped" only if the spec's acceptance themes cover every noun/verb in the user's initial topic. If "something is missing", re-enter Phase 1 with the dropped concern as the new seed and re-run Phases 1.5b → 2 → 3; if "promote an IDEA", inline-merge the IDEA back into the feature spec (or split into a sibling feature), then re-confirm.
+- **Approve everything (Recommended)** — approves the acceptance scenarios as written, confirms nothing was dropped from the original scope, and approves the spec. Proceeds to Phase 6 (Finalize). The discussion is not complete until Phase 6 runs in full.
+- **Fix an acceptance scenario** — a scenario is wrong, unclear, or missing. A follow-up `AskUserQuestion` captures which scenario and the correction; update the feature file, re-render the affected scenario(s) as text, and re-present this gate.
+- **Something's missing from the original scope** — using the SCOPE-DRIFT DIFF, the user names a dropped concern. Re-enter Phase 1 with it as the seed (re-run 1.5b → 2 → 3), or promote a captured IDEA back into the feature (inline-merge or split into a sibling feature); then re-render and re-present this gate.
+- **Refine** — broader iteration; stay in discussion, re-enter Phase 5 when ready. Do not run `lock release` — the planning lock stays held.
+- **Reject** — leave features at `status: proposed`, stop. User can resume with `/ship-discuss [ID]`. Do not run `lock release` — the planning lock stays held.
 
-Then (as the final question of the merged call, or its own call when batching forced multiple rounds) use `AskUserQuestion` for overall approval:
-- **Approve (Recommended)** — proceed to Phase 6 (Finalize). The discussion is not complete until Phase 6 runs in full.
-- **Refine** — stay in discussion, iterate on flagged features, re-enter Phase 5 when ready. Do not touch `.active-session.json`.
-- **Reject** — leave features at `status: proposed`, stop. User can resume later with `/ship-discuss [ID]`. Do not touch `.active-session.json`.
+**Do not skip rendering the verbatim scenarios and the scope-drift diff before this gate.** The v2.4.0 audit flagged approving-a-count as the single largest risk surface in `/ship-discuss`; the mitigation is now the render-before-ask guarantee (the actual scenario text is on screen), not a dedicated extra round. Loop the "Fix an acceptance scenario" and "Something's missing" adjust paths — re-rendering and re-asking — until the user picks **Approve everything**.
 
 ### Phase 6: Finalize (only on Approve)
 
@@ -641,12 +609,12 @@ Then (as the final question of the merged call, or its own call when batching fo
 
 Run these steps in order. The active-skill mutex stays active until the **very last** step so that any accidental Edit to a source file during Finalize still gets blocked. Do not reorder to "optimize" the cleanup.
 
-1. **Update feature statuses** — `status: proposed` → `status: approved` in each spec file.
-2. **Append to BACKLOG.md** — use Edit to add approved feature IDs to `<SHIPYARD_DATA>/spec/BACKLOG.md`.
-3. **Mark graduated ideas** — for IDEA-sourced features, set `status: graduated` and add `graduated_to: FNNN` in the source idea file. Doing this inside the guarded window keeps the lifecycle change inside the mutex window.
+1. **Update feature statuses** — run `shipyard-data feature set-status FNNN approved` for each approved feature.
+2. **Append to BACKLOG.md** — run `shipyard-data backlog add <IDs>` (one call, all approved IDs together).
+3. **Mark graduated ideas** — for IDEA-sourced features, run `shipyard-data idea set-status IDEA-NNN graduated --to FNNN`. This `shipyard-data` Bash call runs fine inside the guarded window — the active-skill mutex only blocks accidental Edits to source files, not CLI state mutations — and doing it here keeps the lifecycle change inside the mutex window.
 4. **Mark `.research-draft.md` obsolete** if it still exists with the current topic (`obsolete: true`).
 5. **Print the Next Up block** (see below).
-6. **Last action — after everything above has flushed:** use Write to overwrite `<SHIPYARD_DATA>/.active-session.json` with `{"skill": null, "cleared": "<iso-timestamp>"}` (soft-delete sentinel). After this step, do **not** continue with any tool calls — the discussion is done. If the user wants to build the feature, they will run `/ship-sprint` in a new session.
+6. **Last action — after everything above has flushed:** run `shipyard-data lock release planning --skill ship-discuss` (soft-delete sentinel — CLI-owned, never a hand Write). After this step, do **not** continue with any tool calls — the discussion is done. If the user wants to build the feature, they will run `/ship-sprint` in a new session.
 
 ---
 
@@ -756,10 +724,11 @@ REFINE-mode differences from NEW-mode finalize (status no-op for already-approve
 **How to ask is governed by `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/question-design.md`** — the confidence gate, the ten-rule rulebook, the kill-list, and the bulk-ask discipline. The rules below are the load-bearing summary; that file is the authority.
 
 - **Use AskUserQuestion — never plain text for questions.** AskUserQuestion is a tool call that suspends execution and waits for user input. Plain text output does not pause — the model will continue without user input. Every question that requires an answer must use AskUserQuestion.
+- **Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
 - **Confidence gate before every question (replaces "never assume").** Score each pending decision on evidence convergence and reversibility. **HIGH** (evidence converges AND two-way door) → **decide, inform in one line ("Going with X — [why]. say 'change' to override"), and log as `ASSUMED:`** — do NOT ask. Only **MEDIUM** and **LOW** items reach AskUserQuestion. **One-way doors and user-value questions (who it's for, whether it's worth building) are never HIGH** — they always ask; the Phase 2 viability echo stays mandatory. This is the opposite of the old "never assume technical decisions" rule: for reversible, evidence-backed calls, assuming-and-informing is faster and better than interrupting.
 - **Always recommend.** Every question to the user must include your recommendation. Never ask "A or B?" without saying which you'd pick and why. Options are outcomes with tradeoffs, not mechanisms (rulebook Q4).
 - **Don't ask what the record already answers — check the kill-list.** Before every AskUserQuestion call, run the kill-list in `question-design.md` (derivable from code/config, derivable from the spec dir, restating the user's own words, universal-yes questions, framework-vocabulary questions, hypothetical-opinion questions, two-way-door minutiae, and questions whose answer won't change the spec). If it's on the list, STATE what you found or decide-and-log instead. Example: don't ask "should login errors be user-friendly?" — of course they should. Do ask "should we rate-limit login attempts? I'd recommend 5 per minute to prevent brute force."
-- **Question budget: ≤5 asks through Phases 1–2, 4–5 interruption rounds total.** Round 1 bulk understanding, Round 2 challenge + viability echo, Round 3 consolidated post-spec decisions, Round 4 AC sign-off (+ approval). Overflow items become HIGH assumptions, not extra asks. Every round beyond that needs a reason.
+- **Question budget: ≤5 asks through Phases 1–2, 4–5 interruption rounds total.** Round 1 bulk understanding, Round 2 challenge + viability echo, Round 3 consolidated post-spec decisions, Round 4 consolidated approval (verbatim ACs + scope-drift + spec, one gate). Overflow items become HIGH assumptions, not extra asks. Every round beyond that needs a reason.
 - **Be conversational, not mechanical.** This is a discussion, not a form.
 - **Suggest structure.** If the user rambles, organize their thoughts into features/epics.
 - **Reference existing spec.** Don't create duplicates. Link to related features.

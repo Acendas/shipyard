@@ -114,5 +114,30 @@
     "name": "sync_preserves_external_refs",
     "type": "contains",
     "pattern": "[Pp]reserve.*external_refs|external_refs.*[Pp]reserve|never overwrite.*external"
+  },
+  {
+    "name": "uses_feature_set_status",
+    "type": "contains",
+    "pattern": "feature set-status"
+  },
+  {
+    "name": "bans_frontmatter_hand_edit",
+    "type": "contains",
+    "pattern": "[Nn]ever hand-Edit.*frontmatter|CLI-owned"
+  },
+  {
+    "name": "lifecycle_canonical_source",
+    "type": "contains",
+    "pattern": "spec-lifecycle\\.mjs"
+  },
+  {
+    "name": "allows_shipyard_data_bash",
+    "type": "contains",
+    "pattern": "Bash\\(shipyard-data"
+  },
+  {
+    "name": "no_edit_frontmatter_status_instruction",
+    "type": "not_contains",
+    "pattern": "use Edit to set frontmatter .status"
   }
 ]

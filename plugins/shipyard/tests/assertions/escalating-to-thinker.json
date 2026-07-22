@@ -6,10 +6,10 @@
     "why": "escalation must be invoked by orchestrating skills at documented triggers, never auto-fire from a user prompt"
   },
   {
-    "name": "four_triggers_enumerated",
+    "name": "seven_triggers_enumerated",
     "type": "contains",
-    "pattern": "repeated_fix_failure|integration_gate|uncovered_blocked|critic_deadlock",
-    "why": "the trigger vocabulary is the contract the orchestrators emit and the cap counts by"
+    "pattern": "repeated_fix_failure|integration_gate|uncovered_blocked|critic_deadlock|recovery_path_ambiguity|uninterpreted_gate_failure|deviation_classification",
+    "why": "the trigger vocabulary is the contract the orchestrators emit and the cap counts by; v3.10.0 widened it from four to seven triggers alongside the sonnet-shell zero-thinking doctrine."
   },
   {
     "name": "respects_escalation_enabled",
@@ -21,7 +21,7 @@
     "name": "enforces_per_sprint_cap",
     "type": "contains",
     "pattern": "max_consults_per_sprint",
-    "why": "the cap keeps escalation a scalpel — count prior consult events before dispatching"
+    "why": "the cap keeps escalation a scalpel \u2014 count prior consult events before dispatching"
   },
   {
     "name": "counts_consults_via_scan_events",
@@ -39,7 +39,7 @@
     "name": "omit_model_when_unset",
     "type": "contains",
     "pattern": "omit the `model:` field",
-    "why": "an empty tier must not become a hardcoded model — omission inherits the session model"
+    "why": "an empty tier must not become a hardcoded model \u2014 omission inherits the session model"
   },
   {
     "name": "emits_dispatch_event_first",
@@ -57,7 +57,7 @@
     "name": "consult_is_read_only",
     "type": "contains",
     "pattern": "READ-ONLY",
-    "why": "the consult recommends; the orchestrator executes — a mutating consult would bypass the pipeline's gates"
+    "why": "the consult recommends; the orchestrator executes \u2014 a mutating consult would bypass the pipeline's gates"
   },
   {
     "name": "structured_return_contract",
@@ -76,5 +76,11 @@
     "type": "contains",
     "pattern": "do not escalate",
     "why": "escalation is for reasoning gaps the documented playbooks don't cover, not a shortcut around them"
+  },
+  {
+    "name": "cap_default_is_six",
+    "type": "contains",
+    "pattern": "default 6",
+    "why": "v3.10.0: max_consults_per_sprint default raised 3 -> 6 to accommodate the three new triggers without immediately hitting the old cap."
   }
 ]

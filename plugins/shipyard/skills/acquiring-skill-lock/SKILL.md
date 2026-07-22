@@ -8,14 +8,16 @@ disable-model-invocation: true
 
 Shipyard tracks one active skill per project at a time, in two lock files under the data dir:
 
-- `<SHIPYARD_DATA>/.active-session.json` — held by **planning** skills (`/ship-discuss`, `/ship-sprint`, `/ship-spec`).
-- `<SHIPYARD_DATA>/.active-execution.json` — held by **execution** skills (`/ship-execute`, `/ship-review`).
+- `<SHIPYARD_DATA>/.active-session.json` — held by **planning** skills (`/ship-discuss`, `/ship-sprint`, `/ship-quick`'s planning phase).
+- `<SHIPYARD_DATA>/.active-execution.json` — held by **execution** skills (`/ship-execute`, `/ship-review`, `/ship-quick`'s execution phase).
 
 These are mutually exclusive: a planning session in one terminal must release before an execution skill starts in another, and vice versa. The lock is what prevents two terminals from racing on the same sprint.
 
-## The Lock Contract
+**v3.7.0: both files are CLI-owned.** `bin/skill-lock.mjs` (`shipyard-data lock acquire|release|check|status`) is the single writer. No skill body Reads or Writes these files directly anymore — the PreToolUse hook denies any model Write/Edit to either basename, same as the pipeline cursors. Run the CLI, act on its exit code and JSON stdout line, and echo its stderr text (block message or recovery note) verbatim to the user.
 
-A held lock is a JSON object with this shape:
+## The Lock Shape (for reference — never hand-construct this)
+
+A held lock:
 
 ```json
 {
@@ -25,110 +27,44 @@ A held lock is a JSON object with this shape:
   "started": "2026-05-08T14:23:00Z",
   "session_id": "01HXY1Z2A3B4C5D6E7F8G9H0J1",
   "cleared": null,
-  "compaction_count": 0
+  "depth": 1
 }
 ```
 
-A released (soft-deleted) lock has the same path but content `{"skill": null, "cleared": "<iso>"}`. We never `unlink` the file — soft-delete keeps the file on disk for diagnosability and avoids races where another process reads the file between unlink and create.
+A released (soft-deleted) lock: `{"skill": null, "cleared": "<iso>"}` — the file is never `unlink`ed, only overwritten in place.
 
-`session_id` is the Claude Code session ID (read from hook input field `session_id` or, in skill bodies, from the `CLAUDE_SESSION_ID` env var). It is the **identity stamp**: a hook or skill in a different session that sees a held lock with a non-matching `session_id` knows the lock belongs to someone else and exits 0 instead of blocking. This is the Ralph Loop pattern adapted to Shipyard.
+`depth` replaces the old ad-hoc "same-session re-entry, don't re-acquire" prose rule: `lock acquire` on an already-mine lock increments `depth` instead of duplicating the acquire, and `lock release` decrements it — the lock only fully releases (writes the sentinel) when depth reaches 0. This makes nested re-entry (e.g. `/ship-execute` invoking `/ship-status` for a pre-flight check) structurally safe without every skill having to reason about "am I the outermost caller."
 
-## Acquire Procedure
+`compaction_count` (a pre-v3.7.0 field) is gone — it was initialized but never incremented once the `post-compact` hook that used to bump it was retired, so the `/ship-execute` warning gated on it never fired. Do not resurrect it; a future context-pressure mechanism should be a new field, not this one.
 
-When a skill enters and needs the lock:
+## Session Identity
 
-1. **Determine the lock path.** Planning skills target `.active-session.json`; execution skills target `.active-execution.json`. Always use the literal `<SHIPYARD_DATA>` path from the context block — no `~`, no shell vars in `file_path`.
+`session_id` is the Claude Code session ID: `CLAUDE_SESSION_ID` from the environment, or an explicit `--session <id>` flag. If BOTH are absent, the CLI call is **session-unverified** and degrades asymmetrically:
 
-2. **Read the lock file with the `Read` tool.** Three branches:
+- **Acquiring** while unverified treats ANY fresh held lock as held-by-another-session — even one whose own `session_id` is also null. Two different unverified callers must never silently adopt each other's lock.
+- **Releasing** while unverified still succeeds when the held lock's `skill` field matches the `--skill` argument passed to release — the lower-risk direction, so it falls back to name-matching rather than hard-refusing.
 
-   a. **File does not exist** → no active lock. Skip to step 4 (write).
+Skill bodies should pass `CLAUDE_SESSION_ID` through normally (it's set in the environment already); no `--session` flag is needed in ordinary use.
 
-   b. **File exists, `cleared` is set OR `skill` is `null`** → previous holder released cleanly. Skip to step 4.
+## Using the CLI
 
-   c. **File exists, `cleared` is null, `skill` is non-null** → potentially active. Continue to step 3.
+- **Acquire**: `shipyard-data lock acquire <planning|execution> --skill <ship-*> [--sprint <id>] [--wave <n>]`. Exit 0 with `{"acquired":true,...}` on stdout — proceed. Exit 3 with a `⛔` block message on stderr when held by another live session — echo the stderr text verbatim as your entire response and STOP, no further tool calls. A stale (>2h) or corrupt held lock is recovered automatically; the CLI prints a one-line recovery note on stderr — echo it, then proceed.
+- **Release**: `shipyard-data lock release <planning|execution> --skill <name>` on clean exit. Always exit 0 from the calling skill's perspective — held-by-another is a silent no-op, already-released is idempotent.
+- **Check** (read-only, no side effects): `shipyard-data lock check <planning|execution>` — use when you need to know a lock's state without acquiring it (e.g. `/ship-debug`, `/ship-quick`'s pre-flight checks).
+- **Status** (read-only, both locks in one call): `shipyard-data lock status` — used by `/ship-status`'s dashboard rendering.
 
-3. **Decide held vs stale vs ours.** Parse the JSON:
+Every acquire/release call automatically enforces the cross-lock mutual exclusion (planning vs. execution) in the same call — no separate "also check the other file" step is needed in skill bodies.
 
-   - **`session_id` matches the current session's ID** → it's our own lock from earlier in this skill (re-entry, e.g., resume after `/clear`). Treat as held by us; skip to step 5.
-   - **`started` is older than 2 hours** → stale lock from a crashed session. Print a one-line recovery message: `(recovered stale {skill} lock started {N}h ago)`. Continue to step 4 (overwrite).
-   - **Otherwise** → genuinely held by another live session. **HARD BLOCK.** Print:
-     ```
-     ⛔ {skill}-class lock active in another session.
-        Skill:      {skill from file}
-        Sprint:     {sprint, if present}
-        Started:    {started}
-        Session ID: {session_id from file}
+## Failure Modes (CLI behavior, not skill-body procedure)
 
-     Finish or pause that session first, or run /ship-status to clear a stale lock.
-     ```
-     Stop. Do not load further context, do not call other tools.
-
-4. **Write the lock.** Use the `Write` tool to overwrite the lock file with the JSON shape above:
-   - `skill`: the entering skill's name (e.g., `ship-execute`).
-   - `sprint`: current sprint ID if applicable (else null).
-   - `wave`: current wave number for execution skills (else null).
-   - `started`: current ISO 8601 timestamp.
-   - `session_id`: current Claude Code session ID.
-   - `cleared`: null.
-   - `compaction_count`: 0 — **currently dormant**: initialized but never incremented (the `post-compact` hook that bumped it was retired). Reserved as the re-wire point for a future `PreCompact` hook; until then the `compaction_count ≥ 4` warning in `/ship-execute` never fires.
-
-5. **Cross-lock guard.** Before proceeding, also Read the *other* lock file (planning vs execution). If it shows held with a non-matching session_id and not stale, hard-block as in step 3 — planning and execution are mutually exclusive. If it shows our session, that's the same Claude session re-entering through a different command — usually fine, but flag in the report so the user understands why the previous skill's state may still be present.
-
-## Release Procedure
-
-When the skill exits cleanly (sprint completion, pause, finished planning, or skill returns):
-
-1. Use `Write` to overwrite the lock file with `{"skill": null, "cleared": "<current ISO 8601>"}`. The soft-delete sentinel.
-
-2. Cross-skill counters (e.g., `compaction_count`) live as fields on the lock object. They die with the soft-delete — no separate reset step needed. This is intentional: the counter belongs to the lock's lifetime, not the project's.
-
-3. **Do not delete the file.** Other inspections (`/ship-status`, future skill entries) read the soft-deleted shape and treat it as released. Deletion would race with a concurrent inspection.
-
-## Re-Entry Within the Same Session
-
-If your skill calls into another Shipyard command (e.g., `/ship-execute` invokes `/ship-status` for a pre-flight check, or `/ship-review` chains into `/ship-discuss` for retro), the inner skill MUST:
-
-1. Read the relevant lock.
-2. If the held lock's `session_id` matches the current session, **do not re-acquire**. The outer skill owns the lock. Proceed without writing to it. Do not soft-delete on inner exit.
-3. If session IDs differ, hard-block as in the standard acquire procedure.
-
-This avoids the bug where a nested skill clears a lock its parent still depends on.
-
-## Stale Lock Recovery
-
-A "stale" lock is one whose `started` is more than 2 hours old. The implicit assumption: no Shipyard skill should run continuously for >2 hours; if it has, the session almost certainly crashed.
-
-When recovering a stale lock:
-
-- Print the one-line recovery message so the user knows what happened.
-- Overwrite the lock with the new session's data (step 4 of acquire).
-- Emit a `stale_lock_recovered` event to the structured event log via `shipyard-data events emit stale_lock_recovered prior_session_id=<id> prior_skill=<skill> prior_age_hours=<N>`. This makes the recovery observable via `shipyard-context diagnose` (which tails the events log).
-
-If the user wants to use a longer-than-2h skill (rare, but possible for very large sprints), they override by running with explicit consent — that's a future feature; for now, 2h is the bright line.
-
-## Why session-ID Stamping Matters
-
-Without it, a held lock blocks every session on the same project regardless of which session acquired it. The customer scenario this fixes:
-
-- Terminal A runs `/ship-discuss`. Lock held with no session_id (legacy behavior).
-- Terminal B opens a new session in the same project, intends to run `/ship-status` (read-only).
-- A hook fires in Terminal B, reads the held lock, blocks the tool call. User confused: "Why is Shipyard blocking me? I'm not even running it."
-
-With session_id stamping, Terminal B's hooks see "lock held by session X, but I'm session Y — not mine" and exit 0. Terminal A still owns its lock; nothing weird happens.
-
-This is the same primitive Ralph Loop's Stop hook uses: state file embeds the session ID, hooks compare, mismatched sessions ignore the state. The pattern is proven and trivially small.
-
-## Failure Modes to Surface, Not Hide
-
-- **Lock JSON is corrupt:** treat as stale-and-recover; emit `corrupt_lock_recovered` event with the raw content tail.
-- **Two locks held simultaneously** (planning + execution both non-null, different session IDs, both fresh): rare but possible after partial recovery. Hard-block both, print both, ask the user to choose which to clear via `/ship-status`.
-- **Lock path unwritable** (data dir permissions, disk full): fail loud with the OS error. Do not silently proceed without a lock — that re-introduces the race condition the lock exists to prevent.
+- **Held by another live session** → `lock acquire` exits 3 with the block message on stderr. Echo it verbatim and stop.
+- **Stale lock (>2h)** → the CLI recovers it automatically as part of `acquire`, emits `stale_lock_recovered` to the event log, and prints a one-line recovery note on stderr. Echo the note; do not re-implement staleness detection in the skill body.
+- **Corrupt lock JSON** → the CLI recovers it automatically (treated like stale), emits `corrupt_lock_recovered` with a sanitized tail of the bad content, and prints a recovery note. Same handling as above.
+- **Both locks held by different live sessions** (rare — can only arise from a pre-v3.7.0 hand-written file or a genuine race between two first-time acquisitions on the two different lock files) → `lock acquire` exits 3 with both block messages plus a hint to run `/ship-status` to clear one.
+- **Lock path unwritable** (data dir permissions, disk full) → the CLI fails loud with the OS error; do not silently proceed without a lock.
 
 ## Bottom Line
 
-- Acquire on entry. Release on exit. Stamp the session ID.
-- Stale at 2h. Soft-delete on release.
-- Same-session re-entry never re-acquires.
-- Mismatched session ID never blocks.
-
-These four rules cover every concurrency scenario Shipyard has hit in production. Don't add a fifth without evidence.
+- Run the CLI. Act on the exit code and the JSON line. Echo the stderr text.
+- Never Read, parse, or Write either lock file directly — that's the deny-listed, CLI-owned surface now.
+- Stale/corrupt recovery, cross-lock mutual exclusion, and re-entry depth are the CLI's job, not the skill body's.
