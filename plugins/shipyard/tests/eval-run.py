@@ -32,6 +32,7 @@ HOOKS_NODE_DIR = PROJECT_ROOT / "bin" / "hooks"
 TEMPLATES_DIR = PROJECT_ROOT / "project-files" / "templates"
 HOOKS_DIR = PROJECT_ROOT / "hooks"
 ASSERTIONS_DIR = Path(__file__).resolve().parent / "assertions"
+TESTS_DIR = Path(__file__).resolve().parent
 
 
 class Result:
@@ -1118,6 +1119,14 @@ def check_no_hardcoded_dispatch_model(result):
     `model: <models.build value>` style placeholders, `models.think` /
     `models.build` config references. Banned: a bare model name literal
     as the model value.
+
+    Also scans AGENTS_DIR (registered agent files). Unlike skills — whose
+    frontmatter `model:` is the shell's own legit static tier — a registered
+    agent has NO legitimate static tier at all (per the agent-extraction
+    plan §1: config-tiering only works if the caller passes `model:` per
+    dispatch; a static literal in agent frontmatter permanently pins a tier
+    no config change can move). So agent frontmatter is NOT stripped before
+    scanning here, unlike the skill-body scan above.
     """
     LITERAL = re.compile(
         r'model:\s*["\']?(fable|opus|sonnet|haiku)\b', re.IGNORECASE
@@ -1152,6 +1161,132 @@ def check_no_hardcoded_dispatch_model(result):
                 )
             else:
                 result.ok(f"dispatch-model:{rel}")
+
+    for agent_file in sorted(AGENTS_DIR.glob("shipyard-*.md")):
+        content = read_file(agent_file)
+        rel = agent_file.relative_to(PROJECT_ROOT)
+        # No exemption for frontmatter here — an agent has no legit static
+        # tier, so a `model:` literal anywhere (including frontmatter) fails.
+        hits = []
+        for m in LITERAL.finditer(content):
+            line_start = content.rfind("\n", 0, m.start()) + 1
+            line = content[line_start:content.find("\n", m.start())]
+            if "recommended" in line.lower() or "|" in line.split("model:")[-1][:30]:
+                continue
+            hits.append(line.strip()[:80])
+        if hits:
+            result.fail(
+                f"dispatch-model:{rel}",
+                "hardcoded model literal in a registered agent "
+                f"({'; '.join(hits[:3])}) — agents have no legit static tier; "
+                "omit model: entirely and let the dispatching skill pass it per-call",
+            )
+        else:
+            result.ok(f"dispatch-model:{rel}")
+
+
+# ─── Check 9: dispatch contract pairs (agent ⟷ wrapper skill) ───
+
+# Single-source map of agent → the capability skill that dispatches it.
+# Extend this map as more capability skills move their prompt body into a
+# registered agent (see the agent-extraction plan, §6).
+DISPATCH_PAIRS = {
+    "shipyard-spec-reviewer": "dispatching-spec-review",
+    "shipyard-code-reviewer": "dispatching-code-review",
+    "shipyard-disciplined-builder": "dispatching-task-loop",
+    "shipyard-researcher": "dispatching-research-task",
+    "shipyard-operational-task": "dispatching-operational-task",
+}
+
+
+def check_dispatch_contract_pairs(result):
+    """Pin the two-file split between a registered agent and its wrapper skill.
+
+    For each (agent, wrapper) pair in DISPATCH_PAIRS:
+      (a) the agent file has a "Required Return Shape" section, and it is
+          the LAST section in the file (anti-silence: the model's final
+          instruction is always the return contract, never buried mid-body).
+      (b) every ALLCAPS `TOKEN:` return-field named in that section also
+          appears somewhere in the wrapper skill (the wrapper must be able
+          to parse every field the agent might return).
+      (c) the wrapper dispatches `subagent_type: shipyard:<agent>` and no
+          longer contains `general-purpose` anywhere (the whole point of
+          the split is that this role no longer hand-rolls a generic
+          subagent).
+
+    Fails loud, naming the missing token or the failing side, so a future
+    edit that silently reverts the split (e.g. re-inlining the prompt into
+    the wrapper, or appending a section after Required Return Shape) is
+    caught immediately.
+    """
+    HEADING_RE = re.compile(r'^#{1,6}\s+(.+)$', re.MULTILINE)
+    TOKEN_RE = re.compile(r'\b([A-Z][A-Z0-9_]{2,}):')
+
+    for agent_name, wrapper_name in DISPATCH_PAIRS.items():
+        agent_file = AGENTS_DIR / f"{agent_name}.md"
+        wrapper_dir = SKILLS_DIR / wrapper_name
+        wrapper_file = wrapper_dir / "SKILL.md"
+
+        if not agent_file.exists():
+            result.fail(f"dispatch_pair:{agent_name}:agent_exists",
+                        f"DISPATCH_PAIRS names {agent_name} but agents/{agent_name}.md is missing")
+            continue
+        if not wrapper_file.exists():
+            result.fail(f"dispatch_pair:{agent_name}:wrapper_exists",
+                        f"DISPATCH_PAIRS names {wrapper_name} but skills/{wrapper_name}/SKILL.md is missing")
+            continue
+
+        agent_content = read_file(agent_file)
+        wrapper_content = read_file(wrapper_file)
+
+        # (a) Required Return Shape present and last.
+        headings = list(HEADING_RE.finditer(agent_content))
+        rrs_idx = None
+        for i, h in enumerate(headings):
+            if "required return shape" in h.group(1).strip().lower():
+                rrs_idx = i
+                break
+        if rrs_idx is None:
+            result.fail(f"dispatch_pair:{agent_name}:has_required_return_shape",
+                        f"{agent_name}.md has no 'Required Return Shape' section")
+            continue
+        result.ok(f"dispatch_pair:{agent_name}:has_required_return_shape")
+
+        if rrs_idx != len(headings) - 1:
+            trailing = headings[rrs_idx + 1].group(1).strip()
+            result.fail(f"dispatch_pair:{agent_name}:return_shape_is_last",
+                        f"{agent_name}.md has a section ('{trailing}') after Required Return Shape — "
+                        "it must be the final section (anti-silence rule)")
+        else:
+            result.ok(f"dispatch_pair:{agent_name}:return_shape_is_last")
+
+        # (b) every ALLCAPS return token in the Required Return Shape section
+        # also appears in the wrapper.
+        rrs_start = headings[rrs_idx].end()
+        rrs_end = headings[rrs_idx + 1].start() if rrs_idx + 1 < len(headings) else len(agent_content)
+        rrs_text = agent_content[rrs_start:rrs_end]
+        tokens = sorted(set(TOKEN_RE.findall(rrs_text)))
+        missing = [t for t in tokens if f"{t}:" not in wrapper_content]
+        if missing:
+            result.fail(f"dispatch_pair:{agent_name}:tokens_in_wrapper",
+                        f"return token(s) {missing} not referenced anywhere in {wrapper_name}/SKILL.md — "
+                        "the wrapper can't parse a field it never names")
+        else:
+            result.ok(f"dispatch_pair:{agent_name}:tokens_in_wrapper", f"{len(tokens)} tokens covered")
+
+        # (c) wrapper dispatches the registered agent, not general-purpose.
+        if re.search(rf'subagent_type:\s*["\']?shipyard:{re.escape(agent_name)}\b', wrapper_content):
+            result.ok(f"dispatch_pair:{agent_name}:wrapper_dispatches_agent")
+        else:
+            result.fail(f"dispatch_pair:{agent_name}:wrapper_dispatches_agent",
+                        f"{wrapper_name}/SKILL.md does not dispatch subagent_type: shipyard:{agent_name}")
+
+        if "general-purpose" in wrapper_content:
+            result.fail(f"dispatch_pair:{agent_name}:no_general_purpose_in_wrapper",
+                        f"{wrapper_name}/SKILL.md still mentions general-purpose — "
+                        "the split should have removed this role's hand-rolled dispatch")
+        else:
+            result.ok(f"dispatch_pair:{agent_name}:no_general_purpose_in_wrapper")
 
 
 def check_cross_skill_consistency(result):
@@ -1241,6 +1376,58 @@ def print_report(result, verbose=False):
     return 0 if not result.failed else 1
 
 
+# ─── Check: node --test suite (contract-pair .mjs tests) ───
+
+def check_node_tests(result):
+    """Run `node --test tests/*.mjs`.
+
+    Several bin/*.mjs modules (cursor-cli, scan-stubs, skill-lock, ...) have
+    matching test_*.mjs files that pytest and this runner never execute —
+    without this check they can rot silently while eval/pytest stay green.
+    Node itself may be unavailable in some environments; missing Node is a
+    WARN (don't hard-crash the whole eval run over an environment gap), but
+    a Node test FAILURE is a hard FAIL — the whole point of wiring this in.
+    """
+
+    node_test_files = sorted(TESTS_DIR.glob("test_*.mjs"))
+    if not node_test_files:
+        result.warn("node_tests:none_found", "no test_*.mjs files under tests/ — nothing to run")
+        return
+
+    try:
+        node_version = subprocess.run(
+            ["node", "--version"], capture_output=True, text=True, timeout=10,
+        )
+        if node_version.returncode != 0:
+            result.warn("node_tests:node_unavailable", "`node --version` failed; skipping node --test run")
+            return
+    except Exception as e:
+        result.warn("node_tests:node_unavailable", f"node not found on PATH ({e}); skipping node --test run")
+        return
+
+    try:
+        proc = subprocess.run(
+            ["node", "--test", *[str(f) for f in node_test_files]],
+            cwd=str(PROJECT_ROOT),
+            capture_output=True, text=True, timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        result.fail("node_tests:run", "node --test timed out after 300s")
+        return
+    except Exception as e:
+        result.fail("node_tests:run", f"failed to invoke node --test: {e}")
+        return
+
+    output = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode == 0:
+        result.ok("node_tests:run", f"{len(node_test_files)} file(s) — all node:test cases passed")
+    else:
+        # Keep the tail — node --test TAP output can be long; the failing
+        # assertions are usually near the end (the final summary block).
+        tail = "\n".join(output.strip().split("\n")[-40:])
+        result.fail("node_tests:run", f"node --test exited {proc.returncode}\n{tail}")
+
+
 def main():
     args = sys.argv[1:]
     verbose = "--verbose" in args or "-v" in args
@@ -1268,7 +1455,9 @@ def main():
     check_session_mutex_pattern(result)
     check_render_before_ask(result)
     check_no_hardcoded_dispatch_model(result)
+    check_dispatch_contract_pairs(result)
     check_cross_skill_consistency(result)
+    check_node_tests(result)
 
     exit_code = print_report(result, verbose)
     sys.exit(exit_code)

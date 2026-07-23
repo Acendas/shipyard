@@ -45,6 +45,12 @@
     "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
   },
   {
+    "name": "runtime_is_scan_stubs_cli",
+    "type": "contains",
+    "pattern": "shipyard-data scan-stubs",
+    "why": "Phase 2 extraction: this SKILL.md is now the spec; shipyard-data scan-stubs (bin/scan-stubs.mjs) is the runtime the orchestrator actually invokes."
+  },
+  {
     "name": "needs_attention_uses_task_state_cli",
     "type": "contains",
     "pattern": "task set-status.*needs-attention --reason",

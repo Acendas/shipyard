@@ -1,7 +1,12 @@
 [
   {
-    "name": "uses_general_purpose",
+    "name": "dispatches_registered_agent",
     "type": "contains",
+    "pattern": "subagent_type: \"shipyard:shipyard-operational-task\""
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
     "pattern": "general-purpose"
   },
   {
@@ -12,17 +17,20 @@
   {
     "name": "has_iron_law_exit_zero",
     "type": "contains",
-    "pattern": "NO COMPLETION CLAIM WITHOUT exit-0 CAPTURE"
+    "pattern": "NO COMPLETION CLAIM WITHOUT exit-0 CAPTURE",
+    "target": "agent:shipyard-operational-task"
   },
   {
     "name": "has_iron_law_no_stub_fixes",
     "type": "contains",
-    "pattern": "NO STUB FIXES"
+    "pattern": "NO STUB FIXES",
+    "target": "agent:shipyard-operational-task"
   },
   {
     "name": "has_iron_law_no_scope_creep",
     "type": "contains",
-    "pattern": "NO SCOPE CREEP"
+    "pattern": "NO SCOPE CREEP",
+    "target": "agent:shipyard-operational-task"
   },
   {
     "name": "has_status_complete_return",
@@ -48,11 +56,6 @@
     "name": "has_max_iterations",
     "type": "contains",
     "pattern": "max_iterations"
-  },
-  {
-    "name": "no_registered_shipyard_agent",
-    "type": "not_contains",
-    "pattern": "subagent_type: *shipyard:shipyard-"
   },
   {
     "name": "uses_monitor_for_verify_run",
@@ -119,7 +122,7 @@
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   },
   {
     "name": "render_before_ask_rule",

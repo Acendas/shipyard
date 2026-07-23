@@ -276,9 +276,9 @@ Shipyard is a [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-cod
 
 Each `/ship-*` command is a [skill](https://docs.anthropic.com/en/docs/claude-code/skills) — a markdown file with YAML frontmatter and dynamic context injection via `!` backtick commands.
 
-### Capability skills, not registered agents
+### Registered agents + thin dispatch wrappers
 
-There's no fixed roster of named agents. Instead, capability skills (`dispatching-task-loop`, `dispatching-spec-review`, `dispatching-code-review`, `discovering-edge-cases`, and others) dispatch fresh-context `general-purpose` subagents on demand, each with a structured-return contract the orchestrator verifies independently (commit sha exists, probe exit code is 0, no stub patterns in the diff) rather than trusting the subagent's own claim of success. A builder, a reviewer, and a critic are all the same underlying subagent type, inlined with a different prompt for the job at hand.
+Shipyard ships 5 registered agents under `agents/` — `shipyard-code-reviewer`, `shipyard-spec-reviewer` (both read-only), `shipyard-disciplined-builder`, `shipyard-researcher`, and `shipyard-operational-task`. Capability skills (`dispatching-task-loop`, `dispatching-spec-review`, `dispatching-code-review`, `dispatching-research-task`, `dispatching-operational-task`, and others) are thin gate wrappers around them: each dispatches the matching `subagent_type: shipyard:<name>` with a structured-return contract that the wrapper verifies independently (commit sha exists, probe exit code is 0, no stub patterns in the diff) rather than trusting the subagent's own claim of success. The verification spine — task-return contract, orchestrator gate, wave-integration check, commit anchoring — lives in the wrapper skills and CLI, not in the agents themselves.
 
 ### Rules (4)
 

@@ -25,6 +25,9 @@ SHIP_DISCUSS = os.path.join(SKILLS_DIR, "ship-discuss", "SKILL.md")
 WAVE_DECOMP = os.path.join(SKILLS_DIR, "ship-sprint", "references", "wave-decomposition.md")
 TASK_LOOP = os.path.join(SKILLS_DIR, "dispatching-task-loop", "SKILL.md")
 CODE_REVIEW = os.path.join(SKILLS_DIR, "dispatching-code-review", "SKILL.md")
+AGENTS_DIR = os.path.join(PLUGIN_ROOT, "agents")
+CODE_REVIEWER_AGENT = os.path.join(AGENTS_DIR, "shipyard-code-reviewer.md")
+BUILDER_AGENT = os.path.join(AGENTS_DIR, "shipyard-disciplined-builder.md")
 
 
 def read(path):
@@ -96,15 +99,23 @@ class TestConsumersWired:
             "sprint decomposition modeling-guide consult must be gated"
 
     def test_execute_builder_gated_impl_read(self):
-        c = read(TASK_LOOP)
+        # Phase 3 split the builder's environment/reading-list/methodology body
+        # into the registered shipyard-disciplined-builder agent; the wrapper
+        # skill keeps only the gated-input summary. Check the combined surface,
+        # same pattern Phase 1 used for the code-reviewer split.
+        c = read(TASK_LOOP) + read(BUILDER_AGENT)
         assert "data-implementation-guide.md" in c, "builder reading list must include the implementation guide"
         assert "ONLY if this task touches the database" in c, \
             "builder implementation-guide read must be gated on DB-touching tasks"
 
     def test_code_review_gated_data_concern(self):
-        c = read(CODE_REVIEW)
-        assert "data-implementation-guide.md" in c, "code review must reference the implementation guide"
-        assert re.search(r"auto-gated", c), "code review data concern must be auto-gated"
+        # Phase 1 split the concern definitions (incl. the data concern) into
+        # the registered shipyard-code-reviewer agent; the wrapper skill keeps
+        # the auto-gate summary. Check the combined surface.
+        c = read(CODE_REVIEW) + read(CODE_REVIEWER_AGENT)
+        assert "data-implementation-guide.md" in c or "data-implementation guide" in c, \
+            "code review must reference the implementation guide"
+        assert re.search(r"auto-gat", c), "code review data concern must be auto-gated"
         assert re.search(r"touches NO database code, skip|skip this concern", c, re.IGNORECASE), \
             "code review must skip the data concern on non-DB diffs"
 
@@ -143,7 +154,9 @@ class TestCodeReviewDataConcernIsLive:
             "`data` must be a member of the concerns array, else the data concern is dead code"
 
     def test_data_concern_section_exists(self):
-        c = read(CODE_REVIEW)
+        # The concern definitions (including the `## data` section) live in
+        # the registered shipyard-code-reviewer agent as of Phase 1.
+        c = read(CODE_REVIEWER_AGENT)
         assert re.search(r"##\s+data \(auto-gated", c), "the data concern section must exist"
 
     def test_orchestration_lists_data_concern(self):

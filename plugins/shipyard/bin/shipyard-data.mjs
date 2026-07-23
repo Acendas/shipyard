@@ -26,6 +26,9 @@
  *                                                phantom/forked project dirs,
  *                                                nested projects/ dirs, and
  *                                                dangling patch tasks
+ *   shipyard-data scan-stubs <base>..<head>    → diff scan for stub patterns
+ *                            [--lang <x>]        (see anti-stub-scan/SKILL.md).
+ *                                                Exit 3 on unmarked HIGH finding.
  */
 
 import { execFileSync } from "node:child_process";
@@ -38,6 +41,7 @@ import { cursorCmd } from "./cursor-cli.mjs";
 import { parseWaves } from "./terminal-gate.mjs";
 import { specStateCmd } from "./spec-state-cli.mjs";
 import { releaseLock, skillLockCmd } from "./skill-lock.mjs";
+import { scanStubsCmd } from "./scan-stubs.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -1789,11 +1793,15 @@ function main() {
       skillLockCmd(getDataDir({ silent: true }), process.argv.slice(3));
       break;
     }
+    case "scan-stubs": {
+      scanStubsCmd(getDataDir({ silent: true }), process.argv.slice(3));
+      break;
+    }
     // For project-id / project-root use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash|project-root`.
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated | doctor | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|clear-tasks> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify> ... | config set <key> <value> | lock <acquire|release|check|status> ...\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated | doctor | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|clear-tasks> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify> ... | config set <key> <value> | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>]\n`,
       );
       process.exit(1);
   }

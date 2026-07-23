@@ -760,5 +760,60 @@
     "type": "contains",
     "pattern": "does not count as rendered",
     "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+  },
+  {
+    "name": "stage_task_checklist_created_at_preflight",
+    "type": "contains",
+    "pattern": "Stage Task Checklist \\(created at preflight\\)"
+  },
+  {
+    "name": "stage_task_subject_prefix",
+    "type": "contains",
+    "pattern": "\\[review-NNN\\] <stage>"
+  },
+  {
+    "name": "stage_task_mode_aware_table",
+    "type": "contains",
+    "pattern": "Pick the stage set by mode"
+  },
+  {
+    "name": "stage_task_self_loop_one_task",
+    "type": "contains",
+    "pattern": "get \\*\\*ONE\\*\\* task each"
+  },
+  {
+    "name": "stage_task_completion_gated_on_cursor_advance",
+    "type": "contains",
+    "pattern": "only when the cursor actually advances past it"
+  },
+  {
+    "name": "stage_task_never_completed_on_subagent_claim",
+    "type": "contains",
+    "pattern": "never on a subagent/agent return's claim"
+  },
+  {
+    "name": "stage_task_skipped_marked_not_deleted",
+    "type": "contains",
+    "pattern": "marked `completed` with `skipped: <reason>`"
+  },
+  {
+    "name": "stage_task_never_authority_guardrail",
+    "type": "contains",
+    "pattern": "the stage task list is a progress surface and a recovery anchor, NEVER authority"
+  },
+  {
+    "name": "stage_task_recovery_anchor_tasklist_first",
+    "type": "contains",
+    "pattern": "Call `TaskList\\(\\)` first"
+  },
+  {
+    "name": "stage_task_recovery_cursor_wins_on_disagreement",
+    "type": "contains",
+    "pattern": "if tasks and cursor disagree, the cursor wins"
+  },
+  {
+    "name": "stage_task_tools_in_allowed_tools",
+    "type": "contains",
+    "pattern": "allowed-tools:.*TaskCreate, TaskUpdate, TaskList"
   }
 ]

@@ -87,6 +87,18 @@ The `shipyard-builder`, `shipyard-critic`, `shipyard-investigator`, `shipyard-di
 
 If you had `Task(subagent_type: "shipyard:shipyard-builder", …)` in custom workflow code, it won't resolve. Switch to invoking the relevant Shipyard `/ship-*` command skill instead.
 
+**Note (3.12.0):** registered agents came back, under new names. `agents/shipyard-code-reviewer`, `shipyard-spec-reviewer`, `shipyard-disciplined-builder`, `shipyard-researcher`, and `shipyard-operational-task` are dispatched by thin `dispatching-*` capability-skill wrappers that own the verification spine (task-return contract, orchestrator gate, wave-integration check). See the 3.11.0 → 3.12.0 section below.
+
+## 3.11.0 → 3.12.0
+
+Registered agents, added back: 5 named agents live under `plugins/shipyard/agents/` (`shipyard-code-reviewer`, `shipyard-spec-reviewer`, `shipyard-disciplined-builder`, `shipyard-researcher`, `shipyard-operational-task`), dispatched via `subagent_type: shipyard:<name>` from the matching `dispatching-*` capability skill. This reverses the 2.0-era "no registered agents" position (see above) — the difference this time is that the verification spine (structured task-return contract, orchestrator-side gate, `verify-wave-integrated`, commit anchoring) stays in the thin wrapper skills and the `shipyard-data` CLI, not in the agents. Agents own the work; wrappers own the trust.
+
+No user action required — same `/ship-*` commands, same pipeline behavior. Other changes in this release:
+
+- `shipyard-data scan-stubs` — the anti-stub scan moved from skill prose into a CLI subcommand.
+- `/ship-execute` and `/ship-review` gained a lightweight per-wave / per-stage task mirror (TaskList-visible progress, mirror-only — never authority, same discipline as the existing discuss/sprint task mirrors).
+- Mode-semantics correction: Agent Teams do **not** get worktree isolation. Subagent mode (`isolation: "worktree"`) remains the build default; Teams is opt-in for large parallel waves.
+
 ## Older versions
 
 Pre-2.0 in-project `.shipyard/` directories were migrated by 1.x's `/ship-init`. If you're upgrading from a much older version that still has `.shipyard/`, install 1.12.x first to migrate, then upgrade to 2.0.

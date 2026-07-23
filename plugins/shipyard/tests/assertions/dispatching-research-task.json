@@ -1,13 +1,19 @@
 [
   {
-    "name": "uses_general_purpose",
+    "name": "dispatches_registered_agent",
     "type": "contains",
+    "pattern": "subagent_type: \"shipyard:shipyard-researcher\""
+  },
+  {
+    "name": "no_registered_shipyard_agent",
+    "type": "not_contains",
     "pattern": "general-purpose"
   },
   {
     "name": "has_write_scope_hard_gate",
     "type": "contains",
-    "pattern": "Write Scope"
+    "pattern": "Write Scope",
+    "target": "agent:shipyard-researcher"
   },
   {
     "name": "has_findings_template",
@@ -40,11 +46,6 @@
     "pattern": "research_out_of_scope_write"
   },
   {
-    "name": "no_registered_shipyard_agent",
-    "type": "not_contains",
-    "pattern": "subagent_type: *shipyard:shipyard-"
-  },
-  {
     "name": "needs_attention_uses_task_state_cli",
     "type": "contains",
     "pattern": "task set-status.*needs-attention --reason",
@@ -54,7 +55,7 @@
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   },
   {
     "name": "render_before_ask_rule",

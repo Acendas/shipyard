@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 A diff scanner that flags code claimed as complete but not actually wired. Runs on the orchestrator side after `dispatching-task-loop` returns. Findings re-dispatch the subagent with the specific lines listed.
 
+**This file is the SPEC, not the runtime.** The pattern catalog, placeholder-marker semantics, and output shape documented below are implemented by `shipyard-data scan-stubs <base>..<head> [--lang <x>]` (`bin/scan-stubs.mjs`) — a CLI subcommand, not model-driven `Bash` + `grep`/`awk`. The orchestrator invokes the CLI directly; see "Implementation Notes for the Orchestrator" below for the exact invocation and exit-code contract.
+
 **Why both this AND the prompt-level Iron Law?** The Iron Law (`NO STUBS IN CODE YOU CLAIM IS COMPLETE`) lives in the subagent's prompt and works most of the time. This scanner is the second line: when the subagent rationalizes past the rule, the orchestrator catches the stub before flipping the task to done. Belt and suspenders.
 
 ## When to Invoke
@@ -73,11 +75,11 @@ If the subagent ADDED a TODO/FIXME marker in code claimed complete, that's a HIG
 
 A call site to the new function/method was added but commented out. Pattern: a `+` line in the diff containing the new symbol's name inside a comment (`// foo()`, `# foo()`, `/* foo() */`). This indicates the wiring exists in source but is disabled — false-completion vector.
 
-### Untouched export / public-API lists (MEDIUM confidence)
+### Untouched export / public-API lists (MEDIUM confidence) — **NOT structurally detected**
 
 If the spec's Acceptance Criteria say "expose `<symbol>` from `<module>`" and the diff doesn't include the corresponding `index.ts` / `__init__.py` / `mod.rs` change, flag it. Pattern: spec mentions a module's public API and the diff doesn't touch the export file for that module.
 
-This requires the orchestrator to pass acceptance criteria text alongside the diff range — surface as MEDIUM with the specific symbol name.
+This requires the orchestrator to pass acceptance criteria text alongside the diff range — the CLI's `scan-stubs <base>..<head> [--lang <x>]` surface takes only a git ref range and a language filter, no spec/AC text input. Wiring that in would change the CLI from a pure-diff scanner to a spec-aware one, a different (and heavier) tool. **`bin/scan-stubs.mjs` deliberately does not implement this pattern** — it is not in the `pattern` enum the CLI emits. If this coverage gap matters for a given feature, catch it via `dispatching-spec-review`'s MISSING/PARTIAL classification instead (that reviewer already reads the acceptance criteria).
 
 ### Tests that don't exercise new code (MEDIUM confidence)
 
@@ -113,7 +115,7 @@ The scanner returns a structured finding list. Each finding:
 ```
 {
   "confidence": "HIGH" | "MEDIUM" | "LOW",
-  "pattern": "empty-body" | "not-implemented-marker" | "lone-return-null" | "todo-marker" | "commented-call-site" | "missing-export" | "test-no-impl",
+  "pattern": "empty-body" | "not-implemented-marker" | "lone-return-null" | "todo-marker" | "commented-call-site" | "test-no-impl",
   "file": "<relative path>",
   "line": <1-based line number>,
   "snippet": "<the offending line, trimmed to 120 chars>",
@@ -139,18 +141,21 @@ The single-redispatch rule from `dispatching-task-loop` still applies: at most o
 
 ## Implementation Notes for the Orchestrator
 
-The scan itself runs in the orchestrator's session via `Bash` calls to `git diff` + standard text tools (`grep -nE`, `awk`), or via a dedicated `shipyard-data scan-stubs` subcommand if extracted later. For the first cut, inline `Bash` is fine — the patterns are small and language-detection is by file extension.
+Run the CLI directly — do not reimplement the scan inline via `Bash` + `grep`/`awk`:
 
-A reference implementation outline (orchestrator-side, in skill prose):
+```
+shipyard-data scan-stubs {base_ref}..{head_ref} [--lang <ext>]
+```
 
-1. `git diff --name-only {base}..{head}` → list of changed files.
-2. For each file, classify by extension; pick the relevant pattern set.
-3. `git diff -U0 {base}..{head} -- {file}` → unified diff with no context.
-4. Walk the `+` lines; apply patterns; for each match, look at the line immediately above (in the unified diff) for `shipyard:placeholder reason=` to compute the placeholder marker.
-5. Aggregate findings into the JSON shape above.
-6. Apply the action rules.
+- Prints the findings list (the JSON shape above, wrapped as `{"findings": [...]}`) to stdout.
+- **Exit 0** — clean, or only MEDIUM/LOW findings (advisory; apply the action rules below).
+- **Exit 3** — at least one HIGH-confidence finding with no `shipyard:placeholder` marker. Stderr lists the blocking findings; re-dispatch the subagent with them inline per "Output Shape" above.
+- Emits a `stub_scan_run findings=<n> high=<n>` event to the structured event log (`_hook_lib.mjs::logEvent`) on every invocation — no separate emit needed from the orchestrator.
+- `--lang <ext>` restricts the scan to files with that extension (e.g. `--lang py`); omit to scan every changed file, pattern set chosen per-file by extension.
 
-Keep the implementation simple. If a pattern is hard to express (e.g., AST-level "function body is just pass"), drop the precision and accept that some legitimate code triggers MEDIUM — better than an over-engineered scanner that drifts.
+The scan operates only on files in `git diff --name-only {base}..{head}` and only on `+` (added) lines of a `-U0` diff — untouched files/lines are never flagged. Implementation: `bin/scan-stubs.mjs`, unit-tested in `tests/test_scan_stubs_cli.mjs`.
+
+Keep the pattern set's precision modest. If a pattern is hard to express (e.g., AST-level "function body is just pass"), the CLI accepts that some legitimate code triggers MEDIUM — better than an over-engineered scanner that drifts from this spec.
 
 ## What This Replaces
 

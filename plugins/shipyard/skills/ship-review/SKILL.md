@@ -1,7 +1,7 @@
 ---
 name: ship-review
 description: "Run multi-agent review, retrospective, and release."
-allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion]
+allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, TaskCreate, TaskUpdate, TaskList]
 model: opus
 effort: medium
 argument-hint: "[feature ID] [--demo] [--hotfix ID] [--retro-only] [--skip-code-review] [--single-tick]"
@@ -98,6 +98,7 @@ Two stages can self-loop until they converge by data: `code_review_iter_N` (Stag
 
 If you lose context mid-review (e.g., after auto-compaction):
 
+0. **Call `TaskList()` first.** If `[review-NNN] <stage>` tasks exist from the stage checklist (below), the last non-`completed` task names a candidate resume stage — a structured position anchor. **Confirm against the cursor before acting on it** (step 1) — the tasks are a mirror, not authority; if tasks and cursor disagree, the cursor wins.
 1. **Cursor is authoritative.** Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` first. The `stage:` field tells you exactly where to resume; verdict files are the secondary cross-check. PROGRESS.md is a rendered artifact (auto-regenerated from the event log on every cursor write) — never reconcile against it as if it were authoritative state, and never Write or Edit it.
 2. Use Glob `<SHIPYARD_DATA>/verify/*-verdict.md` to find existing verdict files — these features are already reviewed
 3. Read SPRINT.md — get the list of features to review
@@ -111,6 +112,25 @@ Do not re-run the full test suite for features that already have valid (complete
 ---
 
 ## Review Pipeline
+
+### Stage Task Checklist (created at preflight)
+
+On a fresh start (preflight, no existing cursor), `TaskCreate` one task per stage this invocation's mode will actually run — a high-level, per-STAGE mirror of pipeline progress, not a per-finding/per-criterion/per-gate list (those live in CODE-REVIEW.md, QUALITY-GATE.md, the review cursor, and the event log — the hardened, authoritative state). Subject prefix **`[review-NNN] <stage>`** (NNN = sprint id) — distinct from `/ship-execute`'s `[sprint-NNN] Wave K`, `/ship-sprint`'s `[sprint-plan] Step N`, and team-mode build tasks. Create all of them in one batch.
+
+Self-looping stages (`code_review_iter_N`, `gap_analysis`) get **ONE** task each ("Stage 0: Code Review", "Stage 4: Gap Analysis") — never one task per iteration; iteration churn belongs in the event log, not the task list.
+
+Pick the stage set by mode:
+
+| Mode | Stage tasks created |
+|---|---|
+| Default (full review, no flags) | preflight, Stage 0: Code Review (code_review_iter_N), Stage 0.5: Simplify (simplify), Stage 1a: Tests (tests), Stage 1b: Spec Review (spec_review), Stage 1.5: Quality Gates (quality_gates), Stage 2: Visual (visual), Stage 3: Goal Verify (goal_verify), Stage 4: Gap Analysis (gap_analysis), Stage 4.6: Critic (critic), Stage 4.7: Final Pass (final_pass), Stage 4.8: Demo Probe (demo_probe), Stage 5: Demo & Approval (demo_user), Retro Step 1-4 (retro_step_1..4), Release Step 1-3 (release_step_1..3), Wrap Up (terminal) |
+| `--skip-code-review` | same as default minus Stage 0 (code_review_iter_N) and Stage 0.5 (simplify) — jumps preflight → tests |
+| `--retro-only` | Retro Step 1-4, Release Step 1-3, Wrap Up only (no review stages) |
+| `--hotfix ID` | single task `[review-NNN] Hotfix Review` — the hotfix path doesn't tick through the cursor's per-stage graph |
+
+`TaskUpdate` a stage task → `in_progress` when that stage's handler starts; → `completed` **only when the cursor actually advances past it** (i.e., the `shipyard-data cursor advance review <next_stage>` call for that transition succeeds) — never on a subagent/agent return's claim that the stage is done. A stage that pauses (`demo_user`, `retro_step_2`, `release_step_1` — any stage that runs `cursor pause` before an `AskUserQuestion`) or escalates: leave its task `in_progress` (visible, mid-flight) rather than marking it completed. A stage this mode's table above doesn't include (e.g. Stage 0 under `--skip-code-review`) is marked `completed` with `skipped: <reason>` in the description at creation time — never deleted silently.
+
+**Guardrail (load-bearing): the stage task list is a progress surface and a recovery anchor, NEVER authority.** Do not gate any behavior on TaskList state, do not cite task status as evidence a stage ran, and never mark a stage task completed before the cursor advances past it. The review cursor, CODE-REVIEW.md/QUALITY-GATE.md, and the event log remain the record; the tasks are the user-visible mirror.
 
 ### Pre-flight: Branch Check (stage_id: preflight)
 

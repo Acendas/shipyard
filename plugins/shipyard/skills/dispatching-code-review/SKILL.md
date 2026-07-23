@@ -30,162 +30,36 @@ Code review is more expensive than spec review (broader concern surface). `/ship
 - `data_dir` — literal `<SHIPYARD_DATA>` path.
 - `project_rules_path` — `.claude/rules/*.md` paths so the patterns scanner has the project's conventions. Shipyard does not inject its own rules into `.claude/rules/`; only project-authored rules pass through here.
 
-## The Subagent Prompt Template
+## Dispatching the Reviewer
 
-Dispatch via `Agent(subagent_type: "general-purpose", prompt: <template>)`. Read-only role. The prompt activates only the requested `concerns`.
+The reviewer methodology (all seven concern definitions, confidence threshold, the read-only contract, the Required Return Shape) lives in the registered agent `agents/shipyard-code-reviewer.md` — read it once if you need to know exactly what it does; do not re-inline it here.
 
 **Model tier (think).** Read `models.think` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal. Applies to every dispatch, including each subagent of the parallel-split variant below.
 
-```text
-You are conducting a code-quality review of a Shipyard {{scope}}.
+**Plugin-relative paths are resolved here, not in the agent.** `${CLAUDE_PLUGIN_ROOT}` is not verified to expand inside a registered agent's body — resolve the data-implementation guide path (when the `data` concern is gated in) to a literal path before including it in the brief.
 
-# Scope
+Dispatch:
 
-Scope:        {{scope}}
-Target IDs:   {{target_ids}}
-Base ref:     {{base_ref}}
-Head ref:     {{head_ref}}
-Concerns:     {{concerns_csv}}
-Data dir:     {{data_dir}}
-Project rules: {{project_rules_path}}
-
-# Reading list
-
-  $ git diff {{base_ref}}..{{head_ref}}                  (the diff itself)
-  $ git diff --name-only {{base_ref}}..{{head_ref}}      (touched files)
-  - {{data_dir}}/codebase-context.md                     (project conventions)
-  - {{project_rules_path}}                               (if any)
-
-For each touched file, you may Read the full file when context inside the diff
-hunk isn't sufficient (e.g., understanding what an imported helper does).
-
-# Concerns
-
-For each concern in {{concerns_csv}}, scan the diff and accumulate findings.
-Concern definitions follow.
-
-## security
-  - Injection sinks: SQL, shell, template, NoSQL, LDAP. Look for unparameterized
-    query construction, shell commands built with string concat, template
-    rendering of user input.
-  - Auth / authz: missing or wrong check, role escalation, broken object-level
-    auth (e.g., user can fetch another user's resource by ID).
-  - Hardcoded secrets / credentials in source.
-  - Crypto misuse: weak algorithms (MD5, SHA1 for auth), missing salt, fixed
-    IVs, ECB mode, missing constant-time compare on token check.
-  - Unsafe deserialization of untrusted input via language-level binary
-    serializers; YAML loaders that allow arbitrary tag construction; eval-like
-    sinks that interpret user-supplied strings as code.
-  - Path traversal: user-controlled path joined without containment check.
-  - SSRF: outbound requests to user-supplied URLs without allowlist.
-  - Input validation gaps: missing length / charset / type bounds.
-
-## bugs
-  - Off-by-one: ranges, slices, indexing.
-  - Null / undefined handling: missing checks before deref.
-  - Race conditions: shared state mutated without locking; check-then-act
-    patterns.
-  - Resource leaks: file handles, sockets, subprocess pipes not closed.
-  - Wrong operators: `=` vs `==`, `&` vs `&&`, `is` vs `==`.
-  - Type confusion: implicit conversions producing wrong results.
-  - Boundary errors: timezone math, integer overflow at API boundaries,
-    floating-point equality.
-
-## silent-failures
-  - Empty `catch` / `except` blocks (or catches that only `pass`).
-  - Catches that swallow the original exception (no `raise from`, no log).
-  - Retries that hide root cause (try N times, return None on N failures).
-  - Default-on-error patterns that mask the failure to the caller.
-  - Missing error-path tests for critical functions.
-
-## patterns
-  - Violations of {{project_rules_path}} files (read those first; cite which
-    rule was violated).
-  - Naming convention violations.
-  - Anti-patterns from project learnings (`.claude/rules/learnings/*.md` if
-    present).
-  - Duplication of a function that already exists nearby.
-  - Magic numbers / strings without a named constant.
-  - Dead code / commented-out blocks.
-
-## data (auto-gated — runs only when the diff touches persistence)
-  Trigger: the touched files include migrations / DDL, SQL or ORM queries,
-  repositories/DAOs, schema, or index changes. If the diff touches NO database
-  code, skip this concern entirely (do not invent database findings on non-DB
-  diffs — same significance discipline as the other concerns).
-  When it triggers, read
-  `${CLAUDE_PLUGIN_ROOT}/project-files/references/data-implementation-guide.md`
-  and flag its §5 checklist items: N+1 query patterns, missing index on a new FK
-  or hot predicate (or a new redundant index), non-SARGable predicates, `SELECT *`
-  in hot paths, unbounded / deep-`OFFSET` pagination, migrations missing
-  FK/`NOT NULL`/`CHECK`/`UNIQUE` or using `FLOAT` for money or timezone-less
-  timestamps, locking/non-reversible migrations on large tables, and schema-shape
-  anti-patterns leaking into code (EAV access, OTLT joins).
-
-## tests
-  - Missing critical-path coverage (touched function with no test).
-  - Weak assertions (`assertNotNull` only, when stronger assertion is
-    needed).
-  - Missing edge cases (empty input, max bounds, error paths).
-  - Brittle tests (assertions on internal implementation, not behavior).
-  - Mocks that hide integration breaks (over-mocking).
-  - Test files without imports of the new code (probably stubbed).
-
-## observability  (optional — include only if listed in concerns)
-  - Missing logs at error boundaries.
-  - Missing metrics for new code paths users will care about.
-  - Missing trace context propagation across async boundaries.
-  - Logged values that look like PII / secrets.
-
-# Confidence Threshold
-
-Report only findings at confidence ≥ 80 (you are reasonably sure this is a
-real problem, not a style preference). Findings between 60–80 are advisory;
-include them as `confidence: 60–80` if they're worth surfacing but suppress
-otherwise. Do not pad findings to look thorough.
-
-# READ-ONLY
-
-You may NOT edit any file, run state-mutating commands, spawn other subagents,
-or transition any artifact's status.
-
-You MAY Read, Grep, Glob, run read-only git, and run the project's static
-analysis (linter, typechecker) to confirm a finding — but only as a check,
-not a fix.
-
-# Required Return Shape
-
-Your reply MUST contain these lines exactly:
-
-    STATUS: CLEAN                               (only when no findings ≥ 80)
-    FINDINGS: 0
-    SCOPE: {{scope}}
-    TARGETS: <comma-separated target_ids>
-
-OR:
-
-    STATUS: FINDINGS
-    FINDINGS: <integer count of findings ≥ 80>
-    ADVISORY: <integer count of findings 60–80>
-    SCOPE: {{scope}}
-    TARGETS: <comma-separated target_ids>
-    -----
-    [<concern>][confidence:<NN>] <one-line summary>
-      file: <path>:<line>
-      snippet: <touched line, ≤120 chars>
-      reason: <one paragraph — why this is a problem, not a style nit>
-      fix: <one-line suggested direction, optional>
-    [<concern>]... (repeat per finding, sorted by concern then confidence)
-
-OR:
-
-    STATUS: BLOCKED
-    REASON: <one paragraph>
-
-Begin.
+```
+Agent(
+  subagent_type: "shipyard:shipyard-code-reviewer",
+  model: <models.think value, or omit>,
+  prompt: "
+    Scope:         {{scope}}
+    Target IDs:    {{target_ids}}
+    Base ref:      {{base_ref}}
+    Head ref:      {{head_ref}}
+    Concerns:      {{concerns_csv}}
+    Data dir:      {{data_dir}}
+    Project rules: {{project_rules_path}}
+    {{data_impl_guide path, if `data` concern is gated in — otherwise omit}}
+  "
+)
 ```
 
 ## Orchestrator-Side Action Rules
+
+The reviewer's return always carries `STATUS:`, `SCOPE:`, and `TARGETS:`; a `FINDINGS:` count (0 on CLEAN, an integer on FINDINGS) and, on FINDINGS, an `ADVISORY:` count for the 60–80 band, accompany the per-finding block.
 
 1. **`STATUS: CLEAN`** → record; advance.
 
@@ -197,11 +71,13 @@ Begin.
 
 3. **`STATUS: BLOCKED`** → quote the subagent's `REASON:` paragraph verbatim as chat text (it exists only in the Agent return — content in a subagent return or in the question/option strings does not count as shown), then AskUserQuestion. Likely: diff is too large, spec missing, project rules path bad.
 
-4. **Read-only enforcement** — same as `dispatching-spec-review`: post-return `git status --porcelain` + HEAD ref check. Any drift is a contract violation.
+4. **Silent return** — the Agent return is present but no `STATUS:` line appears, or the body is empty/whitespace. Treat this as its own outcome, distinct from CLEAN/FINDINGS/BLOCKED: emit `shipyard-data events emit code_review_dispatch_returned scope=<scope> targets=<target_ids> status=needs-attention reason=silent_return` and re-dispatch ONCE with the same brief. If the re-dispatch is also silent, stop re-dispatching and surface it as a `STATUS: BLOCKED`-shaped ask instead of looping.
+
+5. **Read-only enforcement** — same as `dispatching-spec-review`: post-return `git status --porcelain` + HEAD ref check. Any drift is a contract violation → treat as `STATUS: BLOCKED` and surface.
 
 ## Parallel Dispatch For High-Stakes Reviews
 
-For high-stakes reviews (release-bound, large diff, payments/auth/data), `/ship-review` may dispatch this skill multiple times in parallel with non-overlapping `concerns` arrays — each subagent gets its own context window, scanning is genuinely parallel. The trade is more tokens for better depth on each concern.
+For high-stakes reviews (release-bound, large diff, payments/auth/data), `/ship-review` may dispatch this skill multiple times in parallel with non-overlapping `concerns` arrays — each subagent gets its own context window, scanning is genuinely parallel. The trade is more tokens for better depth on each concern. Assign the `data` concern to exactly one split (see Inputs above) — it must never be dropped or duplicated across splits.
 
 ## Pairing With Other Skills
 
@@ -212,7 +88,8 @@ For high-stakes reviews (release-bound, large diff, payments/auth/data), `/ship-
 
 ## Bottom Line
 
-- One dispatch, sectioned prompt, seven concern domains (the seventh, `data`, auto-gates on persistence-touching diffs).
+- One dispatch to the registered `shipyard-code-reviewer` agent, seven concern domains (the seventh, `data`, auto-gates on persistence-touching diffs).
 - Read-only; structured findings; confidence ≥ 80 to block.
 - Security ≥ 90 auto-redispatches; everything else surfaces for orchestrator/user decision.
+- Silent-return gate: one re-dispatch, then surface as BLOCKED rather than loop.
 - Post-return git-status check enforces the read-only contract.

@@ -1,6 +1,8 @@
 # Team Mode Protocol
 
-Team Mode uses Claude Code Agent Teams (shared task list + mailbox) for sprints with 10+ tasks. Teammates **persist across multiple tasks** in their feature track — a teammate reads the feature spec once and works through all its tasks.
+Team Mode uses Claude Code Agent Teams (shared task list + mailbox) for coordination-heavy, file-partitioned work — it is opt-in and experimental (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`), NOT the default build shape (see `ship-execute` Step 2: Subagent mode is the build default; Team is for partitioned coordination). Teammates **persist across multiple tasks** in their feature track — a teammate reads the feature spec once and works through all its tasks.
+
+**Teams do not get worktree isolation — this is a Claude Code design decision (#37549), not a bug to work around.** Agent Teams isolate teammates by *file-ownership partition*, not by directory: each teammate shares the ONE main working tree and is scoped to a disjoint set of files (its feature track), and there are NO per-task `shipyard/wt-*` branches in team mode. This has a direct consequence for the verification spine: `verify-wave-integrated`'s branch-merge check (Check A) has nothing to check in team mode — there are no worktree branches to merge — so it is a structural no-op here. Only Check B (every verified return commit reachable from the working branch) still applies, and it holds trivially once teammates commit directly to the working branch. Integration safety in team mode rests entirely on file-partition discipline (teammates never touching another track's files), not on branch isolation.
 
 ## Concurrency Cap
 
@@ -9,7 +11,7 @@ Team Mode uses Claude Code Agent Teams (shared task list + mailbox) for sprints 
 The lead maintains a simple queue:
 1. Sort feature tracks by wave priority (features with earlier wave tasks first)
 2. Spawn the first `max_parallel_agents` as the initial batch
-3. As each teammate completes (shutdown_response received + worktree merged), spawn the next queued track
+3. As each teammate completes (shutdown_response received + all its commits verified via the integration gate), spawn the next queued track
 4. If fewer feature tracks than the cap exist, spawn them all — no queuing needed
 
 ## Feature Track Mapping
@@ -35,35 +37,25 @@ Teammates are not limited to a strict lead-assigns-one-task-at-a-time loop:
 
 ## Setup
 
-**WORKAROUND: `isolation: worktree` is silently ignored when `team_name` is set (Claude Code bug #37549).** Teammates spawned with both parameters run in the main repo directory — no isolation. Shipyard works around this by manually creating worktrees before spawning teammates, then passing the worktree path in the prompt.
+**No worktrees are created for teammates.** `isolation: worktree` is not passed on team-mode `Agent(...)` calls at all — teams don't get directory isolation by platform design (#37549), so there's nothing to request. Every teammate operates directly in the main repo working tree, on the working branch, scoped to its own feature track's files. Concurrent-write safety comes entirely from file-partition discipline (below, "Within-Track Autonomy": never cross tracks) — there is no branch or directory boundary backing it up.
 
-1. `TeamCreate(team_name: "sprint-NNN")`
-2. `TaskCreate` per task — subject: `"TASK_ID: title"`, description: task file path + feature file path + dependencies
-3. **Create worktrees manually** (serialized — one at a time to avoid git lock contention, bug #34645):
-   ```bash
-   # For each feature track, create a worktree from the working branch:
-   CURRENT_SHA=$(git rev-parse HEAD)
-   git worktree add -b shipyard/wt-FEATURE_ID-slug .claude/worktrees/FEATURE_ID "$CURRENT_SHA"
-   ```
-4. Spawn teammates up to the concurrency cap (max 4), queue the rest. Dispatch via `general-purpose` with `team_name` set; the `shipyard:dispatching-task-loop` capability skill is NOT used directly because team-mode teammates persist across multiple tasks (a teammate works through ALL tasks in its assigned feature track, not one-task-one-dispatch). The teammate spawn prompt is inlined below. **Model tier (build)** — teammates do implementation labor: read `models.build` from `<SHIPYARD_DATA>/config.md`; if non-empty pass `model: <value>` on the `Agent(...)` call below, if empty or absent OMIT the `model:` field so the teammate inherits the session model. Never hardcode a literal.
+1. `TaskCreate` per task — subject: `"TASK_ID: title"`, description: task file path + feature file path + dependencies. (No `TeamCreate` call — that tool doesn't exist; the team is created implicitly by the first `Agent(...)` spawn below that carries `team_name`.)
+2. Spawn teammates up to the concurrency cap (max 4), queue the rest. Dispatch via `general-purpose` with `team_name` set; the `shipyard:dispatching-task-loop` capability skill is NOT used directly because team-mode teammates persist across multiple tasks (a teammate works through ALL tasks in its assigned feature track, not one-task-one-dispatch). The teammate spawn prompt is inlined below. **Model tier (build)** — teammates do implementation labor: read `models.build` from `<SHIPYARD_DATA>/config.md`; if non-empty pass `model: <value>` on the `Agent(...)` call below, if empty or absent OMIT the `model:` field so the teammate inherits the session model. Never hardcode a literal.
 
    ```
    Agent(name: "teammate-FEATURE_ID",
          subagent_type: "general-purpose",
          team_name: "sprint-NNN",
          model: <models.build — omit this line entirely if the config value is empty/absent>,
-         prompt: [teammate spawn prompt with WORKTREE_PATH filled in — see below])
+         prompt: [teammate spawn prompt — see below])
    ```
-
-**Why no `isolation: worktree`?** When `team_name` is set, Claude Code skips worktree creation entirely. The agent runs in the main repo. Multiple teammates editing the same directory causes race conditions and corrupted files. Manual worktree creation + prompt-based `cd` is the workaround until Claude Code supports team-mode worktree isolation natively. See the "Using Worktrees" reference for current status.
 
 ## Teammate Spawn Prompt
 
 ```
 You are a Shipyard builder working on feature [FEATURE_ID] as part of team "sprint-NNN".
 
-Working branch: [branch from SPRINT.md]
-Worktree path: [WORKTREE_PATH]
+Working branch: [branch from SPRINT.md] (you commit directly to this branch — there is no per-feature worktree or branch)
 
 ## Setup (do this once)
 Read these files for full context:
@@ -117,11 +109,10 @@ If you cannot proceed on a task:
      content: "IDLE: all remaining tasks blocked", summary: "Teammate idle")
 
 ## Wave Sync Protocol
-Between waves, the lead rebases and merges completed features onto the working branch.
+Between waves, the lead runs the integration gate (no rebase/merge needed — you already commit directly to the working branch).
 When you receive a message containing "WAVE SYNC":
-1. Rebase your feature branch onto the updated working branch: `git rebase <working-branch>`
-2. Resolve any conflicts (flag non-trivial ones to lead via SendMessage)
-3. Continue your task loop from step 1
+1. `git pull`/`git status` to confirm you're current with the working branch (other teammates may have committed since your last check)
+2. Continue your task loop from step 1
 
 ## Shutdown Protocol
 When you receive a shutdown_request:
@@ -148,13 +139,13 @@ When you receive a shutdown_request:
 
 ## Before Exiting (MANDATORY — prevents data loss)
 
-Before shutdown or reporting completion, ensure no uncommitted work:
+Before shutdown or reporting completion, ensure no uncommitted work in the shared working tree:
 ```bash
-cd "[WORKTREE_PATH]" && git status --porcelain
+git status --porcelain
 ```
-If changes exist: `cd "[WORKTREE_PATH]" && git add -A && git commit -m "wip([TASK_ID]): partial progress"`
-If commit fails: `cd "[WORKTREE_PATH]" && git stash`
-Claude Code may delete worktree directories when agents exit — uncommitted work is permanently lost (bug #29110).
+If changes exist: `git add -A && git commit -m "wip([TASK_ID]): partial progress"`
+If commit fails: `git stash`
+Since there is no dedicated worktree per teammate, uncommitted work sits in the one shared checkout — commit or stash before exiting rather than relying on any directory surviving teardown.
 
 Rules: Never skip TDD. Never modify assertions to pass. Never build beyond acceptance criteria.
 If blocked: describe the blocker and move on — do not guess.
@@ -213,14 +204,13 @@ Exit the loop when all tasks show completed and spot-checks pass.
 
 Detect: a teammate's heartbeat file at `<SHIPYARD_DATA>/agents/<FEATURE_ID>.heartbeat` is stale (>15 min since last tool call), absent, or the teammate has a task `in_progress` with no BLOCKED message and no new commits. The heartbeat is the primary signal — it fires on every tool call, so staleness means the agent is truly idle or dead, not just between commits.
 
-Recovery steps:
-1. **Salvage uncommitted work first** — `git -C <worktree-path> status --porcelain` to check for changes
-2. If uncommitted changes exist: `git -C <worktree-path> add -A && git -C <worktree-path> commit -m "wip(TASK_ID): salvage from crashed teammate"`
-3. If committed work exists (ahead of working branch): rebase + ff-only merge onto working branch
-4. `TaskUpdate` the task back to `pending`
-5. Spawn a replacement teammate with the recovery prompt below
+Recovery steps (all against the shared working tree — there is no per-teammate worktree to isolate the crash's blast radius; file-partition discipline is what limits it instead):
+1. **Salvage uncommitted work first** — `git status --porcelain` to check for changes
+2. If uncommitted changes exist: `git add -A && git commit -m "wip(TASK_ID): salvage from crashed teammate"` (already on the working branch — no rebase/merge needed, since the crashed teammate never had its own branch)
+3. `TaskUpdate` the task back to `pending`
+4. Spawn a replacement teammate with the recovery prompt below
 
-**CRITICAL: Never remove a worktree or create a fresh one without first checking for and salvaging uncommitted changes. A system crash kills agents mid-work — their worktrees contain unsaved progress.**
+**CRITICAL: Never discard uncommitted changes without first checking for and salvaging them. A system crash kills agents mid-work; because all teammates share one working tree, unsaved progress from a crashed teammate is sitting in the same checkout the lead and every other teammate are using.**
 
 ## Session Resume Prompt
 
@@ -230,28 +220,26 @@ When re-spawning teammates after a session break (resuming from a paused cursor 
 RECOVERY NOTE: You are resuming after a session break or teammate crash.
 - Read task files to determine true status (task file `status: done` = completed,
   regardless of what TaskList shows)
-- Check your worktree for any WIP commits — continue from where the previous
+- Check the shared working tree for any WIP commits — continue from where the previous
   session left off
 - If resuming a specific task [TASK_ID]: check for partial work before starting fresh
 ```
 
 ## Wave Boundary Protocol
 
-When all wave tasks complete and spot-checks pass:
+When all wave tasks complete and spot-checks pass. There is no feature-branch rebase/merge step here — teammates commit directly to the working branch as they go (no per-feature worktree or branch exists to integrate), so by wave-boundary time every verified commit is already on the working branch.
 
-1. **Feature-level rebase and merge** — for each completed feature branch, rebase onto the working branch, then fast-forward merge. If ff fails, render the conflict details as chat text first (feature branch, conflicting files, relevant `git status` lines — teammate messages and git output do not count as shown until printed), then AskUserQuestion (never fall back to regular merge — it creates fork lines).
-1a. **Integration gate — `shipyard-data verify-wave-integrated` — BEFORE any teardown.** Run it immediately after the rebase+ff-merge above and before worktree cleanup (step 2). Exit 3 is a HARD STOP: do not remove any worktree, do not shut down any teammate. Integrate the branches it names, re-run the gate once; if it still fails, this is an `integration_gate` escalation trigger — invoke `shipyard:escalating-to-thinker`, do not tear down unverified state on your own judgment.
-2. **Clean up finished worktrees** — `git worktree remove` for completed feature tracks only, and only after step 1a has passed
-3. **Create next wave tasks** — `TaskCreate` for each task in the new wave
-4. **Message continuing teammates** — tell them to rebase onto updated working branch:
+1. **Integration gate — `shipyard-data verify-wave-integrated` — BEFORE any teardown.** Run it before shutting down any teammate. In team mode, Check A (worktree branches merged) is a structural no-op — there are no `shipyard/wt-*` branches to check — so only Check B (every verified return commit reachable from the working branch) is meaningful, and it holds trivially given direct-to-branch commits. Still run the gate rather than skip it: a Check B failure would mean a teammate's claimed commit isn't actually reachable, which is real signal (a lost/rewritten commit) even without Check A's involvement. Exit 3 is a HARD STOP: do not shut down any teammate. Re-run the gate once after investigating; if it still fails, this is an `integration_gate` escalation trigger — invoke `shipyard:escalating-to-thinker`, do not tear down unverified state on your own judgment.
+2. **Create next wave tasks** — `TaskCreate` for each task in the new wave
+3. **Message continuing teammates** — tell them the next wave's tasks are ready (no rebase needed — they're already working off the current tip of the shared branch):
    ```
    SendMessage(type: "message", recipient: "teammate-FEATURE_ID",
-     content: "WAVE SYNC: rebase onto <working-branch> to pick up cross-feature changes. Wave N+1 tasks available.",
+     content: "WAVE SYNC: wave N+1 tasks available.",
      summary: "Wave N+1 ready")
    ```
-5. **Shutdown finished teammates** — `SendMessage(type: "shutdown_request", recipient: "teammate-FEATURE_ID", content: "No remaining tasks for your feature track")` to any teammate whose feature track has no remaining tasks
-6. **Spawn queued teammates** — after each shutdown_response, if queued feature tracks remain, spawn the next one (maintains max 4 concurrent)
-7. **Delegate integration tests** to a test subagent on the working branch (same as subagent mode wave boundary)
+4. **Shutdown finished teammates** — `SendMessage(type: "shutdown_request", recipient: "teammate-FEATURE_ID", content: "No remaining tasks for your feature track")` to any teammate whose feature track has no remaining tasks
+5. **Spawn queued teammates** — after each shutdown_response, if queued feature tracks remain, spawn the next one (maintains max 4 concurrent)
+6. **Delegate integration tests** to a test subagent on the working branch (same as subagent mode wave boundary)
 
 ## Sprint End Teardown
 
@@ -259,6 +247,5 @@ After the final wave completes:
 
 1. `SendMessage(type: "shutdown_request", ...)` to all remaining teammates
 2. Wait for `shutdown_response` (approve: true) from each teammate before proceeding
-3. Rebase and merge any remaining feature branches onto the working branch
-4. `TeamDelete(team_name: "sprint-NNN")`
-5. Continue to Step 5 in SKILL.md (full test suite, PR, sprint report)
+3. Run `shipyard-data verify-wave-integrated` one final time (same Check-B-only meaning as above) before continuing
+4. Continue to Step 5 in SKILL.md (full test suite, PR, sprint report). No `TeamDelete` call — that tool doesn't exist; the team's lifecycle ends when its teammates shut down.

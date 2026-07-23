@@ -1,58 +1,63 @@
 [
   {
-    "name": "uses_general_purpose",
+    "name": "dispatches_registered_agent",
     "type": "contains",
-    "pattern": "general-purpose"
+    "pattern": "subagent_type: \"shipyard:shipyard-disciplined-builder\"",
+    "why": "Phase 3 of the agent-extraction plan: the wrapper dispatches the registered agent, not a hand-rolled general-purpose prompt."
+  },
+  {
+    "name": "no_general_purpose",
+    "type": "not_contains",
+    "pattern": "general-purpose",
+    "why": "The whole point of the split is that the builder no longer hand-rolls a general-purpose subagent."
   },
   {
     "name": "has_iron_laws_block",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "Iron Laws"
   },
   {
     "name": "states_no_production_code",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"
   },
   {
     "name": "states_no_completion_claims",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION"
   },
   {
     "name": "states_no_stubs",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "NO STUBS IN CODE YOU CLAIM IS COMPLETE"
   },
   {
     "name": "has_status_complete_return",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "STATUS: COMPLETE"
   },
   {
     "name": "has_status_blocked_return",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "STATUS: BLOCKED"
   },
   {
     "name": "has_probe_output_tail",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "PROBE_OUTPUT_TAIL"
   },
   {
     "name": "has_iteration_cap",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "5 internal iterations"
-  },
-  {
-    "name": "no_registered_agent_dispatch",
-    "type": "not_contains",
-    "pattern": "shipyard:shipyard-"
-  },
-  {
-    "name": "no_registered_shipyard_agent",
-    "type": "not_contains",
-    "pattern": "subagent_type: *shipyard:shipyard-"
   },
   {
     "name": "no_dead_reference_links",
@@ -72,6 +77,7 @@
   {
     "name": "documents_escalation_code_enum",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "ESCALATION_CODE.*design_ambiguity",
     "dotall": true
   },
@@ -99,6 +105,7 @@
   {
     "name": "v250_subagent_writes_capture_file",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "Persist the structured return via the CLI \\(MANDATORY\\)",
     "why": "v2.9.0: the builder persists its return via `shipyard-data task-return` (JSON), not a hand-written capture file"
   },
@@ -110,11 +117,13 @@
   {
     "name": "v250_subagent_emits_completion_event",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "shipyard-data events emit subagent_completed"
   },
   {
     "name": "v250_completion_event_includes_capture_file",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "capture_file=.+?\\.subagent-returns"
   },
   {
@@ -125,7 +134,7 @@
   {
     "name": "v250_background_mode_preserves_iron_laws",
     "type": "contains",
-    "pattern": "Iron Laws inside the subagent prompt are identical"
+    "pattern": "Iron Laws inside the agent body are identical"
   },
   {
     "name": "v250_background_mode_preserves_gate",
@@ -166,22 +175,26 @@
   {
     "name": "template_branch_self_check",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "git branch --show-current",
     "why": "builder's first action must confirm it is on a shipyard/wt-* branch"
   },
   {
     "name": "template_isolation_failure_code",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "isolation_failure"
   },
   {
     "name": "template_kind_refusal",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "misrouted_kind"
   },
   {
     "name": "template_portability_block",
     "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "mktemp",
     "why": "the builder prompt must forbid non-portable shell tokens for any shell it writes"
   },
@@ -216,10 +229,16 @@
     "why": "v3.6.0 wave 2 follow-up: dispatch_loop_repeated / persistent-failure / presumed_dead paths route the needs-attention transition through the task-state CLI instead of a hand-Edit."
   },
   {
+    "name": "has_silent_return_gate",
+    "type": "contains",
+    "pattern": "[Ss]ilent return",
+    "why": "Phase 3 anti-silence class: a return with no STATUS line or an empty body is a named, audited outcome (needs-attention reason=silent_return), not a hang."
+  },
+  {
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   },
   {
     "name": "render_before_ask_rule",

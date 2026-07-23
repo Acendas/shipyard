@@ -1,42 +1,56 @@
 [
   {
-    "name": "uses_general_purpose",
+    "name": "dispatches_registered_agent",
     "type": "contains",
-    "pattern": "general-purpose"
+    "pattern": "subagent_type: \"shipyard:shipyard-spec-reviewer\"",
+    "why": "Phase 0 of the agent-extraction plan: the wrapper dispatches the registered agent, not a hand-rolled general-purpose prompt."
+  },
+  {
+    "name": "no_general_purpose",
+    "type": "not_contains",
+    "pattern": "general-purpose",
+    "why": "The whole point of the split is that spec-review no longer hand-rolls a general-purpose subagent."
   },
   {
     "name": "has_classification_met",
     "type": "contains",
+    "target": "agent:shipyard-spec-reviewer",
     "pattern": "MET"
   },
   {
     "name": "has_classification_partial",
     "type": "contains",
+    "target": "agent:shipyard-spec-reviewer",
     "pattern": "PARTIAL"
   },
   {
     "name": "has_classification_missing",
     "type": "contains",
+    "target": "agent:shipyard-spec-reviewer",
     "pattern": "MISSING"
   },
   {
     "name": "has_classification_overbuilt",
     "type": "contains",
+    "target": "agent:shipyard-spec-reviewer",
     "pattern": "OVER-BUILT"
   },
   {
     "name": "has_status_pass",
     "type": "contains",
+    "target": "agent:shipyard-spec-reviewer",
     "pattern": "STATUS: PASS"
   },
   {
     "name": "has_status_findings",
     "type": "contains",
+    "target": "agent:shipyard-spec-reviewer",
     "pattern": "STATUS: FINDINGS"
   },
   {
     "name": "has_read_only_section",
     "type": "contains",
+    "target": "agent:shipyard-spec-reviewer",
     "pattern": "READ-ONLY"
   },
   {
@@ -45,9 +59,10 @@
     "pattern": "git status --porcelain"
   },
   {
-    "name": "no_registered_shipyard_agent",
-    "type": "not_contains",
-    "pattern": "subagent_type: *shipyard:shipyard-"
+    "name": "has_silent_return_gate",
+    "type": "contains",
+    "pattern": "silent_return",
+    "why": "Phase 0 anti-silence class: a return with no STATUS line or an empty body is a named, audited outcome, not a hang."
   },
   {
     "name": "no_dead_reference_links",
@@ -64,7 +79,7 @@
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   },
   {
     "name": "render_before_ask_rule",

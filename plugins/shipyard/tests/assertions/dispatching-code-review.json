@@ -1,68 +1,23 @@
 [
   {
-    "name": "uses_general_purpose",
+    "name": "dispatches_registered_agent",
     "type": "contains",
-    "pattern": "general-purpose"
-  },
-  {
-    "name": "has_concern_security",
-    "type": "contains",
-    "pattern": "## security"
-  },
-  {
-    "name": "has_concern_bugs",
-    "type": "contains",
-    "pattern": "## bugs"
-  },
-  {
-    "name": "has_concern_silent_failures",
-    "type": "contains",
-    "pattern": "## silent-failures"
-  },
-  {
-    "name": "has_concern_patterns",
-    "type": "contains",
-    "pattern": "## patterns"
-  },
-  {
-    "name": "has_concern_tests",
-    "type": "contains",
-    "pattern": "## tests"
-  },
-  {
-    "name": "has_confidence_threshold",
-    "type": "contains",
-    "pattern": "confidence"
-  },
-  {
-    "name": "has_status_clean",
-    "type": "contains",
-    "pattern": "STATUS: CLEAN"
-  },
-  {
-    "name": "has_read_only_section",
-    "type": "contains",
-    "pattern": "READ-ONLY"
+    "pattern": "subagent_type: \"shipyard:shipyard-code-reviewer\""
   },
   {
     "name": "no_registered_shipyard_agent",
     "type": "not_contains",
-    "pattern": "subagent_type: *shipyard:shipyard-"
+    "pattern": "general-purpose"
   },
   {
-    "name": "no_dead_reference_links",
+    "name": "has_dead_reference_check",
     "type": "not_contains",
     "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
   },
   {
     "name": "has_gated_data_concern",
     "type": "contains",
-    "pattern": "data \\(auto-gated|data-implementation-guide\\.md"
-  },
-  {
-    "name": "data_concern_skips_non_db_diffs",
-    "type": "contains",
-    "pattern": "diff touches NO database code, skip|same significance discipline as the other concerns"
+    "pattern": "auto-gates|data-implementation-guide"
   },
   {
     "name": "data_is_in_concerns_array",
@@ -75,10 +30,15 @@
     "pattern": "database/persistence"
   },
   {
+    "name": "has_silent_return_gate",
+    "type": "contains",
+    "pattern": "Silent return"
+  },
+  {
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   },
   {
     "name": "render_before_ask_rule",

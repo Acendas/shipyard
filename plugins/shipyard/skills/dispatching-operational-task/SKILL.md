@@ -94,132 +94,53 @@ If exit was non-zero, parse the capture for findings (the subagent reads the cap
 
 After fixes commit, re-run Phase 1 (iteration N+1). Loop until exit 0 or `max_iterations` reached.
 
-## The Subagent Prompt Template
+## Dispatching the Operational Task
 
-Dispatch via `Agent(subagent_type: "general-purpose", prompt: <template>)`.
+The operational-task methodology (the three Iron Laws, The Loop — Monitor +
+sentinel-file exit-code propagation + the progress-AND-failure filter
+contract + notification budget, `task append-verify`, and the Required
+Return Shape) lives in the registered agent
+`agents/shipyard-operational-task.md` — read it once if you need to know
+exactly what it does; do not re-inline it here. The sentinel/filter recipe
+now lives only in the agent body; `references/monitor-filters.md` is passed
+as a path in the brief for runner-specific recipes.
 
 **Model tier (build).** Read `models.build` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal.
 
-```text
-You are executing one Shipyard operational task. Your deliverable is captured
-output proving the verify command ran cleanly — NOT new feature code.
+Dispatch:
 
-# Task
-
-ID: {{task_id}}
-Task file: {{task_file_path}}
-Verify command: {{verify_command_resolved}}
-Working branch: {{working_branch}}
-Data dir: {{data_dir}}
-Max iterations: {{max_iterations}}
-Max patch tasks (scope guard): {{max_patch_tasks}}
-
-# Reading list
-
-  - {{task_file_path}} — task scope, what counts as "fixed"
-  - {{data_dir}}/codebase-context.md — project conventions
-  - {{data_dir}}/config.md — test command resolution if needed
-
-# The Iron Laws You Must Follow
-
-1. **NO COMPLETION CLAIM WITHOUT exit-0 CAPTURE.** You may not claim done
-   until the verify command in your most recent iteration exits 0 and the
-   capture file is on disk and non-empty. "It probably passes now" is not
-   evidence — run it again.
-
-2. **NO STUB FIXES.** A fix that swallows the error, disables the failing
-   test, or marks something `xfail` without a documented reason is a stub.
-   Fix root causes. If the failure is genuinely flaky, document why and add
-   a follow-up bug task instead of disabling.
-
-3. **NO SCOPE CREEP.** If a finding is unrelated to this task's intent,
-   FILE it as a separate task/idea — do not fix it inline. The {{max_patch_tasks}}
-   cap exists to keep operational tasks bounded.
-
-# The Loop
-
-1. **Run + capture (stream via Monitor).** Run the verify command via the
-   Monitor tool so progress and failures land as events while the run is in
-   flight. Tee output to a stable capture path; the file remains the
-   authoritative artifact.
-
-       Monitor(
-         command: "({{verify_command_resolved}}) 2>&1 | tee {{data_dir}}/captures/{{task_id}}/run-<iteration>.log | grep -E --line-buffered '<filter>'",
-         description: "{{task_id}} verify run <iteration>",
-         timeout_ms: 1800000
-       )
-
-   The `<filter>` regex MUST match BOTH progress markers (so a healthy run
-   still produces events) AND failure signatures (so a crash, hang, or
-   non-zero exit produces events). Silence is not success. Suggested base:
-
-       PASS|FAIL|✓|✗|passed|failed|skipped|Tests:|Suites:|Ran [0-9]+|Traceback|Error|FAILED|assert|Killed|OOM|Segmentation fault|panic:|exit code [^0]
-
-   Tighten or extend per the runner in use; when in doubt, broaden it. After
-   Monitor exits, Read the sentinel `run-<iteration>.exit` for the verify's
-   exit code (see Phase 1 for the sentinel pattern), and Read the capture
-   file from disk for the LAST_LINES tail.
-
-   **Notification budget.** ~50 notifications per run is the target. For
-   large suites, prefer summary-line filters over per-case PASS lines —
-   see `references/monitor-filters.md` for runner-specific recipes.
-
-2. **Update task frontmatter.** Run:
-       shipyard-data task append-verify {{task_id}} iteration=<N> command="<resolved command>" exit=<code> capture=captures/{{task_id}}/run-<N>.log
-   The CLI appends the structured `verify_history:` entry atomically (with `at:` defaulting to now) and refuses a duplicate `iteration`. Never hand-Edit `verify_history:`.
-
-3. **If exit == 0:** stop. Set verify_output: pointing at the latest capture.
-   Return STATUS: COMPLETE.
-
-4. **If exit ≠ 0:** parse the capture. For each finding:
-   - In-scope → fix it; commit atomically as `fix({{task_id}}): <one-line>`.
-   - Out-of-scope → file as a bug or idea (cap at {{max_patch_tasks}});
-     do NOT fix inline.
-
-5. **Increment iteration.** Loop to step 1. Cap at {{max_iterations}};
-   beyond cap, return STATUS: BLOCKED with the latest capture's failure
-   summary.
-
-# Required Return Shape
-
-Your reply MUST contain these lines, exactly:
-
-    STATUS: COMPLETE
-    VERIFY_OUTPUT: captures/{{task_id}}/run-<final-N>.log
-    FINAL_EXIT: 0
-    ITERATIONS_RUN: <integer>
-    PATCH_TASKS_FILED: <integer>
-    LAST_LINES:
-    <last 20 lines of the final capture, verbatim>
-
-OR:
-
-    STATUS: BLOCKED
-    ESCALATION_CODE: <one of: verify_flaky | external_dependency_unreachable | spec_coverage_gap | dispatch_loop_repeated | (omit if none fits)>
-    REASON: <one paragraph: what's still failing and why>
-    VERIFY_OUTPUT: captures/{{task_id}}/run-<final-N>.log
-    FINAL_EXIT: <non-zero>
-    ITERATIONS_RUN: <integer>
-
-Prefer a specific ESCALATION_CODE over BLOCKED-with-prose-only when one fits.
-Codes:
-
-  - verify_flaky: command passed and failed within the iteration cap with different
-    failure signatures across runs (non-deterministic)
-  - external_dependency_unreachable: failures are about an unreachable DB/API/CI
-    runner, not about the code under test
-  - spec_coverage_gap: findings indicate the verify command's scope drifted from
-    the task's intent (e.g., new tests added that aren't in the task's spec)
-  - dispatch_loop_repeated: same fix attempted ≥3 times with no convergence
-
-Begin.
 ```
+Agent(
+  subagent_type: "shipyard:shipyard-operational-task",
+  model: <models.build value, or omit>,
+  prompt: "
+    Task ID:                {{task_id}}
+    Task file:               {{task_file_path}}
+    Verify command:          {{verify_command_resolved}}
+    Working branch:          {{working_branch}}
+    Data dir:                {{data_dir}}
+    Max iterations:          {{max_iterations}}
+    Max patch tasks (scope): {{max_patch_tasks}}
+    Monitor filters ref:     {{data_dir or plugin path}}/references/monitor-filters.md
+  "
+)
+```
+
+The subagent's `STATUS: COMPLETE` return carries `VERIFY_OUTPUT:`,
+`FINAL_EXIT: 0`, `ITERATIONS_RUN:`, `PATCH_TASKS_FILED:`, and `LAST_LINES:`; a
+`STATUS: BLOCKED` return may carry an `ESCALATION_CODE:` (one of
+`verify_flaky | external_dependency_unreachable | spec_coverage_gap |
+dispatch_loop_repeated`) plus `REASON:`, `VERIFY_OUTPUT:`, `FINAL_EXIT:`, and
+`ITERATIONS_RUN:`. The gate below is what turns those claimed fields into
+verified ones — it never trusts the subagent's numbers directly.
 
 ## Orchestrator-Side Gate (the second silent-pass killer)
 
 Before flipping the operational task to `done`:
 
 1. **Find the `STATUS:` line.** Missing → contract violation; treat as BLOCKED.
+
+   **Silent return** — the Agent return is present but no `STATUS:` line appears, or the body is empty/whitespace. Treat this as its own outcome, distinct from COMPLETE/BLOCKED: `shipyard-data task set-status <id> needs-attention --reason "silent_return"`, emit `operational_task_bogus_pass reason=silent_return`, and re-dispatch ONCE with the same brief. If the re-dispatch is also silent, stop re-dispatching and surface it as a `STATUS: BLOCKED`-shaped ask instead of looping.
 
 2. **If `STATUS: COMPLETE`:**
 

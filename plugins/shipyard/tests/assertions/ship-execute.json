@@ -342,10 +342,11 @@
     "dotall": true
   },
   {
-    "name": "workaround_team_manual_worktree",
-    "type": "contains",
+    "name": "no_team_manual_worktree_workaround",
+    "type": "not_contains",
     "pattern": "Create worktrees manually|git worktree add -b shipyard/wt",
-    "target": "ref:team-mode.md"
+    "target": "ref:team-mode.md",
+    "why": "Phase 3 mode-semantics correction: #37549 is a platform design decision (teams isolate by file-partition, not directory) — there is no manual-worktree workaround to preserve; teammates share the main working tree."
   },
   {
     "name": "workaround_team_bug_37549",
@@ -354,10 +355,25 @@
     "target": "ref:team-mode.md"
   },
   {
-    "name": "workaround_team_cd_worktree",
-    "type": "contains",
+    "name": "no_team_cd_worktree_path",
+    "type": "not_contains",
     "pattern": "cd.*WORKTREE_PATH",
-    "target": "ref:team-mode.md"
+    "target": "ref:team-mode.md",
+    "why": "Phase 3: teammates operate directly in the shared working tree; there is no per-teammate WORKTREE_PATH to cd into."
+  },
+  {
+    "name": "team_shares_one_working_tree",
+    "type": "contains",
+    "pattern": "share.{0,20}ONE (main )?working tree|shared working tree",
+    "target": "ref:team-mode.md",
+    "why": "Phase 3: teammates partition by file ownership within one shared working tree, per the corrected #37549 model."
+  },
+  {
+    "name": "team_no_per_task_wt_branches",
+    "type": "contains",
+    "pattern": "NO per-task .?wt-\\*.? branches|no per-feature worktree or branch",
+    "target": "ref:team-mode.md",
+    "why": "Phase 3: team mode has no worktree branches to integrate; verify-wave-integrated's branch-merge check is a structural no-op there."
   },
   {
     "name": "workaround_already_on_worktree_branch_readiness",
@@ -1216,16 +1232,16 @@
     "why": "v3.10.0: the shell's Operating Principles state the zero-thinking doctrine as the first bullet \u2014 the shell executes the checklist and escalates judgment calls, it does not reason about them."
   },
   {
-    "name": "teams_default_when_available",
+    "name": "subagent_is_default",
     "type": "contains",
-    "pattern": "Team is the DEFAULT",
-    "why": "v3.10.0: teams-default dispatch shape \u2014 Team is the default whenever TeamCreate is available and a track has 2+ same-feature tasks, not gated on a raw task-count threshold."
+    "pattern": "Subagent is the DEFAULT for build waves",
+    "why": "Phase 3 mode-semantics correction: subagent mode (worktree isolation + branch integration) is the build default. Team mode never isolated teammates in worktrees (#37549 is a platform design decision, not a bug workaround) so it cannot be the blanket build default without disabling the branch-integration half of the verification spine."
   },
   {
-    "name": "subagent_is_fallback",
+    "name": "team_is_experimental_opt_in",
     "type": "contains",
-    "pattern": "Subagent is the FALLBACK",
-    "why": "v3.10.0: Subagent mode is now explicitly the fallback shape (Teams unavailable, or no track has 2+ tasks), not a tier of its own picked by task count."
+    "pattern": "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+    "why": "Phase 3: Agent Teams are gated on an experimental env var, not probed via a `TeamCreate` tool (which does not exist \u2014 teams are implicit on first teammate spawn)."
   },
   {
     "name": "verification_spine_delegation_independent",
@@ -1267,5 +1283,35 @@
     "type": "contains",
     "pattern": "does not count as rendered",
     "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+  },
+  {
+    "name": "wave_task_checklist_created",
+    "type": "contains",
+    "pattern": "Create the wave task checklist",
+    "why": "Phase 6: a high-level, mirror-only per-wave task checklist is created once wave structure is known from SPRINT.md"
+  },
+  {
+    "name": "wave_task_subject_prefix_distinct",
+    "type": "contains",
+    "pattern": "\\[sprint-<id>\\] Wave",
+    "why": "Phase 6: the [sprint-<id>] prefix keeps the wave mirror distinguishable from ship-sprint's [sprint-plan] Step N: checklist and team-mode's per-teammate build tasks"
+  },
+  {
+    "name": "wave_task_gated_completion",
+    "type": "contains",
+    "pattern": "completed.*only after.*verify-wave-integrated.*passes",
+    "why": "Phase 6: a wave task is marked completed only after verify-wave-integrated passes and the cursor advances, never on a builder's return claim alone"
+  },
+  {
+    "name": "wave_task_list_never_authority",
+    "type": "contains",
+    "pattern": "wave task list is a progress surface and a recovery anchor, NEVER authority",
+    "why": "Phase 6: mirrors the ship-sprint/ship-discuss guardrail so no behavior ever gates on TaskList state for the pipeline"
+  },
+  {
+    "name": "wave_task_recovery_anchor",
+    "type": "contains",
+    "pattern": "Call `TaskList\\(\\)` first",
+    "why": "Phase 6: compaction recovery / re-entry calls TaskList() first as a position anchor, confirmed against the cursor + event log"
   }
 ]

@@ -29,126 +29,35 @@ Skip this skill for tasks marked `effort: S` (trivial) — overhead exceeds valu
 - `head_ref` — current HEAD (or the sprint's working branch HEAD).
 - `data_dir` — literal `<SHIPYARD_DATA>` path.
 
-## The Subagent Prompt Template
+## Dispatching the Reviewer
 
-Dispatch via `Agent(subagent_type: "general-purpose", prompt: <template>)`. Read-only role.
+The reviewer methodology (AC classification, the Iron Law, the read-only contract, the Required Return Shape) lives in the registered agent `agents/shipyard-spec-reviewer.md` — read it once if you need to know exactly what it does; do not re-inline it here.
 
 **Model tier (think).** Read `models.think` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal.
 
-```text
-You are conducting a spec compliance review for a Shipyard {{scope}}.
+**Plugin-relative paths are resolved here, not in the agent.** `${CLAUDE_PLUGIN_ROOT}` is not verified to expand inside a registered agent's body — resolve any plugin-relative reference path (e.g. the data-implementation guide) to a literal path before including it in the brief.
 
-# Scope
+Dispatch:
 
-{{scope_specific_intro}}
-
-Scope:        {{scope}}                  (task | wave | feature | sprint)
-Target IDs:   {{target_ids}}
-Base ref:     {{base_ref}}
-Head ref:     {{head_ref}}
-Data dir:     {{data_dir}}
-
-# Reading list
-
-Read these BEFORE forming any opinion:
-
-For each target ID, read its spec file:
-  - Tasks:    {{data_dir}}/spec/tasks/<TASK_ID>-*.md
-  - Features: {{data_dir}}/spec/features/<FEATURE_ID>-*.md
-              + each path listed in the feature's `references:` frontmatter
-For wave/sprint scope, also read:
-  - {{data_dir}}/sprints/current/SPRINT.md (wave structure, included tasks)
-  - {{data_dir}}/sprints/current/PROGRESS.md (deviations log)
-
-Read the diff:
-  $ git diff {{base_ref}}..{{head_ref}}
-
-# Your Job
-
-For each acceptance criterion in scope:
-
-1. Identify it in the spec file (numbered list under "Acceptance Criteria" or
-   equivalent section).
-2. Locate the code that implements it. Use Grep / Read against the diff and the
-   touched files. Trace from the spec's described observable to the code that
-   produces it.
-3. Verify a test exercises it. Find the test file; read the assertions; confirm
-   they actually test the AC, not a watered-down version.
-4. Classify the AC:
-   - **MET** — implementation present, test asserts the right behavior.
-   - **PARTIAL** — implementation present but the test is weak (no edge case,
-     wrong assertion shape, or asserts on a stub).
-   - **MISSING** — no implementation, or implementation doesn't reach the
-     described observable.
-   - **OVER-BUILT** — extra functionality landed that the spec did NOT request.
-     This is its own finding class — over-building is a scope violation.
-
-# The Iron Law for Reviewers
-
-You may not return STATUS: PASS unless EVERY AC in scope is MET. PARTIAL,
-MISSING, or OVER-BUILT findings → STATUS: FINDINGS.
-
-You may not approve based on:
-  - "Looks like the test would catch it"
-  - "The code resembles the spec"
-  - "The reviewer scanned the diff and it seems right"
-  - "Most ACs are clearly met"
-
-You may only approve based on:
-  - The test file imports the implementation, and the assertion encodes the AC.
-  - The implementation's flow from input to observable maps to the AC.
-  - The acceptance probe (if defined for this scope) runs and exits 0.
-
-If you can't verify an AC because the spec is ambiguous, surface it as a
-PARTIAL with reason "spec ambiguous: <which part>" — do not silently MET it.
-
-# READ-ONLY
-
-You may NOT:
-  - Edit any file.
-  - Run `git commit`, `git rebase`, or any state-mutating git command.
-  - Spawn other subagents.
-  - Mark task statuses (the orchestrator does that based on your return).
-
-You MAY:
-  - Read files (skill body, source, tests, specs).
-  - Run read-only git (log, diff, blame, show).
-  - Run the acceptance probe if scope includes one — but only if the probe is
-    explicitly listed in the task's `acceptance_probe:` field. Capture exit
-    code + last 20 lines.
-
-# Required Return Shape
-
-Your reply MUST contain these lines, exactly, on their own lines:
-
-    STATUS: PASS                                  (only when ALL ACs MET)
-    FINDINGS: 0
-    SCOPE: {{scope}}
-    TARGETS: <comma-separated target_ids>
-
-OR:
-
-    STATUS: FINDINGS
-    FINDINGS: <integer count>
-    SCOPE: {{scope}}
-    TARGETS: <comma-separated target_ids>
-    -----
-    [<TASK_ID>][<MET|PARTIAL|MISSING|OVER-BUILT>] AC <N>: <one-line summary>
-      file: <path>:<line> (or "no implementation found")
-      test: <path>:<line> (or "no test found")
-      reason: <one paragraph>
-    [<TASK_ID>][<...>] AC <N>: ...
-    (repeat per finding)
-
-OR, if you cannot complete the review (genuinely blocked):
-
-    STATUS: BLOCKED
-    REASON: <one paragraph, plain text>
-
-Begin.
+```
+Agent(
+  subagent_type: "shipyard:shipyard-spec-reviewer",
+  model: <models.think value, or omit>,
+  prompt: "
+    Scope:        {{scope}}                  (task | wave | feature | sprint)
+    Target IDs:   {{target_ids}}
+    Base ref:     {{base_ref}}
+    Head ref:     {{head_ref}}
+    Data dir:     {{data_dir}}
+    {{scope_specific_intro}}
+    {{data_impl_guide path, if gated on a DB-touching diff — otherwise omit}}
+  "
+)
 ```
 
 ## Orchestrator-Side Action Rules
+
+The reviewer's return always carries `STATUS:`, `SCOPE:`, and `TARGETS:`; a `FINDINGS:` count (0 on PASS, an integer on FINDINGS) accompanies the per-finding block.
 
 1. **`STATUS: PASS`** — record it; allow the calling skill to advance (mark task done, approve feature, etc.).
 
@@ -160,6 +69,8 @@ Begin.
 3. **`STATUS: BLOCKED`** — quote the subagent's `REASON:` paragraph verbatim as chat text before the ask (it lives only in the Agent return; return content and question/option strings do not count as rendered), then AskUserQuestion. Likely causes: spec missing, target IDs invalid, diff range malformed. None of these are recoverable by retry.
 
 4. **Always invoke `verifying-completion` mentally** before flipping a task to done based on PASS — the Iron Law applies at the orchestrator boundary.
+
+5. **Silent return** — the Agent return is present but no `STATUS:` line appears, or the body is empty/whitespace. Treat this as distinct from all three documented outcomes above: `shipyard-data task set-status <id> needs-attention --reason "silent_return"`, emit an event, and re-dispatch once with the same brief. If the re-dispatch is also silent, stop re-dispatching and surface it as a `STATUS: BLOCKED`-shaped ask instead of looping.
 
 ## Read-Only Contract Enforcement
 

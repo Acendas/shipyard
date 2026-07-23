@@ -1,7 +1,7 @@
 ---
 name: ship-execute
 description: "Execute the current sprint in test-first waves."
-allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, Monitor, TeamCreate, TeamDelete, TaskCreate, TaskUpdate, TaskList, TaskStop, SendMessage]
+allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, Monitor, TaskCreate, TaskUpdate, TaskList, TaskStop, SendMessage]
 model: sonnet
 effort: low
 argument-hint: "[--task ID] [--hotfix ID] [--mode solo|subagent|team] [--single-tick]"
@@ -40,7 +40,7 @@ $ARGUMENTS
 
 - `--task T001` → Execute single task only (sync, single-tick)
 - `--hotfix B-HOT-001` → Hotfix mode (branch from main, bypass sprint; sync, single-tick)
-- `--mode solo|subagent|team` → Force the dispatch shape for every wave, overriding the per-wave tool-probe + track-grouping decision (Step 2). Team forced with no `TeamCreate` tool available falls back to Subagent with a one-line note.
+- `--mode solo|subagent|team` → Force the dispatch shape for every wave, overriding the per-wave env-gate + track-grouping decision (Step 2). Team forced with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` unset falls back to Subagent with a one-line note.
 - `--single-tick` → Force one-tick-per-invocation (direct-invocation testing of /loop semantics)
 - No args → Execute full sprint from current wave
 
@@ -144,7 +144,7 @@ Fresh start creates the cursor here; run these gates, then advance to `salvage`.
 - **This shell runs on Sonnet and does NO thinking.** Its job is checklist execution: read the cursor, run the stage handler, make CLI calls, read the event log, keep dispatch bookkeeping. It does NOT diagnose, weigh tradeoffs, or interpret ambiguity. EVERY judgment call escalates to the think tier via `shipyard:escalating-to-thinker` — there is no silent absorption of ambiguity. Recovery-path ambiguity, an exit-3 whose reason has no documented remediation, and a bug-vs-structural deviation call are all escalation triggers (below), not things this shell decides. User decisions still go to AskUserQuestion; structural gates still always outrank a consult recommendation.
 - **LSP first.** Use LSP (`documentSymbol`, `goToDefinition`, `findReferences`, `hover`) before Grep/Read for all code navigation; fall back silently if unavailable. Pass this to builder subagents. Full strategy: `references/lsp-strategy.md`.
 - **Stay lean as orchestrator** (~10-15% context). Pass file paths to subagents, not contents. State lives in the cursor / PROGRESS.md / the event log, not conversation. Spot-check results before trusting them. Full guide: `references/context-management.md`.
-- **Git strategy.** Work on the user's current branch — no sprint branches, no pushes. Solo commits directly; subagent/team mode uses per-task/per-feature worktrees that rebase back at wave/feature end. Worktrees branch from current local HEAD. Atomic commits per task. Full strategy: `references/git-strategy.md`.
+- **Git strategy.** Work on the user's current branch — no sprint branches, no pushes. Solo commits directly; subagent mode uses per-task worktrees that rebase back at wave end (the only shape with worktree isolation); team mode has NO worktrees — teammates share the working tree and commit directly to the working branch, partitioned by disjoint file sets. Worktrees branch from current local HEAD. Atomic commits per task. Full strategy: `references/git-strategy.md`.
 - **Output capture.** Test/build/E2E verification runs are dispatched via `shipyard:dispatching-operational-task`, which captures stdout+stderr to `<SHIPYARD_DATA>/captures/<task_id>/run-<N>.log` via plain `tee` (no `shipyard-logcap` dependency). Don't run verification commands directly in this session — delegate.
 - **Communication.** Blocker reports and decisions use the 3-layer pattern (one-liner / context / options); keep under 100 words; always recommend a default. Full guide: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md`.
 
@@ -181,6 +181,22 @@ Read SPRINT.md (wave structure — task IDs grouped by wave, critical path, exec
 
 **Record sprint start time (idempotent):** if SPRINT.md `started_at` is null/absent, `shipyard-data sprint set started_at <ISO 8601>`. If already set, leave it — resuming a pause must never reset the clock.
 
+**Create the wave task checklist (fresh start only, mirror only).** Once the wave structure is known (parsed above from SPRINT.md `### Wave N` bodies), `TaskCreate` one task per wave plus two bookends — preflight/load and sprint-complete — in one batch, subject-prefixed `[sprint-<id>] ` to keep this checklist distinguishable from `/ship-sprint`'s `[sprint-plan] Step N:` planning checklist and from team-mode's per-teammate build tasks:
+
+| Subject |
+|---|
+| `[sprint-<id>] Preflight & Load` |
+| `[sprint-<id>] Wave 1: <n> tasks` |
+| `[sprint-<id>] Wave 2: <n> tasks` |
+| … one per wave … |
+| `[sprint-<id>] Sprint Complete & Demo Probes` |
+
+Mark the Preflight & Load task `completed` immediately (this step just ran it). On resume/crash-recovery, do NOT recreate — check `TaskList()` first; if this sprint's tasks already exist, leave them as-is (a wave already `in_progress`/`completed` reflects prior progress).
+
+**Update on wave transitions, gated.** `TaskUpdate` a wave task → `in_progress` when that wave's `wave_<N>_dispatch` stage fires; → `completed` **only after** `shipyard-data verify-wave-integrated` passes AND the cursor advances past that wave's `wave_<N>_gate` (Step 4 item 9's `→ wave_<N+1>_dispatch` advance). Never mark a wave task `completed` on a builder's return claim alone. A wave that parks a task (`needs-attention`) or escalates: leave its task `in_progress` (visible, not silently dropped) — do not mark it completed. Mark `[sprint-<id>] Sprint Complete & Demo Probes` `completed` only after `sprint_complete_gate` (Step 5.4) passes.
+
+**Guardrail (load-bearing): the wave task list is a progress surface and a recovery anchor, NEVER authority.** Do not gate any behavior on TaskList state, do not cite task status as evidence a wave ran, and never mark a wave task completed before `verify-wave-integrated` passes. The cursor, PROGRESS.md, and the event log remain the record; the tasks are the user-visible mirror.
+
 **→ `readiness`** (fresh) or **`wave_<current_wave>_dispatch`** (resume / crash recovery).
 
 ### Step 1.5: Execution Readiness Check (stage_id: readiness) (fresh-start only)
@@ -214,13 +230,13 @@ Per-wave stage IDs: `wave_<N>_dispatch`, `wave_<N>_redispatch_iter_<K>` (K∈{1}
 
 **Dispatch shape (decided per wave):**
 
-Decide by a tool-probe plus track grouping — never by raw task count alone. A "track" is the set of this wave's tasks that share a parent feature (read each task's `feature:` frontmatter field to group them).
+Decide by an env-gate plus track grouping — never by raw task count alone, and never by probing for a `TeamCreate` tool (that tool doesn't exist; Agent Teams are implicit — a team auto-creates on the first teammate spawn that carries a `team_name`, and `team_name` is otherwise ignored). A "track" is the set of this wave's tasks that share a parent feature (read each task's `feature:` frontmatter field to group them).
 
-- **Team is the DEFAULT** whenever the `TeamCreate` tool is available in this session AND at least one track has ≥2 tasks sharing a parent feature. Persistent teammates per track via Agent Teams — **max `execution.max_parallel_agents` concurrent teammates** (default 3, hard ceiling 4); extra tracks queued. Full protocol: `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/team-mode.md`.
+- **Subagent is the DEFAULT for build waves.** Worktree-per-task isolation plus branch-based integration (`verify-wave-integrated`) is the only dispatch shape that preserves both, and builds are exactly where that matters. Dispatch **parallel**, up to `execution.max_parallel_agents` at a time (default 3, hard ceiling 4); more tasks than the cap → **batch**: spawn N, await + run post-subagent checks, then spawn the next batch from updated HEAD. Prevents the quality degradation seen when 6-7 agents run at once.
 - **Solo** for a single task, or a wave whose tasks are all trivial (no shared track worth the teammate-spawn overhead) — subagents dispatched **sequentially** on the same branch, no worktree isolation needed.
-- **Subagent is the FALLBACK** — used when `TeamCreate` is unavailable in this session, or when the wave is parallelizable but no track has ≥2 tasks (nothing to group into a persistent teammate). Dispatch **parallel**, up to `execution.max_parallel_agents` at a time (default 3, hard ceiling 4); more tasks than the cap → **batch**: spawn N, await + run post-subagent checks, then spawn the next batch from updated HEAD. Prevents the quality degradation seen when 6-7 agents run at once.
-- **`--mode` always forces** the shape named, overriding the tool-probe/track-grouping decision above.
-- **Team forced but unavailable** (`--mode team` with no `TeamCreate` tool in this session) → fall back to Subagent shape and report it: "Team mode requested but Agent Teams isn't available in this session — running as Subagent instead."
+- **Team is opt-in, experimental, and for partitioned coordination — not a build default.** Agent Teams are gated on `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` being set in this session's environment; teammates do **not** get worktree isolation by design (Claude Code #37549 — teams isolate by file-ownership partition, not by directory), so there are no per-task `wt-*` branches and `verify-wave-integrated`'s branch-merge check is inert in team mode. Reserve Team mode for coordination-heavy, file-partitioned work where that tradeoff is acceptable, not as the blanket build-path replacement. Full protocol: `${CLAUDE_PLUGIN_ROOT}/skills/ship-execute/references/team-mode.md`.
+- **`--mode` always forces** the shape named, overriding the env-gate/track-grouping decision above.
+- **Team forced but unavailable** (`--mode team` with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` unset) → fall back to Subagent shape and report it: "Team mode requested but Agent Teams isn't enabled in this session (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` not set) — running as Subagent instead."
 
 #### Pre-spawn Branch Check (subagent AND team mode)
 
@@ -331,12 +347,12 @@ Each numbered item is its own stage; the cursor advances stage-by-stage. Under `
 
 ### Recovery & resume
 
-Files are the source of truth — never rely on conversation memory for wave/task state. Triage by cursor state:
+Files are the source of truth — never rely on conversation memory for wave/task state. **Call `TaskList()` first** as a structured position anchor: if `[sprint-<id>] Wave N:` tasks exist, the last non-`completed` one names the wave likely in flight. Confirm against the cursor + event log before trusting it — if they disagree, the cursor, PROGRESS.md, and the event log win (the task list is a mirror, never authority). Then triage by cursor state:
 
 | Situation | Signal | Action |
 |---|---|---|
 | **Compaction recovery** | context cleared mid-run; cursor present | The cursor's `stage:` is authoritative — dispatch to that handler and resume. Absent cursor → rebuild from PROGRESS.md `current_wave` + task-file `status`, confirm `git branch`, resume from the first non-done task, then `cursor advance execute wave_<N>_dispatch --force` (a mid-wave stage is never an entry stage, so recovery always needs `--force`). Corrupted cursor (unparseable YAML / missing fields) → refuse: *"EXECUTE-CURSOR.md is corrupted. Run `/ship-status --repair` first."* |
-| **Pause / resume** | `status: paused` | **Wakeup-inert** — a bare `/loop` wakeup runs `cursor noop execute` and STOPS (never auto-resumes; resume is a USER decision). Resume ONLY on an explicit user resume/continue: read the paused cursor's `stage:` + body note, confirm `git branch` matches SPRINT.md `branch`; team mode only, `TeamCreate` + re-spawn teammates from the note (previous teammates are dead after a session break); then `shipyard-data cursor resume execute` (flips `status` back to `in_progress` at the recorded stage) and continue from that stage. |
+| **Pause / resume** | `status: paused` | **Wakeup-inert** — a bare `/loop` wakeup runs `cursor noop execute` and STOPS (never auto-resumes; resume is a USER decision). Resume ONLY on an explicit user resume/continue: read the paused cursor's `stage:` + body note, confirm `git branch` matches SPRINT.md `branch`; team mode only, re-spawn teammates from the note (previous teammates are dead after a session break — the first re-spawn carrying `team_name` implicitly recreates the team); then `shipyard-data cursor resume execute` (flips `status` back to `in_progress` at the recorded stage) and continue from that stage. |
 | **/goal-mode crash** | `status: in_progress`, no clean pause | The event log is the source of truth. Follow [references/resume-from-event-log.md](references/resume-from-event-log.md): scan for the last `wave_check_passed`, cross-check the registry, re-verify last-clean-wave invariants with `wakeup_budget: 0`, re-dispatch incomplete tasks, advance. Empty/corrupted log → refuse, run `/ship-status --repair`. |
 | **Crash during `wave_N_waiting`** | cursor at `wave_N_waiting` from a prior session | The background agents died with that session — do NOT wait out their timeouts. Route the still-pending tasks straight to re-dispatch (`wave_<N>_redispatch_iter_1`); Step 0 salvage already recovered any worktree commits they committed. |
 

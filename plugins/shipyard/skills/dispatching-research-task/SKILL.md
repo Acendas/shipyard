@@ -28,142 +28,48 @@ Per the action items, the routing decision (`kind: feature` vs `operational` vs 
 - `findings_dir` — `<SHIPYARD_DATA>/research/` (computed; the only writable area).
 - `expected_findings_filename` — derived from task ID + slug, e.g., `R-013-jwt-library-evaluation.md`.
 
-## The Subagent Prompt Template
+## Dispatching the Researcher
 
-Dispatch via `Agent(subagent_type: "general-purpose", prompt: <template>)`. Note: this subagent has a `Write` scope contractually limited to ONE file in `<SHIPYARD_DATA>/research/`. Any write outside that path is a contract violation.
+The researcher methodology (the write-scope hard gate, the reading list, the
+findings-doc template, when-to-stop, and the Required Return Shape) lives in
+the registered agent `agents/shipyard-researcher.md` — read it once if you
+need to know exactly what it does; do not re-inline it here.
 
 **Model tier (build).** Read `models.build` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal.
 
-```text
-You are conducting a Shipyard research task. Your deliverable is ONE markdown
-findings doc — no code, no commits, no infrastructure changes.
+Dispatch:
 
-# Task
-
-ID: {{task_id}}
-Task file: {{task_file_path}}
-Parent feature: {{parent_feature_path_or_skip}}
-Data dir: {{data_dir}}
-Findings dir: {{findings_dir}}
-Expected output file: {{findings_dir}}/{{expected_findings_filename}}
-
-# Reading list
-
-Read these BEFORE writing anything:
-
-  - {{task_file_path}} — the research question and what's expected
-  - {{parent_feature_path_or_skip}} — feature context if applicable
-  - {{data_dir}}/codebase-context.md — project conventions, tech stack
-  - Any URLs / paths the task's Technical Notes references — WebFetch them
-
-# Your Job
-
-Investigate the question. Produce a structured findings doc with at least one
-concrete recommendation backed by evidence. Tradeoffs > prescriptions.
-
-# Write Scope (HARD GATE)
-
-You may Write EXACTLY ONE FILE: {{findings_dir}}/{{expected_findings_filename}}
-
-You may NOT:
-  - Write anywhere else in the repo.
-  - Edit existing source files.
-  - Run `git commit`, `git rebase`, or any state-mutating git command.
-  - Modify the task file directly (the orchestrator updates research_output:
-    based on the path you wrote).
-  - Spawn other subagents.
-
-Any write outside the expected output path will be detected by the
-orchestrator's post-return porcelain check and trigger a research_out_of_scope_write
-escalation. Do NOT attempt this even if you think it would be helpful.
-
-You MAY:
-  - Read freely (codebase, docs, the task file).
-  - Run read-only git (log, diff, blame, show) and read-only shell (ls, grep,
-    find — for codebase pattern scans).
-  - Use WebFetch / WebSearch for external research.
-  - Iterate on the findings doc as you investigate (multiple Writes to the
-    SAME file are fine; the orchestrator only checks final state).
-
-# Findings Doc Template
-
-The output file MUST follow this structure. The orchestrator's gate verifies
-at least one `### Finding` section exists; missing → research_task_bogus_pass.
-
-    ---
-    task_id: {{task_id}}
-    completed_at: <ISO 8601>
-    sources_consulted:
-      - <URL or file path>
-      - <URL or file path>
-    ---
-
-    # Research: <one-line restatement of the question>
-
-    ## TL;DR
-
-    <2-3 sentences: the headline conclusion the user can act on without reading
-    the rest>
-
-    ## Context
-
-    <Why this question exists, what triggered it, what's at stake.>
-
-    ### Finding 1: <one-line headline>
-
-    **Claim.** <The thing you're asserting.>
-    **Evidence.** <Specific URLs, code refs, benchmarks, or doc citations.>
-    **Confidence.** HIGH | MEDIUM | LOW
-    **Tradeoff.** <What does picking this give up?>
-
-    ### Finding 2: <one-line headline>
-
-    (same shape)
-
-    ## Recommendation
-
-    <Pick one or rank the options. Be explicit about the tradeoff. "It depends"
-    is rarely a useful recommendation; if it depends, on what, and what's the
-    decision matrix?>
-
-    ## Open Questions
-
-    <Anything that surfaced during research but couldn't be resolved in scope.
-    Will surface in the next /ship-sprint as new tasks if substantive.>
-
-# When to Stop
-
-Stop when you can write a confident TL;DR and at least one Finding with HIGH
-or MEDIUM confidence and a clear tradeoff. Don't pad the doc with low-value
-findings to look thorough.
-
-If after a reasonable investigation (≤ 30 min of search/read time) you cannot
-form a recommendation, return STATUS: BLOCKED with a note about what's missing
-(e.g., "the chosen library has no public benchmarks; recommend a 1-day spike
-task to measure under our load").
-
-# Required Return Shape
-
-Your reply MUST contain these lines, exactly:
-
-    STATUS: COMPLETE
-    OUTPUT_PATH: {{findings_dir}}/{{expected_findings_filename}}
-    FINDINGS_COUNT: <integer ≥ 1>
-    TLDR: <1-3 sentences from the doc, verbatim>
-
-OR:
-
-    STATUS: BLOCKED
-    REASON: <one paragraph>
-
-Begin.
+```
+Agent(
+  subagent_type: "shipyard:shipyard-researcher",
+  model: <models.build value, or omit>,
+  prompt: "
+    Task ID:         {{task_id}}
+    Task file:       {{task_file_path}}
+    Parent feature:  {{parent_feature_path_or_skip}}
+    Data dir:        {{data_dir}}
+    Findings dir:    {{findings_dir}}
+    Expected output: {{findings_dir}}/{{expected_findings_filename}}
+  "
+)
 ```
 
+Note: this subagent has a `Write` scope contractually limited to ONE file in
+`<SHIPYARD_DATA>/research/`. Any write outside that path is a contract
+violation, caught by the orchestrator-side gate below.
+
 ## Orchestrator-Side Gate (the silent-pass killer)
+
+The reviewer's `STATUS: COMPLETE` return also carries `OUTPUT_PATH:`,
+`FINDINGS_COUNT:`, and `TLDR:` — the gate below is what turns those claimed
+fields into verified ones (`FINDINGS_COUNT:` is not trusted directly; step c
+re-derives it via Grep).
 
 After the Agent call returns, before flipping the task to `done`:
 
 1. **Find the `STATUS:` line.** Missing or invalid → contract violation; treat as `STATUS: BLOCKED` with reason `contract violation: no STATUS line`.
+
+   **Silent return** — the Agent return is present but no `STATUS:` line appears, or the body is empty/whitespace. Treat this as its own outcome, distinct from COMPLETE/BLOCKED: `shipyard-data task set-status <id> needs-attention --reason "silent_return"`, emit `research_task_bogus_pass reason=silent_return`, and re-dispatch ONCE with the same brief. If the re-dispatch is also silent, stop re-dispatching and surface it as a `STATUS: BLOCKED`-shaped ask instead of looping.
 
 2. **If `STATUS: COMPLETE`:**
 
