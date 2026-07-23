@@ -52,7 +52,7 @@ Estimate accuracy: [avg]% (range: [min]%-[max]%)
 
 ### Retro Step 2: Facilitate Discussion
 
-Pause before asking (`shipyard-data cursor pause review --note "awaiting user: retro discussion"`), then ask all three in **ONE** AskUserQuestion call (three questions), each led by its data observation and each with a cheap "'skip' is fine" exit:
+Pause before asking (`shipyard-data cursor pause review --note "awaiting user: retro discussion"`), Render the observations as chat text first — the Retro Step 1 summary block plus the flagged issues and suggested improvements (RETRO-DATA.md content and question strings do not count as shown) — then ask all three in **ONE** AskUserQuestion call (three questions), each led by its data observation and each with a cheap "'skip' is fine" exit:
 
 1. **What went well?** — lead with data-driven observations, then ask for the user's perspective
 2. **What didn't go well?** — lead with flagged issues, then ask

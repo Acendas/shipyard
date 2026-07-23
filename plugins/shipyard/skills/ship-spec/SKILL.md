@@ -17,7 +17,7 @@ Browse, search, and manage the product specification.
 
 **Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash is for `shipyard-context` (reads) and `shipyard-data feature|backlog|idea ...` (state mutations) ONLY — no other shell. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA). Never hand-Edit feature-file frontmatter or BACKLOG.md IDs/`last_groomed` — those are CLI-owned (`feature set`, `feature set-status`, `backlog add|remove|rank|set`). Feature/epic bodies and the BACKLOG.md Overrides section remain Edit-tool surface.
 
-**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
 
 ## Input
 
@@ -174,7 +174,7 @@ IDEAS — [N] pending discussion
 
   If no ideas exist: "No ideas captured yet. Run /ship-discuss with a quick one-liner to capture one."
 
-`/ship-spec status F001 approved` — Change feature F001 status to approved. Run `shipyard-data feature set-status F001 approved`. On exit 3 (illegal transition), the CLI's stderr names the valid next states from the current status — relay them and AskUserQuestion: "F001 is [current status]. Valid next states: [list from the CLI's error]. Which would you like?"
+`/ship-spec status F001 approved` — Change feature F001 status to approved. Run `shipyard-data feature set-status F001 approved`. On exit 3 (illegal transition), print the CLI's valid-next-states list as chat text, then AskUserQuestion: "F001 is [current status]. Valid next states: [list from the CLI's error]. Which would you like?"
 
 `/ship-spec move F001 E002` — Move feature F001 to epic E002. Run `shipyard-data feature set F001 epic=E002` (the CLI verifies E002 exists under `spec/epics/` before writing).
 
@@ -212,8 +212,9 @@ IDEAS — [N] pending discussion
      - Read `<SHIPYARD_DATA>/codebase-context.md` and Grep it for key terms from the document — does this describe existing functionality?
      - If match found: "This document describes [feature/functionality] which is already [status]. Skip, or absorb as reference to [matched feature]? (skip / absorb as ref / create new — this is NEW work)"
   3. From the title/content, find the best matching existing feature (grep for similar titles).
-  4. AskUserQuestion: "This looks like it belongs to [F001: Payment Processor]. Absorb there, or create a new feature? (F001 / new / [other ID])"
-  5. Proceed with the `absorb F001 <path>` flow above, substituting the chosen feature ID for F001.
+  4. Render the match evidence as chat text first — the document's title/one-line gist and the matched feature line (ID — title — why it matches). The document Read and the title-grep results don't count as shown.
+  5. AskUserQuestion: "This looks like it belongs to [F001: Payment Processor]. Absorb there, or create a new feature? (F001 / new / [other ID])"
+  6. Proceed with the `absorb F001 <path>` flow above, substituting the chosen feature ID for F001.
 
 `/ship-spec refs F001` — List all reference files linked to F001 with their sizes and a one-line summary of each.
 

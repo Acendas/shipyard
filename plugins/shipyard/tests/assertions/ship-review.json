@@ -708,7 +708,7 @@
   {
     "name": "hotfix_reports_statement_not_ask",
     "type": "contains",
-    "pattern": "Merge when ready — Shipyard doesn't touch your branches",
+    "pattern": "Merge when ready \u2014 Shipyard doesn't touch your branches",
     "why": "v3.4.0: hotfix verification is a statement, not a merge-permission question Shipyard can't act on"
   },
   {
@@ -720,7 +720,7 @@
   {
     "name": "plugin_issue_detection_plain_text_not_ask",
     "type": "contains",
-    "pattern": "Print this as plain text and continue the retro — do not `AskUserQuestion`",
+    "pattern": "Print this as plain text and continue the retro \u2014 do not `AskUserQuestion`",
     "why": "v3.4.0: plugin-issue detection is a plain-text report, not a blocking question"
   },
   {
@@ -754,5 +754,11 @@
     "type": "contains",
     "pattern": "feature set-status.*done",
     "why": "v3.6.0 wave 2: Stage 6 Approved branch routes the feature-done transition through the CLI instead of a generic 'update feature statuses' hand-Edit instruction."
+  },
+  {
+    "name": "render_provenance_negation",
+    "type": "contains",
+    "pattern": "does not count as rendered",
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   }
 ]

@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Authoring an Acceptance Probe
 
+**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+
 A probe is the smoke-test contract that proves wiring works end-to-end. Without one, a task cannot be dispatched in 2.0 — `dispatching-task-loop` refuses to run a task whose `acceptance_probe:` is missing or empty. So **authoring the probe is part of authoring the task**, not an optional polish step.
 
 ## When This Applies
@@ -189,7 +191,7 @@ Some legitimate cases where the probe is non-obvious:
 4. **The feature is an internal refactor with no new external surface.** Probe is the scoped test suite (the legitimate exception above).
 5. **The change is purely additive to a config file.** Read the config back via the application's loader and assert the new key is honored.
 
-If after these patterns the probe is still elusive, surface to the user via AskUserQuestion: *"This task's acceptance criteria don't reduce to a single observable command. Should we (a) refine the criteria, (b) split into smaller tasks, or (c) mark this task `kind: research` and produce a findings doc instead?"* Recommend (a) by default.
+Before asking, render as chat text: the task's acceptance criteria verbatim and which of the five patterns above were attempted and why each failed — the user cannot choose between refine/split/research without seeing the criteria. Criteria sitting in a Read result do not count as shown. Then surface to the user via AskUserQuestion: *"This task's acceptance criteria don't reduce to a single observable command. Should we (a) refine the criteria, (b) split into smaller tasks, or (c) mark this task `kind: research` and produce a findings doc instead?"* Recommend (a) by default.
 
 ## Pairing With Other Skills
 

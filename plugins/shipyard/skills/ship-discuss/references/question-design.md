@@ -19,6 +19,7 @@ Hard rules:
 - **One-way doors are never HIGH** — at minimum a MEDIUM ask.
 - **User-value questions are never HIGH** (whether it's worth building, who it's for) — the Phase 2 viability echo stays mandatory.
 - **Question budget: ≤5 total asks across Phases 1–2** for a typical feature. Overflow items are promoted to HIGH assumptions, not asked.
+- **Estimates, scores, and process mechanics never enter the gate — they are not decisions to be tiered (kill-list #9/#10).** The gate scores product decisions only.
 
 **Assumption logging.** Every HIGH decision appends to the feature file's `## Decision Log` as:
 
@@ -42,7 +43,7 @@ ASSUMED: <decision> — <evidence one-liner> — reversible: yes
 
 **Q4. Options are outcomes, not mechanisms.** Label options by what the user experiences; tradeoff in parentheses; implementation nouns only if the user introduced them. "Survives restarts (adds Redis)" / "Simpler, resets on deploy (in-memory)". Mechanism detail goes in Layer 3.
 
-**Q5. Answerable in one breath.** If a correct answer needs more than ~10 seconds of thought or a paragraph, the question is doing the model's job — split it, or convert it to a HIGH assumption with a veto line. Question text <100 words; option labels ≤12 words.
+**Q5. Answerable in one breath.** If a correct answer needs more than ~10 seconds of thought or a paragraph, the question is doing the model's job — split it, or convert it to a HIGH assumption with a veto line. Question text <100 words; option labels ≤12 words. The same applies in reverse: a question asking the user to PRODUCE a number, score, or estimate is also doing the model's job — compute it and show it instead (kill-list #9).
 
 **Q6. Every open question carries an example answer.**
 > Before: "Any constraints, compliance, or technical requirements?"
@@ -68,15 +69,25 @@ ASSUMED: <decision> — <evidence one-liner> — reversible: yes
 6. **Hypothetical-opinion questions**: "would you use…", "do you think users would want…" → replace with past-behavior/scenario asks (Q2).
 7. **Two-way-door implementation minutiae with a conventional answer** → HIGH tier: decide, inform, log.
 8. **Questions whose answer won't change the spec** — if every option produces the same acceptance criteria, don't ask.
+9. **Derivable-by-analysis judgments** — story points, RICE components, complexity, token estimates, confidence scores, counts, classifications: anything the analysis can compute from evidence in hand. Producing the number is the model's job. Compute it, show it with a one-line basis ("5 points — 4 scenarios, one new table, no migration"), log as ASSUMED; the user vetoes through the approval gate. Never a question, never an option list of point values.
+10. **Process/orchestration mechanics** — never ask whether to wait for, skip, retry, or proceed without the skill's own background work (deep-dive, critic, any dispatched agent), or in what order to run phases. The skill owns its execution — narrate it with a one-line status; surface only genuine timeout/failure, as a statement of the fallback taken, never as a question.
 
 ## Bulk-ask discipline (perceived speed)
 
 - **Think first, ask once.** Derive everything derivable, run the confidence gate over every open item, THEN compose one AskUserQuestion call with up to 4 questions (each with up to 4 options + Other). A second call in the same phase only when the first call's answers genuinely fork the design.
 - **Target interruption budget for a full feature discussion: 4–5 rounds total** (bulk understanding → challenge+viability → post-spec decisions → consolidated approval). Round 4 is a SINGLE gate: the acceptance scenarios (verbatim), the scope-drift check, and the spec are approved together. Every ask-round beyond that needs a reason.
-- **Never leave silence.** Long-running work (research deep-dive, critic) gets a one-line dispatch banner with an expected duration, runs concurrently with the user's thinking time wherever possible, and announces its return with a one-line summary. Between rounds, narrate transitions in one line ("→ Impact analysis: 2 ripples found").
+- **Never leave silence.** Long-running work (research deep-dive, critic) gets a one-line dispatch banner with an expected duration, runs concurrently with the user's thinking time wherever possible, and announces its return with a one-line summary. Between rounds, narrate transitions in one line ("→ Impact analysis: 2 ripples found"). A status line while waiting is chat text, never an AskUserQuestion — the ask tool is for decisions, not for pausing. Sequencing background work is the skill's decision, never a question (kill-list #10).
 
 ## Render before asking (applies to every skill, not just discuss)
 
-Before every `AskUserQuestion`, render the decision context as chat text — the concrete scenarios, examples, tradeoffs, and any verbatim content the user is being asked to approve. The tool call then carries only the short question and the option labels. The AskUserQuestion window is small: labels and descriptions cannot hold a scenario, a diagram, or a block of acceptance criteria. A bare ask with no rendered context above it is a bug (the 2026-07-21 ship-backlog blind-ask class: a delegated gather produced an AskUserQuestion with nothing rendered).
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as assistant chat text; the tool call then carries only the short question and option labels. Content that exists only in your context — a Read result, a subagent/Agent return, a dossier file, a SendMessage payload — **does not count as rendered**; restate it as chat text first. Packing the tradeoff into the question/option strings does not count either (the UI renders a compact card). A bare AskUserQuestion with no rendered context above it is a bug.
+
+**Provenance rule — what counts as rendered.** Content counts as rendered ONLY when it appears as assistant chat text in this conversation. A Read tool result, a subagent/Agent return, a SendMessage payload, and a dossier file (`.research-draft.md` or any file on disk) are all invisible to the user — "it's in my context" never counts. Before an ask that consumes delegated or Read content, re-emit the decision-relevant part as chat text; referencing "the tradeoff laid out" or "that table" that only exists in a tool result is the blind-ask bug.
+
+**The tool call is not a rendering surface.** AskUserQuestion question and option strings display as a compact card — they cannot hold a scenario, a diff, a table, or a block of acceptance criteria. Packing the decision context into question/option text is the same blind ask; the card carries only the short question and outcome-labeled options.
+
+**Recovery rule.** A user reply of "explain", "show me", "I don't see X", or any indication they can't see referenced content means the render step was skipped: STOP, render the full content as chat text, and only then re-ask. No further AskUserQuestion may fire until the missing content is on screen.
+
+(The phrases "Render before asking", "does not count as rendered", and "compact card" are asserted by CI — do not reword.)
 
 For hard questions — the LOW-tier / one-way-door decisions, and anything a non-expert user can't answer from a label alone — the rendered context MUST include concrete scenarios and examples (the same scenario-framing the rulebook requires), not just a restated question. This is what makes the consolidated Phase 5 approval safe: the acceptance scenarios are quoted verbatim on screen, so "Approve" means approve-having-read.

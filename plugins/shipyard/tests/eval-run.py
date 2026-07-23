@@ -768,17 +768,25 @@ def check_session_mutex_pattern(result):
 
 
 def check_render_before_ask(result):
-    """Structural guard: every skill body that uses AskUserQuestion must also
-    state the render-before-ask rule — render the decision context (scenarios,
-    concrete examples, tradeoffs, verbatim content) as chat text BEFORE the
-    tool call, since the AskUserQuestion window is too small to carry a real
-    decision on its own.
+    """Structural guard (v3.11.0, widened): every skill body — command or
+    capability — that uses AskUserQuestion must state the full render-before-ask
+    doctrine: (A) the rule phrase "Render before asking", (B) the provenance
+    negation "does not count as rendered" (Read results, subagent/Agent
+    returns, dossier files, SendMessage payloads are not "shown to the user"),
+    and (C) the option-packing clause naming the "compact card" (question/option
+    strings are not a rendering surface).
 
-    Motivated by the 2026-07-21 ship-backlog blind-ask incident: a delegated
-    gather produced an AskUserQuestion with nothing rendered above it. The
-    fix landed as a rule in question-design.md plus a one-liner near the top
-    of every command skill that asks; this check catches a future skill (or
-    a future edit to an existing one) that drops the one-liner.
+    Motivated by the 2026-07-21 ship-backlog blind-ask incident (a delegated
+    gather produced an AskUserQuestion with nothing rendered above it) and the
+    v3.11.0 context-conflation follow-up incident, where Read results,
+    subagent/Agent returns, dossier files, and SendMessage payloads were
+    treated as "shown to the user" when they are invisible, and content packed
+    into AskUserQuestion question/option strings (rendered as a compact card)
+    was treated as shown when it isn't.
+
+    Scope: every directory under SKILLS_DIR with a SKILL.md — command skills
+    AND capability skills alike (the v3.8.0 `ship-*`-only scope and the
+    ship-backlog wording exemption are both retired; zero exemptions).
 
     Skills with no AskUserQuestion at all are not-applicable — nothing to
     check. Frontmatter is stripped before scanning so the rule text can't be
@@ -787,25 +795,16 @@ def check_render_before_ask(result):
     import re
 
     RENDER_RULE_RE = re.compile(r"Render before asking", re.IGNORECASE)
-    # ship-backlog already had its own domain-specific render-before-ask rule
-    # ("Render the full board as text output BEFORE the first AskUserQuestion")
-    # predating this generic check — equivalent in substance, different
-    # wording by design (it names the board specifically). Exempt rather
-    # than force it onto the generic phrase.
-    ALREADY_COMPLIANT = {"ship-backlog"}
+    PROVENANCE_RE = re.compile(r"does not count as rendered", re.IGNORECASE)
+    OPTION_PACK_RE = re.compile(r"compact card", re.IGNORECASE)
 
-    # Scoped to command skills (the `ship-*` directories), same filter
-    # check_session_mutex_pattern uses just above. The 2b instruction
-    # enumerated 11 specific command skills to receive the one-liner;
-    # capability skills (dispatching-*, authoring-*, verifying-*, etc.)
-    # were never in scope for this pass and may have their own AskUserQuestion
-    # usage patterns worth revisiting separately.
     for skill_dir in sorted(SKILLS_DIR.iterdir()):
-        if not skill_dir.is_dir() or not skill_dir.name.startswith("ship-"):
+        if not skill_dir.is_dir():
             continue
         skill_md = skill_dir / "SKILL.md"
         if not skill_md.exists():
             continue
+        name = skill_dir.name
         raw = read_file(skill_md)
         rel = skill_md.relative_to(PROJECT_ROOT) if skill_md.is_relative_to(PROJECT_ROOT) else skill_md
 
@@ -813,25 +812,36 @@ def check_render_before_ask(result):
         body = re.sub(r"^---\s*\n.*?\n---\s*\n", "", raw, count=1, flags=re.DOTALL)
 
         if "AskUserQuestion" not in body:
-            result.ok(f"render_before_ask:{skill_dir.name}:not-applicable")
-            continue
-
-        if skill_dir.name in ALREADY_COMPLIANT:
-            result.ok(f"render_before_ask:{skill_dir.name}:already_compliant")
+            result.ok(f"render_before_ask:{name}:not-applicable")
             continue
 
         if not RENDER_RULE_RE.search(body):
             result.fail(
-                f"render_before_ask:{skill_dir.name}:missing_rule",
+                f"render_before_ask:{name}:missing_rule",
                 f"{rel} uses AskUserQuestion but never states the render-before-ask rule "
-                f"(\"Render before asking...\"). Add the one-liner near the top of the "
-                f"skill body (see references/question-design.md § 'Render before asking' "
-                f"in ship-discuss, or ship-backlog's board-render rule for a domain-specific "
-                f"equivalent).",
+                f"(\"Render before asking...\"). See ship-discuss/references/question-design.md "
+                f"§ 'Render before asking' for the canonical text.",
             )
             continue
 
-        result.ok(f"render_before_ask:{skill_dir.name}:has_rule")
+        if not PROVENANCE_RE.search(body):
+            result.fail(
+                f"render_before_ask:{name}:missing_provenance",
+                f"{rel} states the render-before-ask rule but lacks the provenance "
+                f"negation — must state that Read results / subagent returns / dossier "
+                f"files 'does not count as rendered'.",
+            )
+            continue
+
+        if not OPTION_PACK_RE.search(body):
+            result.fail(
+                f"render_before_ask:{name}:missing_option_packing_clause",
+                f"{rel} lacks the option-packing clause — must name the 'compact card' "
+                f"(question/option strings are not a rendering surface).",
+            )
+            continue
+
+        result.ok(f"render_before_ask:{name}:has_rule_and_provenance")
 
 
 def check_no_python_in_plugin(result):

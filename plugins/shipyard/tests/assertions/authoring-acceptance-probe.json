@@ -58,5 +58,17 @@
     "name": "has_manual_verification_section",
     "type": "contains",
     "pattern": "[Mm]anual.*[Vv]erification|verification_type.*manual"
+  },
+  {
+    "name": "render_provenance_negation",
+    "type": "contains",
+    "pattern": "does not count as rendered",
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+  },
+  {
+    "name": "render_before_ask_rule",
+    "type": "contains",
+    "pattern": "Render before asking",
+    "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule."
   }
 ]

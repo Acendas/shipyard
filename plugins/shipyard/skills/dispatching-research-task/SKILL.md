@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Dispatching a Research Task
 
+**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+
 A `kind: research` task answers a question. Its deliverable is a markdown findings doc, not code. The subagent reads (codebase, web, docs), reasons, and writes a single output file. Wrong dispatch → silent-pass bug: feature builders have no Red step for a research-shaped task and exit clean on an empty tree, satisfying the "Before Exiting" gate trivially. Route here.
 
 ## When to Invoke
@@ -174,11 +176,11 @@ After the Agent call returns, before flipping the task to `done`:
    d. **Write-scope porcelain check** (the hard gate that catches subagents that "helpfully" edit code while researching):
       - Snapshot the working tree's status before dispatch (or rely on a clean tree).
       - After return, run `git status --porcelain` and `git diff --name-only`. The ONLY new/modified file should be the expected `OUTPUT_PATH` (relative to repo root if findings_dir is in-tree; or no in-tree changes if findings_dir is in `<SHIPYARD_DATA>` outside repo).
-      - Any other write → emit `research_out_of_scope_write` event with the unexpectedly modified files (keep this emit — it carries the modified-files list, which the generic task-status event doesn't capture). Escalate directly via AskUserQuestion. Do NOT retry — retrying produces another out-of-scope write. Run `shipyard-data task set-status <id> needs-attention --reason "out_of_scope_write"` to move the task.
+      - Any other write → emit `research_out_of_scope_write` event with the unexpectedly modified files (keep this emit — it carries the modified-files list, which the generic task-status event doesn't capture). Escalate directly via AskUserQuestion — first render the modified-files list (from `git status --porcelain`) as chat text; git output and the event payload exist only in context and do not count as shown to the user. Do NOT retry — retrying produces another out-of-scope write. Run `shipyard-data task set-status <id> needs-attention --reason "out_of_scope_write"` to move the task.
 
    e. **Update the task file's `research_output:` field** with the relative path to `OUTPUT_PATH` (relative to `findings_dir`). The task is now done.
 
-3. **If `STATUS: BLOCKED`:** read `REASON:`. If recoverable (transient — e.g., network error during WebFetch), single redispatch is allowed. If structural (e.g., "no public benchmarks for the library"), surface to user via AskUserQuestion — possibly the answer is to spawn a new task that includes a measurement step.
+3. **If `STATUS: BLOCKED`:** read `REASON:`. If recoverable (transient — e.g., network error during WebFetch), single redispatch is allowed. If structural (e.g., "no public benchmarks for the library"), quote the subagent's `REASON:` verbatim as chat text (subagent-return content does not count as rendered), then AskUserQuestion — possibly the answer is to spawn a new task that includes a measurement step.
 
 ## Pairing With Other Skills
 

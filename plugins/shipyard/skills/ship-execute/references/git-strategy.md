@@ -82,7 +82,7 @@ git branch -d shipyard/wt-T003-auth-middleware
 # Repeat for each task branch...
 ```
 
-**Never fall back to regular merge** — that creates fork lines in the git graph. If rebase has conflicts, AskUserQuestion with the conflict details. The sequential order matters: each rebase starts from the updated HEAD after the previous merge, so ff-only always succeeds.
+**Never fall back to regular merge** — that creates fork lines in the git graph. If rebase has conflicts, print the conflict details as chat text first — branch name, conflicting files, the relevant `git status` lines (git output is not shown to the user until printed) — then AskUserQuestion. The sequential order matters: each rebase starts from the updated HEAD after the previous merge, so ff-only always succeeds.
 
 ### Team Mode (persistent teammates)
 Each teammate works in a worktree on a feature branch.
@@ -114,7 +114,7 @@ git branch -d shipyard/wt-F001-email-login
 
 Between waves, the orchestrator:
 1. Rebases and merges completed task/feature branches onto the user's branch
-2. Resolves merge conflicts — flag non-trivial conflicts to user via AskUserQuestion
+2. Resolves merge conflicts — for non-trivial conflicts, render the conflicting branch + file list as chat text, then AskUserQuestion
 3. Deletes merged task branches, cleans up worktrees
 4. Delegates **wave-scoped build + tests** to a test subagent
 5. Creates worktrees for next wave from updated user branch HEAD

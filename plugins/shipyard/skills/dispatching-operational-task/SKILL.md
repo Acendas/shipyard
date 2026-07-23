@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Dispatching an Operational Task
 
+**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+
 A `kind: operational` task is one whose deliverable is **a successful run of a named command**, captured to disk so the orchestrator and `/ship-review` can verify it actually happened. Examples: "Run the full E2E suite and fix findings until green," "Run the security audit and fix HIGH issues," "Bring the linter to zero errors."
 
 Operational tasks have no Red step, no acceptance probe (the command itself is the gate), and no atomic feature commit (fixes commit as they go). Mis-routing this through `dispatching-task-loop` is the silent-pass bug — the feature builder has no work to do (no Red, tests already exist), exits clean on an empty tree, and the "Before Exiting" gate trivially passes. Route here.
@@ -231,7 +233,7 @@ Before flipping the operational task to `done`:
 
    e. All checks pass → mark task `done`. Note the `PATCH_TASKS_FILED` count in PROGRESS.md so the user knows new tasks materialized.
 
-3. **If `STATUS: BLOCKED`:** read the failing tail; surface to user via AskUserQuestion. Likely options:
+3. **If `STATUS: BLOCKED`:** render the `REASON:` and the failing capture tail (last ~20 lines) as chat text — a tail read via the Read tool exists only in context and does not count as shown — then AskUserQuestion. Likely options:
    - User fixes manually and re-runs the task
    - Defer to next sprint
    - Mark `xfail` with explicit reason (rare; document in task file)

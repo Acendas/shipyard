@@ -25,7 +25,7 @@ Read all project state, validate it, auto-fix issues, and present a clear dashbo
 
 **Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash is for `shipyard-context` (reads) and `shipyard-data lock status|release` (skill-lock housekeeping — see Check 6/7) ONLY — no other `shipyard-data` subcommand and no other shell. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA) for the reconcile-log, metrics rollover, and sentinel files this skill maintains. **`/ship-status` only READS the pipeline cursors, PROGRESS.md, and SPRINT.md frontmatter — never writes them** (the PreToolUse hook denies model writes to those; the `shipyard-data` CLI is their only writer). HANDOFF.md is retired — a paused pipeline is a cursor with `status: paused`. The two skill-mutex lock files (`.active-session.json`, `.active-execution.json`) are CLI-owned too — this skill never hand-Writes them, only `shipyard-data lock status` (read) / `lock release ... --force` (clear).
 
-**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
 
 ## Input
 
@@ -123,7 +123,7 @@ Detection rules:
 - `BACKLOG.md` > 200 lines → surface it, do not mutate it (`/ship-status` is read-only and BACKLOG.md IDs are CLI-owned as of v3.5.0 — `shipyard-data backlog remove/rank`, not a hand-Edit): "BACKLOG.md over 200 lines — run `/ship-backlog archive`."
 - `reconcile-log.md` > 200 lines → Read it, then use Write to overwrite with the last 10 entries.
 
-**All fixes are silent.** The dashboard shows a summary line at the bottom: "Auto-fixed: N items" with a brief list. Only use AskUserQuestion for destructive ambiguous issues (duplicate IDs, tasks referencing deleted features).
+**All fixes are silent.** The dashboard shows a summary line at the bottom: "Auto-fixed: N items" with a brief list. Only AskUserQuestion for destructive ambiguous issues — and render the conflicting records as chat text first (the duplicate IDs with both file paths, or the task ID and the missing feature it references) before asking. Validation findings sitting in Read results don't count as shown.
 
 ---
 

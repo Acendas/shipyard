@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Dispatching a Code Review
 
+**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+
 The companion to `dispatching-spec-review`. Spec review answers *"is what was asked delivered?"*; code review answers *"is what was delivered any good?"*. Same fresh-context subagent pattern, different concern set.
 
 ## When to Invoke
@@ -190,10 +192,10 @@ Begin.
 2. **`STATUS: FINDINGS`**:
 
    - **High-confidence security findings** (`concern: security`, confidence ≥ 90) → block. Re-dispatch `dispatching-task-loop` with the security findings inlined: *"Code review found security issues that must be fixed: <list>; re-implement and re-probe."*
-   - **Other ≥ 80 findings** → present in the calling skill's report. The user (in `/ship-review`) decides per finding: fix now, file as bug, or accept. The post-task path can auto-redispatch the task once for high-density findings (≥ 3) but stops there to avoid loop-on-quality.
+   - **Other ≥ 80 findings** → present in the calling skill's report. 'Present' means the full finding blocks (file:line, snippet, reason) rendered as chat text before any per-finding decision ask — findings that exist only in this skill's return are not presented. The user (in `/ship-review`) decides per finding: fix now, file as bug, or accept. The post-task path can auto-redispatch the task once for high-density findings (≥ 3) but stops there to avoid loop-on-quality.
    - **Advisory (60–80)** → log to PROGRESS.md deviations; no auto-action.
 
-3. **`STATUS: BLOCKED`** → AskUserQuestion. Likely: diff is too large, spec missing, project rules path bad.
+3. **`STATUS: BLOCKED`** → quote the subagent's `REASON:` paragraph verbatim as chat text (it exists only in the Agent return — content in a subagent return or in the question/option strings does not count as shown), then AskUserQuestion. Likely: diff is too large, spec missing, project rules path bad.
 
 4. **Read-only enforcement** — same as `dispatching-spec-review`: post-return `git status --porcelain` + HEAD ref check. Any drift is a contract violation.
 

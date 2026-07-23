@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Dispatching a Spec Review
 
+**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+
 Sends a fresh-context subagent to compare what the spec requires against what the diff delivers. The subagent reads, reasons, and reports — it does not edit code or commit. The orchestrator uses the structured findings to decide whether to mark a task done, request fixes, or block approval.
 
 ## When to Invoke
@@ -155,7 +157,7 @@ Begin.
    - **Any MISSING or critical PARTIAL** (test asserts a stub) → re-dispatch the corresponding task via `dispatching-task-loop` with the findings inlined: *"Spec review found gaps: <list>; please re-implement and re-probe."* Single redispatch per task per wave (consistent with `dispatching-task-loop`'s rule). If a second pass still has findings → `shipyard-data task set-status <id> needs-attention --reason "spec_review_findings_persist"`, log to PROGRESS.md, continue.
    - **Only OVER-BUILT findings** → flag in PROGRESS.md deviations table; do NOT auto-revert (the user may want to keep extras). `/ship-review` surfaces these for explicit user decision.
 
-3. **`STATUS: BLOCKED`** — surface to user via AskUserQuestion. Likely causes: spec missing, target IDs invalid, diff range malformed. None of these are recoverable by retry.
+3. **`STATUS: BLOCKED`** — quote the subagent's `REASON:` paragraph verbatim as chat text before the ask (it lives only in the Agent return; return content and question/option strings do not count as rendered), then AskUserQuestion. Likely causes: spec missing, target IDs invalid, diff range malformed. None of these are recoverable by retry.
 
 4. **Always invoke `verifying-completion` mentally** before flipping a task to done based on PASS — the Iron Law applies at the orchestrator boundary.
 

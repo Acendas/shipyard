@@ -14,7 +14,7 @@ After research, identify every point where there's a meaningful choice — don't
 Score every decision point through the confidence gate + kill-list in `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/question-design.md` before asking — the same discipline `/ship-discuss` uses.
 
 - **HIGH tier** (evidence converges AND two-way door — most library picks, internal structure, naming) → **decide and inform.** Print one line: `Going with X — [≤10-word why]. (say 'change' to override)`, and log an `ASSUMED: <decision> — <evidence> — reversible: yes` entry in the feature's `## Decision Log`. NEVER for one-way doors (data-model shapes, API/external contracts, auth, migration strategy) — those stay asks.
-- **MEDIUM / LOW** → carry into the **batched** planning-decisions AskUserQuestion (the shell composes ONE call across Steps 3.5–3.75, ≤4 questions). For each such point still prepare: a plain-text explanation (options, tradeoffs, what the codebase uses, what research found, recommendation) and the recommended-first option set.
+- **MEDIUM / LOW** → carry into the **batched** planning-decisions AskUserQuestion (the shell composes ONE call across Steps 3.5–3.75, ≤4 questions). For each such point still prepare: a plain-text explanation (options, tradeoffs, what the codebase uses, what research found, recommendation) and the recommended-first option set. Render that explanation as chat text immediately before the batched call fires — 'prepared' is not 'shown'; research findings living in an analyst report or Read result, or tradeoffs squeezed into option labels, do not count as rendered.
 
 All HIGH `ASSUMED:` entries surface in the Step 11 **ASSUMPTIONS MADE** list — the single veto point.
 
@@ -58,7 +58,7 @@ Agent(subagent_type: "general-purpose", isolation: "worktree", prompt: |
 )
 ```
 
-After the subagent returns, read its findings, present to the user with the updated recommendation, and AskUserQuestion with the revised choices. The worktree gets cleaned up automatically by Claude Code's stale-worktree cleanup since nothing merges back.
+After the subagent returns, render its findings as chat text — what worked, what didn't, the gotchas, and the updated recommendation (the return exists only in this context; the user has seen none of it) — then AskUserQuestion with the revised choices. The worktree gets cleaned up automatically by Claude Code's stale-worktree cleanup since nothing merges back.
 
 7. Record decision in the feature's Decision Log: "POC spike: tested [approach], found [result], chose [decision]"
 8. Worktree is automatically cleaned up (throwaway)
@@ -97,7 +97,7 @@ Now that research has identified the libraries, patterns, and utilities this spr
 
 **Scope guard:** Total effort of trivial + small items MUST NOT exceed 20% of sprint capacity. Excess → demote to IDEA files.
 
-Present findings using the protocol's format and AskUserQuestion: "Apply these simplification opportunities? (all / pick / skip)"
+Render the findings in the protocol's format as chat text — every opportunity with its effort tier and route — before the AskUserQuestion: "Apply these simplification opportunities? (all / pick / skip)". Scan output that only ever appeared in Grep/Read results does not count as presented.
 
 - **all** → extend tasks, create cleanup tasks, create/keep IDEA files
 - **pick** → user selects

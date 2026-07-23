@@ -50,7 +50,7 @@ If gaps are non-empty, present them grouped by category using the communication-
 
 ### Step 3: User Approval
 
-Present via AskUserQuestion (groups of ≤4 scenarios per question):
+Step 2's gap tables (with the full draft Given/When/Then text) must appear as assistant chat text BEFORE this ask — the gaps are a capability-skill return the user cannot see, and "Accept all" is only safe when the drafted scenarios are on screen, not summarized as a count inside the question. Then AskUserQuestion (groups of ≤4 scenarios per question):
 
 "The E2E taxonomy flagged [N] coverage gaps. For each, I've drafted a scenario."
 

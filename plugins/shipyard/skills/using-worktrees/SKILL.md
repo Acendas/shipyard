@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 Shipyard isolates parallel task execution in git worktrees so concurrent subagents don't clobber each other's edits. **Trust the platform** — pass `isolation: worktree` on the Agent call and let Claude Code handle creation, cwd, and cleanup.
 
+**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+
 ## When to Use Worktrees
 
 | Mode | Use worktrees? |
@@ -88,7 +90,7 @@ After all subagents in a wave return:
      git merge --ff-only $branch
    done
    ```
-   Conflicts → `AskUserQuestion` with details. Do NOT fall back to a regular merge — that creates fork lines in the graph.
+   Conflicts → render the conflicting file list and the conflict hunks as chat text first (diffs read via git exist only in context and can't render inside an AskUserQuestion card), then `AskUserQuestion`. Do NOT fall back to a regular merge — that creates fork lines in the graph.
 3. **Gate before teardown.** `shipyard-data verify-wave-integrated` proves every live `shipyard/wt-*` branch is merged and no return commit is dangling. Exit 3 → HARD STOP: don't remove anything; integrate the named branches and re-run. This is the structural guarantee that teardown can never precede merge-back.
 4. **Remove the worktree and delete the branch — only past the gate:**
    ```
@@ -113,7 +115,7 @@ Expected, not an error. Shipyard's `WorktreeCreate` hook owns branch creation, s
 
 Two parallel subagents touched the same file. This shouldn't happen if task decomposition was clean — flag it as a planning lesson. Resolve by:
 
-1. AskUserQuestion with the conflict files and the two diffs.
+1. Render the conflict files and the two diffs as chat text, then AskUserQuestion — the AskUserQuestion card cannot carry diffs; packing them into option strings does not count as showing them.
 2. User chooses which to keep, or merges manually.
 3. Continue the wave.
 

@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Dispatching the Task Loop
 
+**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+
 This is how Shipyard executes one task without burning the orchestrator's context window. The subagent does the loop; the orchestrator does the gate.
 
 **Why this exists.** A self-checking loop's reliability is structural — the loop refuses to exit until completion is real. But running that loop in the orchestrator session means every false attempt accumulates in the orchestrator's context. By the fifth iteration, the orchestrator is operating on a summary of a summary. Move the loop into a subagent instead: the subagent absorbs every iteration's reasoning, false attempts, and tool calls; when it returns, only a structured summary lands in the orchestrator.
@@ -240,7 +242,7 @@ After the Agent call returns, parse the reply:
      - Then mark task `done` and log the probe tail to the wave's progress.
 
 3. **If `STATUS: BLOCKED`:**
-   - **Read `ESCALATION_CODE:` first.** If present, route directly:
+   - **Read `ESCALATION_CODE:` first.** For every route below that ends in AskUserQuestion: render the `ESCALATION_CODE`, the `REASON:` paragraph verbatim, and any supporting evidence (probe tail, hook investigation result) as chat text before the ask. The subagent return exists only in this context — packing the reason into AskUserQuestion question/option strings does not count as showing it. If present, route directly:
      - `isolation_failure` → the `WorktreeCreate` hook didn't place the subagent on a `shipyard/wt-*` branch. Do NOT redispatch blind — investigate the hook (`using-worktrees` "When Things Go Wrong"). Surface to the user via AskUserQuestion.
      - `misrouted_kind` → the task is operational/research and was sent to the wrong dispatcher. Re-route to `dispatching-operational-task` / `dispatching-research-task`; do not redispatch here.
      - `design_ambiguity` → AskUserQuestion with the REASON; never auto-redispatch.

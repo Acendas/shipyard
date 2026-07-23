@@ -91,10 +91,6 @@ For each well-defined feature:
      - Add full relative paths (e.g., `<SHIPYARD_DATA>/spec/references/F001-api.md`) to the `references:` array in the feature's frontmatter
      - Plan the split BEFORE writing, not after
 
-4. **Initial estimates** — fill every RICE field in the frontmatter written above:
-   - Use AskUserQuestion for `rice_reach` and `rice_impact` if not obvious from context
-   - Estimate `rice_confidence`, `rice_effort`, `story_points`, `complexity`, `token_estimate`, and `feasibility` yourself based on the discussion
-   - Compute `rice_score` = (rice_reach × rice_impact × rice_confidence) / rice_effort
-   - No field may be left at 0 or empty without a deliberate reason noted in the decision log
+4. **Estimates are Shipyard-decided — NEVER a user question.** Fill every estimate field (`rice_reach`, `rice_impact`, `rice_confidence`, `rice_effort`, `story_points`, `complexity`, `token_estimate`, `feasibility`) yourself from the evidence in this discussion (scope, acceptance-scenario count, touched surfaces, prior similar features). Do NOT AskUserQuestion for any estimate value. Record a one-line rationale per non-obvious value in the Decision Log as `ASSUMED: story_points=5 because ...`. The numbers appear in the Phase 5 ESTIMATES section with rationale; the user vetoes via the Round-4 approval gate ("Refine"), never via a question. Low confidence goes into `rice_confidence` and the rationale, not into a question.
 
 5. **Epic**: If an epic was assigned, set `epic: E00N` in feature frontmatter. Do NOT update the epic file with a features list — epic membership is derived by querying feature files.

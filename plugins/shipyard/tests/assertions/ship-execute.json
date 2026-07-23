@@ -1261,5 +1261,11 @@
     "target": "ref:team-mode.md",
     "pattern": "verify-wave-integrated.*BEFORE any teardown",
     "why": "v3.10.0: Wave Boundary Protocol step 1a runs the integration gate before any worktree teardown or teammate shutdown, matching the non-team wave-boundary discipline that was previously only enforced outside team mode."
+  },
+  {
+    "name": "render_provenance_negation",
+    "type": "contains",
+    "pattern": "does not count as rendered",
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   }
 ]

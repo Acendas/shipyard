@@ -24,7 +24,7 @@ Manage the prioritized backlog. Default sort is by RICE score (Reach x Impact x 
 
 **Execution rules (load-bearing):**
 - **Do every read yourself with Read/Grep/Glob. NEVER dispatch a subagent (Agent/Explore/Task) to gather board data.** Data gathered in a subagent never lands in this context, and the board cannot be rendered from data you do not hold. (Incident 2026-07-21: a delegated gather produced a blind AskUserQuestion with no board rendered.)
-- **Render the full board as text output BEFORE the first AskUserQuestion.** The ask at the end of the board is the ONLY entry into the interactive loop; an AskUserQuestion with no board above it is always a bug.
+- **Render before asking.** Render the full board as text output BEFORE the first AskUserQuestion. The ask at the end of the board is the ONLY entry into the interactive loop; an AskUserQuestion with no board above it is always a bug. Board data existing only in a Read result, a subagent return, or the question/option strings does not count as rendered (the UI shows a compact card) — only assistant chat text above the ask does.
 
 ## Input
 
@@ -36,8 +36,9 @@ If you lose context mid-session (e.g., after auto-compaction):
 
 1. Check `last_groomed` in BACKLOG.md frontmatter — if today, a grooming session was in progress
 2. Read BACKLOG.md for current rank order to identify where the session left off
-3. AskUserQuestion: "A grooming session was interrupted. What was the last item you reviewed? (provide a feature ID, or type 'restart' to start over)"
-4. Resume from the next item after the one the user identifies
+3. Render the current rank order (ID — title, top 15) as chat text first — the BACKLOG.md Read alone does not count as shown; the user can't name where they left off without seeing the list.
+4. AskUserQuestion: "A grooming session was interrupted. What was the last item you reviewed? (provide a feature ID, or type 'restart' to start over)"
+5. Resume from the next item after the one the user identifies
 
 For bankruptcy: check if any feature files have status `deferred` with today's date — those were already processed. Resume with remaining items.
 
@@ -243,7 +244,7 @@ When backlog is overwhelmingly large (50+ items) or consistently ignored:
 
 For each ID provided, run `shipyard-data feature set-status F00N approved` (the CLI verifies `status: proposed` and refuses otherwise, naming the actual status). Then run one `shipyard-data backlog add <IDs>` call for all of them together — the CLI inserts each in RICE-sorted position and dedupes.
 
-If no IDs provided, show all proposed features and AskUserQuestion to pick.
+If no IDs provided, render every proposed feature (ID — title | RICE | pts) as chat text, then AskUserQuestion to pick. Feature data sitting in Read results or in the option labels does not count as rendered.
 
 Report: "Approved [N] features into backlog: [IDs]. Run /ship-sprint to plan a sprint."
 

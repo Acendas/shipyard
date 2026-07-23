@@ -20,7 +20,7 @@ You are setting up (or updating) Shipyard for this project.
 
 **Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
 
-**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
 
 ## Detect Mode
 
@@ -34,8 +34,8 @@ Older Shipyard installs leaked into the user's project: rule files in `.claude/r
 
 Use Glob `.claude/rules/shipyard-*.md`. If zero matches → skip to Check 2. Otherwise:
 
-1. List the matched basenames.
-2. AskUserQuestion:
+1. Render the explanation and the N matched basenames as chat text (the block below).
+2. Then AskUserQuestion carrying only "Remove?" with the two options — the file list and rationale live in the chat text above, not in the question string:
 
    ```
    Found legacy Shipyard rule files in .claude/rules/. Claude Code loads
@@ -64,6 +64,8 @@ Read `<project>/.claude/settings.local.json` if it exists. Parse the JSON `permi
 - General — `Bash(git:*)`, `Bash(ls:*)`, `Bash(wc:*)`, `Bash(head:*)`, `Bash(grep:*)`, `WebSearch`, `WebFetch`. Shipyard added these but they're useful for everyday work; offer separately so the user can keep them.
 
 Intersect `permissions.allow` with the footprint above. If empty intersection → skip. Otherwise:
+
+Render the two entry lists (Shipyard-specific / General) with the explanation as chat text first; the AskUserQuestion then carries only the four option labels. Entries existing only in the settings.local.json Read result do not count as rendered.
 
 1. AskUserQuestion:
 
@@ -167,6 +169,8 @@ Scan the project first — auto-detect as much as possible. Only ask what you ca
    - CI config (coverage thresholds, lint checks, type checks)
    - Existing quality scripts (`npm run lint`, `npm run typecheck`, `cargo clippy`)
    - Package.json scripts with quality-related names
+
+   List the detected checks as chat text first (one line each: command — where it was found), then ask. Checks found only in CI-config Reads don't count as shown.
 
    AskUserQuestion if detectable: "I found these quality checks in your project. Make them standing sprint gates? (yes / pick / skip)"
 
@@ -334,6 +338,8 @@ First pass — scan filenames and titles only (do NOT read full file content yet
 - Count matching files
 - Read the first 5 lines of each to confirm they look like feature/product docs
 
+Render the matched doc paths (one per line, with the one-line gist from the first-5-lines scan) as chat text first — the user is approving indexing of specific files, not a count.
+
 AskUserQuestion: "Found [N] spec documents in [path]/. Shipyard doesn't duplicate your existing docs — it references them. Want me to index these so Shipyard knows where your specs live? When you plan features, Shipyard will read them directly from their current location. (yes/no)"
 
 If yes:
@@ -379,7 +385,7 @@ For any WEAK or MISSING category:
 2. **Research the stack** — WebSearch for "[framework] [category] best practices", "[framework] production conventions", AND "[framework] common LLM mistakes / hallucinated APIs" to find both what experienced teams enforce and what agents reliably get wrong. Check framework docs for official style guides and recently-removed APIs that models still suggest.
 3. **Propose specific rules** — not generic advice, but concrete enforceable rules grounded in the project's actual tech stack and existing patterns. Include a *why* inline so an agent can judge edge cases. For each area, include at least one slop-mitigation rule that names the specific failure mode (e.g., "no fabricated AR scopes — grep for the method on the model before using it", "no `as unknown as T` to silence the type-checker — fix the type or ask")
 
-Present all proposals at once, grouped by category, with rationale for each. Let the user accept all, pick some, or skip entirely. Create accepted rules as `.claude/rules/` files (not prefixed with `shipyard-`).
+Render all proposals as chat text, grouped by category with rationale, BEFORE any AskUserQuestion — research findings from WebSearch or the codebase analysis do not count as shown until restated in chat. The ask then carries only accept-all / pick / skip. Let the user accept all, pick some, or skip entirely. Create accepted rules as `.claude/rules/` files (not prefixed with `shipyard-`).
 
 ### Step 3d: Generate SME Skills
 

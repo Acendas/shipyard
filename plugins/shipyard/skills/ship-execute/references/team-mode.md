@@ -239,7 +239,7 @@ RECOVERY NOTE: You are resuming after a session break or teammate crash.
 
 When all wave tasks complete and spot-checks pass:
 
-1. **Feature-level rebase and merge** — for each completed feature branch, rebase onto the working branch, then fast-forward merge. If ff fails, AskUserQuestion with conflict details (never fall back to regular merge — it creates fork lines).
+1. **Feature-level rebase and merge** — for each completed feature branch, rebase onto the working branch, then fast-forward merge. If ff fails, render the conflict details as chat text first (feature branch, conflicting files, relevant `git status` lines — teammate messages and git output do not count as shown until printed), then AskUserQuestion (never fall back to regular merge — it creates fork lines).
 1a. **Integration gate — `shipyard-data verify-wave-integrated` — BEFORE any teardown.** Run it immediately after the rebase+ff-merge above and before worktree cleanup (step 2). Exit 3 is a HARD STOP: do not remove any worktree, do not shut down any teammate. Integrate the branches it names, re-run the gate once; if it still fails, this is an `integration_gate` escalation trigger — invoke `shipyard:escalating-to-thinker`, do not tear down unverified state on your own judgment.
 2. **Clean up finished worktrees** — `git worktree remove` for completed feature tracks only, and only after step 1a has passed
 3. **Create next wave tasks** — `TaskCreate` for each task in the new wave

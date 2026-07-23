@@ -1,7 +1,7 @@
 {
   "name": "shipyard",
-  "version": "3.10.0",
-  "description": "Turn your idea into working code — Shipyard runs Claude Code through a spec-driven agile sprint lifecycle: discuss features, plan sprints, build with TDD, review, and ship.",
+  "version": "3.11.0",
+  "description": "Turn your idea into working code \u2014 Shipyard runs Claude Code through a spec-driven agile sprint lifecycle: discuss features, plan sprints, build with TDD, review, and ship.",
   "author": {
     "name": "Acendas",
     "email": "info@acendas.ca",

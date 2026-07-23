@@ -139,5 +139,11 @@
     "name": "no_edit_frontmatter_status_instruction",
     "type": "not_contains",
     "pattern": "use Edit to set frontmatter .status"
+  },
+  {
+    "name": "render_provenance_negation",
+    "type": "contains",
+    "pattern": "does not count as rendered",
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   }
 ]

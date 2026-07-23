@@ -903,5 +903,84 @@
     "type": "contains",
     "pattern": "unavailable.*falling back|falling back to .models\\.think.",
     "why": "v3.9.0: if a think-tier dispatch errors at spawn because the model is unavailable, fall back to models.think and re-dispatch, printed as one line."
+  },
+  {
+    "name": "render_provenance_negation",
+    "type": "contains",
+    "pattern": "does not count as rendered",
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+  },
+  {
+    "name": "render_before_ask_negation_in_question_design",
+    "type": "contains",
+    "pattern": "does not count as rendered",
+    "why": "v3.11.0: the canonical rule in question-design.md \u00a7 'Render before asking' states the provenance negation \u2014 context-only content (Read/dossier/subagent return) is not rendered."
+  },
+  {
+    "name": "option_packing_does_not_count",
+    "type": "contains",
+    "pattern": "compact card",
+    "why": "v3.11.0: packing tradeoffs into AskUserQuestion question/option strings is explicitly named as not-rendering (the UI shows a compact card)."
+  },
+  {
+    "name": "no_weak_render_verbs_at_ask_rounds",
+    "type": "not_contains",
+    "pattern": "fold into the conversation naturally",
+    "why": "v3.11.0: Rounds 1-3 used weak verbs that permitted blind asks; the confirmed Round-3 blind ask fired off a 21KB dossier Read with zero chat text. Rendering language must be explicit ('render as chat text'), not 'fold in naturally'."
+  },
+  {
+    "name": "round3_renders_before_single_ask",
+    "type": "contains",
+    "dotall": true,
+    "pattern": "Round 3.{0,1200}(chat text|render)",
+    "why": "v3.11.0: Round 3's consolidated decision ask must render the dossier-derived decision items as chat text before the one AskUserQuestion."
+  },
+  {
+    "name": "estimates_never_asked",
+    "type": "contains",
+    "target": "ref:phase-3-write-spec.md",
+    "pattern": "NEVER a user question",
+    "why": "Estimates (RICE, story points, etc.) are Shipyard-decided, never surfaced as an AskUserQuestion — closes the story-points-ask bad-ask incident."
+  },
+  {
+    "name": "estimates_no_ask_user_question_for_estimate_fields",
+    "type": "not_contains",
+    "target": "ref:phase-3-write-spec.md",
+    "pattern": "Use AskUserQuestion for `rice_reach`",
+    "why": "The old explicit instruction permitting AskUserQuestion for RICE fields must not regress back in."
+  },
+  {
+    "name": "kill_list_bans_estimation",
+    "type": "contains",
+    "target": "ref:question-design.md",
+    "pattern": "Derivable-by-analysis judgments",
+    "why": "Kill-list item 9 bans asking the user to produce story points, RICE components, or other analysis-derivable numbers."
+  },
+  {
+    "name": "kill_list_bans_orchestration_asks",
+    "type": "contains",
+    "target": "ref:question-design.md",
+    "pattern": "never ask whether to wait",
+    "why": "Kill-list item 10 bans asking whether to wait for/skip/retry the skill's own background dispatches — closes the wait-for-critique bad-ask incident."
+  },
+  {
+    "name": "backlog_reeval_decide_and_inform",
+    "type": "not_contains",
+    "target": "ref:backlog-reeval.md",
+    "pattern": "Apply these RICE updates\\?",
+    "why": "RICE re-scoring in backlog re-evaluation is decide-and-inform (rendered + ASSUMED-logged), not an AskUserQuestion approval. Step 1's dependency-edge AskUserQuestion is untouched and lives elsewhere in this file."
+  },
+  {
+    "name": "phase_15_wait_semantics",
+    "type": "contains",
+    "pattern": "waiting is never a user decision",
+    "why": "CI-pinned, do not reword. Phase 1.5 (deep-dive) and Phase 4.95 (critic) both state that waiting on background work is never a user decision/AskUserQuestion — closes the wait-for-critique/wait-for-dossier bad-ask incident."
+  },
+  {
+    "name": "phase_495_wait_semantics_count",
+    "type": "contains",
+    "dotall": true,
+    "pattern": "waiting is never a user decision.*waiting is never a user decision",
+    "why": "CI-pinned, do not reword. Pins that the wait-semantics phrase appears at BOTH join points (Phase 1.5 and Phase 4.95), not just one."
   }
 ]

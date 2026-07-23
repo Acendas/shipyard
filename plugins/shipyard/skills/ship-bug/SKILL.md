@@ -18,7 +18,7 @@ Create a minimal bug report. The spec already describes correct behavior — bug
 
 **Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. No bash invocation of `shipyard-data` or `shipyard-context` — use Read / Grep / Glob. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
 
-**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
 
 ## Input
 
@@ -37,7 +37,7 @@ $ARGUMENTS
 1. **Generate ID** — Next available BNNN (B001, B002, etc.)
 
 2. **Try to match feature** — Search spec features for the area this bug relates to.
-   If ambiguous with multiple plausible matches, use AskUserQuestion: "Which feature does this bug relate to?" Otherwise, best-guess the match and note it.
+   If ambiguous with multiple plausible matches, render the candidates as chat text first (one line each: ID — title — why it plausibly matches), then AskUserQuestion: "Which feature does this bug relate to?" with the IDs as options. Candidates existing only in the Grep/Read results or in the option labels do not count as rendered. Otherwise, best-guess the match and note it.
 
 3. **Create bug file** — use the Write tool with the literal path `<SHIPYARD_DATA>/spec/bugs/BNNN-[slug].md` (substitute SHIPYARD_DATA from the context block):
 

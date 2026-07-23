@@ -47,7 +47,7 @@ Grouped by emitter. Within each group, listed alphabetically.
 | Event type | When | Fields | Consumers |
 |---|---|---|---|
 | `code_review_iteration` | Each pass of the Stage 0 multi-scanner + fixer loop | `sprint` (str), `iteration` (int), `must_fix` (int), `should_fix` (int) | `/ship-status` |
-| `code_review_escalated` | Iteration cap hit with residual must-fix items | `sprint` (str), `residual_must_fix` (int) | User-visible via AskUserQuestion |
+| `code_review_escalated` | Iteration cap hit with residual must-fix items | `sprint` (str), `residual_must_fix` (int) | User-visible via AskUserQuestion (render the residual must-fix findings as chat text before the ask) |
 | `stage_0_skipped` | Stage 0 cannot run for a documented reason (empty diff, explicit flag) | `sprint` (str), `reason` (str) | Terminal-gate diagnostic; retro |
 | `patch_task_created` | Stage 4 / Stage 6 files a patch task for the user to pick up | `sprint` (str), `task_id` (str), `feature` (str), `source` (str) | Terminal-gate (review path: terminal_changes / terminal_issues require ≥1) |
 | `bug_created` | `/ship-review` Stage 6 records an in-scope bug entry | `sprint` (str), `bug_id` (str), `feature` (str) | Terminal-gate (same as patch_task_created) |
@@ -70,7 +70,7 @@ Grouped by emitter. Within each group, listed alphabetically.
 |---|---|---|---|
 | `sprint_complete_check_started` | At entry | `sprint_id` (str), `base_sha` (str), `head_sha` (str) | `/ship-status` |
 | `sprint_complete_passed` | All eight invariants green | `sprint_id` (str) | `/ship-execute` step 4 (flips sprint to `completed`) |
-| `sprint_complete_failed` | Any invariant red | `sprint_id` (str), `invariants_failed` (array) | User-visible via AskUserQuestion |
+| `sprint_complete_failed` | Any invariant red | `sprint_id` (str), `invariants_failed` (array) | User-visible via AskUserQuestion (render the failed invariants and their evidence as chat text before the ask) |
 
 ### Emitted by `shipyard-data` (CLI — worktree integration)
 

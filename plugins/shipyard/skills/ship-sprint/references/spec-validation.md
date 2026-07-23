@@ -196,8 +196,8 @@ You are READ-ONLY: no edits, no commits, no spawning subagents.
    - `TASK_GAPS` → create the missing tasks and update the wave structure.
    - `WAVE_CONFLICTS` → re-assign the conflicting tasks to different waves.
    - `ESTIMATE_RISKS` → adjust effort estimates, potentially splitting tasks.
-   - `ASSUMPTION_RISKS` → if load-bearing, surface via `AskUserQuestion` (critic's evidence + your recommendation); otherwise note it in the `## Risks` section of SPRINT-DRAFT.md as "Critic flagged — [summary]. Mitigation: [your plan]".
-   - Anything that needs a genuine scope/priority call → collect into a single `AskUserQuestion` with the critic's evidence and your recommendation, rather than applying it silently.
+   - `ASSUMPTION_RISKS` → if load-bearing, first quote the critic's finding and evidence verbatim as chat text alongside your recommendation, then `AskUserQuestion` with the short question only — the critic's return exists only in this context, and evidence packed into option strings does not count as shown to the user. Otherwise note it in the `## Risks` section of SPRINT-DRAFT.md as "Critic flagged — [summary]. Mitigation: [your plan]".
+   - Anything that needs a genuine scope/priority call → first quote the critic's finding and evidence verbatim as chat text alongside your recommendation, then `AskUserQuestion` with the short question only — the critic's return exists only in this context, and evidence packed into option strings does not count as shown to the user.
 3. If fixes changed the wave structure, re-verify no circular dependencies and no same-wave dependency violations.
 
 **Do NOT re-run the critic after fixes.** One round only. Address what you can, ask the user about the rest, and proceed.

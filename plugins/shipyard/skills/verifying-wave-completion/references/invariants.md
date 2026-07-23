@@ -91,7 +91,7 @@ Filter the output to events with timestamps after `wave_base_sha`'s correspondin
 
 - **PASS** — no markers in the window.
 - **RECOVERABLE** — a marker with a `task_id` that's still in flight (race: marker emitted while subagent was finishing). Recovery: re-check after the next ScheduleWakeup; the in-flight task will have settled by then.
-- **ESCALATE** — one or more confirmed markers tied to completed tasks. Do NOT advance the wave. Surface marker details to the user via AskUserQuestion.
+- **ESCALATE** — one or more confirmed markers tied to completed tasks. Do NOT advance the wave. Render each confirmed marker (event type, task_id, and payload fields) as chat text, then AskUserQuestion — `scan-events` output is a tool result the user never saw.
 
 ## Invariant 6 — No un-integrated or uncommitted builder worktree
 

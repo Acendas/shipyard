@@ -61,7 +61,7 @@ verify_history:                 # appended by ship-execute on each attempt
 2. The dispatcher resolves `verify_command` against `config.md` if it's a config reference, then runs it via `shipyard-logcap run <task-id>-verify -- <cmd>`.
 3. On pass (exit 0, capture non-empty) → write `verify_output:` to the task file, append to `verify_history`, mark done.
 4. On fail → parse findings from the capture, create `kind: feature` patch tasks inline (recursion forbidden — patch tasks cannot themselves be operational), dispatch the builder for each, then re-run verify. Up to `operational_tasks.max_iterations` *verify runs total* (default 3 — meaning the initial failed verify plus at most 2 re-verifies, then escalate). See `shipyard:dispatching-operational-task` for the exact counter semantics.
-5. On the 4th failure (or cumulative patch tasks > 5 across iterations), escalate: `AskUserQuestion` to promote the findings into a proper patch-task set for a future wave, rather than growing the sprint silently.
+5. On the 4th failure (or cumulative patch tasks > 5 across iterations), escalate: render the iteration history as chat text — each verify attempt's exit code, the findings parsed from its capture, and which patch tasks were tried — then `AskUserQuestion` to promote the findings into a proper patch-task set for a future wave. Findings sitting in a logcap capture file do not count as shown.
 6. **The feature builder loop (`dispatching-task-loop`) HARD STOPs if dispatched an operational task.** Routing bug detection. Emits `task_kind_mismatch` event.
 
 ### Examples

@@ -89,7 +89,7 @@ If no write tool is available, skip silently.
 
 ## Edge Cases
 
-- **Multiple issue keys in input** (e.g., `SYS-123 SYS-456`): Fetch both, ask user which is the primary topic, link all to `external_refs`.
+- **Multiple issue keys in input** (e.g., `SYS-123 SYS-456`): Fetch both, render each issue's summary block (title, status, first lines of description) as chat text — the MCP fetch results are invisible to the user until re-emitted — then ask which is the primary topic; link all to `external_refs`.
 - **Issue key matches a Shipyard ID pattern** (e.g., `F001`): Shipyard IDs are matched FIRST in mode detection — this protocol never fires for them.
 - **Issue is already linked to an existing feature**: Grep `external_refs` across feature files. If `SYS-123` is already linked to F005, inform user: "SYS-123 is already linked to F005. Refine that feature instead? (refine F005 / new feature / unlink and start fresh)"
 - **MCP tool returns an error** (auth expired, issue not found): Fall back to the "paste details" flow. Don't retry or troubleshoot MCP auth — that's the user's session concern.

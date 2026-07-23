@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Validating E2E Coverage
 
+**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+
 Post-hoc validation that reads a written feature spec, detects which operational/architectural surfaces the feature touches, maps them to the E2E taxonomy, gap-analyzes against existing acceptance criteria, and returns recommended additions. The goal is to catch the scenarios that live outside the feature's own logic — timeouts, idempotency, degradation, privilege boundaries — before they become production incidents.
 
 ## When to Invoke
@@ -100,13 +102,13 @@ Do not invoke this skill when:
 
 When invoked in REFINE mode on an existing feature that predates E2E validation:
 - Check if the feature has any `tier: "e2e"` AC
-- If not, run the full procedure and present findings as: "This feature predates E2E taxonomy validation. I found [N] coverage gaps across [M] categories."
+- If not, run the full procedure and present findings as: "This feature predates E2E taxonomy validation. I found [N] coverage gaps across [M] categories." Whatever the presentation, the individual gaps (not just the [N]/[M] counts) must appear as chat text before any accept/pick/skip ask — approving a count is the blind-ask failure mode.
 - The calling skill decides how to present to the user (accept all / pick / skip)
 
 ## Read-Only Contract
 
 This skill does not edit feature files. It returns structured findings. The calling skill (`/ship-discuss`) is responsible for:
-1. Presenting gaps to the user via AskUserQuestion
+1. Rendering the gap list (category, proposed AC text, rationale) as chat text and only then asking via AskUserQuestion — this skill's structured return is subagent/context content and does not count as shown to the user
 2. Writing approved E2E AC to the feature file under `### E2E AC`
 3. Handling 200-line overflow (extract to reference file)
 

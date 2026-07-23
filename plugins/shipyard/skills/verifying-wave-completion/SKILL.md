@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Verifying Wave Completion
 
+**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+
 A passing wave-scoped probe is necessary but not sufficient. The wave is fully complete only when six invariants hold simultaneously. This capability skill runs that composite check after the existing wave-boundary steps (rebase + ff-merge, wave-scoped build, REFACTOR + MUTATE, wave-scoped tests, wave VERIFY) and gates advance-to-next-wave on the result.
 
 The check exists because the structured return contract makes false completion structurally hard at the *subagent* boundary, but the *wave* boundary is one level up — and pre-this-skill, the only gate there was a single probe pass. A flaky test, a dropped commit, or a subagent that exited mid-flight without writing its completion event could all slip through.
@@ -101,7 +103,7 @@ The events this skill emits and their fields are catalogued in [event-types.md](
 
 ## Integration With Other Skills
 
-- **Routing.** `/ship-execute` Step 4 invokes this skill as the final gate before advancing the wave counter. `STATUS: ESCALATED` → AskUserQuestion with the `REASON:` text.
+- **Routing.** `/ship-execute` Step 4 invokes this skill as the final gate before advancing the wave counter. `STATUS: ESCALATED` → render the `REASON:` text and the failing invariant's evidence (event names, task ids, branch names) as chat text, then AskUserQuestion. The skill return and event-log reads are context-only and do not count as shown, nor does packing the reason into the question string.
 - **`verifying-completion`** is the per-task / per-claim Iron Law. This skill is the wave-level analog — same idea (evidence before claims) at the next layer up.
 - **`dispatching-task-loop`** is invoked by this skill's recovery actions when invariants 1, 2, or 4 produce a RECOVERABLE verdict tied to a specific task. Single re-dispatch per task per wave (same rule that lives in `dispatching-task-loop`'s orchestrator gate).
 - **`dispatching-operational-task`** is invoked for invariant 3 flake detection (re-run the wave-scoped test command in a fresh dispatch).

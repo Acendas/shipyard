@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Capability: Escalating To Thinker
 
+**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+
 Dispatch a one-shot consult subagent on the project's **think tier** (`models.think` from config) when the orchestrating pipeline is stuck in a way the documented recovery paths don't cover. The consult returns a structured recommendation; the orchestrator executes it. The consult never mutates anything — it reads, reasons, and recommends.
 
 Why this exists: the orchestrating session runs a mid-tier model tuned for stage-walking and dispatch, not for hard diagnosis. When the same fix fails twice or a gate hard-stops with no covered playbook, the cheap move is to buy one round of top-tier reasoning rather than burn iterations guessing. The per-sprint cap keeps this a scalpel, not a crutch.
@@ -26,8 +28,8 @@ If the situation matches a documented recovery path, follow that path — do not
 
 Read from `<SHIPYARD_DATA>/config.md`:
 
-- `escalation.enabled` — if `false`, skip escalation entirely and fall back to AskUserQuestion.
-- `escalation.max_consults_per_sprint` (default 6) — count prior `escalation_consult_dispatched` events for this sprint via `shipyard-context scan-events --tail 200 escalation_consult_dispatched`. If the cap is reached, do NOT dispatch; surface to the user via AskUserQuestion with the consult history summarized.
+- `escalation.enabled` — if `false`, skip escalation entirely and fall back to AskUserQuestion — first render the trigger, the subject, and the attempt history (commands, exit codes, error tails) as chat text; that context lives only in the orchestrator's tool results and does not count as shown.
+- `escalation.max_consults_per_sprint` (default 6) — count prior `escalation_consult_dispatched` events for this sprint via `shipyard-context scan-events --tail 200 escalation_consult_dispatched`. If the cap is reached, do NOT dispatch; render the consult history (each trigger, subject, and outcome) as chat text, then AskUserQuestion. A summary packed into the question string does not count as rendered.
 - `models.think` — the consult model. If empty/absent, omit the `model:` field (the consult inherits the session model; still worth it — the value is the fresh, focused context).
 
 ## Protocol
@@ -74,9 +76,9 @@ Read from `<SHIPYARD_DATA>/config.md`:
    shipyard-data events emit escalation_consult_returned pipeline=<p> sprint=<id> subject=<id> confidence=<high|medium|low>
    ```
 
-4. **Execute the recommendation** through normal Shipyard paths (redispatch via `dispatching-task-loop`, patch task creation, `cursor escalate`, AskUserQuestion — whatever it names). Do not treat the consult as authority to bypass gates: if the recommendation conflicts with a structural gate (terminal evidence, integration gate, loop-leak guard), the gate wins and the conflict itself goes to the user.
+4. **Execute the recommendation** through normal Shipyard paths (redispatch via `dispatching-task-loop`, patch task creation, `cursor escalate`, AskUserQuestion — whatever it names). Do not treat the consult as authority to bypass gates: if the recommendation conflicts with a structural gate (terminal evidence, integration gate, loop-leak guard), the gate wins and the conflict itself goes to the user. When surfacing that conflict, render the consult's RECOMMENDATION and the gate's refusal reason side by side as chat text before the ask.
 
-5. **Low confidence or second failure** — if the consult returns `CONFIDENCE: low`, or its recommendation also fails, stop consuming consults: surface to the user via AskUserQuestion carrying the DIAGNOSIS verbatim.
+5. **Low confidence or second failure** — if the consult returns `CONFIDENCE: low`, or its recommendation also fails, stop consuming consults: render the DIAGNOSIS, RECOMMENDATION, and FALLBACK verbatim as chat text (the consult return exists only in this context; question/option strings don't count as rendering), then AskUserQuestion.
 
 ## Rules
 

@@ -24,7 +24,7 @@ Verify completed work against spec. Auto-test, screenshot, demo to user, get app
 
 **The pipeline cursor, PROGRESS.md, and HANDOFF.md are CLI-owned — the model never writes them.** A PreToolUse hook DENIES any Write/Edit targeting `REVIEW-CURSOR.md`, `PROGRESS.md`, or `HANDOFF.md`. The only writer is the `shipyard-data cursor` CLI, which validates the stage transition against the stage graph, runs the terminal-evidence gate + loop-leak guard in-process (exit 3 with reasons on failure), appends the pipeline event atomically with the cursor write, re-renders PROGRESS.md, and prints the tick/terminal marker lines itself (stop marker guaranteed LAST). So: advance a tick with `shipyard-data cursor advance review <stage> [k=v ...] [--note "<narrative>"]`; do NOT emit `pipeline_tick_completed`/`pipeline_terminal` yourself and do NOT print your own `▶ TICK COMPLETE`/`▶ CYCLE COMPLETE` markers — echo the CLI's output as the final lines of the tick. SPRINT.md frontmatter is mutated via `shipyard-data sprint set <key> <value>` (never a model Edit). Verdict files (`verify/<F>-verdict.md`) and other narrative artifacts stay model Writes. Use the Write tool (auto-approved for SHIPYARD_DATA) for those. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
 
-**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves **does not count as rendered** (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
 
 ## Input
 
@@ -139,7 +139,7 @@ Run the multi-agent code review on the sprint's diff before tests and spec compl
 
 **Stuck detection (replaces the prior hard iteration limit):** `pipeline_stuck` warns when `stuck_counter >= 5` (5 consecutive ticks with no change in the (must_fix, should_fix) tuple) — non-blocking, the loop keeps running. The absolute safety stop is `hard_ceiling: 50` iterations; in practice the 5-tick stuck warning surfaces intervention much sooner. See the "Self-looping stages" section above for the full protocol.
 
-**At hard ceiling only** (`iteration == 50`): emit `shipyard-data events emit code_review_escalated sprint=<id> must_fix_remaining=<count> should_fix_remaining=<count>`, write `B-CR-*` bugs for the residual findings, run `shipyard-data cursor escalate review reason=hard_ceiling_stage_code_review_iter` (sets `status: escalated`, `terminal: true`, prints the stop marker), and surface ONCE via AskUserQuestion: *"Code review hit its hard ceiling of 50 iterations with [N] must-fix items remaining. (a) write B-CR bugs and proceed to demo, (b) hand back without demo so I can investigate manually."* Recommended: (a). Out-of-scope scanner findings become IDEAs (see Stage 4 protocol). Full mechanics — checkpoint tags, fixer parameters, event-log trajectory, scope guard — in `references/scanner-dispatch.md`.
+**At hard ceiling only** (`iteration == 50`): emit `shipyard-data events emit code_review_escalated sprint=<id> must_fix_remaining=<count> should_fix_remaining=<count>`, write `B-CR-*` bugs for the residual findings, run `shipyard-data cursor escalate review reason=hard_ceiling_stage_code_review_iter` (sets `status: escalated`, `terminal: true`, prints the stop marker), render the residual must-fix findings (title + file:line each, from CODE-REVIEW.md — file content does not count as shown until printed) as chat text, then surface ONCE via AskUserQuestion: *"Code review hit its hard ceiling of 50 iterations with [N] must-fix items remaining. (a) write B-CR bugs and proceed to demo, (b) hand back without demo so I can investigate manually."* Recommended: (a). Out-of-scope scanner findings become IDEAs (see Stage 4 protocol). Full mechanics — checkpoint tags, fixer parameters, event-log trajectory, scope guard — in `references/scanner-dispatch.md`.
 
 - **Cursor advance**: on iteration completing with `must_fix > 0`: run `shipyard-data cursor advance review code_review_iter_<N+1> iteration=<N+1> stuck_counter=<n> --note "Re-scan after fixer iteration <N+1>"` (pass `stuck_counter=0` only when the (must_fix, should_fix) tuple changed — otherwise the CLI auto-increments). On iteration completing with `must_fix == 0 && should_fix == 0`: run `shipyard-data cursor advance review simplify`. On hard ceiling (`iteration == 50`): `shipyard-data cursor escalate review reason=hard_ceiling_stage_code_review_iter` (see the hard-ceiling bullet above).
 
@@ -183,7 +183,7 @@ Use the capability skill's structured findings (`STATUS: PASS` or `STATUS: FINDI
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-review/references/quality-gate-enforcement.md`
 
-Read `<SHIPYARD_DATA>/sprints/current/QUALITY-GATE.md`. For each probe/tool gate, dispatch via `shipyard:dispatching-operational-task`. Collect manual gates into a checklist for Stage 5. Write results back to QUALITY-GATE.md. If >50% of gates fail, AskUserQuestion: continue or abort.
+Read `<SHIPYARD_DATA>/sprints/current/QUALITY-GATE.md`. For each probe/tool gate, dispatch via `shipyard:dispatching-operational-task`. Collect manual gates into a checklist for Stage 5. Write results back to QUALITY-GATE.md. If >50% of gates fail, render the per-gate results (gate, verification type, pass/fail) as chat text, then AskUserQuestion: continue or abort.
 
 **Skip if:** QUALITY-GATE.md doesn't exist or is empty.
 
@@ -330,7 +330,7 @@ Process the critic's findings with **one** targeted pass — no iteration loop:
 
 Do not re-run the full review pipeline. This is a surgical pass on the critic's specific findings only. Update the gap counts and classifications, then proceed to the verdict.
 
-**Critic deadlock.** If the critic's verdicts contradict the review's conclusions (e.g., the critic insists a ✅ is broken while direct verification says it holds, or vice versa) and a single reconciliation pass over the disputed items does NOT resolve which is right, invoke the `shipyard:escalating-to-thinker` capability skill (trigger: `critic_deadlock`, subject: the feature ID / disputed finding) before recording a verdict — a think-tier consult breaks the tie with a fresh reading. Only if it declines (cap reached), returns low confidence, or its recommendation also fails do you surface the contradiction to the user via AskUserQuestion. Do not silently pick a side.
+**Critic deadlock.** If the critic's verdicts contradict the review's conclusions (e.g., the critic insists a ✅ is broken while direct verification says it holds, or vice versa) and a single reconciliation pass over the disputed items does NOT resolve which is right, invoke the `shipyard:escalating-to-thinker` capability skill (trigger: `critic_deadlock`, subject: the feature ID / disputed finding) before recording a verdict — a think-tier consult breaks the tie with a fresh reading. Only if it declines (cap reached), returns low confidence, or its recommendation also fails do you surface the contradiction to the user — render each disputed finding as chat text first (the review's claim, the critic's counter-claim, and the direct-verification evidence; critic/agent returns do not count as shown until printed) — via AskUserQuestion. Do not silently pick a side.
 
 - **Cursor advance**: run `shipyard-data cursor advance review verdict --note "Write verdict file"`.
 
@@ -374,7 +374,7 @@ For each feature whose probe wasn't already verified:
    - **TIMEOUT** → ⚠ Demo exceeded 120s; probe is too broad — split or narrow it
    - **ERROR** → ⚠ Demo couldn't run; probe definition is wrong (likely missing dependency or misconfigured command)
 
-**Approval gate.** A feature with a FAIL or TIMEOUT verdict cannot be approved. The reviewer must either (a) re-dispatch task-loops to fix the cross-task wiring, or (b) flag the feature as `needs-attention` and defer approval to a future review pass. ERROR verdicts route through AskUserQuestion to fix the probe definition.
+**Approval gate.** A feature with a FAIL or TIMEOUT verdict cannot be approved. The reviewer must either (a) re-dispatch task-loops to fix the cross-task wiring, or (b) flag the feature as `needs-attention` and defer approval to a future review pass. ERROR verdicts: render the probe command and its error output (from the probe return — not shown until printed) as chat text, then route through AskUserQuestion to fix the probe definition.
 
 This is the per-feature counterpart to per-task acceptance probes. Together they form the reliability ladder:
 
@@ -412,7 +412,7 @@ After all features are reviewed and verdicts written, present the complete revie
 - Standing gates: [N] pass / [M] fail
 - Sprint-specific gates: [N] pass / [M] fail
 - Integration gates: [N] pass / [M] fail
-- **Manual verification checklist** — batch ALL manual gates into a **single** `AskUserQuestion` call (each gate is one question: "[Gate description]. Verified? — yes / no / not applicable"), up to 4 questions per call; paginate into a second call only on overflow (>4 gates). Do NOT drip one gate per call. If there are few gates, fold them in as extra questions of the approval call below rather than making a separate call. Review cannot auto-approve if manual gates remain unverified.
+- **Manual verification checklist** — render the full manual-gate checklist (each gate's description and what to verify) as chat text first — question/option strings render as a compact card and do not count as showing the gates; then batch ALL manual gates into a **single** `AskUserQuestion` call (each gate is one question: "[Gate description]. Verified? — yes / no / not applicable"), up to 4 questions per call; paginate into a second call only on overflow (>4 gates). Do NOT drip one gate per call. If there are few gates, fold them in as extra questions of the approval call below rather than making a separate call. Review cannot auto-approve if manual gates remain unverified.
 
 **Recommended action** per feature:
 - ✅ Approve — all checks passed
@@ -466,7 +466,7 @@ Compute planned-vs-delivered, velocity, carry-over, bugs, blocked time, swaps, p
 - **Cursor advance**: run `shipyard-data cursor advance review retro_step_2 --note "Facilitate retro discussion (one bulk AskUserQuestion)"`.
 
 ### Retro Step 2: Facilitate Discussion (stage_id: retro_step_2)
-Pause before asking (per the pause-before-ask rule): run `shipyard-data cursor pause review --note "awaiting user: retro discussion"` before the `AskUserQuestion`. Then ask all three in **ONE** `AskUserQuestion` call (three questions), each led by its data-driven observation and each with a cheap exit ("'skip' is fine"):
+Pause before asking (per the pause-before-ask rule): run `shipyard-data cursor pause review --note "awaiting user: retro discussion"` before the `AskUserQuestion`. Render the observations as chat text first — the RETRO-DATA.md summary block, the flagged issues, and the suggested improvements (RETRO-DATA.md content and question strings do not count as shown) — then ask all three in ONE call. Then ask all three in **ONE** `AskUserQuestion` call (three questions), each led by its data-driven observation and each with a cheap exit ("'skip' is fine"):
 1. **What went well?** — lead with what the data shows went well.
 2. **What didn't go well?** — lead with the flagged issues.
 3. **What should we change next sprint?** — lead with the suggested improvements.

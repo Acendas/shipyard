@@ -64,7 +64,7 @@
     "name": "detects_paused_cursor",
     "type": "contains",
     "pattern": "status: paused",
-    "why": "v2.9.0: HANDOFF.md retired — a paused pipeline is a cursor with status: paused; ship-status surfaces it as RESUME"
+    "why": "v2.9.0: HANDOFF.md retired \u2014 a paused pipeline is a cursor with status: paused; ship-status surfaces it as RESUME"
   },
   {
     "name": "has_id_reference_integrity",
@@ -135,7 +135,7 @@
   {
     "name": "status_indicator_for_needs_attention",
     "type": "contains",
-    "pattern": "⚠️ needs-attention|⚠ needs-attention|needs-attention.*⚠"
+    "pattern": "\u26a0\ufe0f needs-attention|\u26a0 needs-attention|needs-attention.*\u26a0"
   },
   {
     "name": "needs_attention_distinct_from_blocked",
@@ -177,7 +177,7 @@
     "name": "no_backlog_hand_edit_instruction",
     "type": "not_contains",
     "pattern": "archive completed items by Edit",
-    "why": "v3.6.0 wave 2 binding resolution: ship-status stays read-only — Check 7 surfaces the recommendation instead of hand-Editing BACKLOG.md."
+    "why": "v3.6.0 wave 2 binding resolution: ship-status stays read-only \u2014 Check 7 surfaces the recommendation instead of hand-Editing BACKLOG.md."
   },
   {
     "name": "backlog_size_check_points_at_ship_backlog_archive",
@@ -196,5 +196,11 @@
     "type": "contains",
     "pattern": "lock release.*--force",
     "why": "v3.7.0 wave 3: stale/user-confirmed lock clearing routes through shipyard-data lock release --force instead of a hand Write of the cleared sentinel."
+  },
+  {
+    "name": "render_provenance_negation",
+    "type": "contains",
+    "pattern": "does not count as rendered",
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   }
 ]

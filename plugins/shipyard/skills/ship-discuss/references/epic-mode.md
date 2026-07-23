@@ -106,4 +106,6 @@ Present the changed state:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
+The changed-state block shows counts ("3 → 5 scenarios") — counts are not approvable. For every feature whose acceptance criteria changed or were newly written in EP3/EP4, render the changed/new scenarios VERBATIM as chat text below the block before this ask; the feature files are Read/Edit results the user hasn't seen. Approving here is approve-having-read, not approve-a-count.
+
 AskUserQuestion: "Approve these changes? (yes / adjust / revert all)"

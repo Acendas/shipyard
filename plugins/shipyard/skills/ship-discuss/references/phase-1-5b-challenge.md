@@ -28,6 +28,8 @@ Follow `references/communication-design.md`. Max 3–4 items per AskUserQuestion
   ❓  [Finding]           → needs decision
 ```
 
+The summary block must be assistant chat text, not merely held in context — the findings arrive as a capability-skill return the user cannot see, and question/option strings (a compact card) do not count as presentation. No AskUserQuestion on these findings fires until the block is on screen.
+
 **Do not proceed to Phase 2 until grey areas are resolved or explicitly deferred.**
 
 ## Research draft file

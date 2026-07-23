@@ -19,7 +19,7 @@ Systematic debugging that doesn't lose progress when context compacts or session
 
 **Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash invocation of `shipyard-data` is limited to the `lock check`/`lock acquire`/`lock release` subcommands (see Step 4's mutex checks) and `shipyard-context` reads — no other shell-out; use Read / Grep / Glob for everything else. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
 
-**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision).
+**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
 
 ## Input
 
@@ -29,7 +29,7 @@ $ARGUMENTS
 
 - `--resume` or existing debug file referenced → Resume existing session
 - Description of a problem → Start new session
-- No args → List active debug sessions, then AskUserQuestion: "Which session to resume? (pick an ID, or describe a new problem to start a fresh session)"
+- No args → render each active session as chat text (slug — title — status — last Current Focus line), then AskUserQuestion: "Which session to resume? (pick an ID, or describe a new problem to start a fresh session)". The `!shipyard-context list debug-sessions` context-block output is a tool result, not rendered chat text — restate it before asking.
 
 ---
 
@@ -139,7 +139,8 @@ Update the debug file after EVERY step. This is critical — if context compacts
 
 1. **STOP** — do not attempt fix #4
 2. **Check the pattern** — did each fix reveal a new problem in a different place? That's a sign of architectural/structural issues, not a simple bug.
-3. **AskUserQuestion:**
+3. Render the attempt history as chat text first — one line per attempt: what it changed, what it revealed, why it failed — quoting from Evidence. Packing that summary into the question string does not count; the AskUserQuestion carries only the three options and the recommendation.
+4. **AskUserQuestion:**
    "3 fix attempts failed — each revealing issues in different areas. This may be an architectural problem, not a bug.
 
    1. Redesign — step back and rethink the approach (discuss architecture)
@@ -216,7 +217,7 @@ Update `## Resolution` in the debug file with what layers were added and where.
 
 ### Step 6: Close
 
-1. AskUserQuestion: "Fix verified. Does this resolve the issue?"
+1. Render the resolution as chat text — root cause, fix applied, files changed, and the two verification capture names with their outcomes — then AskUserQuestion: "Fix verified. Does this resolve the issue?". The debug file's Resolution section is on disk, not in chat; the user approves what they can read above the ask.
 2. If yes: set status → `resolved` in the debug file's frontmatter (Edit in place — do not move). Resolved debug files persist on disk; there is no automatic reaper.
 3. If related to a sprint task, update PROGRESS.md
 4. If this was a hotfix, suggest: "Create a bug report with /ship-bug --hotfix for proper tracking?"
@@ -267,7 +268,7 @@ The debug file is a resume-point, not a novel. Future-you needs: what's proven, 
 
 - Update the debug file after EVERY investigation step — it's the persistent brain
 - Never re-investigate an eliminated hypothesis
-- If stuck after 5 hypotheses eliminated → AskUserQuestion with summary of what was tried
+- If stuck after 5 hypotheses eliminated → render the eliminated list (one line each, with evidence) as chat text, then AskUserQuestion for direction. The summary goes in chat, not in the question string.
 - Keep the debug file concise — evidence and eliminations should be 1-2 lines each
 - If the problem is simple (obvious error, typo), skip the full process — just fix it
 

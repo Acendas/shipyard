@@ -48,7 +48,7 @@ Use Edit to update QUALITY-GATE.md `Status` column for each processed gate:
 
 - **Probe/tool gate FAIL**: Create a patch task using the same gap-classification logic as Stage 4. The patch task's `acceptance_probe` is the gate's probe command. Route through `dispatching-task-loop`.
 - **Manual gate**: Deferred to Stage 5 human checklist. No action here.
-- **>50% of probe/tool gates fail**: AskUserQuestion: "Over half the quality gates failed ([N] of [M]). Continue review or abort? (continue — address in Stage 4 / abort — fix gates first)"
+- **>50% of probe/tool gates fail**: Render the per-gate results as chat text first (gate ID, type, command, pass/fail — the QUALITY-GATE.md content and operational-task returns do not count as shown until printed), then AskUserQuestion: "Over half the quality gates failed ([N] of [M]). Continue review or abort? (continue — address in Stage 4 / abort — fix gates first)"
 - **All gates pass**: Proceed to next stage. Emit event: `quality_gates_passed sprint=<id> standing=<n> sprint_specific=<n> integration=<n>`
 
 ## Cursor Advance
