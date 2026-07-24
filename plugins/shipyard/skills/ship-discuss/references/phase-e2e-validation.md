@@ -23,7 +23,7 @@ If the validation runs but returns zero activated categories (no touch surfaces 
 
 ### Step 1: Invoke validating-e2e-coverage
 
-Invoke the `shipyard:validating-e2e-coverage` capability skill with:
+Follow the `validating-e2e-coverage` playbook with:
 - **feature_file_path**: the feature spec just written (e.g., `<SHIPYARD_DATA>/spec/features/F009-payment-endpoint.md`)
 - **existing_ac**: the AC list from the feature file's `## Acceptance Criteria` section
 - **domain_hints**: domain tags from the discussion context (e.g., `["payments", "auth"]`)

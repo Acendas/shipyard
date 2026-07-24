@@ -4,7 +4,7 @@ Detail for `/ship-sprint` PLAN-mode task decomposition and wave grouping.
 
 ## Step 4 — Decompose Tasks (5-stage protocol)
 
-**Read first:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-decomposition-patterns.md` — contains the splitting patterns, walking skeleton rules, Red step examples, and effort anchors (the canonical 11 patterns are walked by `shipyard:splitting-stories` at Stage 3). Read it before decomposing any feature; decomposing without it produces bundled tasks.
+**Read first:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-decomposition-patterns.md` — contains the splitting patterns, walking skeleton rules, Red step examples, and effort anchors (the canonical 11 patterns are walked by `splitting-stories` at Stage 3). Read it before decomposing any feature; decomposing without it produces bundled tasks.
 
 Always include cleanup as explicit tasks — not afterthoughts. If architecture analysis found dead code, deprecated patterns, stale config, or migration shims, create dedicated cleanup tasks in the final wave so they don't block feature work.
 
@@ -36,7 +36,7 @@ If the feature has no cross-layer infrastructure needs (e.g., a pure UI wording 
 
 ### Stage 3: Run each behavior draft through the splitting-stories capability skill
 
-For each behavior draft from Stage 1, invoke the **`shipyard:splitting-stories` capability skill** with `level: task`, the draft title and description, the AC text from the parent feature, and `domain_hints` (inferred from the parent feature's tech stack and frontmatter). The skill applies the "and" test, walks the 11 splitting patterns, rejects horizontal slices structurally, and returns either a no-split signal or a list of vertical child candidates with cited patterns and `acceptance_hint`s.
+For each behavior draft from Stage 1, follow the **`splitting-stories` playbook** with `level: task`, the draft title and description, the AC text from the parent feature, and `domain_hints` (inferred from the parent feature's tech stack and frontmatter). The skill applies the "and" test, walks the 11 splitting patterns, rejects horizontal slices structurally, and returns either a no-split signal or a list of vertical child candidates with cited patterns and `acceptance_hint`s.
 
 If the skill returns `candidates`, replace the draft with those children before continuing. Re-invoke on any child the model is unsure about — a single draft may need multiple passes. Do not proceed to Stage 4 until the skill returns no-split (or `partial: true` in a complex domain — see the skill's Cynefin handling) for every remaining draft.
 
@@ -58,7 +58,7 @@ For each draft that survived Stage 3:
    If the sentence requires "and" — Stage 3 applies again, split.
    If the sentence is vague ("tests for the auth flow") — scope is unresolved; do not write the file. Clarify the acceptance criterion before proceeding.
 
-2. **Acceptance probe.** For `kind: feature` tasks, invoke the **`shipyard:authoring-acceptance-probe` capability skill** to derive the smoke command from the task's acceptance criteria. Pass `feature_text` (the AC text), `parent_context` (parent feature path), and `domain_hints` (inferred from the feature's tech stack and frontmatter). The capability skill:
+2. **Acceptance probe.** For `kind: feature` tasks, follow the **`authoring-acceptance-probe` playbook** to derive the smoke command from the task's acceptance criteria. Pass `feature_text` (the AC text), `parent_context` (parent feature path), and `domain_hints` (inferred from the feature's tech stack and frontmatter). The capability skill:
 
    - Asks the canonical "what one shell command, run from a clean state, prints observable evidence the wiring works" question.
    - Walks the probe-pattern catalogue (HTTP, CLI, library, migration, refactor, frontend, background job, config) plus the anti-patterns table.
@@ -103,9 +103,9 @@ After all stages: populate `## Technical Notes` in each task file using findings
 - **T (Testable):** Every task has exactly one specific done-condition (one Red step). Multiple or ambiguous conditions — split.
 
 **Task Kinds.** Every task has a `kind:` field that tells the executor *which agent runs it* and *what "done" means*. See `references/task-kinds.md` for the full taxonomy. Summary:
-- **`kind: feature`** (default) — task writes new code or modifies existing code. Follows the TDD cycle (Red → Green → Refactor). Dispatched via the `shipyard:dispatching-task-loop` capability skill (general-purpose subagent, inline prompt). Done = atomic commit containing impl + tests. This is the implicit default if `kind:` is absent.
-- **`kind: operational`** — task's deliverable IS running a command and responding to its output. Examples: "run the full E2E suite and fix findings", "run `npm audit` and patch vulnerabilities", "benchmark the query planner and investigate regressions". **Requires `verify_command:`** — either a literal shell command or a config-key reference like `test_commands.e2e`. Dispatched via `shipyard:dispatching-operational-task` (NOT the builder loop) because operational tasks have no Red step and no code commit. Done = `verify_output:` field populated pointing at a non-empty `shipyard-logcap` capture from a passing run.
-- **`kind: research`** — task's deliverable is written findings / a decision doc; no code expected. Dispatched via `shipyard:dispatching-research-task`, which owns the research execution contract and its escalation gate.
+- **`kind: feature`** (default) — task writes new code or modifies existing code. Follows the TDD cycle (Red → Green → Refactor). Dispatched via the `dispatching-task-loop` capability skill (general-purpose subagent, inline prompt). Done = atomic commit containing impl + tests. This is the implicit default if `kind:` is absent.
+- **`kind: operational`** — task's deliverable IS running a command and responding to its output. Examples: "run the full E2E suite and fix findings", "run `npm audit` and patch vulnerabilities", "benchmark the query planner and investigate regressions". **Requires `verify_command:`** — either a literal shell command or a config-key reference like `test_commands.e2e`. Dispatched via `dispatching-operational-task` (NOT the builder loop) because operational tasks have no Red step and no code commit. Done = `verify_output:` field populated pointing at a non-empty `shipyard-logcap` capture from a passing run.
+- **`kind: research`** — task's deliverable is written findings / a decision doc; no code expected. Dispatched via `dispatching-research-task`, which owns the research execution contract and its escalation gate.
 
 **Why this matters.** The silent-pass failure mode — task marked done without tests actually running — happens when an operational-shaped task is routed to the builder, which exits clean on an empty tree because there's no code for it to write. The `kind:` field is the load-bearing signal that prevents this.
 

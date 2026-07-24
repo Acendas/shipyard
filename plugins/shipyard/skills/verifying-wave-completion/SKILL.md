@@ -105,8 +105,8 @@ The events this skill emits and their fields are catalogued in [event-types.md](
 
 - **Routing.** `/ship-execute` Step 4 invokes this skill as the final gate before advancing the wave counter. `STATUS: ESCALATED` → render the `REASON:` text and the failing invariant's evidence (event names, task ids, branch names) as chat text, then AskUserQuestion. The skill return and event-log reads are context-only and do not count as shown, nor does packing the reason into the question string.
 - **`verifying-completion`** is the per-task / per-claim Iron Law. This skill is the wave-level analog — same idea (evidence before claims) at the next layer up.
-- **`dispatching-task-loop`** is invoked by this skill's recovery actions when invariants 1, 2, or 4 produce a RECOVERABLE verdict tied to a specific task. Single re-dispatch per task per wave (same rule that lives in `dispatching-task-loop`'s orchestrator gate).
-- **`dispatching-operational-task`** is invoked for invariant 3 flake detection (re-run the wave-scoped test command in a fresh dispatch).
+- **`dispatching-task-loop`** is re-dispatched by this skill's recovery actions when invariants 1, 2, or 4 produce a RECOVERABLE verdict tied to a specific task. Single re-dispatch per task per wave (same rule that lives in `dispatching-task-loop`'s orchestrator gate).
+- **`dispatching-operational-task`** is dispatched for invariant 3 flake detection (re-run the wave-scoped test command in a fresh dispatch).
 - **`acquiring-skill-lock`** is held by the calling command skill; this skill doesn't acquire its own.
 
 ## Why This Skill Exists

@@ -30,7 +30,7 @@ Every piece of data has exactly ONE authoritative location. All other files are 
 ### Feature Files (`$(shipyard-data)/spec/features/FNNN-*.md`)
 Authoritative for:
 - `title`, `status`, `epic`, `story_points`, `complexity`, `feasibility`
-- `rice_reach`, `rice_impact`, `rice_confidence`, `rice_effort`, `rice_score`
+- `rice_reach`, `rice_impact`, `rice_confidence`, `rice_effort` (the RICE score is derived live from these four, never stored)
 - `token_estimate`, `dependencies`, `references`, `children`
 - User story, acceptance scenarios (Given/When/Then), decision log
 - `tasks:` array in frontmatter — list of task IDs belonging to this feature
@@ -162,10 +162,13 @@ deferred → proposed (revisit)
 
 ### Task Status
 ```
-approved → in-progress → done
-approved → blocked → in-progress → done
+pending → approved → in-progress → done
+in-progress → blocked → in-progress → done           (blocked: waiting on an external dependency)
+in-progress → needs-attention → in-progress → done   (needs-attention: full audit trail but non-convergent; needs a human decision)
 in-progress → approved (deprioritized, back to backlog)
 ```
+
+`pending` is the entry state; `done` is terminal (leaving it requires `--force`). Task status is a fixed allowlist (`pending | approved | in-progress | blocked | needs-attention | done`), not an enforced transition graph.
 
 ### Sprint Status
 ```

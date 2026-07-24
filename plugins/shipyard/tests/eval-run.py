@@ -911,6 +911,97 @@ def check_quiet_by_default(result):
         result.ok(f"quiet_by_default:{name}:has_rule_and_negation")
 
 
+def check_capability_invocation(result):
+    """Structural guard (2026-07-24 incident): a command-skill body must NOT
+    instruct the model to invoke a capability skill via the Skill tool.
+
+    The incident: ship-execute/SKILL.md said "invoke `shipyard:dispatching-task-loop`".
+    The Sonnet zero-thinking shell took it literally and called
+    Skill(shipyard:dispatching-task-loop). Every capability skill is
+    `disable-model-invocation: true`, so the platform refused it
+    ("... cannot be used with Skill tool due to disable-model-invocation") and
+    the tick was wasted on an improvised recovery. Capability skills are
+    playbooks the orchestrator READS and executes inline, never Skill-invoked.
+
+    Two prose hazards produce the literal call:
+      (1) the colon token `shipyard:<cap>` — reads as a Skill/tool identifier;
+      (2) an "invoke [the] [**]`<cap>`" verb on a capability-skill name.
+    The convention is "follow the `<cap>` playbook" plus the one-time
+    top-of-skill definition of what "follow a playbook" means (Read its
+    SKILL.md + execute inline). See ship-execute/SKILL.md's
+    "Capability-skill playbooks" note for the canonical phrasing.
+
+    Scope: every SKILL.md (command AND capability skills) plus every
+    references/*.md under skills/ — the shell and subagents both read these, and
+    the reference files were the largest untouched surface in the 2026-07-24
+    sweep. Naturally excluded: `Skill(skill: "loop", ...)` (loop is
+    model-invocable, not a capability skill), `shipyard:shipyard-<agent>`
+    registered-agent dispatch, and `/shipyard:ship-*` slash paths — none match a
+    capability-skill name. Descriptive passive prose ("X is invoked by …") is
+    intentionally NOT flagged: the verb must be imperative and immediately govern
+    the capability-skill name (verb [the|this|a fresh]? [**]`<cap>`).
+    """
+    import re
+
+    caps = sorted(
+        d.name
+        for d in SKILLS_DIR.iterdir()
+        if d.is_dir() and not d.name.startswith("ship-") and (d / "SKILL.md").exists()
+    )
+    if not caps:
+        result.warn(
+            "capability_invocation:no_capability_skills",
+            "no capability skills found under SKILLS_DIR — check cannot run",
+        )
+        return
+
+    cap_alt = "|".join(re.escape(c) for c in caps)
+    COLON_RE = re.compile(r"`shipyard:(" + cap_alt + r")`")
+    INVOKE_RE = re.compile(
+        r"\b(?:invoke|invokes|call|calls|run|runs|use|uses)"
+        r"(?:\s+(?:the|this|a\s+fresh))?\s+(?:\*\*)?`(?:shipyard:)?(" + cap_alt + r")`",
+        re.IGNORECASE,
+    )
+
+    scan_files = sorted(
+        set(SKILLS_DIR.rglob("SKILL.md")) | set(SKILLS_DIR.rglob("references/*.md"))
+    )
+    for md in scan_files:
+        name = str(md.relative_to(SKILLS_DIR))
+        raw = read_file(md)
+        rel = md.relative_to(PROJECT_ROOT) if md.is_relative_to(PROJECT_ROOT) else md
+        body = re.sub(r"^---\s*\n.*?\n---\s*\n", "", raw, count=1, flags=re.DOTALL)
+
+        hits = []
+        seen = set()
+        for rx, why in (
+            (COLON_RE, "`shipyard:<cap>` colon token reads as a Skill/tool identifier"),
+            (INVOKE_RE, "'invoke' verb on a capability skill reads as a Skill-tool call"),
+        ):
+            for m in rx.finditer(body):
+                line = body[: m.start()].count("\n") + 1
+                key = (line, m.group(0))
+                if key in seen:
+                    continue
+                seen.add(key)
+                hits.append((line, m.group(0), why))
+
+        if hits:
+            hits.sort()
+            detail = "; ".join(f'L{ln}: "{txt}" — {why}' for ln, txt, why in hits[:8])
+            result.fail(
+                f"capability_invocation:{name}:skill_tool_hazard",
+                f"{rel} references a capability skill in a Skill-tool-invocable form. "
+                f"Capability skills are `disable-model-invocation: true`; the Skill tool "
+                f'refuses them. Use "follow the `<cap>` playbook" (Read its SKILL.md + '
+                f"execute inline) — never a `shipyard:<cap>` colon token or an \"invoke "
+                f'`<cap>`" verb. Hits: {detail}',
+            )
+            continue
+
+        result.ok(f"capability_invocation:{name}:clean")
+
+
 def check_no_python_in_plugin(result):
     """Phase H5 guard rail: fail if any .py file appears under bin/ or
     project-files/scripts/.
@@ -1521,6 +1612,7 @@ def main():
     check_session_mutex_pattern(result)
     check_render_before_ask(result)
     check_quiet_by_default(result)
+    check_capability_invocation(result)
     check_no_hardcoded_dispatch_model(result)
     check_dispatch_contract_pairs(result)
     check_cross_skill_consistency(result)

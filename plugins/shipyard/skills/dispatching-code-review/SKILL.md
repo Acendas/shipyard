@@ -84,7 +84,7 @@ For high-stakes reviews (release-bound, large diff, payments/auth/data), `/ship-
 ## Pairing With Other Skills
 
 - **`dispatching-spec-review`** runs before this — spec compliance is "did we deliver"; code review is "is the delivery any good." Both must pass for `/ship-review` approval.
-- **`dispatching-task-loop`** is invoked when high-confidence findings demand re-implementation.
+- **`dispatching-task-loop`** is re-dispatched when high-confidence findings demand re-implementation.
 - **`anti-stub-scan`** is structural; this skill is contextual / semantic. Both run on the diff but ask different questions.
 - **`running-acceptance-probe`** is orthogonal — code review doesn't run probes; spec review may.
 

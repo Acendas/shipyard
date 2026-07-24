@@ -68,7 +68,7 @@ The reviewer's return always carries `STATUS:`, `SCOPE:`, and `TARGETS:`; a `FIN
 
 3. **`STATUS: BLOCKED`** — quote the subagent's `REASON:` paragraph verbatim as chat text before the ask (it lives only in the Agent return; return content and question/option strings do not count as rendered), then AskUserQuestion. Likely causes: spec missing, target IDs invalid, diff range malformed. None of these are recoverable by retry.
 
-4. **Always invoke `verifying-completion` mentally** before flipping a task to done based on PASS — the Iron Law applies at the orchestrator boundary.
+4. **Always apply `verifying-completion`'s Iron Law as a mental check** before flipping a task to done based on PASS — the Iron Law applies at the orchestrator boundary.
 
 5. **Silent return** — the Agent return is present but no `STATUS:` line appears, or the body is empty/whitespace. Treat this as distinct from all three documented outcomes above: `shipyard-data task set-status <id> needs-attention --reason "silent_return"`, emit an event, and re-dispatch once with the same brief. If the re-dispatch is also silent, stop re-dispatching and surface it as a `STATUS: BLOCKED`-shaped ask instead of looping.
 
@@ -83,8 +83,8 @@ These checks are cheap and catch the rare model rationalization ("I'll just fix 
 
 ## Pairing With Other Skills
 
-- **`dispatching-task-loop`** is invoked by the orchestrator if MISSING/PARTIAL findings demand re-implementation. The findings string is passed in the task-loop prompt as additional context.
-- **`running-acceptance-probe`** may be invoked by the spec reviewer (per the prompt) to validate a probe-defined AC. Same probe contract, just a read-only execution.
+- **`dispatching-task-loop`** is re-dispatched by the orchestrator if MISSING/PARTIAL findings demand re-implementation. The findings string is passed in the task-loop prompt as additional context.
+- **`running-acceptance-probe`** may be followed by the spec reviewer (per the prompt) to validate a probe-defined AC. Same probe contract, just a read-only execution.
 - **`anti-stub-scan`** is a *structural* stub check; this skill is the *semantic* spec-vs-code check. They complement: anti-stub catches "the function body is `pass`"; spec-review catches "the function exists but doesn't satisfy AC #3."
 
 ## Bottom Line

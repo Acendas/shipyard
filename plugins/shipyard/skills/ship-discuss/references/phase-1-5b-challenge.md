@@ -4,7 +4,7 @@ This is the full protocol for Phase 1.5b in `/ship-discuss`. The SKILL body summ
 
 ## Capability skill invocation
 
-Once you have a reasonable understanding of the feature, **proactively challenge it** before moving to spec. Invoke the **`shipyard:discovering-edge-cases` capability skill** to walk the seven discovery categories (boundary inputs, concurrency, failure modes, adversarial input, observability gaps, NFRs, domain-specific) and return structured findings.
+Once you have a reasonable understanding of the feature, **proactively challenge it** before moving to spec. Follow the **`discovering-edge-cases` playbook** to walk the seven discovery categories (boundary inputs, concurrency, failure modes, adversarial input, observability gaps, NFRs, domain-specific) and return structured findings.
 
 Pass to the capability skill:
 

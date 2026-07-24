@@ -117,9 +117,9 @@ COMMIT atomically: tests + impl + IDEA-* (if any from step 8 of builder process)
 ## Integration With Other Capabilities
 
 - **`verifying-completion`** runs at the boundary of "is this task done?" — TDD provides the evidence (test pass + probe pass) that completion needs.
-- **`running-acceptance-probe`** is invoked after green to demonstrate end-to-end wiring; tests alone don't prove integration.
+- **`running-acceptance-probe`** is run after green to demonstrate end-to-end wiring; tests alone don't prove integration.
 - **`anti-stub-scan`** runs on the diff before commit — second-line defense against stubs that satisfy a weak test.
-- **`dispatching-task-loop`** invokes this skill inside the subagent prompt; the subagent's loop only exits when probe passes AND no stubs remain.
+- **`shipyard-disciplined-builder`** (the builder agent `dispatching-task-loop` dispatches) inlines this skill's Iron Law in its prompt; the builder's loop only exits when probe passes AND no stubs remain.
 
 ## Why This Discipline
 

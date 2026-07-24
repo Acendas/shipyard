@@ -12,7 +12,7 @@ Every Shipyard skill that completes a major workflow MUST end with a "Next Up" b
 
 Each major Shipyard skill (discuss, sprint, execute, review, retro, release) is a distinct workflow that uses significant context. Planning context is useless during execution. Execution context is useless during review. Clearing between them gives each skill a fresh 200k token budget to work with.
 
-State is preserved in `$(shipyard-data)/` files (PROGRESS.md, HANDOFF.md, spec files, config). Clearing is always safe.
+State is preserved in `$(shipyard-data)/` files (PROGRESS.md, cursor files, spec files, config). Clearing is always safe.
 
 ## Standard Format
 

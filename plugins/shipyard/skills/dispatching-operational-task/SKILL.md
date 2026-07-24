@@ -164,7 +164,7 @@ Before flipping the operational task to `done`:
 The combination of (Iron Law in prompt) + (orchestrator-side gate) catches:
 
 1. **Subagent claims done without running** (no capture file, or capture is from a previous run): gate steps a/b/c catch all variants.
-2. **Subagent disables failing tests instead of fixing**: gate steps b/c don't catch this directly — `dispatching-code-review` (test concern) does, ideally invoked at sprint-completion. Operational tasks intrinsically can fall to this if not paired with code-review.
+2. **Subagent disables failing tests instead of fixing**: gate steps b/c don't catch this directly — `dispatching-code-review` (test concern) does, ideally dispatched at sprint-completion. Operational tasks intrinsically can fall to this if not paired with code-review.
 3. **Subagent fabricates a green capture**: gate step d (`LAST_LINES:` vs file tail) catches divergence.
 
 ## Note on logcap
@@ -177,7 +177,7 @@ The `shipyard-logcap` CLI is not required for the basic capture path — plain `
 - **`verifying-completion`** at the orchestrator boundary: STATUS: COMPLETE alone isn't evidence; the verify_output + capture-file + final exit:0 + LAST_LINES match are.
 - **`acquiring-skill-lock`** is held by the calling command skill; this skill doesn't acquire its own.
 - **`anti-stub-scan`** does NOT run on operational tasks — there's no acceptance probe diff to scan; the verify command is the gate.
-- **`dispatching-task-loop`** is invoked separately if a Phase 2 finding requires significant new code (rare; usually fixes are local).
+- **`dispatching-task-loop`** is dispatched separately if a Phase 2 finding requires significant new code (rare; usually fixes are local).
 
 ## Why This Skill Exists Separately
 

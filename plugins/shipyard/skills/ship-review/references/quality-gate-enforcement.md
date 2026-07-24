@@ -23,7 +23,7 @@ Collect all gates with `Status: pending`.
 
 For each gate with `Verification: probe`:
 - Extract the probe command from the gate description or linked test_commands key
-- Invoke `shipyard:dispatching-operational-task` with the probe command
+- Follow the `dispatching-operational-task` playbook with the probe command
 - Capture the result (exit code, output tail)
 - Update gate `Status`: `pass` (exit 0) or `fail` (exit non-zero)
 
@@ -31,7 +31,7 @@ For each gate with `Verification: probe`:
 
 For each gate with `Verification: tool`:
 - The tool reference is stored in the gate row
-- Invoke `shipyard:dispatching-operational-task` with the tool command
+- Follow the `dispatching-operational-task` playbook with the tool command
 - Capture and update Status same as probe gates
 
 ### 4. Collect Manual Gates

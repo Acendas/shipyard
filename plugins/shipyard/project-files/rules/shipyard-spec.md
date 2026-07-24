@@ -93,7 +93,7 @@ Before writing any spec file, check: will the main feature file exceed 200 lines
 - **No placeholder text** — every section must have specific, actionable content or be omitted.
 - **Link, don't duplicate** — reference other features by ID (F001, T002), don't copy content.
 - **Decision log per feature** — every decision recorded with date, options considered, chosen option, reasoning.
-- **Status is mandatory** — every feature/task must have a status. Valid values: `proposed | approved | in-progress | done | deployed | released | deferred | rejected`. See `.claude/rules/shipyard-data-model.md` for the canonical state machine.
+- **Status is mandatory** — every feature/task must have a status. Valid values: `proposed | approved | in-progress | done | deployed | released | deferred | rejected`. See `${CLAUDE_PLUGIN_ROOT}/project-files/rules/shipyard-data-model.md` for the canonical state machine.
 - **IDs are immutable** — once assigned, never change. F001 is F001 forever.
 - **Epic files must NOT contain a `features:` array** — epic membership is derived by querying feature `epic:` fields. See data model rule.
 - **When creating sub-features**, add their IDs to the parent feature's `children:` array in frontmatter.

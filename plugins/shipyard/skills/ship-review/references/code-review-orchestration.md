@@ -1,6 +1,6 @@
 # Code Review Orchestration
 
-The full contract for code review dispatch lives in the **`shipyard:dispatching-code-review`** capability skill. See `skills/dispatching-code-review/SKILL.md`.
+The full contract for code review dispatch lives in the **`dispatching-code-review`** capability skill. See `skills/dispatching-code-review/SKILL.md`.
 
 ## Quick summary
 
@@ -8,11 +8,11 @@ The full contract for code review dispatch lives in the **`shipyard:dispatching-
 
 - `security`, `bugs`, `silent-failures`, `patterns`, `tests`, optional `observability`, and `data` (auto-gating — produces findings only when the diff touches persistence; included by default so DB defects never slip past Stage 0).
 
-`shipyard:dispatching-spec-review` handles spec compliance separately ("did we deliver what was specified?" vs "is the delivery any good?").
+`dispatching-spec-review` handles spec compliance separately ("did we deliver what was specified?" vs "is the delivery any good?").
 
 ## Parallel dispatch for high-stakes reviews
 
-For release-bound changes or large diffs touching auth/payments/data, `/ship-review` may invoke `dispatching-code-review` multiple times in parallel with non-overlapping `concerns` arrays:
+For release-bound changes or large diffs touching auth/payments/data, `/ship-review` may follow the `dispatching-code-review` playbook multiple times in parallel with non-overlapping `concerns` arrays:
 
 - Subagent A: `concerns: ["security"]`
 - Subagent B: `concerns: ["bugs", "silent-failures", "data"]`

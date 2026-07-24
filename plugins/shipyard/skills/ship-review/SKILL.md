@@ -28,6 +28,8 @@ Verify completed work against spec. Auto-test, screenshot, demo to user, get app
 
 **Quiet by default.** Between user-input gates, work quietly — run scanners, tests, and gap analysis without narrating each stage. Only three things reach the chat outside a gate: a one-line transition marker per stage, the compact per-stage status lines, and a one-line banner when launching or receiving a background dispatch (code-review loop, gap-analysis agent, critic). The self-looping stages (code-review loop, gap-analysis / self-review) run silently to convergence — surface only a one-line result, never a per-iteration narration or a re-printed checklist. Review results, verdicts, and gate summaries are rendered in full ONLY at a gate (render-before-ask — Stage 5 demo, retro, release) or a terminal summary. **No running commentary** ("Now I'll…", "Let me…", explaining a no-input step). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
 
+**Capability-skill playbooks.** Where a step says *"follow the `X` playbook"* or "dispatch `X`", X is a capability skill — **Read** `${CLAUDE_PLUGIN_ROOT}/skills/<X>/SKILL.md` and execute it inline; never hand it to the `Skill` tool (capability skills are `disable-model-invocation: true`, so `Skill` refuses them). The only skill loaded via the `Skill` tool is `loop`.
+
 ## Input
 
 $ARGUMENTS
@@ -91,7 +93,7 @@ The CLI is the single cursor writer (auto-approved; a direct model Write to the 
 Two stages can self-loop until they converge by data: `code_review_iter_N` (Stage 0 — scanner clean signal) and `gap_analysis` (Stages 4 + 4.5 — checklist stable signal). There is no arbitrary iteration cap; convergence is data-driven. Stuck detection works as follows:
 
 - `stuck_counter` is CLI-owned: a self-loop `cursor advance` auto-increments it and auto-emits `pipeline_stuck` at ≥5; at `hard_ceiling` the CLI refuses the advance and directs to `cursor escalate`. Your only job: pass `stuck_counter=0` when the self-loop made real progress (for `code_review_iter_N`, the (must_fix, should_fix) tuple changed; for `gap_analysis`, the gap list changed set-wise).
-- If `stuck_counter >= 5` (5 ticks without state change): for `code_review_iter_N` (the fixer has stalled with an unchanged must-fix set), FIRST invoke the `shipyard:escalating-to-thinker` capability skill (trigger: `repeated_fix_failure`, subject: `code_review_iter`) — a think-tier consult may diagnose why the fixer isn't converging and recommend a normal-path unstick. Then, whether or not the consult ran (it may be capped), emit `shipyard-data events emit pipeline_stuck pipeline=ship-review sprint=<id> stage=<id> iterations=<N> reason=no-state-change` AND surface a non-blocking one-line warning in the user-facing text: `⚠ Stage [X] has run [N] times without state change. /ship-status to inspect; consider manual intervention.` The loop keeps running — the warning is informational.
+- If `stuck_counter >= 5` (5 ticks without state change): for `code_review_iter_N` (the fixer has stalled with an unchanged must-fix set), FIRST follow the `escalating-to-thinker` playbook (trigger: `repeated_fix_failure`, subject: `code_review_iter`) — a think-tier consult may diagnose why the fixer isn't converging and recommend a normal-path unstick. Then, whether or not the consult ran (it may be capped), emit `shipyard-data events emit pipeline_stuck pipeline=ship-review sprint=<id> stage=<id> iterations=<N> reason=no-state-change` AND surface a non-blocking one-line warning in the user-facing text: `⚠ Stage [X] has run [N] times without state change. /ship-status to inspect; consider manual intervention.` The loop keeps running — the warning is informational.
 - `hard_ceiling: 50` is the absolute safety stop. If a self-loop stage reaches `iteration: 50`, run `shipyard-data cursor escalate review reason=hard_ceiling_stage_<id>` (terminal escalation from the current stage — sets `status: escalated`, `terminal: true`, emits `pipeline_terminal outcome=escalated`, prints the stop marker), echo its output, and halt. In practice the 5-tick warning surfaces intervention long before the ceiling is reached; the ceiling exists only as a backstop against a runaway loop with broken state-change detection.
 
 ---
@@ -155,7 +157,7 @@ For each feature/task being reviewed:
 
 Skip if `--skip-code-review` is passed or reviewing a hotfix. **Do not skip based on sprint frontmatter status** — see the anti-improvisation assertion in the Preflight section.
 
-Run the multi-agent code review on the sprint's diff before tests and spec compliance — a fresh-context code-review subagent scans seven concern domains (security, bugs, silent-failures, patterns, tests, observability, data; orchestration logic in `references/code-review-orchestration.md`, optional parallel-split for high-stakes diffs), then the `shipyard:dispatching-task-loop` fixer addresses must-fix and should-fix items.
+Run the multi-agent code review on the sprint's diff before tests and spec compliance — a fresh-context code-review subagent scans seven concern domains (security, bugs, silent-failures, patterns, tests, observability, data; orchestration logic in `references/code-review-orchestration.md`, optional parallel-split for high-stakes diffs), then the `dispatching-task-loop` fixer addresses must-fix and should-fix items.
 
 **Goal-mode default — run until scanners come back clean.** This loop is /goal-shaped: keep dispatching the fixer against the residual findings without user interruption. Loop until the scanners report zero must-fix items. There is no arbitrary iteration cap — convergence is data-driven. Do NOT pause mid-loop to ask the user whether to keep going — that pre-empts the convergence signal. Emit a structured `code_review_iteration` event per pass via `shipyard-data events emit code_review_iteration sprint=<id> iteration=<N> must_fix=<count> should_fix=<count>` so the user (and `/ship-status`) can see the loop's trajectory without a prompt.
 
@@ -175,11 +177,11 @@ After Stage 0 exits clean, spawn a general-purpose simplifier subagent (inline p
 
 ### Stage 1: Run Tests & Spec Verification (stage_id: tests, then spec_review)
 
-**1a. Run all tests** — invoke the **`shipyard:dispatching-operational-task` capability skill** to avoid polluting the review context with raw test output. Pass `verify_command` resolved to each tier from `<SHIPYARD_DATA>/config.md` (`test_commands.unit`, `test_commands.integration`, `test_commands.e2e`); the capability skill captures output to `<SHIPYARD_DATA>/captures/` and returns the structured verdict (PASS/FAIL counts in `LAST_LINES:`). One operational dispatch per tier, or one combined dispatch if your project supports a single command. Use the returned verdicts for Stages 3–5 — do not re-run tests yourself.
+**1a. Run all tests** — follow the **`dispatching-operational-task` playbook** to avoid polluting the review context with raw test output. Pass `verify_command` resolved to each tier from `<SHIPYARD_DATA>/config.md` (`test_commands.unit`, `test_commands.integration`, `test_commands.e2e`); the capability skill captures output to `<SHIPYARD_DATA>/captures/` and returns the structured verdict (PASS/FAIL counts in `LAST_LINES:`). One operational dispatch per tier, or one combined dispatch if your project supports a single command. Use the returned verdicts for Stages 3–5 — do not re-run tests yourself.
 
 - **Cursor advance (after 1a)**: run `shipyard-data cursor advance review spec_review --note "Run Stage 1b spec review per feature"`.
 
-**1b. Spec review via specialized scanner** — invoke the **`shipyard:dispatching-spec-review` capability skill** with `scope: "feature"` and `target_ids: [FEATURE_ID]`. The capability skill:
+**1b. Spec review via specialized scanner** — follow the **`dispatching-spec-review` playbook** with `scope: "feature"` and `target_ids: [FEATURE_ID]`. The capability skill:
 
 - Reads the feature spec at `<SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md` and each path listed in its `references:` frontmatter array (skill body handles the conditional inclusion automatically — no need to construct two prompt variants).
 - Reads the related task files filtered by feature.
@@ -205,7 +207,7 @@ Use the capability skill's structured findings (`STATUS: PASS` or `STATUS: FINDI
 
 **Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-review/references/quality-gate-enforcement.md`
 
-Read `<SHIPYARD_DATA>/sprints/current/QUALITY-GATE.md`. For each probe/tool gate, dispatch via `shipyard:dispatching-operational-task`. Collect manual gates into a checklist for Stage 5. Write results back to QUALITY-GATE.md. If >50% of gates fail, render the per-gate results (gate, verification type, pass/fail) as chat text, then AskUserQuestion: continue or abort.
+Read `<SHIPYARD_DATA>/sprints/current/QUALITY-GATE.md`. For each probe/tool gate, dispatch via `dispatching-operational-task`. Collect manual gates into a checklist for Stage 5. Write results back to QUALITY-GATE.md. If >50% of gates fail, render the per-gate results (gate, verification type, pass/fail) as chat text, then AskUserQuestion: continue or abort.
 
 **Skip if:** QUALITY-GATE.md doesn't exist or is empty.
 
@@ -352,7 +354,7 @@ Process the critic's findings with **one** targeted pass — no iteration loop:
 
 Do not re-run the full review pipeline. This is a surgical pass on the critic's specific findings only. Update the gap counts and classifications, then proceed to the verdict.
 
-**Critic deadlock.** If the critic's verdicts contradict the review's conclusions (e.g., the critic insists a ✅ is broken while direct verification says it holds, or vice versa) and a single reconciliation pass over the disputed items does NOT resolve which is right, invoke the `shipyard:escalating-to-thinker` capability skill (trigger: `critic_deadlock`, subject: the feature ID / disputed finding) before recording a verdict — a think-tier consult breaks the tie with a fresh reading. Only if it declines (cap reached), returns low confidence, or its recommendation also fails do you surface the contradiction to the user — render each disputed finding as chat text first (the review's claim, the critic's counter-claim, and the direct-verification evidence; critic/agent returns do not count as shown until printed) — via AskUserQuestion. Do not silently pick a side.
+**Critic deadlock.** If the critic's verdicts contradict the review's conclusions (e.g., the critic insists a ✅ is broken while direct verification says it holds, or vice versa) and a single reconciliation pass over the disputed items does NOT resolve which is right, follow the `escalating-to-thinker` playbook (trigger: `critic_deadlock`, subject: the feature ID / disputed finding) before recording a verdict — a think-tier consult breaks the tie with a fresh reading. Only if it declines (cap reached), returns low confidence, or its recommendation also fails do you surface the contradiction to the user — render each disputed finding as chat text first (the review's claim, the critic's counter-claim, and the direct-verification evidence; critic/agent returns do not count as shown until printed) — via AskUserQuestion. Do not silently pick a side.
 
 - **Cursor advance**: run `shipyard-data cursor advance review verdict --note "Write verdict file"`.
 
@@ -389,7 +391,7 @@ For each feature whose probe wasn't already verified:
 1. Read the feature's frontmatter `demo_probe:` field.
 2. **If `demo_probe` is missing**: refuse to advance to Stage 5. Surface to user via AskUserQuestion: *"Feature [F-NNN] has no `demo_probe`. Approval is gated on a feature-level smoke test that exercises the cross-task user flow. (a) author one now via /ship-discuss [F-NNN], (b) skip with explicit reason, (c) abort review."* Recommended: (a).
 3. **If `demo_probe: skip-with-reason`** with a `demo_probe_skip_reason` populated: include the reason in the per-feature summary (Stage 5) as a known limitation. Allow approval to proceed.
-4. **Otherwise**: invoke the **`shipyard:running-acceptance-probe` capability skill** with `probe_command: <feature.demo_probe>`, `cwd: <repo root>`, `timeout_seconds: 120`. The capability skill runs the probe in a fresh shell and returns the structured verdict.
+4. **Otherwise**: follow the **`running-acceptance-probe` playbook** with `probe_command: <feature.demo_probe>`, `cwd: <repo root>`, `timeout_seconds: 120`. The capability skill runs the probe in a fresh shell and returns the structured verdict.
 5. Emit `acceptance_probe_completed feature=<F> probe_type=demo exit_code=<n>` to the event log via `shipyard-data events emit ...` and include the verdict in the Stage 5 per-feature summary (PROGRESS.md auto-renders the verdict from the event):
    - **PASS** → ✅ Demo verified (last 5 lines of output captured below)
    - **FAIL** → ❌ Demo failed; demo probe doesn't exit 0 against the merged feature

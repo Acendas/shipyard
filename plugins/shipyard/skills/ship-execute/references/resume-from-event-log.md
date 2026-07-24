@@ -24,7 +24,7 @@ When `/ship-execute` re-enters with a non-paused cursor (or none) but a non-empt
 
    For each suspect task, prefer the event log's verdict. If a task is `status: done` in the registry but has no `task_dispatch_returned status=complete` event in the log, treat it as not-done for resume purposes — but first check for a builder-side `subagent_completed status=complete` event plus its `.subagent-returns/<task>.json`: if those exist, the work is done and only the gate record is missing, so run the orchestrator gate on the `.json` (per `dispatching-task-loop`) instead of re-dispatching the whole task.
 
-4. **Verify the last-clean-wave invariants.** Invoke `verifying-wave-completion` for the wave the event log says completed last, with `wakeup_budget: 0` (verify-only, no retry). If `STATUS: ESCALATED`, do NOT resume — surface the failed invariant to the user; manual intervention required.
+4. **Verify the last-clean-wave invariants.** Follow the `verifying-wave-completion` playbook for the wave the event log says completed last, with `wakeup_budget: 0` (verify-only, no retry). If `STATUS: ESCALATED`, do NOT resume — surface the failed invariant to the user; manual intervention required.
 
    This step matters: the event log can record `wave_check_passed` correctly but the underlying state may have drifted (worktrees re-modified, registry hand-edited). The verifier re-checks the invariants against current state.
 

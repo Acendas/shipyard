@@ -22,7 +22,7 @@ The subagent emits a `task_loop_iteration` event per iteration (`shipyard-data e
 
 ## When to Invoke
 
-Invoke this capability skill from a command skill (`ship-execute`, `ship-quick`, `ship-bug`, hotfix path) per task. Not for `kind: research` (use `dispatching-research-task`) or `kind: operational` (use `dispatching-operational-task`) — those have different deliverables.
+Read and follow this playbook from a command skill (`ship-execute`, `ship-quick`, `ship-bug`, hotfix path) per task. Not for `kind: research` (read and follow `dispatching-research-task` instead) or `kind: operational` (read and follow `dispatching-operational-task` instead) — those have different deliverables.
 
 **Inputs the orchestrator must supply:**
 
@@ -104,11 +104,11 @@ After the Agent call returns, parse the reply:
    - If the reason indicates an implementation difficulty (e.g., "the existing API doesn't expose what the spec needs"), apply the **single redispatch rule**: redispatch ONCE with the prior reason inlined as `Previous attempt blocked at: <reason>; please retry with this context`. If the second attempt also returns BLOCKED, run `shipyard-data task set-status <id> needs-attention --reason "persistent_failure"` (PROGRESS.md auto-renders from it) and continue to the next task. Do NOT redispatch a third time on the same task within one wave — that's the failure mode the cap exists to prevent.
    - Whenever a task settles as blocked/needs-attention, emit its return event so the wave gate (invariant 1) sees a return for every dispatched task: `shipyard-data events emit task_dispatch_returned pipeline=ship-execute sprint=<sprint_id> wave=<wave_number> task=<task_id> status=blocked escalation_code=<code-or-empty>`. No `commit_sha` and no anchor for a blocked task — there is no verified commit to pin.
 
-4. **Always invoke `verifying-completion` mentally** before flipping the task to `done`. The Iron Law applies at the orchestrator boundary too: "subagent said COMPLETE" is not by itself evidence; the sha-existence check, probe-output presence, and anti-stub-clean check are.
+4. **Always apply `verifying-completion`'s Iron Law as a mental check** before flipping the task to `done`. The Iron Law applies at the orchestrator boundary too: "subagent said COMPLETE" is not by itself evidence; the sha-existence check, probe-output presence, and anti-stub-clean check are.
 
 ## Background dispatch (v2.5.0+)
 
-When the orchestrator invokes `dispatching-task-loop` with `dispatch_mode: background`, the dispatch shape changes from synchronous to asynchronous:
+When this playbook is followed with `dispatch_mode: background`, the dispatch shape changes from synchronous to asynchronous:
 
 **Sync mode (default, today's behavior):**
 1. Orchestrator calls `Agent(subagent_type: "shipyard:shipyard-disciplined-builder", prompt: <brief>)`.

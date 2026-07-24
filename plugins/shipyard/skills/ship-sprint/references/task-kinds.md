@@ -8,9 +8,9 @@ This file is the authoritative definition of the taxonomy. When planning a sprin
 
 | Kind | Executor | "Done" means | Required fields |
 |---|---|---|---|
-| `feature` (default) | `shipyard:dispatching-task-loop` | Atomic commit containing impl + tests (Red → Green → Refactor) | — |
-| `operational` | `shipyard:dispatching-operational-task` | `verify_output:` points at a non-empty logcap capture from a passing run | `verify_command:` |
-| `research` | `shipyard:dispatching-research-task` | `research_output:` points at a findings doc under `<SHIPYARD_DATA>/research/` | — |
+| `feature` (default) | `dispatching-task-loop` | Atomic commit containing impl + tests (Red → Green → Refactor) | — |
+| `operational` | `dispatching-operational-task` | `verify_output:` points at a non-empty logcap capture from a passing run | `verify_command:` |
+| `research` | `dispatching-research-task` | `research_output:` points at a findings doc under `<SHIPYARD_DATA>/research/` | — |
 
 Absent `kind:` is treated as `feature` — every legacy task file keeps working without migration.
 
@@ -57,10 +57,10 @@ verify_history:                 # appended by ship-execute on each attempt
 
 ### Execution contract
 
-1. ship-execute reads `kind:` and routes operational tasks through the `shipyard:dispatching-operational-task` capability skill, NOT through the builder loop.
+1. ship-execute reads `kind:` and routes operational tasks through the `dispatching-operational-task` capability skill, NOT through the builder loop.
 2. The dispatcher resolves `verify_command` against `config.md` if it's a config reference, then runs it via `shipyard-logcap run <task-id>-verify -- <cmd>`.
 3. On pass (exit 0, capture non-empty) → write `verify_output:` to the task file, append to `verify_history`, mark done.
-4. On fail → parse findings from the capture, create `kind: feature` patch tasks inline (recursion forbidden — patch tasks cannot themselves be operational), dispatch the builder for each, then re-run verify. Up to `operational_tasks.max_iterations` *verify runs total* (default 3 — meaning the initial failed verify plus at most 2 re-verifies, then escalate). See `shipyard:dispatching-operational-task` for the exact counter semantics.
+4. On fail → parse findings from the capture, create `kind: feature` patch tasks inline (recursion forbidden — patch tasks cannot themselves be operational), dispatch the builder for each, then re-run verify. Up to `operational_tasks.max_iterations` *verify runs total* (default 3 — meaning the initial failed verify plus at most 2 re-verifies, then escalate). See `dispatching-operational-task` for the exact counter semantics.
 5. On the 4th failure (or cumulative patch tasks > 5 across iterations), escalate: render the iteration history as chat text — each verify attempt's exit code, the findings parsed from its capture, and which patch tasks were tried — then `AskUserQuestion` to promote the findings into a proper patch-task set for a future wave. Findings sitting in a logcap capture file do not count as shown.
 6. **The feature builder loop (`dispatching-task-loop`) HARD STOPs if dispatched an operational task.** Routing bug detection. Emits `task_kind_mismatch` event.
 
@@ -101,7 +101,7 @@ effort: M
 
 ## `kind: research`
 
-A task whose deliverable is a written findings doc — no code change, no command run. Dispatched via `shipyard:dispatching-research-task` (general-purpose subagent, task-driven mode — `Write` is scoped *by contract* to the single findings doc at the dispatch path; out-of-scope writes are caught by the post-subagent porcelain check and fail the task). Done = `research_output:` field points at a markdown file under `<SHIPYARD_DATA>/research/` that contains at least one `### Finding` section.
+A task whose deliverable is a written findings doc — no code change, no command run. Dispatched via `dispatching-research-task` (general-purpose subagent, task-driven mode — `Write` is scoped *by contract* to the single findings doc at the dispatch path; out-of-scope writes are caught by the post-subagent porcelain check and fail the task). Done = `research_output:` field points at a markdown file under `<SHIPYARD_DATA>/research/` that contains at least one `### Finding` section.
 
 ### Required frontmatter
 ```yaml
@@ -123,7 +123,7 @@ research_history:                      # appended on each attempt
 
 ### Execution contract
 
-1. ship-execute reads `kind:` and routes research tasks through the `shipyard:dispatching-research-task` capability skill, NOT through the builder loop.
+1. ship-execute reads `kind:` and routes research tasks through the `dispatching-research-task` capability skill, NOT through the builder loop.
 2. The dispatcher validates `research_scope:` is present, then dispatches the research subagent (general-purpose, task-driven mode). The subagent receives the task file path, the scope, and an exact output path (`<SHIPYARD_DATA>/research/<TASK_ID>-<slug>.md`).
 3. The researcher investigates using its standard process (codebase search, external docs, cross-verify), then uses its scoped `Write` tool to create the findings doc following the template in the agent body.
 4. On success → dispatcher validates the output file exists, is non-empty, and has at least one `### Finding` section. Writes `research_output:` to the task file, appends to `research_history`, marks done. Emits `research_task_passed`.
@@ -148,7 +148,7 @@ The researcher investigates, writes `<SHIPYARD_DATA>/research/T05-temporal-evalu
 
 - **Don't smuggle code work into a research task.** If the task involves writing code, it's `kind: feature`. Research is pure investigation — no Edit, no Bash, no commits.
 - **Don't use research for "fix flaky test by re-running".** That's operational (a command is being run repeatedly to gather data). Research is for decisions and investigations that produce written conclusions.
-- **Don't accept an empty findings doc.** A stub doc with "TODO: investigate" as the only content is worse than no doc — it looks like work was done. The gate in `shipyard:dispatching-research-task` catches this (`reason=empty_findings_doc` / `no_findings_reported`), but authors should know: if the researcher couldn't find useful findings, the task should escalate, not produce a placeholder.
+- **Don't accept an empty findings doc.** A stub doc with "TODO: investigate" as the only content is worse than no doc — it looks like work was done. The gate in `dispatching-research-task` catches this (`reason=empty_findings_doc` / `no_findings_reported`), but authors should know: if the researcher couldn't find useful findings, the task should escalate, not produce a placeholder.
 - **Don't nest research tasks.** If a research investigation uncovers another investigation need, create a new top-level task for the next sprint, not a nested dispatch.
 
 ## Classifier heuristics (for ship-sprint Step 4)

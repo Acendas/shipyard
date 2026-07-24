@@ -19,7 +19,7 @@ The output is the **input** to `authoring-acceptance-probe` (which probes each A
 | `/ship-sprint` | When breaking a feature into tasks, each task gets a slice of the feature's ACs |
 | `/ship-bug` | Convert a bug report into a regression AC ("the system shall not <symptom>") |
 
-If the spec already has a clean numbered AC list with one observable per item, don't invoke this skill — there's nothing to extract. Run `discovering-edge-cases` instead to find missing ACs.
+If the spec already has a clean numbered AC list with one observable per item, don't invoke this skill — there's nothing to extract. Read and follow `discovering-edge-cases` instead to find missing ACs.
 
 ## Inputs
 
@@ -170,4 +170,4 @@ This skill produces a structured list; it does NOT edit the feature draft. The c
 - Each AC has a concrete `observable` field — the bridge to probes.
 - No padding, no scope expansion, no implementation leaks.
 - Read-only; calling skill folds output into the spec.
-- A capability skill (`disable-model-invocation: true`), invoked from `/ship-discuss`.
+- A capability skill (`disable-model-invocation: true`), read and followed from `/ship-discuss`.
