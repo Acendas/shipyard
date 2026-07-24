@@ -21,6 +21,8 @@ Systematic debugging that doesn't lose progress when context compacts or session
 
 **Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
 
+**Quiet by default.** Between user-input gates, work quietly — investigate, run captures, and update the debug file without narrating each hypothesis-test in chat (the debug file is the record; that's where the running log lives, not the conversation). Only a one-line transition marker per boundary (status change, hypothesis eliminated) reaches the chat between gates. The diagnosis, fix plan, and resolution are rendered in full ONLY at a gate (render-before-ask — Step 3.5 fix plan, Step 6 close) or when the fix-attempt escalation fires. **No running commentary** ("Now I'll…", "Let me…", explaining a no-input step). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
+
 ## Input
 
 $ARGUMENTS

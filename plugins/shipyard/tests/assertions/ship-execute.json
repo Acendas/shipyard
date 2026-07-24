@@ -1313,5 +1313,10 @@
     "type": "contains",
     "pattern": "Call `TaskList\\(\\)` first",
     "why": "Phase 6: compaction recovery / re-entry calls TaskList() first as a position anchor, confirmed against the cursor + event log"
+  },
+  {
+    "name": "quiet_by_default",
+    "type": "contains",
+    "pattern": "Quiet by default"
   }
 ]

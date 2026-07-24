@@ -189,5 +189,10 @@
     "type": "contains",
     "pattern": "Render before asking",
     "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule."
+  },
+  {
+    "name": "quiet_by_default",
+    "type": "contains",
+    "pattern": "Quiet by default"
   }
 ]

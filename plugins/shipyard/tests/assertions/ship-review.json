@@ -815,5 +815,10 @@
     "name": "stage_task_tools_in_allowed_tools",
     "type": "contains",
     "pattern": "allowed-tools:.*TaskCreate, TaskUpdate, TaskList"
+  },
+  {
+    "name": "quiet_by_default",
+    "type": "contains",
+    "pattern": "Quiet by default"
   }
 ]

@@ -845,6 +845,72 @@ def check_render_before_ask(result):
         result.ok(f"render_before_ask:{name}:has_rule_and_provenance")
 
 
+def check_quiet_by_default(result):
+    """Structural guard: the six long-running command skills must state the
+    quiet-by-default interim-communication doctrine — (A) the rule phrase
+    "Quiet by default" and (B) the negation "no running commentary". The full
+    doctrine lives in ship-discuss/references/communication-design.md
+    § "Interim Communication: Quiet by Default"; each long-running shell inlines
+    a one-line pointer so the rule is top-of-mind alongside render-before-ask.
+
+    Motivated by a user report that the long-running skills narrated their
+    thought process ("commentary") between gates. The fix pairs with
+    render-before-ask: quiet in the corridors, full render at the gates — a
+    one-line transition marker / progress bar / dispatch banner is the only
+    thing that reaches the chat between user-input gates.
+
+    Scope: the long-running / interactive shells only (discuss, sprint, execute,
+    review, debug, backlog) — matching the user's stated scope choice. Read-only
+    lookups (ship-status, ship-help) and single-shot skills don't run long
+    enough to accumulate commentary, and capability skills run in subagents
+    whose output doesn't stream to the user the same way — both out of scope.
+    """
+    import re
+
+    QUIET_SKILLS = [
+        "ship-discuss",
+        "ship-sprint",
+        "ship-execute",
+        "ship-review",
+        "ship-debug",
+        "ship-backlog",
+    ]
+    RULE_RE = re.compile(r"Quiet by default", re.IGNORECASE)
+    NO_COMMENTARY_RE = re.compile(r"no running commentary", re.IGNORECASE)
+
+    for name in QUIET_SKILLS:
+        skill_md = SKILLS_DIR / name / "SKILL.md"
+        if not skill_md.exists():
+            result.fail(
+                f"quiet_by_default:{name}:missing_skill",
+                f"expected long-running skill {name}/SKILL.md not found",
+            )
+            continue
+        raw = read_file(skill_md)
+        rel = skill_md.relative_to(PROJECT_ROOT) if skill_md.is_relative_to(PROJECT_ROOT) else skill_md
+        body = re.sub(r"^---\s*\n.*?\n---\s*\n", "", raw, count=1, flags=re.DOTALL)
+
+        if not RULE_RE.search(body):
+            result.fail(
+                f"quiet_by_default:{name}:missing_rule",
+                f"{rel} is a long-running skill but never states the quiet-by-default rule "
+                f"(\"Quiet by default\"). See ship-discuss/references/communication-design.md "
+                f"§ 'Interim Communication: Quiet by Default' for the canonical doctrine.",
+            )
+            continue
+
+        if not NO_COMMENTARY_RE.search(body):
+            result.fail(
+                f"quiet_by_default:{name}:missing_no_commentary_clause",
+                f"{rel} states the quiet-by-default rule but lacks the negation — must "
+                f"state 'no running commentary' (no 'Now I'll…' / 'Let me…' narration of "
+                f"no-input steps between gates).",
+            )
+            continue
+
+        result.ok(f"quiet_by_default:{name}:has_rule_and_negation")
+
+
 def check_no_python_in_plugin(result):
     """Phase H5 guard rail: fail if any .py file appears under bin/ or
     project-files/scripts/.
@@ -1454,6 +1520,7 @@ def main():
     check_no_python_in_plugin(result)
     check_session_mutex_pattern(result)
     check_render_before_ask(result)
+    check_quiet_by_default(result)
     check_no_hardcoded_dispatch_model(result)
     check_dispatch_contract_pairs(result)
     check_cross_skill_consistency(result)

@@ -25,6 +25,7 @@ Manage the prioritized backlog. Default sort is by RICE score (Reach x Impact x 
 **Execution rules (load-bearing):**
 - **Do every read yourself with Read/Grep/Glob. NEVER dispatch a subagent (Agent/Explore/Task) to gather board data.** Data gathered in a subagent never lands in this context, and the board cannot be rendered from data you do not hold. (Incident 2026-07-21: a delegated gather produced a blind AskUserQuestion with no board rendered.)
 - **Render before asking.** Render the full board as text output BEFORE the first AskUserQuestion. The ask at the end of the board is the ONLY entry into the interactive loop; an AskUserQuestion with no board above it is always a bug. Board data existing only in a Read result, a subagent return, or the question/option strings does not count as rendered (the UI shows a compact card) — only assistant chat text above the ask does.
+- **Quiet by default.** The board and the drill-down/grooming summaries ARE the render-before-ask content — render those in full. But between them, work quietly: read feature files, stage grooming decisions, and run `shipyard-data` mutations without narrating each read or each staged change. Surface a one-line result after a batch of mutations (`→ Applied: 3 reprioritized, 1 archived`), not a play-by-play. **No running commentary** ("Now I'll read F004…", "Let me check the next one…"). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
 
 ## Input
 

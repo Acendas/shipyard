@@ -1007,5 +1007,10 @@
     "dotall": true,
     "pattern": "waiting is never a user decision.*waiting is never a user decision",
     "why": "CI-pinned, do not reword. Pins that the wait-semantics phrase appears at BOTH join points (Phase 1.5 and Phase 4.95), not just one."
+  },
+  {
+    "name": "quiet_by_default",
+    "type": "contains",
+    "pattern": "Quiet by default"
   }
 ]
