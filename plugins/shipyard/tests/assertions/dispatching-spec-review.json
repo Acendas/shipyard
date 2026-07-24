@@ -86,5 +86,12 @@
     "type": "contains",
     "pattern": "Render before asking",
     "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule."
+  },
+  {
+    "name": "over_build_hardening_sentence",
+    "type": "contains",
+    "target": "agent:shipyard-spec-reviewer",
+    "pattern": "[Qq]uality-hardening beyond what an AC requires",
+    "why": "v3.13.0 counterweight: quality-hardening beyond an AC (guards for inputs never accepted, abstractions for absent use cases, speculative indexes) is OVER-BUILT, not robustness."
   }
 ]

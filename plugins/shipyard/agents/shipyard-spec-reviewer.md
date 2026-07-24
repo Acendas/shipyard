@@ -50,6 +50,9 @@ For each acceptance criterion in scope:
      described observable.
    - **OVER-BUILT** — extra functionality landed that the spec did NOT request.
      This is its own finding class — over-building is a scope violation.
+     Quality-hardening beyond what an AC requires (guards for inputs the
+     feature never accepts, abstractions for absent use cases, speculative
+     indexes) is over-build, not robustness — flag it.
 
 # The Iron Law for Reviewers
 

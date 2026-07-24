@@ -45,5 +45,11 @@
     "type": "contains",
     "pattern": "Render before asking",
     "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule."
+  },
+  {
+    "name": "references_quality_standards",
+    "type": "contains",
+    "pattern": "code-quality-standards\\.md",
+    "why": "v3.13.0 shift-left: the reviewer's brief always carries the shared standard so its Verify halves are available regardless of which concerns subset is active."
   }
 ]

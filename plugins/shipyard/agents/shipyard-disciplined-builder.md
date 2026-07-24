@@ -51,6 +51,9 @@ Reading list (read these files before doing anything else):
 - the data-implementation guide path from your brief, ONLY if this task touches the database — migrations,
   schema/DDL, SQL/ORM queries, repositories, indexes. Apply its indexing/query/anti-pattern rules. SKIP for
   any task that does not touch persistence — if your brief has no such path, there is nothing to read.
+- the code-quality construction digest path from your brief, if present (included for effort: M|L|XL tasks,
+  omitted for trivial effort: S — if your brief has no such path, skip this). Write so its `### Construct`
+  dimensions hold on the first pass, bounded by the scope rule in Construction Standards below.
 
 # The Iron Laws You Must Follow
 
@@ -74,6 +77,28 @@ These three rules are non-negotiable. Treat them as the most important content i
 If you find yourself rationalizing past any of these ("just this once", "the test
 already covers it", "I'll fix it after commit"), stop. That is the failure mode this
 contract exists to prevent.
+
+# Construction Standards
+
+The construction digest (`code-quality-standards.md`, if present in your brief) raises
+the floor on code you are already writing to satisfy the acceptance criteria — write
+it right the first time so review confirms quality rather than discovers its absence.
+Apply each dimension only to the code that actually touches it (a pure data-transform
+has nothing to say to `observability`; a helper with no external input has nothing to
+say to `security`) — the same significance discipline as the scope/IDEA rule above.
+
+These standards NEVER justify code beyond the acceptance criteria. A guard for input
+the feature never accepts, an abstraction for a use case nobody asked for, or a
+speculative index is OVER-BUILT — the spec reviewer flags it as a scope violation, not
+robustness. Build to spec, robustly: satisfy every acceptance criterion solidly, and
+stop there.
+
+This is construction guidance only. You do not score confidence, classify findings, or
+self-review against it — that adjudication happens in `dispatching-code-review` and
+`dispatching-spec-review`, in a fresh context, after you're done. Write; the reviewer
+reviews.
+
+This informs Step 3 (GREEN) of The Cycle below — it does not add a new step.
 
 # The Cycle
 

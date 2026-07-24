@@ -19,6 +19,9 @@ Otherwise, proceed.
   $ git diff --name-only <base_ref>..<head_ref>      (touched files)
   - <data_dir>/codebase-context.md                     (project conventions)
   - <project_rules_path>                               (if any)
+  - <quality_standards_path>                           (given in your brief — the
+    Verify half of each concern below points back at its `§<concern>` block here;
+    read it once before scanning)
 
 For each touched file, you may Read the full file when context inside the diff
 hunk isn't sufficient (e.g., understanding what an imported helper does).
@@ -29,48 +32,24 @@ For each concern in the brief's concerns list, scan the diff and accumulate find
 Concern definitions follow.
 
 ## security
-  - Injection sinks: SQL, shell, template, NoSQL, LDAP. Look for unparameterized
-    query construction, shell commands built with string concat, template
-    rendering of user input.
-  - Auth / authz: missing or wrong check, role escalation, broken object-level
-    auth (e.g., user can fetch another user's resource by ID).
-  - Hardcoded secrets / credentials in source.
-  - Crypto misuse: weak algorithms (MD5, SHA1 for auth), missing salt, fixed
-    IVs, ECB mode, missing constant-time compare on token check.
-  - Unsafe deserialization of untrusted input via language-level binary
-    serializers; YAML loaders that allow arbitrary tag construction; eval-like
-    sinks that interpret user-supplied strings as code.
-  - Path traversal: user-controlled path joined without containment check.
-  - SSRF: outbound requests to user-supplied URLs without allowlist.
-  - Input validation gaps: missing length / charset / type bounds.
+**security** — see `code-quality-standards.md` §security ▸ Verify; scan the
+diff, accumulate findings ≥ 80 confidence.
 
 ## bugs
-  - Off-by-one: ranges, slices, indexing.
-  - Null / undefined handling: missing checks before deref.
-  - Race conditions: shared state mutated without locking; check-then-act
-    patterns.
-  - Resource leaks: file handles, sockets, subprocess pipes not closed.
-  - Wrong operators: `=` vs `==`, `&` vs `&&`, `is` vs `==`.
-  - Type confusion: implicit conversions producing wrong results.
-  - Boundary errors: timezone math, integer overflow at API boundaries,
-    floating-point equality.
+**bugs** — see `code-quality-standards.md` §bugs ▸ Verify; scan the diff,
+accumulate findings ≥ 80 confidence.
 
 ## silent-failures
-  - Empty `catch` / `except` blocks (or catches that only `pass`).
-  - Catches that swallow the original exception (no `raise from`, no log).
-  - Retries that hide root cause (try N times, return None on N failures).
-  - Default-on-error patterns that mask the failure to the caller.
-  - Missing error-path tests for critical functions.
+**silent-failures** — see `code-quality-standards.md` §silent-failures ▸
+Verify; scan the diff, accumulate findings ≥ 80 confidence.
 
 ## patterns
-  - Violations of <project_rules_path> files (read those first; cite which
-    rule was violated).
-  - Naming convention violations.
-  - Anti-patterns from project learnings (`.claude/rules/learnings/*.md` if
-    present).
-  - Duplication of a function that already exists nearby.
-  - Magic numbers / strings without a named constant.
-  - Dead code / commented-out blocks.
+**patterns** — see `code-quality-standards.md` §patterns ▸ Verify; scan the
+diff, accumulate findings ≥ 80 confidence. Also covers unnecessary,
+duplicate, or reinvented code — `simplicity`'s review side. The construction-
+time necessity ladder has no separate review scan of its own; over-build
+beyond spec is the spec reviewer's `OVER-BUILT` class, not a code-review
+finding.
 
 ## data (auto-gated — runs only when the diff touches persistence)
   Trigger: the touched files include migrations / DDL, SQL or ORM queries,
@@ -87,19 +66,12 @@ Concern definitions follow.
   joins).
 
 ## tests
-  - Missing critical-path coverage (touched function with no test).
-  - Weak assertions (`assertNotNull` only, when stronger assertion is
-    needed).
-  - Missing edge cases (empty input, max bounds, error paths).
-  - Brittle tests (assertions on internal implementation, not behavior).
-  - Mocks that hide integration breaks (over-mocking).
-  - Test files without imports of the new code (probably stubbed).
+**tests** — see `code-quality-standards.md` §tests ▸ Verify; scan the diff,
+accumulate findings ≥ 80 confidence.
 
 ## observability  (optional — include only if listed in concerns)
-  - Missing logs at error boundaries.
-  - Missing metrics for new code paths users will care about.
-  - Missing trace context propagation across async boundaries.
-  - Logged values that look like PII / secrets.
+**observability** — see `code-quality-standards.md` §observability ▸ Verify;
+scan the diff, accumulate findings ≥ 80 confidence.
 
 # Confidence Threshold
 

@@ -29,6 +29,7 @@ Code review is more expensive than spec review (broader concern surface). `/ship
 - `concerns` — subset of `["security", "bugs", "silent-failures", "patterns", "tests", "observability", "data"]`. Default: all. The **`data`** concern **auto-gates** — it produces findings only when the diff touches persistence (migrations, schema, SQL/ORM, repositories, indexes) and no-ops otherwise, so including it by default is free. Caller can narrow (e.g., `["security", "bugs"]` for a wave that didn't touch tests), but **whenever the diff touches the database, `data` MUST be among the concerns** (it is, under the default). In parallel-split dispatch (see `ship-review/references/code-review-orchestration.md`), assign `data` to exactly one subagent so it isn't dropped or duplicated.
 - `data_dir` — literal `<SHIPYARD_DATA>` path.
 - `project_rules_path` — `.claude/rules/*.md` paths so the patterns scanner has the project's conventions. Shipyard does not inject its own rules into `.claude/rules/`; only project-authored rules pass through here.
+- `quality_standards_path` — the literal path to `project-files/references/code-quality-standards.md`. Always resolved and included, not gated further here — code review is itself effort-gated at the caller (fires only for `effort: M|L|XL` at the post-task site; unconditionally at `/ship-review`), so by the time this skill dispatches, the digest is always in scope. Not narrowed by `concerns` — each of the six general concerns points back at its own `§<concern> ▸ Verify` half regardless of which subset is active.
 
 ## Dispatching the Reviewer
 
@@ -36,7 +37,7 @@ The reviewer methodology (all seven concern definitions, confidence threshold, t
 
 **Model tier (think).** Read `models.think` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal. Applies to every dispatch, including each subagent of the parallel-split variant below.
 
-**Plugin-relative paths are resolved here, not in the agent.** `${CLAUDE_PLUGIN_ROOT}` is not verified to expand inside a registered agent's body — resolve the data-implementation guide path (when the `data` concern is gated in) to a literal path before including it in the brief.
+**Plugin-relative paths are resolved here, not in the agent.** `${CLAUDE_PLUGIN_ROOT}` is not verified to expand inside a registered agent's body — resolve the data-implementation guide path (when the `data` concern is gated in) and `quality_standards_path` (always) to literal paths before including them in the brief.
 
 Dispatch:
 
@@ -45,13 +46,14 @@ Agent(
   subagent_type: "shipyard:shipyard-code-reviewer",
   model: <models.think value, or omit>,
   prompt: "
-    Scope:         {{scope}}
-    Target IDs:    {{target_ids}}
-    Base ref:      {{base_ref}}
-    Head ref:      {{head_ref}}
-    Concerns:      {{concerns_csv}}
-    Data dir:      {{data_dir}}
-    Project rules: {{project_rules_path}}
+    Scope:              {{scope}}
+    Target IDs:          {{target_ids}}
+    Base ref:            {{base_ref}}
+    Head ref:            {{head_ref}}
+    Concerns:            {{concerns_csv}}
+    Data dir:            {{data_dir}}
+    Project rules:       {{project_rules_path}}
+    Quality standards:   {{quality_standards_path}}
     {{data_impl_guide path, if `data` concern is gated in — otherwise omit}}
   "
 )

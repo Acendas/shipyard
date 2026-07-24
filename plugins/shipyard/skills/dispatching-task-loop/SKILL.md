@@ -38,6 +38,7 @@ Invoke this capability skill from a command skill (`ship-execute`, `ship-quick`,
 - `wave_number` — wave number for event-log scoping (current value of cursor `wave_number`)
 - `dispatch_mode` — `sync` or `background`. `sync` = today's behavior, orchestrator parses Agent return value. `background` = orchestrator dispatches via `Agent(run_in_background: true)` and recovers the structured return from `.shipyard-events.jsonl` + capture file. Default `sync` for backward compatibility.
 - `data_impl_guide` — the literal path to `project-files/references/data-implementation-guide.md`, included in the brief ONLY if this task touches the database (migrations, schema/DDL, SQL/ORM queries, repositories, indexes). Omit entirely for non-DB tasks — same significance-gating discipline as everywhere else this guide is consulted.
+- `quality_standards_digest` — the literal path to `project-files/references/code-quality-standards.md`, included in the brief ONLY for `effort: M|L|XL` tasks; omit entirely for `effort: S`. **Effort-gate site (v3.13.0):** this mirrors the existing "effort: S skips both spec and code review" gate `dispatching-code-review`'s own When-to-Invoke table already applies at the post-task review site, and the same threshold `/ship-execute`'s post-task gate uses for its effort-gated single-task spec check — a trivial task that will never be reviewed against these dimensions doesn't need the digest in its brief either. The orchestrator already reads task effort from the task file before dispatch, so resolving this input here (alongside `data_impl_guide`) needs no new read.
 
 ## Dispatching the Builder
 
@@ -45,7 +46,7 @@ The builder methodology (environment rules, worktree self-check, kind refusal, I
 
 **Model tier (build).** Read `models.build` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal. This applies to BOTH dispatch modes below — the sync `Agent(...)` call and the `Agent(run_in_background: true, ...)` call carry the same `model:` rule.
 
-**Plugin-relative paths are resolved here, not in the agent.** `${CLAUDE_PLUGIN_ROOT}` is not verified to expand inside a registered agent's body — resolve `data_impl_guide` (when gated in) to a literal path before including it in the brief.
+**Plugin-relative paths are resolved here, not in the agent.** `${CLAUDE_PLUGIN_ROOT}` is not verified to expand inside a registered agent's body — resolve `data_impl_guide` and `quality_standards_digest` (each only when gated in) to literal paths before including them in the brief.
 
 Dispatch:
 
@@ -67,6 +68,7 @@ Agent(
     Sprint ID:         {{sprint_id}}
     Wave number:       {{wave_number}}
     {{data_impl_guide path, if this task touches the database — otherwise omit}}
+    {{quality_standards_digest path, if effort M|L|XL — otherwise omit}}
   "
 )
 ```

@@ -245,5 +245,32 @@
     "type": "contains",
     "pattern": "Render before asking",
     "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule."
+  },
+  {
+    "name": "references_quality_standards",
+    "type": "contains",
+    "pattern": "code-quality-standards\\.md",
+    "why": "v3.13.0 shift-left: the builder's brief carries the shared construction digest, same shape as data_impl_guide."
+  },
+  {
+    "name": "quality_standards_gated",
+    "type": "contains",
+    "pattern": "quality_standards_digest.{0,400}effort:\\s*M\\|L\\|XL",
+    "dotall": true,
+    "why": "v3.13.0: the digest is included only for effort: M|L|XL tasks, matching dispatching-code-review's own effort-S skip at the post-task review site."
+  },
+  {
+    "name": "builder_construction_standards_section",
+    "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
+    "pattern": "# Construction Standards",
+    "why": "v3.13.0: a dedicated section between the Iron Laws and The Cycle carries the Construct-half discipline and the OVER-BUILT scope bound."
+  },
+  {
+    "name": "construction_not_review",
+    "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
+    "pattern": "do not score confidence, classify findings, or\\s+self-review",
+    "why": "v3.13.0 non-transfer boundary: construction guidance never becomes a second adjudication pass — the builder writes, the reviewer reviews."
   }
 ]
