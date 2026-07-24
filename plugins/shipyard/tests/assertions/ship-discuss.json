@@ -936,6 +936,31 @@
     "why": "v3.11.0: Round 3's consolidated decision ask must render the dossier-derived decision items as chat text before the one AskUserQuestion."
   },
   {
+    "name": "scenario_render_rule_in_question_design",
+    "type": "contains",
+    "target": "ref:question-design.md",
+    "pattern": "Render an example scenario",
+    "why": "v3.14.0: the scenario-render default (render a concrete example scenario above every non-trivial discuss ask; escalate to both-sides for hard/one-way-door questions; skip only genuinely self-evident asks) is canonical in question-design.md. Pins the anchor phrase so the behavior can't silently regress the way the v3.11.0 blind-ask class did when render rules were prose-only."
+  },
+  {
+    "name": "phase_1_5b_renders_mini_story_per_item",
+    "type": "contains",
+    "pattern": "mini-story per challenge item",
+    "why": "v3.14.0: Phase 1.5b's challenge block must give each item a one-line example scenario (mini-story, rule Q9) above the ask, not just the finding summary line."
+  },
+  {
+    "name": "phase_2_renders_primary_use_scenario",
+    "type": "contains",
+    "pattern": "primary use scenario",
+    "why": "v3.14.0: the Phase 2 viability echo renders the primary use scenario as chat text so 'does this match your intent?' is answered against a concrete flow, not the abstract gate labels."
+  },
+  {
+    "name": "round3_renders_before_after_example",
+    "type": "contains",
+    "pattern": "before/after example scenario",
+    "why": "v3.14.0: Round-3 impact ripples that change existing behavior carry a before/after example scenario, and simplification candidates a today-vs-lib example — extending the scenario-render default past Phase 1/Phase 5 into the middle rounds."
+  },
+  {
     "name": "estimates_never_asked",
     "type": "contains",
     "target": "ref:phase-3-write-spec.md",

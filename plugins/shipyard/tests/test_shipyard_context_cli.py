@@ -620,6 +620,9 @@ class TestDiagnoseResolutionFailure(unittest.TestCase):
         # Build a data dir of the right shape and link .shipyard at it, with
         # env + breadcrumb still absent — diagnose should both resolve via the
         # link AND report it as valid-for-hash.
+        if sys.platform == 'win32':
+            self.skipTest('os.symlink requires elevated privileges on Windows')
+
         out, _, rc = run_cli(['diagnose'], env_extra=self.env, cwd=self.project_dir)
         project_hash = next(
             line[len('PROJECT_HASH='):]

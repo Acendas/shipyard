@@ -505,6 +505,9 @@ class TestShipyardDataLinkDataDir(unittest.TestCase):
 
     def test_repoints_stale_symlink(self):
         """If .shipyard points at a stale target, repoint to the current data dir."""
+        if sys.platform == 'win32':
+            self.skipTest('os.symlink requires elevated privileges on Windows')
+
         link_path = os.path.join(self.project_dir, '.shipyard')
         stale_target = os.path.join(self.tmp, 'old-plugin-data')
         os.makedirs(stale_target)

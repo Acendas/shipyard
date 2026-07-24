@@ -90,4 +90,10 @@ ASSUMED: <decision> — <evidence one-liner> — reversible: yes
 
 (The phrases "Render before asking", "does not count as rendered", and "compact card" are asserted by CI — do not reword.)
 
-For hard questions — the LOW-tier / one-way-door decisions, and anything a non-expert user can't answer from a label alone — the rendered context MUST include concrete scenarios and examples (the same scenario-framing the rulebook requires), not just a restated question. This is what makes the consolidated Phase 5 approval safe: the acceptance scenarios are quoted verbatim on screen, so "Approve" means approve-having-read.
+## Render an example scenario, not just a restated question
+
+**This is the /ship-discuss default, not a special case for hard questions.** For any question the user has to reason about, the context rendered above the ask includes at least one concrete example scenario — a named actor, a specific moment, and the consequence — showing what the question actually decides, in the same scenario form rules Q1/Q6/Q9 demand of the question text. The scenario is chat text; the tool card holds only the short question and options. A decision worth interrupting an architect for is worth one worked example, so they answer from a concrete picture instead of an abstract label.
+
+**Escalate the example with the stakes.** For LOW-tier / one-way-door decisions, and anything a non-expert can't answer from a label alone, the example scenario is MANDATORY and shows BOTH sides — what happens under each option, not just the situation. This is what keeps the consolidated Phase 5 approval safe: the acceptance scenarios are quoted verbatim on screen, so "Approve" means approve-having-read.
+
+**Skip the example only when the ask is genuinely self-evident:** a binary confirmation of content already rendered in full immediately above (e.g. "Approve everything?" after the verbatim summary), or a pick-from-a-list where every option is itself a concrete outcome. When unsure, render it — over-explaining a trivial ask costs a sentence; under-explaining a real one costs a wrong answer.
