@@ -15,7 +15,6 @@ build_commands:
   full: ""                # e.g., "gradle assemble", "npm run build", "cargo build"
 ci_platform: ""
 repo_type: single
-team_size: solo
 workflow: sprint
 git:
   main_branch: main

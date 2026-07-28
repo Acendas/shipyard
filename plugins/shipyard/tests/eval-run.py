@@ -1353,6 +1353,7 @@ DISPATCH_PAIRS = {
     "shipyard-disciplined-builder": "dispatching-task-loop",
     "shipyard-researcher": "dispatching-research-task",
     "shipyard-operational-task": "dispatching-operational-task",
+    "shipyard-track-coordinator": "dispatching-track-coordinator",
 }
 
 

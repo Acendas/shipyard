@@ -540,10 +540,10 @@
     "why": "compaction recovery anchors on the checklist, confirms against files"
   },
   {
-    "name": "checklist_distinguishable_from_team_tasks",
+    "name": "checklist_distinguishable_from_track_tasks",
     "type": "contains",
     "pattern": "Step N:.*keeps the planning checklist distinguishable",
-    "why": "ship-execute team mode shares the task system for build tasks; prefixes prevent cross-contamination"
+    "why": "v3.16.0: renamed from checklist_distinguishable_from_team_tasks — ship-execute track mode shares the task system for build tasks (main is the sole Task* owner across every dispatch shape); prefixes prevent cross-contamination. Pattern unchanged (still matches — the SKILL.md text it pins already read 'track mode' post-rebuild), vocabulary-only rename for consistency."
   },
   {
     "name": "decomposition_deepdive_reads_models_think",

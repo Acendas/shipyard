@@ -15,8 +15,8 @@ Shipyard isolates parallel task execution in git worktrees so concurrent subagen
 | Mode | Use worktrees? |
 |---|---|
 | Solo (1–3 tasks per wave, sequential) | No — tasks run on the working branch, one after another |
-| Subagent / parallel (4+ tasks per wave, concurrent) | **Yes** — one worktree per task |
-| Team mode (10+ tasks, persistent feature tracks) | **Yes** — one worktree per feature track |
+| Task / parallel (4+ tasks per wave, concurrent) | **Yes** — one worktree per task |
+| Track mode (persistent feature tracks) | **Yes** — one worktree per feature track |
 | `/ship-review` diff inspection | Optional — read-only; worktree only if reviewing across branches |
 | Hotfix | No — work on the user's current branch directly |
 | `/ship-quick` | No — single change, working branch |
@@ -58,7 +58,7 @@ All of that is now Claude Code's job.
 Shipyard's `WorktreeCreate` hook (`bin/hooks/worktree-branch.mjs`) names the branch `shipyard/wt-<id>` where `<id>` is derived from the worktree name Claude Code passes to the hook. Conventions:
 
 - Per-task subagent: `<id>` = `<TASK_ID>-<short-slug>` → branch `shipyard/wt-T-042-add-user-endpoint`.
-- Per-feature track (team mode): `<id>` = `<FEATURE_ID>-<short-slug>` → branch `shipyard/wt-F-007-checkout-rewrite`.
+- Per-feature track (track mode): `<id>` = `<FEATURE_ID>-<short-slug>` → branch `shipyard/wt-F-007-checkout-rewrite`.
 - Probe / readiness check: `<id>` = `probe-<timestamp>` → branch `shipyard/wt-probe-1715168400`.
 
 The `shipyard/wt-` prefix is the discriminator: any branch starting with it is a Shipyard-owned worktree branch and may be safely cleaned up by the orchestrator at wave boundaries.

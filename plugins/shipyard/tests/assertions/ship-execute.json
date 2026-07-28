@@ -81,9 +81,10 @@
     "pattern": "git-strategy\\.md"
   },
   {
-    "name": "has_team_mode_ref",
+    "name": "has_track_mode_ref",
     "type": "contains",
-    "pattern": "team-mode\\.md"
+    "pattern": "track-mode\\.md",
+    "why": "v3.16.0 dispatch-shape rebuild: team-mode.md was renamed to track-mode.md."
   },
   {
     "name": "has_context_management_ref",
@@ -132,9 +133,9 @@
     "path": "skills/ship-execute/references/git-strategy.md"
   },
   {
-    "name": "team_mode_exists",
+    "name": "track_mode_exists",
     "type": "file_exists",
-    "path": "skills/ship-execute/references/team-mode.md"
+    "path": "skills/ship-execute/references/track-mode.md"
   },
   {
     "name": "context_mgmt_exists",
@@ -227,15 +228,18 @@
     "pattern": "If neither.*git checkout.*working branch"
   },
   {
-    "name": "team_mode_has_concurrency_cap",
+    "name": "track_concurrency_is_nested_budget",
     "type": "contains",
-    "pattern": "max_parallel_agents.* concurrent teammate"
+    "pattern": "one coordinator plus, at most, one active builder.{0,150}2 × tracks",
+    "dotall": true,
+    "target": "ref:track-mode.md",
+    "why": "v3.16.0: inverted/repurposed from team_mode_has_concurrency_cap, which pinned the old flat-agent-count 'concurrent teammate' phrasing. Under Option B concurrency is two-level (a nested budget, per plan risk #15) — this pins the actual nested-budget formula (2 × tracks) instead of a flat re-derived scalar."
   },
   {
     "name": "team_mode_cap_in_ref",
     "type": "contains",
     "pattern": "max_parallel_agents|hard ceiling 4",
-    "target": "ref:team-mode.md"
+    "target": "ref:track-mode.md"
   },
   {
     "name": "pause_note_carries_team_state",
@@ -285,31 +289,9 @@
     "target": "script:worktree-branch.py"
   },
   {
-    "name": "workaround_force_commit_in_spawn_prompt",
-    "type": "contains",
-    "pattern": "Before Exiting.*MANDATORY.*data loss",
-    "dotall": true
-  },
-  {
     "name": "workaround_spawn_prompt_git_status",
     "type": "contains",
     "pattern": "git status --porcelain"
-  },
-  {
-    "name": "workaround_spawn_prompt_wip_commit",
-    "type": "contains",
-    "pattern": "wip.*partial progress"
-  },
-  {
-    "name": "workaround_inline_rules_tdd",
-    "type": "contains",
-    "pattern": "Inline Rules.*path-scoped rules.*bug #32906",
-    "dotall": true
-  },
-  {
-    "name": "workaround_inline_rules_red_phase",
-    "type": "contains",
-    "pattern": "Write failing tests BEFORE implementation"
   },
   {
     "name": "workaround_inline_rules_never_modify_assertions",
@@ -317,63 +299,53 @@
     "pattern": "Never modify test assertions"
   },
   {
-    "name": "workaround_inline_rules_mutation_testing",
+    "name": "wave_boundary_refactor_and_mutate",
     "type": "contains",
-    "pattern": "Mutation testing after GREEN"
+    "pattern": "REFACTOR \\+ MUTATE",
+    "why": "Mutation testing must survive as a wave-boundary step for EVERY dispatch shape. This assertion previously pinned 'Mutation testing after GREEN' in the old team-mode.md spawn prompt — the only PER-TASK mutation instruction in the plugin, and team-mode-exclusive. That prompt is gone (v3.16.0 track-mode rewrite), so track mode now has exact parity with task and solo mode: neither tdd-cycle (Red-Green-Refactor) nor shipyard-disciplined-builder has ever had a per-task mutate step. Repointed rather than deleted so the surviving system-wide guarantee stays guarded. NOTE a pre-existing overclaim this exposed, not caused by the rewrite: ship-execute/SKILL.md:12 says 'Every task follows Red -> Green -> Refactor -> Mutate', but Mutate has only ever run at the wave boundary (wave_N_refactor), never inside a task."
   },
   {
     "name": "workaround_inline_rules_scope_discipline",
     "type": "contains",
-    "pattern": "Scope discipline.*no scope creep",
-    "dotall": true
-  },
-  {
-    "name": "workaround_team_inline_rules",
-    "type": "contains",
-    "pattern": "Inline Rules.*path-scoped rules.*bug #32906",
-    "target": "ref:team-mode.md",
-    "dotall": true
-  },
-  {
-    "name": "workaround_team_force_commit",
-    "type": "contains",
-    "pattern": "Before Exiting.*MANDATORY.*data loss",
-    "target": "ref:team-mode.md",
-    "dotall": true
+    "pattern": "Stay in scope.{0,300}scope creep",
+    "dotall": true,
+    "target": "agent:shipyard-disciplined-builder",
+    "why": "v3.16.0: repointed from the old team-mode.md 'Inline Rules' section (retired — track mode has no custom-authored spawn prompt anymore) to the shared, unchanged shipyard-disciplined-builder agent's own scope-discipline rule (item 3), which every dispatch shape — solo, task, and track's nested builders — already goes through."
   },
   {
     "name": "no_team_manual_worktree_workaround",
     "type": "not_contains",
     "pattern": "Create worktrees manually|git worktree add -b shipyard/wt",
-    "target": "ref:team-mode.md",
+    "target": "ref:track-mode.md",
     "why": "Phase 3 mode-semantics correction: #37549 is a platform design decision (teams isolate by file-partition, not directory) — there is no manual-worktree workaround to preserve; teammates share the main working tree."
   },
   {
-    "name": "workaround_team_bug_37549",
-    "type": "contains",
-    "pattern": "bug.*37549|#37549",
-    "target": "ref:team-mode.md"
+    "name": "no_37549_workaround_claim",
+    "type": "not_contains",
+    "pattern": "workaround.{0,80}#?37549|#?37549.{0,80}workaround",
+    "target": "ref:track-mode.md",
+    "why": "v3.16.0: inverted from workaround_team_bug_37549. Under the corrected design #37549 isn't a bug — track mode always passes isolation: \"worktree\" explicitly, so nothing about #37549 applies and there is nothing to work around (git-strategy.md states this explicitly: '#37549 is not in this table — it isn't a bug and there is no workaround to document'). A naive repoint of the old contains-check would pass for the wrong reason (track-mode.md does mention #37549 once, but to say it does NOT apply) — inverted to a regression guard instead."
   },
   {
     "name": "no_team_cd_worktree_path",
     "type": "not_contains",
     "pattern": "cd.*WORKTREE_PATH",
-    "target": "ref:team-mode.md",
+    "target": "ref:track-mode.md",
     "why": "Phase 3: teammates operate directly in the shared working tree; there is no per-teammate WORKTREE_PATH to cd into."
   },
   {
-    "name": "team_shares_one_working_tree",
-    "type": "contains",
+    "name": "no_team_shared_working_tree_claim",
+    "type": "not_contains",
     "pattern": "share.{0,20}ONE (main )?working tree|shared working tree",
-    "target": "ref:team-mode.md",
-    "why": "Phase 3: teammates partition by file ownership within one shared working tree, per the corrected #37549 model."
+    "target": "ref:track-mode.md",
+    "why": "v3.16.0: inverted from team_shares_one_working_tree. Track mode is the OPPOSITE of the old model it pinned — every task (including every nested builder) gets its own worktree and branch, and the coordinator itself is worktree-isolated too. Inverted to a regression guard against the old, now-false 'one shared working tree' framing ever coming back."
   },
   {
-    "name": "team_no_per_task_wt_branches",
-    "type": "contains",
+    "name": "no_per_task_wt_branches_claim",
+    "type": "not_contains",
     "pattern": "NO per-task .?wt-\\*.? branches|no per-feature worktree or branch",
-    "target": "ref:team-mode.md",
-    "why": "Phase 3: team mode has no worktree branches to integrate; verify-wave-integrated's branch-merge check is a structural no-op there."
+    "target": "ref:track-mode.md",
+    "why": "v3.16.0: inverted from team_no_per_task_wt_branches. Track mode now DOES have per-task wt-* branches (one per nested builder, per §4.2's one-task-one-worktree-one-branch invariant) — the opposite of the old team-mode claim. Positive coverage of the new invariant is added separately (nested_builders_get_worktree_isolation); this is retained as a regression guard against the old, now-false claim reappearing."
   },
   {
     "name": "workaround_already_on_worktree_branch_readiness",
@@ -389,8 +361,9 @@
   {
     "name": "workaround_precheck_covers_both_modes",
     "type": "contains",
-    "pattern": "Pre-spawn Branch Check.*subagent AND team",
-    "dotall": true
+    "pattern": "Pre-spawn Branch Check.*task AND track",
+    "dotall": true,
+    "why": "v3.16.0: vocabulary update — the heading is now 'Pre-spawn Branch Check (task AND track mode)', matching the solo/task/track rename; the check itself (verify orchestrator branch before spawning worktree agents) is unchanged."
   },
   {
     "name": "workaround_stdout_contract_worktree_hook",
@@ -408,9 +381,17 @@
   {
     "name": "workaround_bug_docs_worktree_table",
     "type": "contains",
-    "pattern": "#37549.*#34645.*#34775",
+    "pattern": "#34645.*#34775",
     "target": "ref:git-strategy.md",
-    "dotall": true
+    "dotall": true,
+    "why": "v3.16.0: #37549 was deliberately REMOVED from this table (it isn't a bug — see bug_37549_reclassified_not_workaround below), so the pattern no longer requires it. #34645/#34775 remain, unaffected."
+  },
+  {
+    "name": "bug_37549_reclassified_not_workaround",
+    "type": "contains",
+    "pattern": "37549 is not in this table|isn't a bug and there is no workaround",
+    "target": "ref:git-strategy.md",
+    "why": "v3.16.0: positive coverage of the corrected #37549 framing (a platform design decision, not a bug — track mode always passes isolation: \"worktree\" explicitly, so nothing applies) that git-strategy.md now states explicitly in place of the removed table row."
   },
   {
     "name": "workaround_bug_docs_data_loss_table",
@@ -635,29 +616,6 @@
     "name": "full_suite_only_at_sprint_completion",
     "type": "contains",
     "pattern": "Full test suite|full test suite.*sprint completion|only time the entire suite runs"
-  },
-  {
-    "name": "has_heartbeat_check",
-    "type": "contains",
-    "pattern": "\\.heartbeat"
-  },
-  {
-    "name": "heartbeat_stale_detection",
-    "type": "contains",
-    "pattern": "idle.*minutes.*last tool|stale.*heartbeat"
-  },
-  {
-    "name": "team_heartbeat_health_check",
-    "type": "contains",
-    "pattern": "HEALTH CHECK",
-    "target": "ref:team-mode.md"
-  },
-  {
-    "name": "team_heartbeat_dead_detection",
-    "type": "contains",
-    "pattern": "appears dead.*no tool call",
-    "target": "ref:team-mode.md",
-    "dotall": true
   },
   {
     "name": "prohibits_bash_redirect_for_state",
@@ -1232,57 +1190,107 @@
     "why": "v3.10.0: the shell's Operating Principles state the zero-thinking doctrine as the first bullet \u2014 the shell executes the checklist and escalates judgment calls, it does not reason about them."
   },
   {
-    "name": "subagent_is_default",
-    "type": "contains",
-    "pattern": "Subagent is the DEFAULT for build waves",
-    "why": "Phase 3 mode-semantics correction: subagent mode (worktree isolation + branch integration) is the build default. Team mode never isolated teammates in worktrees (#37549 is a platform design decision, not a bug workaround) so it cannot be the blanket build default without disabling the branch-integration half of the verification spine."
-  },
-  {
-    "name": "team_is_experimental_opt_in",
-    "type": "contains",
+    "name": "no_experimental_env_gate_claim",
+    "type": "not_contains",
     "pattern": "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
-    "why": "Phase 3: Agent Teams are gated on an experimental env var, not probed via a `TeamCreate` tool (which does not exist \u2014 teams are implicit on first teammate spawn)."
+    "why": "v3.16.0: inverted from team_is_experimental_opt_in. D6 (plan \u00a73.2) fixed the shipped defect of gating track/team dispatch on this env var, which no longer selects a distinct platform capability (F1: team_name is deprecated and ignored; isolation is the only real discriminator). Inverted to a regression guard against the env-gate coming back, rather than a repoint (the phrase is correctly absent everywhere now, including track-mode.md)."
   },
   {
     "name": "verification_spine_delegation_independent",
     "type": "contains",
-    "target": "ref:team-mode.md",
-    "pattern": "delegation-shape-independent",
-    "why": "v3.10.0: the load-bearing invariant \u2014 every task, however delegated, exits through task-return \u2192 the orchestrator gate \u2192 task_dispatch_returned. A teammate cannot self-certify completion."
+    "target": "ref:track-mode.md",
+    "pattern": "track cannot self-certify either way|delegation-shape-independent",
+    "why": "v3.16.0: repointed to track-mode.md; the exact v3.10.0 phrase 'delegation-shape-independent' isn't restated verbatim, but the same invariant is \u2014 'A coordinator cannot self-certify ... and a nested builder cannot self-certify ... A track cannot self-certify either way.' Pattern updated to match the actual (stronger, since C1 makes it structural rather than a stated rule) text while preserving the semantic guarantee this assertion pins."
   },
   {
     "name": "team_task_return_mandatory",
     "type": "contains",
-    "target": "ref:team-mode.md",
-    "pattern": "MANDATORY.*persist the structured return",
-    "why": "v3.10.0: teammates were previously bypassing the task-return contract entirely \u2014 the spawn prompt now makes shipyard-data task-return step 7, mandatory and first, before status flips to done."
+    "target": "agent:shipyard-disciplined-builder",
+    "pattern": "Persist the structured return via the CLI \\(MANDATORY\\)",
+    "why": "v3.16.0: repointed from team-mode.md's own (now-retired) custom spawn prompt to the shared, unchanged shipyard-disciplined-builder agent that track mode nests unchanged for every task \u2014 the MANDATORY-persist-return-first guarantee is now provided once, centrally, for every dispatch shape (solo/task/track) instead of being duplicated in a team-mode-specific prompt. Same text already independently pinned by dispatching-task-loop.json's v250_subagent_writes_capture_file; kept here too since ship-execute.json is specifically about the whole shell's correctness including its track dispatch path."
   },
   {
     "name": "team_no_taskreturn_is_blocked",
     "type": "contains",
-    "target": "ref:team-mode.md",
+    "target": "agent:shipyard-disciplined-builder",
     "pattern": "contract violation",
-    "why": "v3.10.0: done-without-task-return is explicitly named a contract violation \u2014 the lead treats it as BLOCKED and re-dispatches rather than trusting the teammate's TaskUpdate."
-  },
-  {
-    "name": "team_lead_runs_orchestrator_gate",
-    "type": "contains",
-    "target": "ref:team-mode.md",
-    "pattern": "Orchestrator-Side Parsing and Gating",
-    "why": "v3.10.0: the Lead Monitoring Loop runs the SAME orchestrator-side gate as wave_N_recovery (sha cat-file, PROBE_EXIT:0, anti-stub-scan) instead of a lightweight spot-check \u2014 closing the verification gap unique to team mode."
+    "why": "v3.16.0: repointed to the shared shipyard-disciplined-builder agent (Required Return Shape: 'Done-without-task-return is a contract violation'), which every nested track builder now runs unchanged. Stronger than the v3.10.0 original: under C1 a nested builder has no TaskUpdate at all in its isolated context, so self-certification is structurally impossible, not merely against the rules."
   },
   {
     "name": "team_wave_boundary_integration_gate",
     "type": "contains",
-    "target": "ref:team-mode.md",
-    "pattern": "verify-wave-integrated.*BEFORE any teardown",
-    "why": "v3.10.0: Wave Boundary Protocol step 1a runs the integration gate before any worktree teardown or teammate shutdown, matching the non-team wave-boundary discipline that was previously only enforced outside team mode."
+    "target": "ref:track-mode.md",
+    "pattern": "verify-wave-integrated.{0,20}THEN teardown",
+    "dotall": true,
+    "why": "v3.16.0: repointed to track-mode.md; pattern updated to match the actual Wave Boundary Protocol wording ('...THEN `shipyard-data verify-wave-integrated`, THEN teardown') rather than the old team-mode.md phrasing. Same invariant (integration gate runs before any teardown) is preserved."
   },
   {
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",
     "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+  },
+  {
+    "name": "track_coordinator_never_commits_or_writes",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "never commit and never write",
+    "why": "v3.16.0 WP5 addition: \u00a74.2 property 1/2 \u2014 a coordinator has no Write/Edit/Bash tool, so it cannot commit or leave uncommitted work; pins the agent's own stated rule."
+  },
+  {
+    "name": "track_coordinator_tools_allowlist_exact",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "tools: Read, ToolSearch, Agent, SendMessage",
+    "why": "v3.16.0 WP5 addition: pins the exact frontmatter tools allowlist \u2014 no Bash/Write/Edit is what makes 'never commits, never writes, cannot forge a task-return' structural rather than a stated rule (\u00a74.2 property 2)."
+  },
+  {
+    "name": "track_coordinator_wave_scoped",
+    "type": "contains",
+    "target": "ref:track-mode.md",
+    "pattern": "wave-scoped, not sprint-persistent",
+    "why": "v3.16.0 WP5 addition: \u00a74.2 property 1 \u2014 a coordinator surviving a wave boundary would fork builders from a stale wave-N base and silently drop wave-N's merged work, the same class of data loss as the v2.8.x baseRef incident. Coordinators must be spawned fresh per wave."
+  },
+  {
+    "name": "nested_builders_get_worktree_isolation",
+    "type": "contains",
+    "target": "ref:track-mode.md",
+    "pattern": "isolation: \"worktree\"",
+    "why": "v3.16.0 WP5 addition: every nested builder a track coordinator dispatches gets isolation: \"worktree\", same as task-mode builders \u2014 one task = one worktree = one branch = one commit, so the incident-hardened verification spine applies unchanged."
+  },
+  {
+    "name": "sendmessage_correct_shape",
+    "type": "contains",
+    "target": "ref:track-mode.md",
+    "pattern": "SendMessage\\(to: \"",
+    "why": "v3.16.0 WP5 addition: D2 fix \u2014 the real SendMessage schema is {to, message, summary}, additionalProperties:false. The old team-mode.md used the wrong {type, recipient, content} shape everywhere, which would fail validation on every call."
+  },
+  {
+    "name": "sendmessage_no_stale_recipient_field",
+    "type": "not_contains",
+    "pattern": "recipient:",
+    "target": "ref:track-mode.md",
+    "why": "v3.16.0 WP5 addition: regression guard against D2's wrong field name ({recipient: ...} instead of {to: ...}) reappearing."
+  },
+  {
+    "name": "isolated_agents_no_task_star_c1",
+    "type": "contains",
+    "pattern": "no .Task\\*. access at all.{0,30}C1",
+    "dotall": true,
+    "why": "v3.16.0 WP5 addition: pins C1 (\u00a72.1/\u00a73.1 of the plan) \u2014 isolated agents (track coordinators and nested builders alike) have no TaskCreate/TaskUpdate/TaskList, so main is the sole owner of the Task* checklist in every dispatch shape."
+  },
+  {
+    "name": "governance_mode_never_silently_overridden",
+    "type": "contains",
+    "pattern": "declared or forced mode is honored, never silently overridden",
+    "why": "v3.16.0 WP5 addition: \u00a74.5 governance rule \u2014 a declared execution_mode is honored or surfaced via AskUserQuestion, never silently decided by the shell. This is the P1 defect (a zero-thinking shell silently overrode an explicit user-set mode) that motivated the whole rebuild."
+  },
+  {
+    "name": "governance_mode_deviation_not_escalation_routed",
+    "type": "contains",
+    "pattern": "does NOT route to `escalating-to-thinker`.{0,400}AskUserQuestion",
+    "dotall": true,
+    "why": "v3.16.0 WP5 addition: \u00a74.5 \u2014 mode-deviation concerns go to AskUserQuestion (a user-authority decision), never to escalating-to-thinker (reasoning-gap consults only, and mode selection isn't one of its seven triggers)."
   },
   {
     "name": "wave_task_checklist_created",
@@ -1294,7 +1302,7 @@
     "name": "wave_task_subject_prefix_distinct",
     "type": "contains",
     "pattern": "\\[sprint-<id>\\] Wave",
-    "why": "Phase 6: the [sprint-<id>] prefix keeps the wave mirror distinguishable from ship-sprint's [sprint-plan] Step N: checklist and team-mode's per-teammate build tasks"
+    "why": "Phase 6: the [sprint-<id>] prefix keeps the wave mirror distinguishable from ship-sprint's [sprint-plan] Step N: checklist. (v3.16.0: updated — under the dispatch-shape rebuild there is no longer a separate per-teammate checklist to distinguish this from; main is the sole Task* owner in every dispatch shape, per C1.)"
   },
   {
     "name": "wave_task_gated_completion",

@@ -119,7 +119,7 @@ Do not re-run the full test suite for features that already have valid (complete
 
 ### Stage Task Checklist (created at preflight)
 
-On a fresh start (preflight, no existing cursor), `TaskCreate` one task per stage this invocation's mode will actually run — a high-level, per-STAGE mirror of pipeline progress, not a per-finding/per-criterion/per-gate list (those live in CODE-REVIEW.md, QUALITY-GATE.md, the review cursor, and the event log — the hardened, authoritative state). Subject prefix **`[review-NNN] <stage>`** (NNN = sprint id) — distinct from `/ship-execute`'s `[sprint-NNN] Wave K`, `/ship-sprint`'s `[sprint-plan] Step N`, and team-mode build tasks. Create all of them in one batch.
+On a fresh start (preflight, no existing cursor), `TaskCreate` one task per stage this invocation's mode will actually run — a high-level, per-STAGE mirror of pipeline progress, not a per-finding/per-criterion/per-gate list (those live in CODE-REVIEW.md, QUALITY-GATE.md, the review cursor, and the event log — the hardened, authoritative state). Subject prefix **`[review-NNN] <stage>`** (NNN = sprint id) — distinct from `/ship-execute`'s `[sprint-NNN] Wave K`, `/ship-sprint`'s `[sprint-plan] Step N`, and track-mode build tasks. Create all of them in one batch.
 
 Self-looping stages (`code_review_iter_N`, `gap_analysis`) get **ONE** task each ("Stage 0: Code Review", "Stage 4: Gap Analysis") — never one task per iteration; iteration churn belongs in the event log, not the task list.
 

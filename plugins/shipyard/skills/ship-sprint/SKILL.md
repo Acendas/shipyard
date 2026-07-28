@@ -122,7 +122,7 @@ On entering PLAN mode, `TaskCreate` one task per step so the user can watch the 
 
 Create all 20 in one batch (subjects prefixed with a plan slug, e.g. `[sprint-plan] Step 7: Wave Assignment`). `TaskUpdate` to `in_progress` when a step starts, `completed` when it ends. A legitimately-skipped step (nothing to carry over, no data-model concern) is marked `completed` with `skipped: <reason>` in the description — never deleted silently.
 
-**Guardrail (load-bearing): the task list is a progress surface and a recovery anchor, NEVER authority.** Do not gate any behavior on TaskList state, do not cite task status as evidence a step ran, and never mark a step's task completed before its file artifacts exist (task files, SPRINT-DRAFT.md, the manifest). SPRINT-DRAFT.md, the task files, and the event log remain the record; tasks are the user-visible mirror. (Note: /ship-execute team mode also uses the task system for *build* tasks — the `[sprint-plan] Step N:` subject prefix keeps the planning checklist distinguishable.)
+**Guardrail (load-bearing): the task list is a progress surface and a recovery anchor, NEVER authority.** Do not gate any behavior on TaskList state, do not cite task status as evidence a step ran, and never mark a step's task completed before its file artifacts exist (task files, SPRINT-DRAFT.md, the manifest). SPRINT-DRAFT.md, the task files, and the event log remain the record; tasks are the user-visible mirror. (Note: /ship-execute track mode also uses the task system for *build* tasks — the `[sprint-plan] Step N:` subject prefix keeps the planning checklist distinguishable.)
 
 ### Step 1: Determine Capacity
 
@@ -268,10 +268,11 @@ Any AskUserQuestion the protocol would raise (operational-kind classification, `
 
 ### Step 8: Determine Execution Mode
 
-Based on total tasks and wave structure:
-- 1-3 tasks → Solo mode
-- 4-10 tasks → Subagent mode
-- 10+ tasks → Team mode (if team_size > solo in config)
+Based on wave structure, never on raw task count alone — this mirrors `/ship-execute` Step 2's own per-wave rule, which decides the same way and would otherwise be contradicted by a sprint-level count threshold:
+- 1-3 tasks total → Solo mode
+- 4+ tasks → Task mode
+
+**Track mode is OPT-IN and is never auto-selected.** Choose it only when the user explicitly asks, via `--mode track` or a hand-set `execution_mode: track`. Track mode delivers **no additional build throughput** over Task mode — build concurrency is capped by `execution.max_parallel_agents` in both shapes — while costing one extra agent per track (a coordinator plus its active builder, ≈ `2 × tracks` live agents). What it buys is informed briefs (the TRACK NOTES block carried into each successive builder) and centralised per-track triage: real, but unproven until a soak demonstrates it. When a wave has a track (that wave's tasks sharing a parent feature — group by each task's `feature:` frontmatter) of 2+ tasks, you may mention in one line that track mode is available and what it would buy — then default to Task.
 
 ### Step 9: Prepare Sprint Plan
 
@@ -288,7 +289,7 @@ status: draft
 goal: [sprint goal]
 capacity: [N] pts
 features: [F001, F005]
-execution_mode: [solo|subagent|team]
+execution_mode: [solo|task|track]
 created: [ISO date]
 ---
 ```
@@ -325,7 +326,7 @@ Output the complete sprint plan as text. SPRINT-DRAFT.md and task files are alre
 - Features: list with IDs and titles
 - Tasks: [N] across [M] waves
 - Critical path: [T001 → T003 → T007]
-- Execution mode: solo/subagent/team
+- Execution mode: solo/task/track
 
 **PROJECTIONS**
 - Time: ~M.M hrs (X.X pts/hr avg from past sprints)
@@ -370,7 +371,7 @@ If approved:
 
 1. Use Edit to set `status: superseded` in SPRINT-DRAFT.md frontmatter (the soft-deleted record stays in place; physical removal is manual for now — do not physically delete). Run `shipyard-data init-sprint <sprint-id> --data-dir <SHIPYARD_DATA>` (Bash) to atomically create SPRINT.md and PROGRESS.md from the canonical templates at `project-files/templates/`. The `--data-dir` flag bypasses the git-based resolver — use it with the literal SHIPYARD_DATA path from the context block. **If init-sprint fails, STOP and surface the error to the user — do NOT fall back to Write.** Writing SPRINT.md or PROGRESS.md from memory causes schema drift (missing `started_at: null` comments, wrong default `status`, extra sections not in the template) that breaks downstream invariants. The CLI substitutes `id:` and `created:` only; everything else stays at template defaults and gets filled in via `shipyard-data sprint set` (frontmatter) and a model Edit of the body, below.
 2. Fill SPRINT.md from the approved plan in two parts:
-   - **Frontmatter fields** — set each via `shipyard-data sprint set <key> <value>` (typed atomic frontmatter mutation): `sprint set goal "<goal>"`, `sprint set capacity <N>`, `sprint set features "<F001,F005>"`, `sprint set execution_mode <solo|subagent|team>`. Do NOT Edit SPRINT.md frontmatter by hand — hand-edits are the corruption class that welds frontmatter keys together; the CLI merges atomically.
+   - **Frontmatter fields** — set each via `shipyard-data sprint set <key> <value>` (typed atomic frontmatter mutation): `sprint set goal "<goal>"`, `sprint set capacity <N>`, `sprint set features "<F001,F005>"`, `sprint set execution_mode <solo|task|track>`. Do NOT Edit SPRINT.md frontmatter by hand — hand-edits are the corruption class that welds frontmatter keys together; the CLI merges atomically.
    - **Body sections** — the narrative body (Goal, `### Wave N` sections, Critical Path, Risks, Swap Log) stays a model Edit on SPRINT.md. After writing the wave body, run `shipyard-data sprint check` to validate the `### Wave N` structure parses. If it exits 3, fix the wave formatting and re-run until it passes — the terminal gate parses this structure later, so unparseable waves would block sprint completion.
 3. Update feature statuses to `in-progress` in feature frontmatter.
 4. Remove pulled feature IDs from BACKLOG.md.

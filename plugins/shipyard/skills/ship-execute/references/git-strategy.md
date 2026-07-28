@@ -49,7 +49,7 @@ git add -A && git commit -m "feat(T001): implement auth config"
 git add -A && git commit -m "feat(T002): build login page"
 ```
 
-### Subagent Mode (parallel tasks)
+### Task Mode (parallel tasks)
 Each subagent works in a worktree with its own temporary task branch.
 
 The WorktreeCreate hook ensures worktrees branch from the user's current local branch, not `origin/HEAD`.
@@ -84,36 +84,42 @@ git branch -d shipyard/wt-T003-auth-middleware
 
 **Never fall back to regular merge** — that creates fork lines in the git graph. If rebase has conflicts, print the conflict details as chat text first — branch name, conflicting files, the relevant `git status` lines (git output is not shown to the user until printed) — then AskUserQuestion. The sequential order matters: each rebase starts from the updated HEAD after the previous merge, so ff-only always succeeds.
 
-### Team Mode (persistent teammates)
-Each teammate works in a worktree on a feature branch.
+### Track Mode (wave-scoped track coordinators + nested per-task builders)
+Track mode nests the same one-task-one-branch shape as Task Mode under a wave-scoped coordinator per feature track — it does **not** stack multiple task commits onto one feature-wide branch. Every task still gets its own worktree, its own branch, and exactly one commit; the coordinator adds sequencing and cross-task briefing, not a different git shape.
 
 ```
 User's branch: feature/auth
 
-Teammate "Auth" → worktree branch: shipyard/wt-F001-email-login
-  Commits while working:
-    - test(T001): add auth config tests
-    - feat(T001): implement auth config
-    - test(T002): add login page tests
-    - feat(T002): implement login page
+Track coordinator "F001" → worktree branch: shipyard/wt-F001-email-login
+  (isolated, but NEVER commits — the coordinator's own worktree stays at
+  wave-start HEAD the whole wave; nothing to rebase or merge for it)
+    ├─ nested builder T001 → worktree branch: shipyard/wt-T001-auth-config
+    │     Commits while working: test(T001) / feat(T001)  — ONE commit
+    └─ nested builder T002 → worktree branch: shipyard/wt-T002-login-page
+          Commits while working: test(T002) / feat(T002)  — ONE commit
 ```
 
-When feature complete — **rebase onto user's branch**, then merge:
+**Each nested task branch integrates exactly like a Task Mode branch** — sequentially, one at a time, in task-ID order, at the wave boundary:
 ```bash
-git checkout shipyard/wt-F001-email-login
-git rebase [user-branch]
+git rebase [user-branch] shipyard/wt-T001-auth-config
 git checkout [user-branch]
-git merge --ff-only shipyard/wt-F001-email-login
-
-# Clean up
+git merge --ff-only shipyard/wt-T001-auth-config
 git worktree remove <path>
-git branch -d shipyard/wt-F001-email-login
+git branch -d shipyard/wt-T001-auth-config
+
+git rebase [user-branch] shipyard/wt-T002-login-page
+git checkout [user-branch]
+git merge --ff-only shipyard/wt-T002-login-page
+git worktree remove <path>
+git branch -d shipyard/wt-T002-login-page
 ```
+
+**The coordinator's own branch (`shipyard/wt-F001-email-login`) is never rebased or merged** — it never advanced past wave-start HEAD, so it is trivially "merged" already (`git branch -d` succeeds with nothing to lose). Remove it like any other stale worktree once the coordinator itself has finished. See `references/track-mode.md` for the full protocol, including why nested builders don't chain onto each other's commits mid-wave (every nested builder forks from the coordinator's fixed HEAD, not a sibling's branch) and how the coordinator's running TRACK NOTES compensate for that.
 
 ## Wave Boundary
 
 Between waves, the orchestrator:
-1. Rebases and merges completed task/feature branches onto the user's branch
+1. Rebases and merges every completed task branch onto the user's branch — one task, one branch, regardless of whether it was dispatched directly (task mode) or nested under a track coordinator (track mode); a track coordinator's own branch is removed, never merged (it never advanced)
 2. Resolves merge conflicts — for non-trivial conflicts, render the conflicting branch + file list as chat text, then AskUserQuestion
 3. Deletes merged task branches, cleans up worktrees
 4. Delegates **wave-scoped build + tests** to a test subagent
@@ -133,12 +139,12 @@ Shipyard does not merge the hotfix anywhere. The user handles merge/PR.
 
 ## Worktree Lifecycle
 
-1. **Created** at wave start — one per parallel task/feature
+1. **Created** at wave start — one per parallel task in task mode; one per parallel task PLUS one per track coordinator in track mode (the coordinator's own worktree is never committed to — see "Track Mode" above)
 2. **Branched** from user's current local branch (via WorktreeCreate hook)
-3. **Named** `shipyard/wt-TASK_ID-slug` (subagent mode) or `shipyard/wt-FEATURE_ID-slug` (team mode)
-4. **Rebased** onto user's branch at wave end
+3. **Named** `shipyard/wt-TASK_ID-slug` (task mode, and every nested per-task builder in track mode) or `shipyard/wt-FEATURE_ID-slug` (a track coordinator's own worktree in track mode) — both conventions are live simultaneously under track mode, at two different layers
+4. **Rebased** onto user's branch at wave end — task branches only; a track coordinator's own branch never advanced, so there is nothing to rebase for it (item 6 covers its cleanup)
 5. **Merged** via fast-forward only — on ff failure, flagged to the user (never an automatic regular-merge fallback; see item 7 and the hard rule below)
-6. **Cleaned up** after successful merge: `git worktree remove` + `git branch -d`
+6. **Cleaned up** after successful merge: `git worktree remove` + `git branch -d` (a track coordinator's own worktree/branch is cleaned up the same way once the coordinator itself has finished, even though nothing was ever merged from it)
 7. **Preserved** if merge conflict — flagged to user for manual resolution
 
 ### WorktreeCreate Hook
@@ -155,12 +161,12 @@ Shipyard implements workarounds for several Claude Code bugs that affect worktre
 
 | Bug | Impact | Workaround |
 |-----|--------|------------|
-| **#37549** — `isolation: worktree` silently ignored with `team_name` | Team mode agents run in main repo, no isolation | Manual worktree creation before spawning teammates (see team-mode.md) |
-| **`isolation: worktree` silently fails** — platform sometimes ignores the flag even without `team_name` | Subagent mode agents run on working branch, no isolation | Pre-flight probe detects this; falls back to manual worktree creation (same pattern as team-mode #37549 workaround) |
 | **#34645** — Parallel worktree creation races on `.git/config.lock` | Some agents fail on spawn | File lock in `worktree-branch.mjs` serializes creation |
 | **#34775** — Agent frontmatter `isolation: worktree` ignored | Builder agent runs unisolated | Always pass `isolation: "worktree"` in Agent() call, never rely on frontmatter |
 | **#40262** — Hook stdout corrupts worktree path | Worktree creation fails | All hooks document STDOUT CONTRACT; only WorktreeCreate writes to stdout |
 | **#43535** — Worktree branches from `origin/HEAD` not current branch | Agents work on wrong code | WorktreeCreate hook explicitly passes `current_sha` as start point |
+
+**#37549 is not in this table — it isn't a bug and there is no workaround to document.** It is a Claude Code *design decision*: Agent Teams don't get worktree isolation *automatically*. It does not mean `isolation: "worktree"` is ignored when explicitly requested — passing it explicitly isolates any agent, team-context or not (every isolated agent gets its own distinct worktree AND its own distinct `shipyard/wt-*` branch, `WorktreeCreate` firing for each one). Track mode's coordinators and every nested builder always pass `isolation: "worktree"` explicitly (`references/track-mode.md`), so #37549 never applies to anything Shipyard dispatches — there is nothing to work around.
 
 ### Data Loss Bugs
 
@@ -182,8 +188,8 @@ Shipyard implements workarounds for several Claude Code bugs that affect worktre
 
 | Bug | Impact | Workaround |
 |-----|--------|------------|
-| **#32906** — Path-scoped rules don't load in subagents | TDD/execution rules missing | Critical rules inlined into spawn prompts |
-| **#39699** — Lead polling creates feedback loop + duplicate teammates | Token waste, duplicate work | Lead uses TaskList for monitoring, not SendMessage polling |
+| **#32906** — Path-scoped rules don't load in subagents | TDD/execution rules missing | Critical rules inlined into spawn prompts (every builder and track-coordinator brief) |
+| **#39699** — Lead polling creates feedback loop + duplicate teammates | Token waste, duplicate work | Main never polls a coordinator or a builder for status via repeated `SendMessage`/`TaskList` calls — it waits on the event-log `Monitor` (armed once, per wave) for `subagent_completed`, and on each spawned agent's own background-completion notification. `TaskList` is a mirror main writes to, never a polling read main relies on for liveness (see `references/track-mode.md` § "Main's Monitoring Loop" and § "Liveness — no heartbeat file"). |
 
 ### Edge Cases
 

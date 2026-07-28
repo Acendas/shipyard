@@ -144,7 +144,7 @@ Rules:
 
 **Wave size cap (`execution.max_tasks_per_wave`, default 6).** All quality machinery is wave-scoped — one integration gate, one scoped build/test run, one spec review, one completion gate per wave. An oversized wave makes those checkpoints rare and smears failure attribution across a giant merge surface. When a dependency layer has more tasks than the cap:
 
-- Split it into consecutive waves **along track boundaries** — keep tasks sharing a parent feature in the same wave (teams-default builds per track; splitting a track across waves forces a teammate to idle at a boundary mid-feature).
+- Split it into consecutive waves **along track boundaries** — keep tasks sharing a parent feature in the same wave (a track's nested per-task builders share the track coordinator's running context; splitting a track across waves forces that coordinator to idle at a boundary mid-feature).
 - If a single track alone exceeds the cap, split that track across consecutive waves at its most natural internal seam (e.g., data layer wave, then service/UI wave).
 - The split is always dependency-valid: the layer's tasks were mutually independent, so any partition of them into consecutive waves preserves the no-intra-wave-dependency invariant.
 - **Never cap the number of WAVES** — wave count is dependency depth, and merging dependent tasks into one wave to reduce count breaks the invariant.

@@ -1,0 +1,167 @@
+[
+  {
+    "name": "dispatches_registered_agent",
+    "type": "contains",
+    "pattern": "subagent_type: \"shipyard:shipyard-track-coordinator\"",
+    "why": "v3.16.0 dispatch-shape rebuild WP0/WP3: the wrapper dispatches the registered agent, not a hand-rolled general-purpose prompt — same contract as dispatching-task-loop's own pairing with shipyard-disciplined-builder."
+  },
+  {
+    "name": "no_general_purpose",
+    "type": "not_contains",
+    "pattern": "general-purpose",
+    "why": "check_dispatch_contract_pairs also enforces this structurally; pinned here too as a content-level regression guard, matching dispatching-task-loop.json's own convention."
+  },
+  {
+    "name": "coordinator_never_builds_never_certifies",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "Coordinate, Never Build, Never Certify",
+    "why": "the agent's own role section states its three-word job description — dispatcher, not builder, not verifier."
+  },
+  {
+    "name": "coordinator_never_commits_or_writes",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "never commit and never write",
+    "why": "§4.2 property 1/2 — no Write/Edit/Bash tool, so there is no uncommitted work to lose and no way to forge a task-return."
+  },
+  {
+    "name": "coordinator_tools_allowlist_exact",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "tools: Read, ToolSearch, Agent, SendMessage",
+    "why": "the exact frontmatter allowlist is what makes 'cannot certify, cannot commit' structural — no Bash means it cannot invoke shipyard-data at all."
+  },
+  {
+    "name": "coordinator_has_status_complete_return",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "STATUS: COMPLETE",
+    "why": "Required Return Shape covers all three coordinator outcomes."
+  },
+  {
+    "name": "coordinator_has_status_partial_return",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "STATUS: PARTIAL",
+    "why": "a track where some tasks completed and others blocked is a distinct, named outcome from full COMPLETE or full BLOCKED."
+  },
+  {
+    "name": "coordinator_has_status_blocked_return",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "STATUS: BLOCKED",
+    "why": "covers missing-brief-parameters and structural dispatch-failure cases."
+  },
+  {
+    "name": "coordinator_has_track_notes_field",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "TRACK_NOTES:",
+    "why": "§4.2 property 4 — the running TRACK NOTES block is the concrete artifact that makes the coordinator's persistence load-bearing rather than an extra agent buying nothing."
+  },
+  {
+    "name": "coordinator_sequential_dispatch",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "sequential",
+    "why": "dispatch within a track is one builder at a time, never two in flight under the same coordinator — bounds the nested concurrency budget."
+  },
+  {
+    "name": "coordinator_deterministic_builder_naming",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "builder-<TASK_ID>|builder-\\{\\{task_id\\}\\}|builder-{{task_id}}",
+    "why": "§4.7 — deterministic naming is what lets main TaskStop a specific nested builder by name later, since TaskStop is ownership-scoped and the coordinator cannot stop its own children."
+  },
+  {
+    "name": "coordinator_isolation_worktree_on_builders",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "isolation: \"worktree\"",
+    "why": "every nested builder dispatch passes isolation: \"worktree\", preserving one-task-one-worktree-one-branch."
+  },
+  {
+    "name": "coordinator_interface_change_broadcast",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "INTERFACE CHANGE:",
+    "why": "a completed builder revealing a shared interface change is broadcast to sibling track coordinators by name — the concrete use of sibling_track_names."
+  },
+  {
+    "name": "coordinator_blocked_does_not_halt_track",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "does not stop your track|do not halt the whole track",
+    "why": "rule 5 — a block on one task must not stop the rest of an independently-buildable track."
+  },
+  {
+    "name": "coordinator_sendmessage_toolsearch_first",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "ToolSearch\\(query: \"select:SendMessage\"",
+    "why": "SendMessage is deferred in an isolated context and fails silently without a ToolSearch promotion first — the coordinator's only reporting channel, so this must be its first action."
+  },
+  {
+    "name": "wrapper_orchestrator_side_parsing_and_gating",
+    "type": "contains",
+    "pattern": "Orchestrator-Side Parsing and Gating",
+    "why": "v3.16.0: relocated from ship-execute.json's team_lead_runs_orchestrator_gate — this section now lives in the wrapper skill (dispatching-track-coordinator owns the dispatch mechanics, per the v3.12.0 agent-extraction sort rule), not in ship-execute/references/track-mode.md, so the pin moved with it."
+  },
+  {
+    "name": "wrapper_reuses_per_task_gate",
+    "type": "contains",
+    "pattern": "sha exists.*probe exit 0.*non-empty tail.*anti-stub-scan|cat-file.*probe_exit_code.*anti-stub",
+    "dotall": true,
+    "why": "the per-task orchestrator-side gate (sha verify + PROBE_EXIT:0 + anti-stub-scan) is unchanged from dispatching-task-loop, applied per task inside a track exactly as outside one."
+  },
+  {
+    "name": "wrapper_single_redispatch_rule_reused",
+    "type": "contains",
+    "pattern": "single-redispatch rule",
+    "why": "a BLOCKED task inside a track is redispatched directly via dispatching-task-loop's own single-redispatch rule, not re-run through a fresh coordinator."
+  },
+  {
+    "name": "wrapper_silent_return_track_level",
+    "type": "contains",
+    "pattern": "Silent Return \\(Track Level\\)",
+    "why": "v3.12.0 anti-silence contract: a coordinator return with no STATUS: line is its own named, audited outcome — reconcile against .subagent-returns/ before assuming anything is lost, redispatch once, then park."
+  },
+  {
+    "name": "wrapper_silent_return_reconciles_ground_truth",
+    "type": "contains",
+    "pattern": "Reconcile against ground truth before assuming anything is lost",
+    "why": "nested builders write .subagent-returns/<task_id>.json independent of the coordinator, so a silent coordinator does not by itself mean lost work — the wrapper must check the shared data dir before redispatching."
+  },
+  {
+    "name": "wrapper_never_trusts_coordinator_claim_alone",
+    "type": "contains",
+    "pattern": "contract violation",
+    "why": "a COMPLETED_TASKS/BLOCKED_TASKS csv that doesn't account for every task in the track's input is treated as untrustworthy, same discipline as the per-task gate — the coordinator cannot self-certify a track any more than a builder can self-certify a task."
+  },
+  {
+    "name": "render_before_ask_rule",
+    "type": "contains",
+    "pattern": "Render before asking",
+    "why": "check_render_before_ask scans every skill with an AskUserQuestion mention, capability skills included since v3.11.0's zero-exemption widening."
+  },
+  {
+    "name": "render_provenance_negation",
+    "type": "contains",
+    "pattern": "does not count as rendered",
+    "why": "anchors the same phrase check_render_before_ask requires — a coordinator's BLOCKED reason or a redispatch's REASON must be rendered as chat text, not just present in a subagent return, before the ask."
+  },
+  {
+    "name": "render_before_ask_compact_card",
+    "type": "contains",
+    "pattern": "compact card",
+    "why": "third leg of the render-before-ask contract — question/option strings display as a compact card, not a rendering surface."
+  },
+  {
+    "name": "no_taskcreate_taskupdate_in_wrapper_flow",
+    "type": "not_contains",
+    "pattern": "the coordinator calls TaskCreate|the coordinator calls TaskUpdate|coordinator.{0,20}TaskList\\(\\)",
+    "dotall": true,
+    "why": "C1 — isolated agents (the coordinator included) have no Task* access at all; the wrapper must never describe the coordinator itself touching the checklist. Main is the sole Task* owner."
+  }
+]

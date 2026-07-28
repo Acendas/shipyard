@@ -54,23 +54,27 @@ Solo mode still uses subagents — tasks run sequentially (one at a time) instea
 
 The orchestrator in solo mode: reads SPRINT.md, spawns one subagent, waits for it, spot-checks the result, spawns the next. No TDD cycle output accumulates in the orchestrator's window.
 
-## Team Mode Context
+## Track Mode Context
 
-### Lead Session (~10-15% context)
-The lead (orchestrator) holds only coordination state:
+Track mode has no shared task list or mailbox to coordinate through — isolated agents (both the track coordinator and its nested builders) have no `Task*` access at all (constraint C1: isolation and the shared checklist are mutually exclusive on this platform). Coordination flows entirely through `SendMessage` (advisory: blockers, interface changes) and the shared event log / `.subagent-returns/` directory (authoritative: what actually landed). See `references/track-mode.md` for the full protocol.
+
+### Main Session (~10-15% context)
+Main holds only coordination state:
 - SPRINT.md wave structure and feature track mapping
-- Wave-level status from `TaskList()` — task IDs and statuses, not details
+- The per-track handle/timeout list and the per-task `pending_subagents` list (`references/track-mode.md` § "Main's Monitoring Loop") — reconciled from the event log, never from polling a coordinator
 - Integration test results at wave boundaries
-- Feature track assignments (which teammate owns which feature)
+- `Task*` — main is the SOLE owner and writer; it is a progress mirror main maintains from evidence (task-return records + the event log), never a coordination channel and never authority (v2.11.0 `task_list_never_authority`, unaffected by this design)
 
-The lead does NOT hold: task spec contents, implementation details, full codebase context, or teammate conversation history. All coordination flows through the shared task list and mailbox.
+Main does NOT hold: task spec contents, implementation details, full codebase context, or a coordinator's own reasoning. There is no shared task list or mailbox for main to read state from — everything above is either main's own bookkeeping or derived from the event log.
 
-### Teammate Sessions (fresh 200k, persistent across tasks)
-Each teammate gets a fresh context window that persists across their feature track:
-- **Read once, reuse across tasks:** Feature spec, codebase context, and shared patterns are loaded once at start. This context carries forward as the teammate works through multiple tasks.
-- **Task spec replaced each task:** When picking up a new task, the teammate reads just that task's spec file. Old task output gets auto-compacted naturally.
-- **Feature context retained:** Unlike subagent mode (which rebuilds context per task), teammates accumulate understanding of their feature's types, patterns, and interfaces.
+### Track Coordinator Sessions (fresh 200k, persistent for one wave)
+A track coordinator's context persists across its track's tasks **for one wave only** — not across the whole feature, and not across a wave boundary (`references/track-mode.md` § "Wave-scoped, not sprint-persistent"). It holds no code:
+- **No feature spec, no codebase context, no diffs.** The coordinator's `tools:` allowlist is `Read, ToolSearch, Agent, SendMessage` — deliberately no `Bash`/`Write`/`Edit` (this is what makes it structurally unable to self-certify a task). It dispatches; it does not read source or write code.
+- **What actually persists is TRACK NOTES** — a short running block of interfaces introduced or renamed, decisions taken, gotchas hit, and files touched, built from each nested builder's return text and prepended to the next builder's brief. This is a curated few-hundred-token artifact, not accumulated raw context.
 
-### When Team Mode > Subagent Mode
-- Features with **3+ tasks each** — teammate amortizes feature spec reading and pattern understanding across tasks
-- If most features have **1-2 tasks**, subagent mode is more efficient (less coordination overhead, simpler monitoring)
+### Nested Builder Sessions (fresh 200k per task — unchanged from task mode)
+Each nested builder is `shipyard-disciplined-builder`, dispatched exactly as it would be under task mode: a fresh context window per task, reading its own feature spec and codebase context from scratch every time. Track mode does **not** give a builder a persistent, accumulating context across its track's tasks — that would require the coordinator to hold and forward full context, which its allowlist structurally prevents. The one thing a track-mode builder gets that a task-mode builder doesn't is the coordinator's TRACK NOTES prepended to its brief — informed sequencing, not context reuse.
+
+### When Track Mode > Task Mode
+- Features with **3+ tasks each** in the same wave — a coordinator's TRACK NOTES let each subsequent task's builder start from the naming/interface decisions its siblings actually made, instead of guessing independently and colliding at the wave-boundary merge (`references/track-mode.md` § "The Track Coordinator Contract"). This is the same "3+" threshold as before, but the mechanism it justifies has changed: it buys better-informed briefs and centralized per-track triage, not context-window amortization — nested builders still each pay the full feature-spec-read cost every task, same as task mode. Track mode does not buy additional build throughput over task mode (concurrency is capped the same way at either granularity); the extra coordinator agent per track is a real cost paid only for the briefing benefit.
+- If most features have **1-2 tasks**, task mode is more efficient (no coordinator overhead, no extra agent per track, simpler monitoring).

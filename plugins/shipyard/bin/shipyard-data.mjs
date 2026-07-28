@@ -1252,6 +1252,17 @@ const SPRINT_SETTABLE_KEYS = new Set([
   "completed_at",
 ]);
 
+/**
+ * `execution_mode` vocabulary (dispatch-shape rebuild, §4.6): `solo` / `task`
+ * / `track` are current; `subagent` and `team` are accepted as aliases of
+ * `task` and `track` respectively so SPRINT.md files written before this
+ * rename keep working unchanged. This is the only key with value
+ * validation today — the rest stay free-form per the original
+ * keys-only-validation design; add here only if another key develops the
+ * same drift risk.
+ */
+const EXECUTION_MODE_VALUES = new Set(["solo", "task", "track", "subagent", "team"]);
+
 function sprintSet(key, value) {
   if (!key || value === undefined) {
     process.stderr.write(
@@ -1264,6 +1275,13 @@ function sprintSet(key, value) {
     process.stderr.write(
       `shipyard-data sprint set: key "${key}" is not settable. ` +
         `Allowed: ${[...SPRINT_SETTABLE_KEYS].join(", ")}\n`,
+    );
+    process.exit(2);
+  }
+  if (key === "execution_mode" && !EXECUTION_MODE_VALUES.has(value)) {
+    process.stderr.write(
+      `shipyard-data sprint set: execution_mode "${value}" is not valid. ` +
+        `Allowed: solo, task, track (legacy aliases: subagent → task, team → track)\n`,
     );
     process.exit(2);
   }
