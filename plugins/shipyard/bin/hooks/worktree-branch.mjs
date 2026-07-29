@@ -18,9 +18,10 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative as pathRelative, resolve as pathResolve } from "node:path";
 import { withLockfile, WORKTREE_NAME_RE } from "../_hook_lib.mjs";
+import { getProjectRoot } from "../shipyard-resolver.mjs";
 import { warmWorktreeFromConfig } from "../worktree-warm.mjs";
 
 function runGit(args, cwd) {
@@ -112,6 +113,43 @@ function name_slug(branchName) {
   return branchName.replace(/^shipyard\/wt-/, "").replace(/[^A-Za-z0-9._-]/g, "_");
 }
 
+/**
+ * Best-effort stamp of the orchestrator's own project root into the new
+ * worktree's git ADMIN dir — never its working tree, so there is nothing to
+ * commit. Read back later by `shipyard-resolver.mjs::readWorktreeOriginRoot`
+ * when a builder subagent inside this worktree needs to resolve its data dir.
+ *
+ * Why here, and why now: this hook runs in the orchestrator's OWN process
+ * context at the moment the worktree is created, so `getProjectRoot()` here
+ * reflects the orchestrator's true project root — including the case where
+ * the orchestrator itself is running inside a user worktree rather than the
+ * parent repo, which the builder has no way to discover on its own later.
+ *
+ * Filename is fixed: `shipyard-origin-root`. Failure here must NEVER fail
+ * worktree creation and must NEVER write to stdout (the hook's stdout
+ * contract is the worktree path only, see the file header) — every failure
+ * path below is swallowed after a stderr note.
+ */
+function writeOriginMarker(worktreePath) {
+  try {
+    const originRoot = getProjectRoot();
+    const adminDir = runGit(["rev-parse", "--absolute-git-dir"], worktreePath);
+    if (!adminDir) {
+      process.stderr.write(
+        "shipyard worktree hook: could not resolve new worktree's admin dir; " +
+          "skipping origin marker (non-blocking)\n",
+      );
+      return;
+    }
+    const markerPath = join(pathResolve(adminDir), "shipyard-origin-root");
+    writeFileSync(markerPath, originRoot + "\n", { mode: 0o600 });
+  } catch (err) {
+    process.stderr.write(
+      `shipyard worktree hook: origin marker write failed (non-blocking): ${err?.message ?? err}\n`,
+    );
+  }
+}
+
 export async function run(hookInput, _env) {
   const name = hookInput?.name || "";
   if (!name) {
@@ -184,6 +222,7 @@ export async function run(hookInput, _env) {
         return;
       }
       resultPath = worktreePath;
+      writeOriginMarker(worktreePath);
     }, { ttlMs: 30000, retryMs: 500, maxRetries: 60 });
   } catch (err) {
     process.stderr.write(`shipyard worktree hook: lock failure: ${err.message}\n`);

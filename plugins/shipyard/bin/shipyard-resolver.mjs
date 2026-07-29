@@ -29,7 +29,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 const IS_WINDOWS = process.platform === "win32";
 
@@ -49,6 +49,78 @@ function runGit(args, cwd) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Read the origin-marker file the WorktreeCreate hook (`worktree-branch.mjs`)
+ * best-effort stamps into a freshly-created worktree's git ADMIN dir (not its
+ * working tree — never a committable file). Filename is fixed:
+ * `shipyard-origin-root`, sibling to the worktree's own `HEAD`/`commondir`
+ * files under `.git/worktrees/<name>/` (or, for a nested worktree, whatever
+ * `git rev-parse --absolute-git-dir` reports for it).
+ *
+ * Why this exists: the builder-worktree classification below assumes the
+ * orchestrator session lives on the PARENT repo, so hashing `parentRoot`
+ * reunites a builder subagent's writes with the orchestrator's. That
+ * assumption breaks when the orchestrator itself is running inside a USER
+ * worktree (e.g. `trunk3.worktrees/dev2`) and spawns builder worktrees under
+ * the *parent* repo's `.claude/worktrees/` — those builders would otherwise
+ * hash to the parent repo, a different data dir than the orchestrator's own
+ * (the user worktree). The hook runs in the orchestrator's own process
+ * context at worktree-creation time and therefore already knows the right
+ * answer; stamping it lets a builder recover it later without needing any
+ * shared env var or IPC.
+ *
+ * Accepted only when EVERY check holds — any failure falls through to the
+ * caller's existing `parentRoot` behavior, so a missing/corrupt/malicious
+ * marker can never make things worse than today:
+ *   - the marker file exists and is a plain file (no symlink-following);
+ *   - its content is exactly one non-empty line (trailing newline stripped);
+ *   - the line has no control characters and is under 4096 bytes;
+ *   - the line is an absolute path;
+ *   - that path exists on disk;
+ *   - realpath'd, it is itself inside a git work tree (`gitBacked`).
+ *
+ * This is hook-adjacent attack surface (see "Security: hooks are attack
+ * surface" in the workspace dev notes) even though the admin dir is not
+ * normally attacker-writable — applying the same discipline as the tmpdir
+ * breadcrumb reader (readBreadcrumb) costs nothing and keeps the invariant
+ * uniform across every file-based trust boundary in this module.
+ */
+export function readWorktreeOriginRoot(absGitDir) {
+  if (!absGitDir) return null;
+  const markerPath = join(absGitDir, "shipyard-origin-root");
+  let raw;
+  try {
+    const st = lstatSync(markerPath);
+    if (!st.isFile()) return null;
+    raw = readFileSync(markerPath, "utf8");
+  } catch {
+    return null; // missing, unreadable, or raced away
+  }
+
+  // Exactly one non-empty line. Reject anything else outright rather than
+  // trying to salvage a "mostly fine" multi-line value — the offset math a
+  // partial parse would need is exactly the kind of complexity that hides
+  // bugs in a security-sensitive reader.
+  const lines = raw.split("\n").filter((l) => l.length > 0);
+  if (lines.length !== 1) return null;
+  const value = lines[0];
+
+  if (value.length === 0 || value.length >= 4096) return null;
+  // eslint-disable-next-line no-control-regex -- deliberately scanning for control chars
+  if (/[\x00-\x1f\x7f]/.test(value)) return null;
+  if (!isAbsolute(value)) return null;
+  if (!existsSync(value)) return null;
+
+  let real;
+  try {
+    real = realpathSync(value);
+  } catch {
+    return null;
+  }
+  if (!isInsideGitRepo(real)) return null;
+  return real;
 }
 
 /**
@@ -161,6 +233,21 @@ function resolveProjectRoot() {
       const builderPrefix =
         join(parentRoot, ".claude", "worktrees") + sep;
       const isBuilderWorktree = (worktreeTop + sep).startsWith(builderPrefix);
+
+      if (isBuilderWorktree) {
+        // Before defaulting to parentRoot, check for an origin marker the
+        // WorktreeCreate hook stamped at creation time (see
+        // readWorktreeOriginRoot above). It knows the orchestrator's true
+        // project root even when that orchestrator itself sits in a USER
+        // worktree rather than the parent repo — a case parentRoot alone
+        // gets wrong. absGitDir here is this same worktree's own admin dir,
+        // exactly where the hook would have written the marker.
+        const marker = readWorktreeOriginRoot(absGitDir);
+        if (marker) {
+          return { root: marker, gitBacked: true };
+        }
+      }
+
       return {
         root: isBuilderWorktree ? parentRoot : worktreeTop,
         gitBacked: true,

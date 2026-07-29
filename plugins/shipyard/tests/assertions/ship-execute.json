@@ -205,12 +205,12 @@
   {
     "name": "wave_status_progress_bar",
     "type": "contains",
-    "pattern": "\u2588.*\u2591|progress bar"
+    "pattern": "█.*░|progress bar"
   },
   {
     "name": "wave_status_projection",
     "type": "contains",
-    "pattern": "Wave \\[N\\]/\\[M\\]|\u2192 Wave"
+    "pattern": "Wave \\[N\\]/\\[M\\]|→ Wave"
   },
   {
     "name": "uses_shipyard_data_path",
@@ -350,7 +350,8 @@
   {
     "name": "workaround_already_on_worktree_branch_readiness",
     "type": "contains",
-    "pattern": "WORKTREE BRANCH DETECTED"
+    "pattern": "leftover worktree branch|on_wt_branch",
+    "why": "v3.17.0: a leftover shipyard/wt-* checkout is now a derived switch_branch action from readiness-check, applied and stated in one line — it is no longer an AskUserQuestion with a single option."
   },
   {
     "name": "workaround_already_on_worktree_branch_precheck",
@@ -811,7 +812,37 @@
   {
     "name": "auto_loop_has_cron_fallback",
     "type": "contains",
-    "pattern": "CronCreate.*shipyard:ship-execute|pipeline_loop_bootstrap_fallback"
+    "pattern": "CronCreate.*shipyard:ship-execute|pipeline_loop_bootstrap_fallback",
+    "why": "v3.18/F3: the fallback mechanism moved from a model-driven CronCreate nudge into bootstrap-check's own dead-loop re-arm (see bootstrap_check_rearm_field below) — pipeline_loop_bootstrap_fallback is still the event name either way, so this stays satisfied via that alternative."
+  },
+  {
+    "name": "bootstrap_check_rearm_field",
+    "type": "contains",
+    "pattern": "\"rearm\"|`rearm`",
+    "why": "F3: bootstrap-check re-arms a dead /loop itself (eligible: true, rearm: true) instead of refusing forever once auto_loop_attempted is set — documented so the shell treats a rearm identically to fresh eligibility."
+  },
+  {
+    "name": "bootstrap_check_never_derives_by_hand",
+    "type": "contains",
+    "pattern": "re-arms it itself|never derive this by hand"
+  },
+  {
+    "name": "no_stale_cursor_sprint_id_reference",
+    "type": "not_contains",
+    "pattern": "cursor\\.sprint_id",
+    "why": "F4: the cursor's sprint field is `sprint`, not `sprint_id` — a stale reference in the wave-waiting handler prose named a field the cursor never had."
+  },
+  {
+    "name": "pending_subagents_resets_on_dispatch",
+    "type": "contains",
+    "pattern": "REPLACES the list|REPLACES pending_subagents",
+    "why": "F5: a wave_N_dispatch target stage replaces pending_subagents rather than inheriting a prior wave's leftovers; only wave_N_waiting self-loops keep the merge/carry semantics."
+  },
+  {
+    "name": "no_loop_driving_marker_documented",
+    "type": "contains",
+    "pattern": "no loop is driving this sprint",
+    "why": "F6: a non-terminal advance prints this exact marker instead of the ordinary continuation marker when the liveness signal finds no evidence a /loop is actively driving the sprint."
   },
   {
     "name": "live_progress_monitor_pattern_documented",
@@ -868,7 +899,7 @@
   {
     "name": "wakeup_leak_protection_prints_cycle_complete_marker",
     "type": "contains",
-    "pattern": "CYCLE COMPLETE \u2014 sprint already complete\\. /loop should stop\\."
+    "pattern": "CYCLE COMPLETE — sprint already complete\\. /loop should stop\\."
   },
   {
     "name": "wakeup_leak_protection_references_v2_2_0_lesson",
@@ -1063,7 +1094,7 @@
     "type": "contains",
     "pattern": "anchor-commit <task>.*task_dispatch_returned|anchor-commit.*task_dispatch_returned pipeline=ship-execute",
     "dotall": true,
-    "why": "Background recovery must anchor each gate-passed commit AND emit task_dispatch_returned status=complete (the single orchestrator choke point) \u2014 background mode was missing both, reopening the v2.8 orphan vector."
+    "why": "Background recovery must anchor each gate-passed commit AND emit task_dispatch_returned status=complete (the single orchestrator choke point) — background mode was missing both, reopening the v2.8 orphan vector."
   },
   {
     "name": "waiting_timeout_taskstop_zombie",
@@ -1075,7 +1106,7 @@
     "name": "waiting_liveness_check_before_timeout",
     "type": "contains",
     "pattern": "recent .task_loop_iteration. event",
-    "why": "Before declaring a subagent TIMED OUT, check for a recent task_loop_iteration event \u2014 a live slow builder is not dead."
+    "why": "Before declaring a subagent TIMED OUT, check for a recent task_loop_iteration event — a live slow builder is not dead."
   },
   {
     "name": "parked_branch_salvage_not_merged",
@@ -1109,7 +1140,7 @@
     "type": "contains",
     "pattern": "terminal but still in `current/`|finish /ship-review \\(which archives",
     "dotall": true,
-    "why": "v3.4.0: --task/--hotfix also refuse a TERMINAL execute cursor still in current/ (execute done, review pending) \u2014 never --force."
+    "why": "v3.4.0: --task/--hotfix also refuse a TERMINAL execute cursor still in current/ (execute done, review pending) — never --force."
   },
   {
     "name": "readiness_banner_no_ask",
@@ -1120,8 +1151,8 @@
   {
     "name": "readiness_anomaly_prompt_conditional",
     "type": "contains",
-    "pattern": "the ONLY ask on a fresh start|one ask max, zero when clean",
-    "why": "v3.4.0: the single readiness ask fires only on baseline-fail / branch-mismatch / wt-* branch / dirty tree."
+    "pattern": "only when `must_ask` is true|one ask max, merged",
+    "why": "v3.17.0: readiness conditions are adjudicated by `shipyard-data readiness-check`; the shell asks only when the CLI returns must_ask, and merges all reasons into one call."
   },
   {
     "name": "paused_wakeup_inert",
@@ -1151,7 +1182,7 @@
     "name": "park_does_not_double_emit_task_blocked",
     "type": "not_contains",
     "pattern": "Emit `shipyard-data events emit task_blocked task=<id> reason=\"<short>\" escalation=<code>`",
-    "why": "v3.6.0 wave 2: the old Park-handling sentence emitted task_blocked manually; task set-status blocked now auto-emits it, so a separate emit would double the event. Scoped to the OLD PARK SENTENCE specifically (not a blanket ban on the phrase). Follow-up (needs-attention now CLI-covered): dispatching-task-loop's persistent-failure/presumed_dead paths were migrated to `task set-status ... needs-attention --reason ...`, which deliberately does NOT auto-emit task_blocked (documented as distinct from blocked) \u2014 see spec-state-cli's TASK_HELD_STATUS_FIELDS comment."
+    "why": "v3.6.0 wave 2: the old Park-handling sentence emitted task_blocked manually; task set-status blocked now auto-emits it, so a separate emit would double the event. Scoped to the OLD PARK SENTENCE specifically (not a blanket ban on the phrase). Follow-up (needs-attention now CLI-covered): dispatching-task-loop's persistent-failure/presumed_dead paths were migrated to `task set-status ... needs-attention --reason ...`, which deliberately does NOT auto-emit task_blocked (documented as distinct from blocked) — see spec-state-cli's TASK_HELD_STATUS_FIELDS comment."
   },
   {
     "name": "salvage_uses_task_set_status_needs_attention",
@@ -1175,7 +1206,7 @@
     "name": "no_hand_write_lock_file",
     "type": "not_contains",
     "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
-    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned \u2014 no skill body hand-Writes them anymore."
+    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore."
   },
   {
     "name": "shell_is_sonnet",
@@ -1187,27 +1218,27 @@
     "name": "zero_thinking_doctrine",
     "type": "contains",
     "pattern": "does NO thinking",
-    "why": "v3.10.0: the shell's Operating Principles state the zero-thinking doctrine as the first bullet \u2014 the shell executes the checklist and escalates judgment calls, it does not reason about them."
+    "why": "v3.10.0: the shell's Operating Principles state the zero-thinking doctrine as the first bullet — the shell executes the checklist and escalates judgment calls, it does not reason about them."
   },
   {
     "name": "no_experimental_env_gate_claim",
     "type": "not_contains",
     "pattern": "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
-    "why": "v3.16.0: inverted from team_is_experimental_opt_in. D6 (plan \u00a73.2) fixed the shipped defect of gating track/team dispatch on this env var, which no longer selects a distinct platform capability (F1: team_name is deprecated and ignored; isolation is the only real discriminator). Inverted to a regression guard against the env-gate coming back, rather than a repoint (the phrase is correctly absent everywhere now, including track-mode.md)."
+    "why": "v3.16.0: inverted from team_is_experimental_opt_in. D6 (plan §3.2) fixed the shipped defect of gating track/team dispatch on this env var, which no longer selects a distinct platform capability (F1: team_name is deprecated and ignored; isolation is the only real discriminator). Inverted to a regression guard against the env-gate coming back, rather than a repoint (the phrase is correctly absent everywhere now, including track-mode.md)."
   },
   {
     "name": "verification_spine_delegation_independent",
     "type": "contains",
     "target": "ref:track-mode.md",
     "pattern": "track cannot self-certify either way|delegation-shape-independent",
-    "why": "v3.16.0: repointed to track-mode.md; the exact v3.10.0 phrase 'delegation-shape-independent' isn't restated verbatim, but the same invariant is \u2014 'A coordinator cannot self-certify ... and a nested builder cannot self-certify ... A track cannot self-certify either way.' Pattern updated to match the actual (stronger, since C1 makes it structural rather than a stated rule) text while preserving the semantic guarantee this assertion pins."
+    "why": "v3.16.0: repointed to track-mode.md; the exact v3.10.0 phrase 'delegation-shape-independent' isn't restated verbatim, but the same invariant is — 'A coordinator cannot self-certify ... and a nested builder cannot self-certify ... A track cannot self-certify either way.' Pattern updated to match the actual (stronger, since C1 makes it structural rather than a stated rule) text while preserving the semantic guarantee this assertion pins."
   },
   {
     "name": "team_task_return_mandatory",
     "type": "contains",
     "target": "agent:shipyard-disciplined-builder",
     "pattern": "Persist the structured return via the CLI \\(MANDATORY\\)",
-    "why": "v3.16.0: repointed from team-mode.md's own (now-retired) custom spawn prompt to the shared, unchanged shipyard-disciplined-builder agent that track mode nests unchanged for every task \u2014 the MANDATORY-persist-return-first guarantee is now provided once, centrally, for every dispatch shape (solo/task/track) instead of being duplicated in a team-mode-specific prompt. Same text already independently pinned by dispatching-task-loop.json's v250_subagent_writes_capture_file; kept here too since ship-execute.json is specifically about the whole shell's correctness including its track dispatch path."
+    "why": "v3.16.0: repointed from team-mode.md's own (now-retired) custom spawn prompt to the shared, unchanged shipyard-disciplined-builder agent that track mode nests unchanged for every task — the MANDATORY-persist-return-first guarantee is now provided once, centrally, for every dispatch shape (solo/task/track) instead of being duplicated in a team-mode-specific prompt. Same text already independently pinned by dispatching-task-loop.json's v250_subagent_writes_capture_file; kept here too since ship-execute.json is specifically about the whole shell's correctness including its track dispatch path."
   },
   {
     "name": "team_no_taskreturn_is_blocked",
@@ -1228,42 +1259,42 @@
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   },
   {
     "name": "track_coordinator_never_commits_or_writes",
     "type": "contains",
     "target": "agent:shipyard-track-coordinator",
     "pattern": "never commit and never write",
-    "why": "v3.16.0 WP5 addition: \u00a74.2 property 1/2 \u2014 a coordinator has no Write/Edit/Bash tool, so it cannot commit or leave uncommitted work; pins the agent's own stated rule."
+    "why": "v3.16.0 WP5 addition: §4.2 property 1/2 — a coordinator has no Write/Edit/Bash tool, so it cannot commit or leave uncommitted work; pins the agent's own stated rule."
   },
   {
     "name": "track_coordinator_tools_allowlist_exact",
     "type": "contains",
     "target": "agent:shipyard-track-coordinator",
     "pattern": "tools: Read, ToolSearch, Agent, SendMessage",
-    "why": "v3.16.0 WP5 addition: pins the exact frontmatter tools allowlist \u2014 no Bash/Write/Edit is what makes 'never commits, never writes, cannot forge a task-return' structural rather than a stated rule (\u00a74.2 property 2)."
+    "why": "v3.16.0 WP5 addition: pins the exact frontmatter tools allowlist — no Bash/Write/Edit is what makes 'never commits, never writes, cannot forge a task-return' structural rather than a stated rule (§4.2 property 2)."
   },
   {
     "name": "track_coordinator_wave_scoped",
     "type": "contains",
     "target": "ref:track-mode.md",
     "pattern": "wave-scoped, not sprint-persistent",
-    "why": "v3.16.0 WP5 addition: \u00a74.2 property 1 \u2014 a coordinator surviving a wave boundary would fork builders from a stale wave-N base and silently drop wave-N's merged work, the same class of data loss as the v2.8.x baseRef incident. Coordinators must be spawned fresh per wave."
+    "why": "v3.16.0 WP5 addition: §4.2 property 1 — a coordinator surviving a wave boundary would fork builders from a stale wave-N base and silently drop wave-N's merged work, the same class of data loss as the v2.8.x baseRef incident. Coordinators must be spawned fresh per wave."
   },
   {
     "name": "nested_builders_get_worktree_isolation",
     "type": "contains",
     "target": "ref:track-mode.md",
     "pattern": "isolation: \"worktree\"",
-    "why": "v3.16.0 WP5 addition: every nested builder a track coordinator dispatches gets isolation: \"worktree\", same as task-mode builders \u2014 one task = one worktree = one branch = one commit, so the incident-hardened verification spine applies unchanged."
+    "why": "v3.16.0 WP5 addition: every nested builder a track coordinator dispatches gets isolation: \"worktree\", same as task-mode builders — one task = one worktree = one branch = one commit, so the incident-hardened verification spine applies unchanged."
   },
   {
     "name": "sendmessage_correct_shape",
     "type": "contains",
     "target": "ref:track-mode.md",
     "pattern": "SendMessage\\(to: \"",
-    "why": "v3.16.0 WP5 addition: D2 fix \u2014 the real SendMessage schema is {to, message, summary}, additionalProperties:false. The old team-mode.md used the wrong {type, recipient, content} shape everywhere, which would fail validation on every call."
+    "why": "v3.16.0 WP5 addition: D2 fix — the real SendMessage schema is {to, message, summary}, additionalProperties:false. The old team-mode.md used the wrong {type, recipient, content} shape everywhere, which would fail validation on every call."
   },
   {
     "name": "sendmessage_no_stale_recipient_field",
@@ -1277,20 +1308,20 @@
     "type": "contains",
     "pattern": "no .Task\\*. access at all.{0,30}C1",
     "dotall": true,
-    "why": "v3.16.0 WP5 addition: pins C1 (\u00a72.1/\u00a73.1 of the plan) \u2014 isolated agents (track coordinators and nested builders alike) have no TaskCreate/TaskUpdate/TaskList, so main is the sole owner of the Task* checklist in every dispatch shape."
+    "why": "v3.16.0 WP5 addition: pins C1 (§2.1/§3.1 of the plan) — isolated agents (track coordinators and nested builders alike) have no TaskCreate/TaskUpdate/TaskList, so main is the sole owner of the Task* checklist in every dispatch shape."
   },
   {
     "name": "governance_mode_never_silently_overridden",
     "type": "contains",
-    "pattern": "declared or forced mode is honored, never silently overridden",
-    "why": "v3.16.0 WP5 addition: \u00a74.5 governance rule \u2014 a declared execution_mode is honored or surfaced via AskUserQuestion, never silently decided by the shell. This is the P1 defect (a zero-thinking shell silently overrode an explicit user-set mode) that motivated the whole rebuild."
+    "pattern": "declared or forced mode is honored",
+    "why": "v3.17.0: the declared/forced mode is executed as-is. The re-confirmation ask was vestigial once every dispatch path became worktree-isolated."
   },
   {
     "name": "governance_mode_deviation_not_escalation_routed",
     "type": "contains",
-    "pattern": "does NOT route to `escalating-to-thinker`.{0,400}AskUserQuestion",
+    "pattern": "do NOT route to `escalating-to-thinker`.{0,300}do NOT ask",
     "dotall": true,
-    "why": "v3.16.0 WP5 addition: \u00a74.5 \u2014 mode-deviation concerns go to AskUserQuestion (a user-authority decision), never to escalating-to-thinker (reasoning-gap consults only, and mode selection isn't one of its seven triggers)."
+    "why": "v3.17.0: mode selection is neither an escalation trigger nor a user question — it is executed as declared."
   },
   {
     "name": "wave_task_checklist_created",
@@ -1319,8 +1350,28 @@
   {
     "name": "wave_task_recovery_anchor",
     "type": "contains",
-    "pattern": "Call `TaskList\\(\\)` first",
-    "why": "Phase 6: compaction recovery / re-entry calls TaskList() first as a position anchor, confirmed against the cursor + event log"
+    "pattern": "cursor \\+ the event log are the position anchor across sessions.{0,30}`TaskList\\(\\)` is not",
+    "dotall": true,
+    "why": "Resume-gap fix: TaskList() is empty on the near-universal case of a resume in a NEW session, so it cannot be the position anchor the Recovery & resume section opened with pre-fix. The cursor + event log are the anchor; TaskList() is a same-session convenience only."
+  },
+  {
+    "name": "wave_task_checklist_rebuilds_on_resume",
+    "type": "contains",
+    "pattern": "Rebuild-on-resume",
+    "why": "Resume-gap fix: the pre-fix rule ('check TaskList() first; if this sprint's tasks already exist, leave them as-is') never recreated the checklist on a resume in a new session — TaskList() is session-scoped, so it always came back empty for this sprint, and the branch that would have recreated it was never written. A sprint spanning more than one session (the common case for a multi-hour/multi-day sprint) permanently lost its checklist after the first session ended. Fix: on a resume where TaskList() shows none for this sprint but the cursor names it live past `load`, rebuild the full checklist."
+  },
+  {
+    "name": "wave_task_rebuild_derives_from_record",
+    "type": "contains",
+    "pattern": "wave_check_passed.{0,60}completed.{0,200}cursor's current stage.{0,40}in_progress",
+    "dotall": true,
+    "why": "Resume-gap fix: the rebuilt checklist's per-wave state is derived from the event log (wave_check_passed / pipeline_tick_completed stage=wave_<N>_gate) and the cursor's wave_number, never guessed or inferred from conversation memory — 'Reconstruct, do not guess.'"
+  },
+  {
+    "name": "wave_task_rebuild_never_becomes_authority",
+    "type": "contains",
+    "pattern": "reconstructed list is not itself evidence of anything",
+    "why": "Resume-gap fix: a rebuilt checklist could plausibly be mistaken for evidence a wave ran (it looks identical to a normally-progressed one) — this line makes explicit that reconstruction reads FROM the record and never becomes it, same as the pre-existing guardrail."
   },
   {
     "name": "quiet_by_default",
@@ -1462,8 +1513,8 @@
   {
     "name": "demo_probe_skip_with_reason_also_records",
     "type": "contains",
-    "pattern": "skip-with-reason:<demo_probe_skip_reason>",
-    "why": "The skip-with-reason path must also record ledger evidence (with the skip marker as the command, not feature.demo_probe) so Stage 4.8 doesn't re-ask the same skip question every review."
+    "pattern": "skip-with-reason:<user_flow_probe_skip_reason>",
+    "why": "v3.17.0: field renamed demo_probe -> user_flow_probe; the ledger key demo_probe.<F> is deliberately unchanged (renaming would invalidate every recorded entry)."
   },
   {
     "name": "demo_probe_fail_path_never_records",
@@ -1480,8 +1531,8 @@
   {
     "name": "demo_probe_skip_records_marker_not_real_command",
     "type": "contains",
-    "pattern": "recorded command is the skip marker, NOT `feature\\.demo_probe` itself",
-    "why": "Pins the specific skip-with-reason design decision: the ledger entry's command is a skip marker, not the feature's real demo_probe — so a later-authored real probe invalidates the entry via commandHash mismatch instead of a stale skip surviving. A future 'simplification' recording the real command would silently defeat that invalidation path."
+    "pattern": "recorded command is the skip marker, NOT the probe command itself",
+    "why": "v3.17.0: same rationale, reworded for the renamed field — a skip must never claim a probe ran."
   },
   {
     "name": "demo_probe_ledger_asymmetry_stated",
@@ -1489,5 +1540,65 @@
     "pattern": "[Ss]tale/absent .demo_probe\\.<F>. ledger entry is always safe.*falsely-fresh one is not",
     "dotall": true,
     "why": "The stale-safe/falsely-fresh-unsafe asymmetry is the load-bearing property of the whole ledger design and must be stated as prose at every record site (per-tier/aggregate AND demo-probe), not just implied by the exit-code gating."
+  },
+  {
+    "name": "readiness_derives_via_cli",
+    "type": "contains",
+    "pattern": "shipyard-data readiness-check",
+    "why": "v3.17.0: readiness conditions are adjudicated by a deterministic CLI, not by the Sonnet shell — which does no thinking (Operating Principles) and was interrupting on conditions with exactly one sane answer."
+  },
+  {
+    "name": "readiness_actions_applied_without_asking",
+    "type": "contains",
+    "pattern": "Apply each, state it in one line, do not ask",
+    "why": "v3.17.0: switch_branch / commit_dirty are reversible and evidence-converging (HIGH tier per question-design.md's confidence gate) — decide-and-inform, never an ask."
+  },
+  {
+    "name": "baseline_failing_never_derived",
+    "type": "contains",
+    "pattern": "baseline_failing` is deliberately never derived",
+    "why": "v3.17.0: whether a red baseline is tolerable is a judgment about the user's repo. Task files carry no paths: field, so the tempting overlap derivation is not computable either."
+  },
+  {
+    "name": "user_flow_probe_kind_dispatch",
+    "type": "contains",
+    "pattern": "kind: assisted",
+    "why": "v3.17.0: user_flow_probe branches on kind auto|assisted|manual — on-device and manual verification are first-class, not skip-with-reason."
+  },
+  {
+    "name": "user_flow_probe_human_verdict_is_evidence",
+    "type": "contains",
+    "pattern": "feature record-proof",
+    "why": "v3.17.0: an assisted/manual verdict is recorded as evidence satisfying invariant 8, closing the inversion where the strongest proof (a human on a device) was filed as an ABSENCE of proof."
+  },
+  {
+    "name": "user_flow_probe_steps_rendered_before_ask",
+    "type": "contains",
+    "pattern": "[Rr]ender `probe.steps` verbatim as chat text",
+    "why": "v3.11.0 render-before-ask: steps living in a Read result are invisible to the user; asking 'does this work?' with nothing on screen is the blind-ask bug."
+  },
+  {
+    "name": "user_flow_probe_absent_is_planning_escape",
+    "type": "contains",
+    "pattern": "planning-gate escape",
+    "why": "v3.17.0: a missing probe at Step 5.3 means the plan-time and Step 0 gates were bypassed. Authoring one after the sprint built is a rubber stamp, so this escalates rather than offering to skip."
+  },
+  {
+    "name": "user_flow_probe_gate_runs_all_modes",
+    "type": "contains",
+    "pattern": "every_feature_has_user_flow_probe` runs in EVERY mode",
+    "why": "v3.17.0: root cause of the late interrupt — nothing authored the field and only goal-mode checked for it, so it surfaced after the sprint had already built."
+  },
+  {
+    "name": "full_build_remediation_before_ask",
+    "type": "contains",
+    "pattern": "run the documented remediation before interrupting",
+    "why": "v3.17.0: dispatching-operational-task IS the fix loop; one bounded cycle runs before the user is interrupted, mirroring the integration-gate pattern."
+  },
+  {
+    "name": "unexpected_files_classified_before_ask",
+    "type": "contains",
+    "pattern": "readiness-check --classify",
+    "why": "v3.17.0: build output, OS junk and regenerated lockfiles are routine churn — only a non-empty source[] bucket is worth an interrupt."
   }
 ]

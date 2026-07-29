@@ -191,6 +191,7 @@ test("cursor CLI: terminal advance with complete evidence succeeds; stop marker 
     const lines = r.stdout.trim().split("\n");
     const last = lines[lines.length - 1];
     assert.match(last, /\/loop should stop\./, "stop marker must be the FINAL line (v2.8.2 handoff-seam rule)");
+    assert.ok(!r.stdout.includes("no loop is driving"), "F6's no-loop marker never appears on a terminal path");
     const nextUpIdx = lines.findIndex((l) => /NEXT UP: \/ship-review/.test(l));
     assert.ok(nextUpIdx >= 0 && nextUpIdx < lines.length - 1, "NEXT-UP hint prints BEFORE the stop marker");
     const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
@@ -439,10 +440,12 @@ test("cursor bootstrap-check: eligible sets sentinel; second call ineligible", (
     p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
     const r1 = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
     assert.equal(r1.eligible, true);
+    assert.equal(r1.rearm, false, "first-time eligibility is not a rearm");
     const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
     assert.match(cursor, /auto_loop_attempted: true/, "sentinel set as side effect");
     const r2 = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
     assert.equal(r2.eligible, false);
+    assert.equal(r2.rearm, false);
     assert.match(r2.reason, /auto_loop_attempted/);
   } finally {
     p.cleanup();
@@ -457,7 +460,255 @@ test("cursor bootstrap-check: dead sprint is never eligible", () => {
     p.run(["sprint", "set", "status", "completed"], { expectFail: false });
     const r = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
     assert.equal(r.eligible, false);
+    assert.equal(r.rearm, false);
     assert.match(r.reason, /completed|dead/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+// --- F3: bootstrap-check re-arms a dead /loop instead of refusing forever -
+
+function backdateAllEvents(p, msAgo) {
+  const eventsPath = join(p.dataDir, ".shipyard-events.jsonl");
+  const stale = new Date(Date.now() - msAgo).toISOString();
+  const backdated =
+    readFileSync(eventsPath, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const ev = JSON.parse(line);
+        ev.ts = stale;
+        return JSON.stringify(ev);
+      })
+      .join("\n") + "\n";
+  writeFileSync(eventsPath, backdated);
+}
+
+test("F3: rearm — a dead /loop (auto_loop_attempted set, no recent tick) re-arms instead of refusing forever", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
+    const r1 = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
+    assert.equal(r1.eligible, true);
+    assert.equal(r1.rearm, false);
+
+    // Simulate a /loop that died a while ago: every tick in the log is now
+    // well outside the 5-minute liveness window.
+    backdateAllEvents(p, 30 * 60 * 1000);
+
+    const r2 = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
+    assert.equal(r2.eligible, true, "a dead loop re-arms rather than refusing forever");
+    assert.equal(r2.rearm, true);
+    assert.match(r2.reason, /silent|dead/i);
+
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(events, /"pipeline_loop_bootstrap_fallback"/, "the CLI emits the fallback event itself");
+    assert.match(events, /"reason":"loop_silent"/);
+    assert.match(events, /"method":"cli"/, "distinguishable from the model's method=cron cron-fallback path");
+
+    // The CLI re-arm must NOT be mistaken for an armed cron by the
+    // cron-cleanup reminder — that reminder is scoped to method=cron.
+    const pause = p.run(["cursor", "pause", "execute", "--note", "x"], { expectFail: false });
+    assert.ok(
+      !pause.stdout.includes("CronList"),
+      "a CLI-side rearm (no cron created) must not trigger the cron-cleanup reminder",
+    );
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("F3: rearm — a dead sprint (status: completed) never re-arms, even with a stale loop signal", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
+    p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }); // sets auto_loop_attempted
+    p.run(["sprint", "set", "status", "completed"], { expectFail: false });
+    backdateAllEvents(p, 30 * 60 * 1000);
+    const r = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
+    assert.equal(r.eligible, false);
+    assert.equal(r.rearm, false, "a dead sprint must never re-arm, no matter how stale the loop signal is");
+    assert.match(r.reason, /completed|dead/);
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.ok(!events.includes("pipeline_loop_bootstrap_fallback"), "no fallback event for a dead sprint");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("F3: rearm is false on every other non-eligible precondition (no cursor, paused, terminal)", () => {
+  const p = makeProject();
+  try {
+    const noCursor = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
+    assert.equal(noCursor.eligible, false);
+    assert.equal(noCursor.rearm, false);
+
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
+
+    p.run(["cursor", "pause", "execute", "--note", "x"], { expectFail: false });
+    const paused = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
+    assert.equal(paused.eligible, false);
+    assert.equal(paused.rearm, false);
+    p.run(["cursor", "resume", "execute"], { expectFail: false });
+
+    p.run(["cursor", "escalate", "execute", "reason=x"], { expectFail: false });
+    const escalated = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
+    assert.equal(escalated.eligible, false);
+    assert.equal(escalated.rearm, false);
+  } finally {
+    p.cleanup();
+  }
+});
+
+// --- F4: cursor `sprint` backfills from SPRINT.md's own id ---------------
+
+test("F4: sprint id backfills from SPRINT.md when the advance carries none, and is persisted", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p); // SPRINT.md has id: sprint-001
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false }); // no sprint= passed
+    const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+    assert.match(cursor, /^sprint: sprint-001$/m, "backfilled from SPRINT.md id and persisted on the cursor");
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.ok(!events.includes('"sprint":"unknown"'), "events for this tick are no longer tagged unknown");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("F4: sprint id is never fabricated when SPRINT.md is absent or unreadable", () => {
+  const p = makeProject();
+  try {
+    // No SPRINT.md at all — use `hotfix`, the one entry stage exempt from
+    // the loop-leak guard's sprint-presence requirement.
+    p.run(["cursor", "advance", "execute", "hotfix"], { expectFail: false });
+    let cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+    assert.ok(!/^sprint: /m.test(cursor), "no sprint field fabricated when SPRINT.md is absent");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("F4: sprint id is never fabricated when SPRINT.md exists but is unreadable as text", () => {
+  const p = makeProject();
+  try {
+    // A directory at the SPRINT.md path: existsSync is true, readFileSync throws.
+    mkdirSync(join(p.dataDir, "sprints", "current", "SPRINT.md"), { recursive: true });
+    p.run(["cursor", "advance", "execute", "hotfix"], { expectFail: false });
+    const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+    assert.ok(!/^sprint: /m.test(cursor), "no sprint field fabricated when SPRINT.md can't be read");
+  } finally {
+    p.cleanup();
+  }
+});
+
+// --- F5: pending_subagents resets on a wave_N_dispatch advance -----------
+
+test("F5: an advance INTO wave_N_dispatch replaces pending_subagents rather than inheriting a prior wave's leftovers", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
+    p.run(["cursor", "advance", "execute", "load"], { expectFail: false });
+    p.run(
+      [
+        "cursor", "advance", "execute", "wave_1_dispatch",
+        'pending_subagents=[{"task_id":"T-STALE","spawned_at":"2020-01-01T00:00:00Z","max_execution_minutes":60}]',
+      ],
+      { expectFail: false },
+    );
+    let cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+    assert.match(cursor, /T-STALE/, "seeded stale entry present");
+
+    // Force-jump straight to a later wave's dispatch stage WITHOUT
+    // re-passing pending_subagents — simulates the customer's wave_8_dispatch
+    // cursor still carrying wave-5 entries hours past their budget.
+    p.run(["cursor", "advance", "execute", "wave_2_dispatch", "--force"], { expectFail: false });
+    cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+    assert.ok(!cursor.includes("pending_subagents:"), "dispatch-stage advance clears stale entries by default");
+    assert.ok(!cursor.includes("T-STALE"));
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("F5: a wave_N_waiting self-loop still carries pending_subagents forward unchanged (not a dispatch stage)", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
+    p.run(["cursor", "advance", "execute", "load"], { expectFail: false });
+    p.run(
+      [
+        "cursor", "advance", "execute", "wave_1_dispatch",
+        'pending_subagents=[{"task_id":"T001","spawned_at":"2026-01-01T00:00:00Z","max_execution_minutes":60}]',
+      ],
+      { expectFail: false },
+    );
+    p.run(["cursor", "advance", "execute", "wave_1_waiting"], { expectFail: false });
+    // Self-loop again WITHOUT re-passing the list.
+    p.run(["cursor", "advance", "execute", "wave_1_waiting"], { expectFail: false });
+    const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+    assert.match(cursor, /task_id: T001/, "waiting self-loop carries the list forward, unlike a dispatch advance");
+  } finally {
+    p.cleanup();
+  }
+});
+
+// --- F6: mid-sprint exit marker when no loop is driving -------------------
+
+test("F6: non-terminal advance prints the explicit no-loop marker when nothing looks like it's driving", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    // Explicit loop_owner=user persists forward across advances, keeping
+    // the heuristic out of it — no evidence anything is chaining this.
+    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
+    const r = p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
+    assert.equal(
+      r.stdout.trim().split("\n").pop(),
+      "▶ TICK COMPLETE — no loop is driving this sprint. Re-run /shipyard:ship-execute to continue.",
+    );
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("F6: non-terminal advance prints the ordinary continuation marker when a /loop tick landed here recently", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=/loop"], { expectFail: false });
+    const r = p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
+    const last = r.stdout.trim().split("\n").pop();
+    assert.ok(!last.includes("no loop is driving"), "loop is live — ordinary marker only");
+    assert.match(last, /\/loop continues\./);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("F6: the no-loop marker never appears on pause / escalate / noop paths", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
+
+    const pause = p.run(["cursor", "pause", "execute", "--note", "x"], { expectFail: false });
+    assert.ok(!pause.stdout.includes("no loop is driving"));
+
+    p.run(["cursor", "resume", "execute"], { expectFail: false });
+    const esc = p.run(["cursor", "escalate", "execute", "reason=x"], { expectFail: false });
+    assert.ok(!esc.stdout.includes("no loop is driving"));
+
+    const noop = p.run(["cursor", "noop", "execute"], { expectFail: false });
+    assert.ok(!noop.stdout.includes("no loop is driving"));
   } finally {
     p.cleanup();
   }

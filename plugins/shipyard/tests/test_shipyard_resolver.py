@@ -542,6 +542,166 @@ class TestShipyardResolver(unittest.TestCase):
                 f'stdout={proc.stdout!r}',
             )
 
+    def _admin_dir_for(self, worktree_path):
+        proc = subprocess.run(
+            ['git', '-C', worktree_path, 'rev-parse', '--absolute-git-dir'],
+            capture_output=True, text=True, check=True,
+        )
+        return proc.stdout.strip()
+
+    def test_origin_marker_overrides_parent_root(self):
+        """Origin-marker fix: a builder worktree under
+        `<parent>/.claude/worktrees/<feat>` whose admin dir carries a valid
+        `shipyard-origin-root` marker resolves to the MARKER's path, not
+        parentRoot — this is the whole point of the fix, so a builder
+        subagent can rejoin an orchestrator that isn't sitting on the parent
+        repo.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = os.path.join(tmp, 'parent')
+            os.makedirs(parent)
+            self._git_init_with_commit(parent)
+            wt_path = os.path.join(parent, '.claude', 'worktrees', 'feat-x')
+            self._add_worktree(parent, wt_path)
+
+            origin = os.path.join(tmp, 'origin-project')
+            os.makedirs(origin)
+            self._git_init_with_commit(origin)
+
+            admin_dir = self._admin_dir_for(wt_path)
+            with open(os.path.join(admin_dir, 'shipyard-origin-root'), 'w') as f:
+                f.write(origin + '\n')
+
+            root, code = run_resolver('project-root', cwd=wt_path)
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                os.path.realpath(root),
+                os.path.realpath(origin),
+                'valid origin marker must win over parentRoot',
+            )
+
+    def test_no_marker_falls_back_to_parent_root(self):
+        """Byte-identical-behavior guarantee: a builder worktree with NO
+        marker file resolves exactly as before the fix — parentRoot.
+        """
+        with tempfile.TemporaryDirectory() as parent:
+            self._git_init_with_commit(parent)
+            wt_path = os.path.join(parent, '.claude', 'worktrees', 'feat-x')
+            self._add_worktree(parent, wt_path)
+
+            admin_dir = self._admin_dir_for(wt_path)
+            marker_path = os.path.join(admin_dir, 'shipyard-origin-root')
+            self.assertFalse(os.path.exists(marker_path))
+
+            root, code = run_resolver('project-root', cwd=wt_path)
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                os.path.realpath(root),
+                os.path.realpath(parent),
+                'no marker present must behave exactly as before the fix',
+            )
+
+    def test_origin_marker_pointing_at_nonexistent_path_falls_back(self):
+        """A marker whose content is a plausible absolute path that does not
+        exist on disk must be rejected, not trusted — falls back to
+        parentRoot.
+        """
+        with tempfile.TemporaryDirectory() as parent:
+            self._git_init_with_commit(parent)
+            wt_path = os.path.join(parent, '.claude', 'worktrees', 'feat-x')
+            self._add_worktree(parent, wt_path)
+
+            admin_dir = self._admin_dir_for(wt_path)
+            bogus = os.path.join(parent, 'this-path-does-not-exist-anywhere')
+            with open(os.path.join(admin_dir, 'shipyard-origin-root'), 'w') as f:
+                f.write(bogus + '\n')
+
+            root, code = run_resolver('project-root', cwd=wt_path)
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                os.path.realpath(root),
+                os.path.realpath(parent),
+                'marker pointing at a nonexistent path must fall back to parentRoot',
+            )
+
+    def test_origin_marker_with_garbage_content_falls_back(self):
+        """A marker containing control characters / non-path garbage /
+        multiple lines must be rejected outright — never partially parsed.
+        """
+        with tempfile.TemporaryDirectory() as parent:
+            self._git_init_with_commit(parent)
+            wt_path = os.path.join(parent, '.claude', 'worktrees', 'feat-x')
+            self._add_worktree(parent, wt_path)
+
+            admin_dir = self._admin_dir_for(wt_path)
+            marker_path = os.path.join(admin_dir, 'shipyard-origin-root')
+
+            # Case 1: control characters embedded in an otherwise-plausible path.
+            with open(marker_path, 'w') as f:
+                f.write(parent + '\x07/evil\n')
+            root, code = run_resolver('project-root', cwd=wt_path)
+            self.assertEqual(code, 0)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(parent))
+
+            # Case 2: not an absolute path at all.
+            with open(marker_path, 'w') as f:
+                f.write('relative/nonsense\n')
+            root, code = run_resolver('project-root', cwd=wt_path)
+            self.assertEqual(code, 0)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(parent))
+
+            # Case 3: multiple lines — reject rather than take the first.
+            with open(marker_path, 'w') as f:
+                f.write(parent + '\n' + parent + '\n')
+            root, code = run_resolver('project-root', cwd=wt_path)
+            self.assertEqual(code, 0)
+            self.assertEqual(os.path.realpath(root), os.path.realpath(parent))
+
+    def test_origin_marker_real_world_shape_user_worktree_orchestrator(self):
+        """The exact real-world shape that caused the bug: the orchestrator
+        session sits in a USER worktree (not the parent repo), and spawns a
+        builder worktree under the PARENT repo's `.claude/worktrees/`. With a
+        valid marker, the builder worktree must resolve to the USER
+        worktree's toplevel — matching the orchestrator's own project root —
+        not the parent repo.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = os.path.join(tmp, 'trunk3')
+            os.makedirs(parent)
+            self._git_init_with_commit(parent)
+
+            # The orchestrator's own session: a USER worktree of parent.
+            user_wt = os.path.join(tmp, 'trunk3.worktrees', 'dev2')
+            self._add_worktree(parent, user_wt)
+
+            # A builder worktree spawned under the PARENT repo (mirrors the
+            # WorktreeCreate hook, which always creates under
+            # <parentRoot>/.claude/worktrees/, regardless of where the
+            # orchestrator itself is sitting).
+            builder_wt = os.path.join(parent, '.claude', 'worktrees', 'agent-1')
+            self._add_worktree(parent, builder_wt)
+
+            # Stamp the marker as the hook would: origin root = the
+            # orchestrator's own project root, i.e. the user worktree.
+            admin_dir = self._admin_dir_for(builder_wt)
+            with open(os.path.join(admin_dir, 'shipyard-origin-root'), 'w') as f:
+                f.write(user_wt + '\n')
+
+            builder_root, code = run_resolver('project-root', cwd=builder_wt)
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                os.path.realpath(builder_root),
+                os.path.realpath(user_wt),
+                'builder worktree with a valid marker must resolve to the '
+                'orchestrator user-worktree root, matching the orchestrator',
+            )
+
+            # And hashes must now agree, closing the actual reported bug: the
+            # builder and the orchestrator write to the same data dir.
+            builder_hash, _ = run_resolver('project-hash', cwd=builder_wt)
+            orchestrator_hash, _ = run_resolver('project-hash', cwd=user_wt)
+            self.assertEqual(builder_hash, orchestrator_hash)
+
     # test_resolver_uses_legacy_dir_if_populated REMOVED in 2.0 (F-7).
     # The legacy ~/.claude/plugins/data/shipyard/projects probe was dropped:
     # the env var has been stable in Claude Code for several months and the

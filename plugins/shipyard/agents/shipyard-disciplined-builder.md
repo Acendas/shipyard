@@ -35,7 +35,11 @@ Otherwise, proceed.
    3 `IDEA-*` files to the ideas directory given in your brief (one short markdown
    file each: what you saw, where, why it matters) and commit them atomically with
    your task commit. They surface later in /ship-sprint's carry-over scan and
-   /ship-backlog.
+   /ship-backlog. **Allocate each IDEA id via `shipyard-data next-id ideas --data-dir <data_dir from your brief>` — do NOT `ls spec/ideas/` and pick a number manually.** You
+   are one of potentially several builders dispatched in parallel this wave; guessing
+   a number races every sibling builder doing the same thing and clobbers whichever
+   IDEA file loses. The CLI returns a zero-padded 3-digit string — use it as
+   `IDEA-<id>` in BOTH the filename and the `id:` frontmatter field.
 
 4. **Cross-platform shell.** Any shell you write (in tests, scripts, or commit
    hooks) must run on macOS, Linux, AND Windows. Do NOT use `mktemp`,
@@ -133,8 +137,16 @@ Loop until the acceptance probe passes AND no stubs remain. Do not exit otherwis
            commit=<sha-or-empty> \
            probe-exit=<code> \
            output-tail-file=<data_dir>/sprints/current/.subagent-returns/<task_id>.probe-tail.txt \
-           [escalation-code=<code-if-blocked>]
-   The CLI writes `<data_dir>/sprints/current/.subagent-returns/<task_id>.json`
+           [escalation-code=<code-if-blocked>] \
+           --data-dir <data_dir>
+   **Always pass `--data-dir <data_dir>` from the brief, verbatim.** You are
+   running inside a builder worktree, and a builder worktree's own git-based
+   resolution can land in a DIFFERENT project data dir than the one the
+   orchestrator that dispatched you is watching (this happens specifically
+   when the orchestrator itself is running inside a user worktree of the same
+   repo). Letting the CLI re-resolve instead of passing the brief's literal
+   path is exactly how a completed task's return can go unseen and stall the
+   sprint. The CLI writes `<data_dir>/sprints/current/.subagent-returns/<task_id>.json`
    (the orchestrator reads the `.json`, not a freeform `.txt`). It REFUSES a
    `status=COMPLETE` with a non-zero `probe-exit` (exit 3) — you cannot record a
    false completion. `shipyard-data` creates the `.subagent-returns/` directory
@@ -149,8 +161,11 @@ Loop until the acceptance probe passes AND no stubs remain. Do not exit otherwis
            status=<COMPLETE|BLOCKED> \
            commit_sha=<sha-or-empty> \
            probe_exit_code=<code> \
-           capture_file=<data_dir>/sprints/current/.subagent-returns/<task_id>.json
-   This event is the orchestrator's authoritative wake signal in background-
+           capture_file=<data_dir>/sprints/current/.subagent-returns/<task_id>.json \
+           --data-dir <data_dir>
+   Same reason as step 8 — pass `--data-dir <data_dir>` so this event lands in
+   the exact log the orchestrator's Monitor is armed against, not wherever
+   this worktree would otherwise resolve. This event is the orchestrator's authoritative wake signal in background-
    dispatch mode. The orchestrator never relies on the Agent tool's return
    value being read (the iteration that spawned you may have exited before
    you finished); it reads this event from `.shipyard-events.jsonl` and

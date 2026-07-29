@@ -272,5 +272,40 @@
     "target": "agent:shipyard-disciplined-builder",
     "pattern": "do not score confidence, classify findings, or\\s+self-review",
     "why": "v3.13.0 non-transfer boundary: construction guidance never becomes a second adjudication pass — the builder writes, the reviewer reviews."
+  },
+  {
+    "name": "task_return_passes_data_dir",
+    "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
+    "pattern": "shipyard-data task-return[\\s\\S]*?--data-dir",
+    "dotall": true,
+    "why": "A builder worktree can hash to a different project data dir than the orchestrator when the orchestrator itself runs in a user worktree of the same repo. Passing the brief's literal data_dir skips re-resolution entirely instead of risking the mismatch."
+  },
+  {
+    "name": "orchestrator_calls_pass_data_dir",
+    "type": "contains",
+    "pattern": "anchor-commit.*--data-dir \\{\\{data_dir\\}\\}",
+    "why": "The orchestrator already holds the literal data dir it dispatched in the brief; anchor-commit and events emit calls it makes itself should use it rather than re-resolving."
+  },
+  {
+    "name": "builder_allocates_idea_id_via_cli",
+    "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
+    "pattern": "next-id ideas",
+    "why": "Confirmed race: two parallel builders (T487/T468) both hand-picked IDEA-149 and collided. The builder is the most parallel-dispatched IDEA-writing caller in the system, so it must allocate via the CLI like every other IDEA-writing site, never ls-and-guess."
+  },
+  {
+    "name": "builder_idea_allocation_forbids_guessing",
+    "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
+    "pattern": "do NOT `ls spec/ideas/` and pick a number manually",
+    "why": "Match the imperative phrasing already used in ship-review's IDEA-allocation rule so the codebase reads consistently across every IDEA-writing site."
+  },
+  {
+    "name": "dispatch_site_states_idea_allocation_requirement",
+    "type": "contains",
+    "pattern": "next-id ideas.{0,80}--data-dir \\{\\{data_dir\\}\\}",
+    "dotall": true,
+    "why": "The dispatch site (this skill) must make the allocation requirement visible too, not bury it only in the agent body — and confirm data_dir is available to the builder for this call."
   }
 ]

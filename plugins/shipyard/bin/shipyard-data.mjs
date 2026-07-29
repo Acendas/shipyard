@@ -13,7 +13,8 @@
  *   shipyard-data archive-sprint <id> [--force]→ atomic sprint rename
  *   shipyard-data init-sprint <id> [--data-dir] → copy canonical templates into sprints/current/
  *   shipyard-data events emit <type> [k=v ...] → structured event log append
- *   shipyard-data next-id <kind>               → atomic ID allocator
+ *                             [--data-dir <path>]
+ *   shipyard-data next-id <kind> [--data-dir]   → atomic ID allocator
  *   shipyard-data link-data-dir [--force]      → create <projectRoot>/.shipyard
  *                                                symlink (POSIX) or junction
  *                                                (Windows) → SHIPYARD_DATA
@@ -28,7 +29,12 @@
  *                                                dangling patch tasks
  *   shipyard-data scan-stubs <base>..<head>    → diff scan for stub patterns
  *                            [--lang <x>]        (see anti-stub-scan/SKILL.md).
- *                                                Exit 3 on unmarked HIGH finding.
+ *                            [--data-dir <path>] Exit 3 on unmarked HIGH finding.
+ *                                                --data-dir affects only where
+ *                                                the stub_scan_run event lands.
+ *   shipyard-data task set-status <id> <status> → typed task frontmatter
+ *                            [--data-dir <path>]   mutation; --data-dir skips
+ *                                                   git-based resolution.
  *   shipyard-data verify record --key <k>      → record a verification result
  *     --command <literal> --exit <n>              (see bin/verify-ledger.mjs)
  *     --capture <path>
@@ -38,7 +44,7 @@
 
 import { execFileSync } from "node:child_process";
 import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve as pathResolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
 import { dirLooksInitialized, ensureDataDirLink, getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
@@ -48,6 +54,7 @@ import { specStateCmd } from "./spec-state-cli.mjs";
 import { releaseLock, skillLockCmd } from "./skill-lock.mjs";
 import { scanStubsCmd } from "./scan-stubs.mjs";
 import { verifyCmd } from "./verify-ledger.mjs";
+import { readinessCheckCmd } from "./readiness-check.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -71,6 +78,56 @@ function isProcessAlive(pid) {
   } catch (err) {
     return err.code === "EPERM";
   }
+}
+
+/**
+ * Extract an optional `--data-dir <path>` flag from an args array, in either
+ * position (same parsing style as `init-sprint`'s existing `--data-dir`).
+ *
+ * A builder subagent worktree can hash to a DIFFERENT project data dir than
+ * the orchestrator when the orchestrator itself is running inside a user
+ * worktree of the same repo (the resolver's builder-vs-user-worktree
+ * classification splits on toplevel path, not on "same repo"). When the
+ * orchestrator already knows its own SHIPYARD_DATA, passing it explicitly
+ * lets the builder skip git-based re-resolution entirely, so it can never
+ * land in the wrong data dir. Absent the flag, behavior is byte-identical
+ * to the pre-existing resolver-based path.
+ *
+ * Validates the path is absolute, exists, and is a directory — a silently
+ * wrong relative/missing path would defeat the whole point of the flag.
+ * Returns { dataDir: string|undefined, rest: string[] } with the flag and
+ * its value stripped from `rest`. Exits non-zero naming "--data-dir" on
+ * invalid input.
+ */
+function extractDataDirFlag(args, commandName) {
+  const idx = args.indexOf("--data-dir");
+  if (idx === -1) return { dataDir: undefined, rest: args };
+  const value = args[idx + 1];
+  if (!value) {
+    process.stderr.write(`shipyard-data ${commandName}: --data-dir requires a path argument\n`);
+    process.exit(2);
+  }
+  if (!isAbsolute(value)) {
+    process.stderr.write(`shipyard-data ${commandName}: --data-dir path must be absolute: ${value}\n`);
+    process.exit(2);
+  }
+  if (!existsSync(value)) {
+    process.stderr.write(`shipyard-data ${commandName}: --data-dir path does not exist: ${value}\n`);
+    process.exit(2);
+  }
+  let stat;
+  try {
+    stat = statSync(value);
+  } catch (err) {
+    process.stderr.write(`shipyard-data ${commandName}: cannot stat --data-dir path ${value}: ${err.message}\n`);
+    process.exit(2);
+  }
+  if (!stat.isDirectory()) {
+    process.stderr.write(`shipyard-data ${commandName}: --data-dir path is not a directory: ${value}\n`);
+    process.exit(2);
+  }
+  const rest = args.slice(0, idx).concat(args.slice(idx + 2));
+  return { dataDir: value, rest };
 }
 
 const SUBDIRS = [
@@ -810,8 +867,7 @@ function cleanWorktrees(opts = {}) {
  *                             where possible (numbers, true/false), else
  *                             plain strings.
  */
-function eventsCmd(args) {
-  const dataDir = getDataDir();
+function eventsCmd(args, opts = {}) {
   const sub = args[0];
 
   // The events log is JSONL — query directly by reading
@@ -850,6 +906,7 @@ function eventsCmd(args) {
         }
         fields[k] = v;
       }
+      const dataDir = opts.dataDir || getDataDir();
       logEvent(dataDir, type, fields);
       break;
     }
@@ -881,6 +938,16 @@ function eventsCmd(args) {
  *   shipyard-data next-id ideas      → prints e.g. "042"
  *   shipyard-data next-id bugs       → prints next bug id
  *   shipyard-data next-id features   → etc.
+ *   shipyard-data next-id <kind> [--data-dir <path>] → same, but skip
+ *     git-based resolution and both allocate the counter AND acquire the
+ *     advisory lock inside the given dir. Without this, a caller whose
+ *     worktree resolves to a different data dir than another concurrent
+ *     caller isn't actually serialized against it — both the counter file
+ *     and its `.lock` live under the (wrong) resolved dir, so two parallel
+ *     allocations can race and hand out the same id (observed live: two
+ *     agents both allocated IDEA-149). Passing `--data-dir` pins both the
+ *     counter and the lock to the same explicit directory for every caller
+ *     that passes it, restoring the serialization guarantee.
  *
  * Output format is a zero-padded 3-digit string (matching the historical
  * NNN conventions), no trailing newline — callers that want newline use
@@ -888,7 +955,7 @@ function eventsCmd(args) {
  * directly. (Note: skill bodies must NOT shell-substitute `shipyard-data`
  * — they read the number from this CLI inside an agent or subprocess.)
  */
-function nextIdCmd(args) {
+function nextIdCmd(args, { dataDir: dataDirOverride } = {}) {
   const kind = args[0];
   if (!kind) {
     process.stderr.write(
@@ -913,7 +980,7 @@ function nextIdCmd(args) {
     process.exit(1);
   }
 
-  const dataDir = getDataDir();
+  const dataDir = dataDirOverride ?? getDataDir();
   const kindDir = join(dataDir, entry.dir);
   // Ensure the entity directory exists. Fresh projects with no ideas/bugs/etc
   // land here on first allocation. mkdirSync is idempotent with recursive.
@@ -1159,9 +1226,14 @@ function gitIsAncestor(ancestor, descendant, cwd) {
  * anchored, the original SHA can never be GC'd or orphaned, independent of
  * whether `worktreeBranch` came back undefined.
  *
- * shipyard-data anchor-commit <task-id> <sha>
+ * shipyard-data anchor-commit <task-id> <sha> [--data-dir <path>]
+ *
+ * `--data-dir` (optional) is used only for the best-effort event-log write
+ * below — it never changes where the git ref itself is created, since that
+ * always targets the resolved project root regardless of which data dir a
+ * caller passes.
  */
-function anchorCommit(taskId, sha) {
+function anchorCommit(taskId, sha, opts = {}) {
   if (!taskId || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(taskId)) {
     process.stderr.write(
       `shipyard-data anchor-commit: invalid task id ${JSON.stringify(taskId)} — expected [A-Za-z][A-Za-z0-9_-]{0,63}\n`,
@@ -1185,7 +1257,7 @@ function anchorCommit(taskId, sha) {
     process.exit(1);
   }
   try {
-    logEvent(getDataDir({ projectRoot, silent: true }), "task_commit_anchored", { task: taskId, sha, ref });
+    logEvent(opts.dataDir || getDataDir({ projectRoot, silent: true }), "task_commit_anchored", { task: taskId, sha, ref });
   } catch { /* event is best-effort */ }
   process.stdout.write(`${ref} -> ${sha}\n`);
 }
@@ -1549,9 +1621,15 @@ function configSetModel(tier, value) {
  *
  * Usage:
  *   shipyard-data task-return T-007 status=COMPLETE commit=<sha> \
- *     probe-exit=0 [output-tail-file=<path>] [escalation-code=<c>]
+ *     probe-exit=0 [output-tail-file=<path>] [escalation-code=<c>] \
+ *     [--data-dir <path>]
+ *
+ * `--data-dir` (optional) skips git-based resolution entirely and writes
+ * straight into the given data dir — see `extractDataDirFlag`'s doc comment
+ * for why this matters (a builder worktree re-resolving can land in a
+ * different project data dir than the orchestrator that dispatched it).
  */
-function taskReturn(args) {
+function taskReturn(args, opts = {}) {
   const taskId = args[0];
   if (!taskId || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(taskId)) {
     process.stderr.write(
@@ -1596,7 +1674,7 @@ function taskReturn(args) {
     }
   }
 
-  const dataDir = getDataDir({ silent: true });
+  const dataDir = opts.dataDir || getDataDir({ silent: true });
   const returnsDir = join(dataDir, "sprints", "current", ".subagent-returns");
   mkdirSync(returnsDir, { recursive: true });
   const record = {
@@ -2002,11 +2080,13 @@ function main() {
       break;
     }
     case "events": {
-      eventsCmd(process.argv.slice(3));
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "events emit");
+      eventsCmd(rest, { dataDir: dataDirOverride });
       break;
     }
     case "next-id": {
-      nextIdCmd(process.argv.slice(3));
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "next-id");
+      nextIdCmd(rest, { dataDir: dataDirOverride });
       break;
     }
     case "link-data-dir": {
@@ -2028,8 +2108,8 @@ function main() {
       break;
     }
     case "anchor-commit": {
-      const rest = process.argv.slice(3);
-      anchorCommit(rest[0], rest[1]);
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "anchor-commit");
+      anchorCommit(rest[0], rest[1], { dataDir: dataDirOverride });
       break;
     }
     case "verify-wave-integrated": {
@@ -2073,7 +2153,8 @@ function main() {
       break;
     }
     case "task-return": {
-      taskReturn(process.argv.slice(3));
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "task-return");
+      taskReturn(rest, { dataDir: dataDirOverride });
       break;
     }
     case "doctor": {
@@ -2082,9 +2163,19 @@ function main() {
     }
     case "feature":
     case "backlog":
-    case "idea":
-    case "task": {
+    case "idea": {
       specStateCmd(getDataDir({ silent: true }), process.argv.slice(2));
+      break;
+    }
+    case "task": {
+      // `task set-status` is invoked from several builder/dispatch bodies
+      // running inside a worktree whose resolver-derived data dir can
+      // differ from the orchestrator's — same class of bug --data-dir
+      // fixes on task-return/events/anchor-commit. extractDataDirFlag
+      // strips the flag from the args passed through to specStateCmd, so
+      // that CLI never sees it.
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "task");
+      specStateCmd(dataDirOverride ?? getDataDir({ silent: true }), ["task", ...rest]);
       break;
     }
     case "lock": {
@@ -2092,18 +2183,23 @@ function main() {
       break;
     }
     case "scan-stubs": {
-      scanStubsCmd(getDataDir({ silent: true }), process.argv.slice(3));
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "scan-stubs");
+      scanStubsCmd(dataDirOverride ?? getDataDir({ silent: true }), rest);
       break;
     }
     case "verify": {
       verifyCmd(getDataDir({ silent: true }), process.argv.slice(3));
       break;
     }
+    case "readiness-check": {
+      readinessCheckCmd(getProjectRoot(), getDataDir({ silent: true }), process.argv.slice(3));
+      break;
+    }
     // For project-id / project-root use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash|project-root`.
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|clear-tasks> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify> ... | config set <key> <value> | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] | verify <record|check> ...\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|clear-tasks|record-proof> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify> ... [--data-dir <path>] | config set <key> <value> | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
       );
       process.exit(1);
   }

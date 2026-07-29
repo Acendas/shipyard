@@ -25,9 +25,17 @@
  *       Advance the cursor to <stage>. k=v pairs set frontmatter fields
  *       (sprint, wave_number, iteration, next_action, status, mode,
  *       working_branch, loop_owner, stuck_counter, pending_subagents=<json>).
- *       --force skips transition-graph validation ONLY — the evidence
- *       gates always run. Terminal stages emit pipeline_terminal and print
- *       the stop marker as the final line.
+ *       An unset `sprint` backfills from SPRINT.md's own `id:` when
+ *       resolvable, never fabricated otherwise. A `wave_N_dispatch` target
+ *       stage REPLACES pending_subagents with exactly what this call
+ *       passes (empty if none) rather than inheriting a prior wave's
+ *       leftovers; wave_N_waiting self-loops keep the merge/carry
+ *       semantics. --force skips transition-graph validation ONLY — the
+ *       evidence gates always run. Terminal stages emit pipeline_terminal
+ *       and print the stop marker as the final line; a non-terminal
+ *       advance prints the ordinary tick marker when a /loop looks live,
+ *       or an explicit "no loop is driving this sprint" marker when it
+ *       does not (same liveness signal as bootstrap-check).
  *   pause <execute|review> --note "..." [k=v ...]
  *       Keep the current stage, set status: paused, record the note in the
  *       cursor body. Replaces HANDOFF.md (v2.9.0): one resume source.
@@ -66,6 +74,15 @@ const CURSOR_FILE = {
 };
 
 const STOP_MARKER = "▶ CYCLE COMPLETE — pipeline terminal. /loop should stop.";
+
+// Tick-recency window shared by the loop_owner heuristic (resolveLoopOwner,
+// used by both `cursor bootstrap-check`'s eligibility computation and the
+// mid-sprint-exit marker on `cursor advance`) and bootstrap-check's
+// dead-loop re-arm detection. 5 minutes: a live /loop ticks well inside
+// this; a stale tick means the loop died (Ctrl-C, /clear, session end).
+const LOOP_TICK_WINDOW_MS = 5 * 60 * 1000;
+const NO_LOOP_DRIVING_MARKER =
+  "▶ TICK COMPLETE — no loop is driving this sprint. Re-run /shipyard:ship-execute to continue.";
 
 /** Frontmatter keys the CLI accepts via k=v and their render order. */
 const FIELD_ORDER = [
@@ -110,12 +127,20 @@ const SET_ONLY_EXCLUDED = new Set(["status"]);
  * to clean it up — read from the EVENT LOG, not conversation memory (a
  * compacted session forgets it armed a cron; the log doesn't). Printed
  * BEFORE the stop marker so the marker stays the final line.
+ *
+ * Scoped to `method=cron` specifically: `cursor bootstrap-check`'s F3
+ * dead-loop re-arm emits this SAME event type with `method=cli` (it
+ * re-arms directly via the next `Skill(loop)` invocation, no cron
+ * involved) — without this scope, a CLI re-arm would make every
+ * subsequent pause/escalate/noop/terminal-advance within the 500-event
+ * tail falsely tell the model to CronList/CronDelete a cron that was
+ * never created.
  */
 function cronCleanupReminder(dataDir, pipeline) {
   try {
     const events = readEvents(dataDir, 500);
     const armed = events.some(
-      (ev) => ev.type === "pipeline_loop_bootstrap_fallback" && ev.pipeline === pipeline,
+      (ev) => ev.type === "pipeline_loop_bootstrap_fallback" && ev.pipeline === pipeline && ev.method === "cron",
     );
     if (armed) {
       process.stdout.write(
@@ -293,11 +318,20 @@ function clearExecutionLock(dataDir, pipeline) {
   releaseLock(dataDir, "execution", { force: true, bestEffort: true });
 }
 
-function buildProposed({ pipeline, stage, prior, cursorFields, note, terminal, nowIso }) {
+function buildProposed({ pipeline, stage, prior, cursorFields, note, terminal, nowIso, dataDir }) {
   const priorFm = prior?.fm ?? {};
+
+  // F4: backfill from SPRINT.md when neither this call nor the prior
+  // cursor carries a sprint id — see resolveSprintIdFromFile above.
+  let sprint = cursorFields.sprint ?? priorFm.sprint ?? "";
+  if (!sprint && dataDir) {
+    const resolved = resolveSprintIdFromFile(dataDir);
+    if (resolved) sprint = resolved;
+  }
+
   const merged = {
     pipeline,
-    sprint: cursorFields.sprint ?? priorFm.sprint ?? "",
+    sprint,
     stage,
     wave_number: cursorFields.wave_number ?? deriveWave(pipeline, stage) ?? undefined,
     iteration: cursorFields.iteration ?? deriveIter(pipeline, stage) ?? 1,
@@ -326,7 +360,18 @@ function buildProposed({ pipeline, stage, prior, cursorFields, note, terminal, n
     auto_loop_attempted: cursorFields.auto_loop_attempted ?? priorFm.auto_loop_attempted ?? undefined,
   };
 
-  let pending = prior?.pending ?? [];
+  // F5: an advance whose TARGET stage is a wave_N_dispatch REPLACES
+  // pending_subagents with exactly what this call passes (empty if none),
+  // rather than inheriting whatever a prior wave's waiting/recovery cycle
+  // left behind. Without this, entries from a wave that already finished
+  // (and was never re-passed on the dispatch→dispatch hop across wave
+  // boundaries) sit in the cursor with a stale spawned_at forever, and the
+  // NEXT wave's wave_N_waiting reconciliation marks tasks that no longer
+  // exist as needs-attention. Self-loops on wave_N_waiting are NOT dispatch
+  // stages — they keep today's merge/carry semantics (a poll tick that
+  // doesn't repeat the list must not appear to drop it).
+  const isDispatchStage = normalizeStage(pipeline, stage)?.key === "wave_dispatch";
+  let pending = isDispatchStage ? [] : (prior?.pending ?? []);
   if (cursorFields.pending_subagents !== undefined) {
     const raw = cursorFields.pending_subagents;
     if (raw === "" || raw === "[]") {
@@ -377,6 +422,73 @@ function terminalDefaultOutcome(stage) {
 
 function sprintIdOf(fields, prior) {
   return fields.sprint || prior?.fm?.sprint || "unknown";
+}
+
+/**
+ * F4: resolve a sprint id from SPRINT.md's own `id:` frontmatter when a
+ * cursor advance carries no `sprint` field at all (neither passed on this
+ * call nor already on the prior cursor). Without this a cursor can go a
+ * whole sprint with `sprint:` absent, and every event it emits tags
+ * `sprint:"unknown"` — which breaks the noop repeat-leak detector's and the
+ * wave-waiting reconciliation filter's sprint-scoping (they key off the
+ * cursor's sprint id). Never fabricate: an absent or unreadable SPRINT.md
+ * leaves the field exactly as it was, same as today.
+ */
+function resolveSprintIdFromFile(dataDir) {
+  try {
+    const sprintPath = join(dataDir, "sprints", "current", "SPRINT.md");
+    if (!existsSync(sprintPath)) return null;
+    const fm = parseFrontmatter(readFileSync(sprintPath, "utf8"));
+    const id = (fm.id || "").trim();
+    return id || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Shared loop_owner heuristic — the SAME liveness signal for both
+ * `cursor bootstrap-check` (auto-loop eligibility) and the mid-sprint-exit
+ * marker on `cursor advance` (F6), centralized so the two can never drift
+ * on what "a loop is live" means. An explicit `loop_owner` field on the
+ * cursor wins; otherwise a recent (LOOP_TICK_WINDOW_MS) `pipeline_tick_
+ * completed` for this pipeline whose `next_stage` matches `fm.stage` means
+ * a /loop driver landed the cursor there and is actively ticking.
+ */
+function resolveLoopOwner(dataDir, pipeline, fm) {
+  const explicit = (fm?.loop_owner || "").trim();
+  if (explicit === "/loop" || explicit === "user") return explicit;
+  const cutoff = Date.now() - LOOP_TICK_WINDOW_MS;
+  const events = readEvents(dataDir, 200);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (ev.type !== "pipeline_tick_completed" || ev.pipeline !== pipeline) continue;
+    const ts = Date.parse(ev.ts || "");
+    if (Number.isFinite(ts) && ts >= cutoff && ev.next_stage === fm?.stage) {
+      return "/loop";
+    }
+    break; // only the most recent tick matters
+  }
+  return "user";
+}
+
+/**
+ * F3: the timestamp of the most recent `pipeline_tick_completed` for this
+ * pipeline, regardless of which stage it landed on — used to tell "no loop
+ * has ticked in a while" (dead) apart from "a loop is ticking, just not
+ * matching this exact stage yet" (resolveLoopOwner's narrower question).
+ * Returns null when there has never been one (or its timestamp doesn't
+ * parse), which the caller treats as dead.
+ */
+function mostRecentTickCompletedAt(dataDir, pipeline) {
+  const events = readEvents(dataDir, 500);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (ev.type !== "pipeline_tick_completed" || ev.pipeline !== pipeline) continue;
+    const ts = Date.parse(ev.ts || "");
+    return Number.isFinite(ts) ? ts : null;
+  }
+  return null;
 }
 
 /** ---- advance ------------------------------------------------------- */
@@ -443,6 +555,14 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
   }
 
   const terminal = isTerminalStage(pipeline, stage);
+
+  // F6: capture the liveness signal BEFORE this call logs its own
+  // pipeline_tick_completed event below — resolveLoopOwner's "most recent
+  // tick" scan would otherwise always find the event THIS call is about to
+  // write (next_stage=<stage>, which never matches prior.fm.stage) and
+  // conclude "no loop" every single time, live loop or not.
+  const loopLiveAtEntry = !terminal && resolveLoopOwner(dataDir, pipeline, prior?.fm ?? {}) === "/loop";
+
   const nowIso = now.toISOString();
   const { merged, pending, body } = buildProposed({
     pipeline,
@@ -452,6 +572,7 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
     note,
     terminal,
     nowIso,
+    dataDir,
   });
 
   const proposedContent = renderCursor(merged, pending, body);
@@ -564,16 +685,28 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
     cronCleanupReminder(dataDir, pipeline);
     process.stdout.write(STOP_MARKER + "\n");
   } else {
-    const waveBit = merged.wave_number != null ? ` wave ${merged.wave_number},` : "";
-    // Pacing hint for the /loop driver (v3.4.0): waiting stages are pure
-    // polls of background builders — waking every 60s burns a full
-    // context load per no-op poll on a wave that can run 30-60 minutes.
-    // The driver reads the last line; give it a delay suggestion there.
-    const pacing =
-      normalizeStage(pipeline, stage)?.key === "wave_waiting"
-        ? " Background builders are running — suggest next wakeup in 300s."
-        : "";
-    process.stdout.write(`▶ TICK COMPLETE —${waveBit} stage ${stage}. /loop continues.${pacing}\n`);
+    // F6: a chained direct invocation and a /loop-driven tick print the
+    // identical "▶ TICK COMPLETE" marker today, so the user cannot tell
+    // "this will keep going on its own" from "this just stopped and
+    // nothing will resume it." Use the SAME liveness signal bootstrap-check
+    // uses (resolveLoopOwner, computed above against the PRE-advance
+    // cursor): if nothing looks like it's actively driving this sprint,
+    // say so explicitly instead of printing the ordinary continuation
+    // marker.
+    if (!loopLiveAtEntry) {
+      process.stdout.write(NO_LOOP_DRIVING_MARKER + "\n");
+    } else {
+      const waveBit = merged.wave_number != null ? ` wave ${merged.wave_number},` : "";
+      // Pacing hint for the /loop driver (v3.4.0): waiting stages are pure
+      // polls of background builders — waking every 60s burns a full
+      // context load per no-op poll on a wave that can run 30-60 minutes.
+      // The driver reads the last line; give it a delay suggestion there.
+      const pacing =
+        normalizeStage(pipeline, stage)?.key === "wave_waiting"
+          ? " Background builders are running — suggest next wakeup in 300s."
+          : "";
+      process.stdout.write(`▶ TICK COMPLETE —${waveBit} stage ${stage}. /loop continues.${pacing}\n`);
+    }
   }
 }
 
@@ -684,28 +817,50 @@ export function cursorResume(dataDir, pipelineArg, rest, { now = new Date() } = 
  * The auto-loop bootstrap eligibility computation, absorbed from ~20
  * lines of skill prose (5 ordered predicates over cursor + event log +
  * SPRINT.md). Prints one JSON line:
- *   { "loop_owner": "/loop"|"user", "eligible": bool, "reason": "..." }
+ *   { "loop_owner": "/loop"|"user", "eligible": bool, "reason": "...", "rearm": bool }
  * When eligible, sets `auto_loop_attempted: true` on the cursor as a
  * side effect (field-only, no tick event) so the /loop re-entry sees the
- * sentinel without a second CLI call.
+ * sentinel without a second CLI call. `rearm` is `true` only for the F3
+ * dead-loop re-arm path below — `false` on every other branch, never
+ * absent, so callers can always read it without an `undefined` check.
  *
- * loop_owner heuristic (centralized here so it can be fixed in ONE
- * place): a pipeline_tick_completed for this pipeline within the last
- * 5 minutes whose next_stage matches the current cursor stage → this
- * invocation is a /loop re-entry. The window is deliberately SHORT
- * (v3.4.0, was 30 min): a live /loop ticks well inside 5 minutes, and a
- * stale tick means the loop died (Ctrl-C, crash) — the old 30-min
+ * loop_owner heuristic: see resolveLoopOwner above (shared with the
+ * mid-sprint-exit marker on `cursor advance`). The window is deliberately
+ * SHORT (v3.4.0, was 30 min): a live /loop ticks well inside 5 minutes,
+ * and a stale tick means the loop died (Ctrl-C, crash) — the old 30-min
  * window misclassified a direct re-invocation as /loop for up to half
  * an hour, one-tick-stalling the pipeline AND disarming the cron
- * fallback (which requires loop_owner=user). Callers can override with
- * the cursor's own loop_owner field, which wins when set.
+ * fallback (which requires loop_owner=user).
+ *
+ * F3 — re-arm instead of refusing forever. Before this, once
+ * `auto_loop_attempted` was set, bootstrap-check returned `eligible: false`
+ * for the rest of the sprint's life, unconditionally — so if the /loop
+ * driver that accepted the bootstrap later died (Ctrl-C, /clear, session
+ * end), NOTHING ever restarted it: the sprint sat dead until a human
+ * noticed and manually re-invoked /ship-execute. The old prose asked the
+ * model to derive "the loop went silent" itself by comparing tick
+ * timestamps — but bootstrap-check never returned a timestamp, and the
+ * Sonnet zero-thinking shell doesn't do that derivation (confirmed against
+ * a live customer history: 14 pipeline_loop_bootstrap events, ZERO
+ * pipeline_loop_bootstrap_fallback). So the CLI derives it instead: once
+ * `auto_loop_attempted` is set, check the most recent
+ * `pipeline_tick_completed` for this pipeline (mostRecentTickCompletedAt,
+ * regardless of which stage it targeted) — absent or older than the same
+ * 5-minute window means the loop is dead. Re-arm (`eligible: true,
+ * rearm: true`) and emit the EXISTING `pipeline_loop_bootstrap_fallback`
+ * event (reason=loop_silent) from here, so the re-arm is observable in the
+ * audit log without relying on the model to emit it. Every refusal ahead
+ * of this point (terminal cursor, paused cursor, absent SPRINT.md, a
+ * `status: completed` sprint) still applies FIRST — a dead sprint must
+ * NEVER re-arm, matching the v2.8.2 wakeup-leak lesson this same file
+ * fixed once already.
  */
 export function cursorBootstrapCheck(dataDir, pipelineArg) {
   const pipeline = canonicalPipeline(pipelineArg);
   if (!pipeline) usageFail(`cursor bootstrap-check: unknown pipeline "${pipelineArg}" — expected execute|review`);
 
-  const out = (loop_owner, eligible, reason) => {
-    process.stdout.write(JSON.stringify({ loop_owner, eligible, reason }) + "\n");
+  const out = (loop_owner, eligible, reason, rearm = false) => {
+    process.stdout.write(JSON.stringify({ loop_owner, eligible, reason, rearm }) + "\n");
   };
 
   const prior = readCursor(dataDir, pipeline);
@@ -727,25 +882,26 @@ export function cursorBootstrapCheck(dataDir, pipelineArg) {
     }
   } catch { /* unreadable — treat as live and let the advance-time guard decide */ }
 
-  // loop_owner: explicit cursor field wins; else the tick-recency heuristic.
-  let loopOwner = (prior.fm.loop_owner || "").trim();
-  if (loopOwner !== "/loop" && loopOwner !== "user") {
-    loopOwner = "user";
-    const cutoff = Date.now() - 5 * 60 * 1000;
-    const events = readEvents(dataDir, 200);
-    for (let i = events.length - 1; i >= 0; i--) {
-      const ev = events[i];
-      if (ev.type !== "pipeline_tick_completed" || ev.pipeline !== pipeline) continue;
-      const ts = Date.parse(ev.ts || "");
-      if (Number.isFinite(ts) && ts >= cutoff && ev.next_stage === prior.fm.stage) {
-        loopOwner = "/loop";
-      }
-      break; // only the most recent tick matters
-    }
-  }
-
+  const loopOwner = resolveLoopOwner(dataDir, pipeline, prior.fm);
   if (loopOwner === "/loop") return out("/loop", false, "already driven by /loop");
+
   if (String(prior.fm.auto_loop_attempted).toLowerCase() === "true") {
+    const lastTickAt = mostRecentTickCompletedAt(dataDir, pipeline);
+    const loopSilent = lastTickAt === null || lastTickAt < Date.now() - LOOP_TICK_WINDOW_MS;
+    if (loopSilent) {
+      logEvent(dataDir, "pipeline_loop_bootstrap_fallback", {
+        pipeline,
+        sprint: sprintIdOf(prior.fm, prior),
+        method: "cli",
+        reason: "loop_silent",
+      });
+      return out(
+        loopOwner,
+        true,
+        "auto_loop_attempted already set, but no live /loop tick in the last 5 minutes — the loop went silent; re-arming",
+        true,
+      );
+    }
     return out(loopOwner, false, "auto_loop_attempted already set — bootstrap was already offered");
   }
 

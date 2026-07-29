@@ -385,6 +385,254 @@ for (const base of LOCK_BASENAMES) {
   });
 }
 
+// --- CLI-owned frontmatter-key deny (gap-closer) -----------------------
+//
+// shipyard-data has typed atomic mutators for feature/task/idea/backlog/
+// config frontmatter, but nothing enforced hand-editing those fields
+// directly (0 denies observed in a live customer log). These tests exercise
+// the narrow third deny class: Edit/MultiEdit only, scoped to the owned
+// files, firing only when the edited text touches an owned key.
+
+test("frontmatter-key deny: Edit touching `status:` in a feature file is DENIED, hint names feature set-status", async () => {
+  await withTempDir(async (sd) => {
+    const featuresDir = join(sd, "spec", "features");
+    mkdirSyncFs(featuresDir, { recursive: true });
+    const target = join(featuresDir, "F001-widget.md");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "Edit",
+        tool_input: {
+          file_path: target,
+          old_string: "status: proposed",
+          new_string: "status: approved",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(
+      resp.hookSpecificOutput.permissionDecisionReason,
+      /feature set-status/,
+      "hint must name feature set-status",
+    );
+  });
+});
+
+test("frontmatter-key deny: Edit touching `rice_effort:` in a feature file is DENIED, hint names feature set", async () => {
+  await withTempDir(async (sd) => {
+    const featuresDir = join(sd, "spec", "features");
+    mkdirSyncFs(featuresDir, { recursive: true });
+    const target = join(featuresDir, "F001-widget.md");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "Edit",
+        tool_input: {
+          file_path: target,
+          old_string: "rice_effort: 0",
+          new_string: "rice_effort: 3",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(
+      resp.hookSpecificOutput.permissionDecisionReason,
+      /shipyard-data feature set /,
+      "hint must name feature set",
+    );
+  });
+});
+
+test("frontmatter-key deny: MultiEdit is covered too, not just Edit", async () => {
+  await withTempDir(async (sd) => {
+    const tasksDir = join(sd, "spec", "tasks");
+    mkdirSyncFs(tasksDir, { recursive: true });
+    const target = join(tasksDir, "T001-do-thing.md");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "MultiEdit",
+        tool_input: {
+          file_path: target,
+          edits: [
+            { old_string: "effort: \"\"", new_string: "effort: \"M\"" },
+            { old_string: "status: approved", new_string: "status: blocked" },
+          ],
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /task set-status/);
+  });
+});
+
+test("frontmatter-key deny: ALLOW an Edit to body prose in the same feature file", async () => {
+  await withTempDir(async (sd) => {
+    const featuresDir = join(sd, "spec", "features");
+    mkdirSyncFs(featuresDir, { recursive: true });
+    const target = join(featuresDir, "F001-widget.md");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "Edit",
+        tool_input: {
+          file_path: target,
+          old_string: "## What\n\nOld description.",
+          new_string: "## What\n\nUpdated description of the feature.",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(
+      resp.hookSpecificOutput.permissionDecision,
+      "allow",
+      "body-prose edits with no owned key must stay auto-approved",
+    );
+  });
+});
+
+test("frontmatter-key deny: ALLOW a Write creating a brand-new task file", async () => {
+  await withTempDir(async (sd) => {
+    const tasksDir = join(sd, "spec", "tasks");
+    mkdirSyncFs(tasksDir, { recursive: true });
+    const target = join(tasksDir, "T002-new-thing.md");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: target,
+          content: "---\nid: T002\nstatus: approved\n---\n\n# New thing\n",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(
+      resp.hookSpecificOutput.permissionDecision,
+      "allow",
+      "Write to a new task file must never be denied — required hand-authoring flow",
+    );
+  });
+});
+
+test("frontmatter-key deny: ALLOW a Write creating a brand-new IDEA file", async () => {
+  await withTempDir(async (sd) => {
+    const ideasDir = join(sd, "spec", "ideas");
+    mkdirSyncFs(ideasDir, { recursive: true });
+    const target = join(ideasDir, "IDEA-003-something.md");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: target,
+          content: "---\nid: IDEA-003\nstatus: proposed\n---\n\n# Something\n",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(
+      resp.hookSpecificOutput.permissionDecision,
+      "allow",
+      "Write to a new IDEA file must never be denied — builders may hand-author up to 3",
+    );
+  });
+});
+
+test("frontmatter-key deny: scoped to the data dir — same-named feature file OUTSIDE it is untouched", async () => {
+  await withTempDir(async (sd) => {
+    const outside = mkdtempSync(join(tmpdir(), "outside-feature-"));
+    try {
+      const featuresDir = join(outside, "spec", "features");
+      mkdirSyncFs(featuresDir, { recursive: true });
+      const target = join(featuresDir, "F001-widget.md");
+      const { stdout, code } = await runWithEnv(
+        {
+          tool_name: "Edit",
+          tool_input: {
+            file_path: target,
+            old_string: "status: proposed",
+            new_string: "status: approved",
+          },
+        },
+        { SHIPYARD_DATA: sd },
+      );
+      assert.equal(code, 0);
+      assert.equal(
+        stdout,
+        "",
+        "a feature-shaped file outside the data dir must fall through to default permission flow",
+      );
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
+
+test("frontmatter-key deny: `models:` block edit in config.md is DENIED, hint names config set-model", async () => {
+  await withTempDir(async (sd) => {
+    const target = join(sd, "config.md");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "Edit",
+        tool_input: {
+          file_path: target,
+          old_string: "models:\n  think: opus",
+          new_string: "models:\n  think: fable",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /config set-model/);
+  });
+});
+
+test("frontmatter-key deny: `last_groomed:` edit in BACKLOG.md is DENIED, hint names backlog set", async () => {
+  await withTempDir(async (sd) => {
+    mkdirSyncFs(join(sd, "backlog"), { recursive: true });
+    const target = join(sd, "backlog", "BACKLOG.md");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "Edit",
+        tool_input: {
+          file_path: target,
+          old_string: "last_groomed: null",
+          new_string: "last_groomed: 2026-07-29",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /backlog set last_groomed/);
+  });
+});
+
+test("frontmatter-key deny: ALLOW an Edit to the BACKLOG.md Overrides body section", async () => {
+  await withTempDir(async (sd) => {
+    mkdirSyncFs(join(sd, "backlog"), { recursive: true });
+    const target = join(sd, "backlog", "BACKLOG.md");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "Edit",
+        tool_input: {
+          file_path: target,
+          old_string: "## Overrides",
+          new_string: "## Overrides\n\n- F001 bumped above F002: strategic bet.",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "allow");
+  });
+});
+
 test("cli-owned deny: breadcrumb log records the deny", async () => {
   await withTempDir(async (sd) => {
     mkdirSyncFs(join(sd, "sprints", "current"), { recursive: true });
