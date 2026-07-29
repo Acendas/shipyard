@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { normalizeStage, validateTransition, isTerminalStage } from "../bin/pipeline-stages.mjs";
@@ -103,7 +103,20 @@ function makeProject() {
       return { code: err.status, stdout: err.stdout ?? "", stderr: err.stderr ?? "" };
     }
   };
-  const dataDir = run(["init"]).stdout.trim();
+  const initResult = run(["init"]);
+  const dataDir = initResult.stdout.trim();
+  // Fail HERE if init didn't actually work. Without this guard an empty stdout
+  // leaves dataDir === "", and every later join(dataDir, "spec", ...) silently
+  // degrades to a RELATIVE path — surfacing much later as a baffling
+  // `ENOENT: spec/...` that looks like a product bug rather than a failed
+  // fixture. That is the shape of the intermittent failure seen under
+  // concurrent `node --test tests/*.mjs` runs.
+  if (initResult.code !== 0 || !isAbsolute(dataDir)) {
+    throw new Error(
+      `fixture setup failed: shipyard-data init exited ${initResult.code}, ` +
+        `stdout=${JSON.stringify(initResult.stdout)} stderr=${initResult.stderr}`,
+    );
+  }
   return { root, repo, dataDir, run, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 

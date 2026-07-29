@@ -32,6 +32,7 @@ Emit a `operational_iteration` event from inside the subagent per cycle (`shipya
 - `task_id` — e.g., `O-007` (operational tasks conventionally use `O-` prefix).
 - `task_file_path` — absolute path under `<SHIPYARD_DATA>/spec/tasks/`.
 - `verify_command` — resolved command. Either a literal command or a config-key reference like `test_commands.e2e` (resolved to the literal command from `<SHIPYARD_DATA>/config.md`).
+- `rerun_failed_command` — optional, resolved from `test_commands.rerun_failed` in `config.md` at the same time as `verify_command`. When present, this literal command narrows *interim* Phase-2 re-runs to previously-failing tests (see "Failed-Only Rerun" below). Empty/absent → the loop's behavior is byte-identical to before this feature existed — full command, every iteration.
 - `data_dir` — literal `<SHIPYARD_DATA>` path.
 - `working_branch` — git branch.
 - `worktree_path` — null for operational (works on working branch directly; operational changes don't isolate well).
@@ -44,7 +45,7 @@ Operational tasks run in two phases inside the subagent's loop:
 
 ### Phase 1 — Run + Capture
 
-1. Resolve the verify command (handle `test_commands.e2e` style indirection).
+1. Resolve the verify command (handle `test_commands.e2e` style indirection). Resolve `test_commands.rerun_failed` from the same config file at the same time, if present — used unmodified for interim narrowed re-runs (see "Failed-Only Rerun" below). Shipyard never edits, infers, or substitutes into this command; it is run verbatim exactly as configured.
 2. Run the command via **Monitor** so progress and failures stream to the orchestrator/user as notifications instead of arriving as one blob at the end. The capture file remains the source of truth for the structured return.
 
    **Exit-code propagation — sentinel-file pattern.** A naive `<verify> | tee | grep` is broken in two ways: grep returning 1 on no-match would falsely flag a clean green run as failed, and `|| true` to suppress that swallows the *verify's* failure too. `set -o pipefail` plus `${PIPESTATUS[0]}` doesn't save you either — `|| true` resets PIPESTATUS by the time you read it. The robust pattern writes the verify's exit code to a sentinel file inside the subshell, BEFORE the pipe:
@@ -92,7 +93,34 @@ If exit was non-zero, parse the capture for findings (the subagent reads the cap
 - **In-scope** (relates to recent work, fixes a real failure): apply a fix in-place. Commit atomically: `fix(<task_id>): <one-line>`.
 - **Out-of-scope** (pre-existing, unrelated to this task's intent): file as a bug task (idea file under `<SHIPYARD_DATA>/spec/ideas/` if not yet a task; or a `B-*` bug if it warrants a sprint slot). Cap at `max_patch_tasks` to prevent scope creep.
 
-After fixes commit, re-run Phase 1 (iteration N+1). Loop until exit 0 or `max_iterations` reached.
+After fixes commit, decide the next iteration's command:
+
+- **The final iteration (`iteration == max_iterations`) always runs the FULL verify command.** It is reserved as the mandatory closing proof — see "Failed-Only Rerun" immediately below. Never narrow the last attempt.
+- **Every earlier iteration** runs the narrowed `rerun_failed_command` when one is configured and the previous run had failures; otherwise it runs the FULL command — today's unchanged behavior when `rerun_failed` is unset.
+
+Loop until a **FULL** run exits 0, or `max_iterations` is reached.
+
+### Failed-Only Rerun (config-driven narrowing)
+
+A single tier can take up to 13 minutes on a real customer project. Before this feature, every fix-loop iteration re-ran the *entire* verify command — one failure costs 26+ minutes, two failures 39+, almost all of it re-running tests that already passed. `test_commands.rerun_failed` in `config.md` lets iterations 2 through `max_iterations - 1` re-run only the failing subset instead.
+
+**How it's used — config-driven, never inferred.** Shipyard does not parse failure output to build a test-name filter, and it never guesses a runner's flags. `rerun_failed` is a complete, literal, runnable command (populated by `/ship-init` detection or hand-edited by the user) that the loop runs verbatim on a narrowing iteration. Most runners with a native failed-only mode track their own last-failure state on disk (pytest's `.pytest_cache`, jest/vitest's internal cache, RSpec's `.rspec_status`) — which is exactly why running the command *verbatim*, right after the prior iteration wrote that state, is sufficient; no argument substitution is needed or attempted.
+
+| Runner | `rerun_failed` example |
+|---|---|
+| jest | `jest --onlyFailures` |
+| vitest | `vitest --changed` |
+| pytest | `pytest --lf` |
+| Gradle | `gradle test --tests <pattern>` |
+| Maven / surefire | `mvn -Dtest=<pattern> test` |
+| go test | `go test -run '<regex>'` |
+| cargo | `cargo test <name>` |
+| .NET | `dotnet test --filter <expr>` |
+| RSpec | `rspec --only-failures` |
+
+Where a runner has no failed-only mode, leave `rerun_failed` unset — the loop keeps re-running the full command every iteration, identical to pre-P2 behavior. Nothing about this feature can make an unconfigured ecosystem worse off.
+
+**A narrowed green run is never the recorded proof.** Exit 0 on a `rerun_failed` run only means the previously-failing subset now passes — it says nothing about the rest of the suite, and it must never be reported as `STATUS: COMPLETE` or written to `verify_output` as the final answer. When a narrowed run exits 0, the loop does not stop: the very next run is forced to be the FULL command regardless of where that falls in the iteration budget, and *that* full run's exit code is the real verdict. This is why the last iteration is always reserved for a FULL run — it guarantees the loop can't be exhausted without ever having produced full-suite proof. The structured return contract and the verification ledger both treat a recorded `verify_history` pass as authoritative evidence; a narrowed pass recorded as if it were a full pass would be a false green.
 
 ## Dispatching the Operational Task
 
@@ -117,6 +145,7 @@ Agent(
     Task ID:                {{task_id}}
     Task file:               {{task_file_path}}
     Verify command:          {{verify_command_resolved}}
+    Rerun-failed command:    {{rerun_failed_command_resolved, or omit if unset}}
     Working branch:          {{working_branch}}
     Data dir:                {{data_dir}}
     Max iterations:          {{max_iterations}}
@@ -191,6 +220,7 @@ Splitting it out keeps task-loop strict and makes the operational path explicit 
 ## Bottom Line
 
 - Run the verify command, capture verbatim, fix findings, loop until exit 0.
+- Interim iterations narrow to `test_commands.rerun_failed` when configured; the last iteration is always a FULL run — a narrowed pass is never the recorded proof. `rerun_failed` unset → unchanged full-rerun-every-iteration behavior.
 - Subagent's deliverable is the capture file, not a commit.
 - Orchestrator-side gate: verify_output populated + capture exists + last entry exit:0 + LAST_LINES match.
 - Bounded by max_iterations (default 3) and max_patch_tasks (default 5).

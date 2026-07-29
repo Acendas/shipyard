@@ -1,5 +1,5 @@
 ---
-config_version: 4
+config_version: 5
 project_name: ""
 project_type: ""
 tech_stack: []
@@ -9,10 +9,29 @@ test_commands:
   unit: ""              # e.g., "vitest run", "pytest", "go test ./..."
   integration: ""       # e.g., "vitest run --config vitest.integration.config.ts"
   e2e: ""               # e.g., "playwright test", "cypress run"
-  scoped: ""            # e.g., "vitest run --testPathPattern", "pytest -k"
+  scoped: ""            # runs a subset by changed base/files — must be a complete, runnable
+                         # command (with {base}/{files} placeholders where the runner needs an
+                         # argument), never a bare flag. Substituted at wave-dispatch time from
+                         # the wave's base sha / changed-file list.
+                         # e.g., "jest --changedSince={base}", "vitest related {files} --run",
+                         # "pytest {files}", "gradle test --tests {files}"
+                         # Leave empty to always run the full tier (today's behavior) — an
+                         # ecosystem with no native scoped form is never made worse.
+  rerun_failed: ""       # re-runs only the tests that failed last iteration, for operational
+                         # fix loops — a complete, runnable command, never a bare flag.
+                         # e.g., "jest --onlyFailures", "vitest --changed", "pytest --lf",
+                         # "gradle test --tests <pattern>", "mvn -Dtest=<pattern> test",
+                         # "go test -run '<regex>'", "cargo test <name>", "dotnet test --filter <expr>"
+                         # Leave empty if the runner has no failed-only mode — the fix loop
+                         # keeps re-running the full command each iteration (today's behavior).
 build_commands:
-  scoped: ""              # e.g., "gradle :module:assemble", "npm run build -- --filter=module"
+  scoped: ""              # builds a subset by changed base/files — same runnable-command
+                           # requirement as test_commands.scoped, with {base}/{files} placeholders.
+                           # e.g., "nx affected --target=build --base={base}", "turbo build --filter={files}"
+                           # Leave empty to always run the full build (today's behavior).
   full: ""                # e.g., "gradle assemble", "npm run build", "cargo build"
+                           # Must NOT embed a test command — /ship-init warns if it detects one,
+                           # since the build stage running tests means the test stage re-runs them.
 ci_platform: ""
 repo_type: single
 workflow: sprint
@@ -36,6 +55,13 @@ operational_tasks:
 execution:
   max_parallel_agents: 3      # max concurrent builder subagents per wave (1-4, hard ceiling 4)
   max_tasks_per_wave: 6       # max tasks in one wave; wider dependency layers split into consecutive waves along track boundaries (wave COUNT is never capped — it's dependency depth)
+worktree_warm:
+  enabled: false        # opt-in; empty paths + disabled = exact current behavior (cold worktrees)
+  paths: []             # regenerable build/cache dirs to clone/copy into every new task worktree,
+                         # e.g. [".gradle", "build", "target", "dist"] — populated by /ship-init
+                         # stack detection, user-overridable. Dependency-resolution dirs (node_modules,
+                         # .venv, vendor/bundle, deps, ...) are refused by name in code even if listed
+                         # here — copying/symlinking them causes false-green tests (probe-confirmed).
 models:
   # Model tier per work class. Values are Agent-tool model names
   # (fable | opus | sonnet | haiku); empty string = omit the model
@@ -49,8 +75,6 @@ escalation:
 quality_gates:
   standing: []              # standing gates applied to every sprint release
   # Examples of standing gates:
-  #   - "All unit tests pass (test_commands.unit)"
-  #   - "All E2E tests pass (test_commands.e2e)"
   #   - "No TODO/FIXME in sprint diff"
   #   - "Code coverage >= 80% on new code"
   #   - "No console.log in production code"

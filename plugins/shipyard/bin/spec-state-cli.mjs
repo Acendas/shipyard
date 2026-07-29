@@ -94,9 +94,14 @@ function getScalar(block, key) {
   return m[1].trim();
 }
 
+/** Escape a literal for safe interpolation into a RegExp. */
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Set (or append) a scalar `key: value` line inside a frontmatter block. */
 function setScalar(block, key, value) {
-  const lineRe = new RegExp(`^${key}:.*$`, "m");
+  const lineRe = new RegExp(`^${escapeRe(key)}:.*$`, "m");
   if (lineRe.test(block)) {
     return block.replace(lineRe, `${key}: ${value}`);
   }
@@ -909,35 +914,145 @@ function taskAppendVerify(dataDir, args) {
 
 // --- config commands ---------------------------------------------------------
 
-// CLI-key (hyphenated, matches the command-line spelling) -> frontmatter key.
-const CONFIG_SET_ALLOWLIST = { "product-spec-path": "product_spec_path" };
+// CLI-key (hyphenated, matches the command-line spelling) -> descriptor.
+// `parent` absent/null => top-level scalar (setScalar's existing flat-key
+// path). `parent` present => the key is nested one level under a
+// `<parent>:` block (e.g. `worktree_warm:` / `test_commands:`) — config.md's
+// frontmatter is NOT flat, so those need the nested setters below rather
+// than the flat setScalar/setArrayField pair. `type` picks the setter:
+// "scalar" (free-text, incl. commands with spaces/flags), "bool"
+// (true/false only), "array" (comma-separated CLI value -> a rendered
+// flow-style YAML array).
+const CONFIG_SET_ALLOWLIST = {
+  "product-spec-path": { fmKey: "product_spec_path", type: "scalar" },
+  "worktree-warm-enabled": { parent: "worktree_warm", fmKey: "enabled", type: "bool" },
+  "worktree-warm-paths": { parent: "worktree_warm", fmKey: "paths", type: "array" },
+  "test-commands-rerun-failed": { parent: "test_commands", fmKey: "rerun_failed", type: "scalar" },
+};
+
+/**
+ * Set (or append) a scalar `key: value` line nested one level under a
+ * `<parent>:` block, preserving a trailing `# comment` on the line if one
+ * was already there. Mirrors shipyard-data.mjs's configSetModel nested-
+ * block scan (used for the `models:` block) — kept as a separate small
+ * copy here rather than a shared import because the two modules
+ * deliberately don't import each other's config-mutation internals (only
+ * shipyard-data.mjs's `main()` dispatches into spec-state-cli's `configSet`
+ * for the generic `config set` verb; each CLI owns its own writers).
+ * Creates the parent block (with just this one key) if it doesn't exist
+ * yet — a project initialized before a key existed should still be able to
+ * opt in via this CLI rather than requiring a full re-init.
+ */
+function setNestedScalar(block, parentKey, key, value) {
+  const lines = block.split("\n");
+  const startIdx = lines.findIndex((l) => new RegExp(`^${parentKey}:\\s*$`).test(l));
+  if (startIdx === -1) {
+    return block.replace(/\s*$/, "") + `\n${parentKey}:\n  ${key}: ${value}`;
+  }
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (/^\S/.test(lines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+  let found = false;
+  for (let i = startIdx + 1; i < endIdx; i++) {
+    const m = lines[i].match(new RegExp(`^(\\s+${key}:)(.*)$`));
+    if (m) {
+      const trailingComment = (m[2].match(/(\s+#.*)$/) || [])[1] || "";
+      lines[i] = `${m[1]} ${value}${trailingComment}`;
+      found = true;
+      break;
+    }
+  }
+  if (!found) lines.splice(startIdx + 1, 0, `  ${key}: ${value}`);
+  return lines.join("\n");
+}
+
+/** Same as setNestedScalar, but for a flow-style array field (`paths: [...]`). */
+function setNestedArray(block, parentKey, key, arr) {
+  const rendered = `[${arr.map((s) => JSON.stringify(s)).join(", ")}]`;
+  const lines = block.split("\n");
+  const startIdx = lines.findIndex((l) => new RegExp(`^${parentKey}:\\s*$`).test(l));
+  if (startIdx === -1) {
+    return block.replace(/\s*$/, "") + `\n${parentKey}:\n  ${key}: ${rendered}`;
+  }
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (/^\S/.test(lines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+  let found = false;
+  for (let i = startIdx + 1; i < endIdx; i++) {
+    const m = lines[i].match(new RegExp(`^(\\s+${key}:)\\s*\\[[^\\]]*\\](\\s*#.*)?$`));
+    if (m) {
+      lines[i] = `${m[1]} ${rendered}${m[2] ?? ""}`;
+      found = true;
+      break;
+    }
+  }
+  if (!found) lines.splice(startIdx + 1, 0, `  ${key}: ${rendered}`);
+  return lines.join("\n");
+}
 
 /**
  * `config set <key> <value>` — generic sibling to `config set-model`
- * (shipyard-data.mjs) for allowlisted scalar config.md fields that aren't
- * part of the `models:` block. Currently just `product-spec-path`, stored
- * verbatim (no path validation — it's a hint string for ship-spec sync,
- * not a containment-checked path).
+ * (shipyard-data.mjs) for allowlisted config.md fields that aren't part of
+ * the `models:` block. Model hand-Edits of config.md frontmatter are the
+ * corruption class this CLI exists to prevent — every settable field goes
+ * through a descriptor here rather than a free-form Edit.
+ *
+ *   config set product-spec-path docs/spec/
+ *   config set worktree-warm-enabled true
+ *   config set worktree-warm-paths ".gradle,build,target"
+ *   config set test-commands-rerun-failed "--onlyFailures"
  */
 function configSet(dataDir, args) {
   const cliKey = args[0];
   const value = args[1];
+  const allowedList = () => Object.keys(CONFIG_SET_ALLOWLIST).join(", ");
   if (!cliKey || value === undefined) {
-    fail(2, `usage: config set <key> <value>. Allowed keys: ${Object.keys(CONFIG_SET_ALLOWLIST).join(", ")}`);
+    fail(2, `usage: config set <key> <value>. Allowed keys: ${allowedList()}`);
   }
-  const fmKey = CONFIG_SET_ALLOWLIST[cliKey];
-  if (!fmKey) {
-    fail(2, `spec-state: config set: unknown key "${cliKey}". Allowed: ${Object.keys(CONFIG_SET_ALLOWLIST).join(", ")}`);
+  const descriptor = CONFIG_SET_ALLOWLIST[cliKey];
+  if (!descriptor) {
+    fail(2, `spec-state: config set: unknown key "${cliKey}". Allowed: ${allowedList()}`);
   }
+  const { parent, fmKey, type } = descriptor;
+
+  let writtenValue = value;
+  let arrayValue = null;
+  if (type === "bool") {
+    if (value !== "true" && value !== "false") {
+      fail(2, `spec-state: config set: "${cliKey}" is boolean — expected true|false, got "${value}"`);
+    }
+    writtenValue = value;
+  } else if (type === "array") {
+    arrayValue = value.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
   const configPath = join(dataDir, "config.md");
   if (!existsSync(configPath)) fail(1, `spec-state: no ${configPath} — run /ship-init first`);
   const content = readFileSync(configPath, "utf8");
   const fm = parseFm(content);
   if (!fm) fail(1, "spec-state: config.md has no frontmatter block — refusing");
-  const block = setScalar(fm.block, fmKey, value);
+
+  let block;
+  if (type === "array") {
+    block = parent ? setNestedArray(fm.block, parent, fmKey, arrayValue) : setArrayField(fm.block, fmKey, arrayValue);
+  } else if (parent) {
+    block = setNestedScalar(fm.block, parent, fmKey, writtenValue);
+  } else {
+    block = setScalar(fm.block, fmKey, writtenValue);
+  }
   writeFrontmatteredFile(configPath, fm, block);
-  logEvent(dataDir, "config_set", { key: fmKey });
-  process.stdout.write(`config: ${fmKey} = ${value}\n`);
+
+  const loggedKey = parent ? `${parent}.${fmKey}` : fmKey;
+  logEvent(dataDir, "config_set", { key: loggedKey });
+  process.stdout.write(`config: ${loggedKey} = ${type === "array" ? `[${arrayValue.join(", ")}]` : writtenValue}\n`);
 }
 
 // --- dispatch ----------------------------------------------------------------

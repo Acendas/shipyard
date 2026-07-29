@@ -332,7 +332,28 @@ function readDataDirLink(projectRoot, projectHash) {
 }
 
 /**
+ * Was this data dir created by `shipyard-data init` (vs. minted as a side
+ * effect of a bookkeeping command)? `init` writes `.project-root` and copies
+ * `templates/`; `/ship-init` additionally writes `config.md`. A dir with none
+ * of these is not a real project — the diagnostic-log writers in `_hook_lib`
+ * mkdir the data dir recursively, so one appears for any repo whose files get
+ * edited while Shipyard is installed.
+ *
+ * Single copy on purpose: `shipyard-data.mjs` imports this rather than keeping
+ * its own, because duplicated resolver helpers have drifted here before.
+ */
+export function dirLooksInitialized(dir) {
+  return (
+    existsSync(join(dir, ".project-root")) ||
+    existsSync(join(dir, "config.md")) ||
+    existsSync(join(dir, "templates"))
+  );
+}
+
+/**
  * Create or repoint `<projectRoot>/.shipyard` -> dataDir, idempotently.
+ *
+ * (See dirLooksInitialized below for the init-marker predicate this uses.)
  *
  * The single symlink-writer, shared by two callers:
  *   - `shipyard-data link-data-dir` (the explicit CLI) — layers --force /
@@ -353,12 +374,22 @@ function readDataDirLink(projectRoot, projectHash) {
  *   - 'repointed' — symlink existed with a stale target; unlinked + recreated
  *   - 'blocked'   — a real (non-symlink) file/dir occupies the path; left
  *                   untouched (the CLI decides whether --force should clobber)
+ *   - 'uninitialized' — the data dir exists but was never `init`ed; no link
+ *                   written (see dirLooksInitialized)
  * Throws only on unexpected fs errors; callers that must not fail wrap it.
  */
 export function ensureDataDirLink(projectRoot, dataDir) {
   const linkPath = join(projectRoot, ".shipyard");
   const target = resolve(dataDir);
   const type = IS_WINDOWS ? "junction" : "dir";
+
+  // A data dir's mere existence does NOT mean the project was initialized:
+  // the diagnostic-log writers in _hook_lib mkdir it recursively, so simply
+  // EDITING a file in any git repo with Shipyard installed mints one. Gating
+  // the link on existsSync(dataDir) therefore planted a stray `.shipyard`
+  // symlink in repos the user never ran /ship-init against (observed
+  // 2026-07-28). Require a real init marker instead.
+  if (!dirLooksInitialized(dataDir)) return { status: "uninitialized", linkPath };
 
   let existing = null;
   try {

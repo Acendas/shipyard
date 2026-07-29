@@ -129,5 +129,37 @@
     "type": "contains",
     "pattern": "Render before asking",
     "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule."
+  },
+  {
+    "name": "documents_rerun_failed_config_key",
+    "type": "contains",
+    "pattern": "test_commands.rerun_failed|rerun_failed_command",
+    "why": "P2 fix (a 13-minute tier costs 26+ minutes on one failure, 39+ on two): the wrapper must name the config key that drives narrowed fix-loop reruns so a reader can find where the behavior is switched on."
+  },
+  {
+    "name": "documents_rerun_failed_absent_is_unchanged",
+    "type": "contains",
+    "pattern": "byte-identical",
+    "why": "P2 constraint: absent rerun_failed must leave today's full-rerun-every-iteration behavior byte-identical — Shipyard cannot know the user's runner, so narrowing is opt-in only. Pins that the wrapper states this explicitly rather than leaving it implicit."
+  },
+  {
+    "name": "documents_final_iteration_always_full",
+    "type": "contains",
+    "pattern": "always runs the FULL verify command",
+    "why": "P2 constraint: the loop may never exit green on a narrowed run, so the last iteration in the budget must be structurally reserved as a full-suite confirmation. Regression guard against silently letting the cap land on a narrowed attempt."
+  },
+  {
+    "name": "documents_narrowed_pass_is_not_proof",
+    "type": "contains",
+    "pattern": "narrowed run that exits 0 is not proof",
+    "target": "agent:shipyard-operational-task",
+    "why": "P2 constraint: a narrowed rerun_failed pass only proves the previously-failing subset now passes, not the whole suite. The agent must never let that short-circuit STATUS: COMPLETE — the structured return contract and the verification ledger both treat a recorded pass as authoritative, so a narrowed pass recorded as full would be a false green."
+  },
+  {
+    "name": "documents_no_argument_substitution",
+    "type": "contains",
+    "pattern": "no argument substitution",
+    "target": "agent:shipyard-operational-task",
+    "why": "P2 constraint (config-driven, never inferred): the agent must run rerun_failed verbatim rather than parsing capture output to build a test-name filter — Shipyard cannot know the runner's failure-report format, and guessing one would be exactly the kind of inference this feature is designed to avoid."
   }
 ]

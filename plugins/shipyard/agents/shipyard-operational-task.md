@@ -17,14 +17,18 @@ Otherwise, proceed.
 
   - the task file path from your brief — task scope, what counts as "fixed"
   - `<data_dir>/codebase-context.md` — project conventions
-  - `<data_dir>/config.md` — test command resolution if needed
+  - `<data_dir>/config.md` — test command resolution if needed, including
+    `test_commands.rerun_failed` (your brief's `rerun_failed_command`) if
+    you need to re-read its exact literal form
 
 # The Iron Laws You Must Follow
 
 1. **NO COMPLETION CLAIM WITHOUT exit-0 CAPTURE.** You may not claim done
    until the verify command in your most recent iteration exits 0 and the
    capture file is on disk and non-empty. "It probably passes now" is not
-   evidence — run it again.
+   evidence — run it again. That most-recent iteration must have run the
+   FULL verify command — a narrowed rerun-failed pass is not sufficient
+   proof and must never be reported as STATUS: COMPLETE.
 
 2. **NO STUB FIXES.** A fix that swallows the error, disables the failing
    test, or marks something `xfail` without a documented reason is a stub.
@@ -37,18 +41,44 @@ Otherwise, proceed.
 
 # The Loop
 
-1. **Run + capture (stream via Monitor).** Run the verify command via the
-   Monitor tool so progress and failures land as events while the run is in
-   flight. Tee output to a stable capture path; the file remains the
-   authoritative artifact.
+1. **Choose this iteration's command.** Iteration 1 always runs the FULL
+   `verify_command_resolved`. For iteration 2 onward, in order:
+
+   - If `iteration == max_iterations` (the last iteration your brief
+     allows), run the FULL command. The last iteration is always reserved
+     as the mandatory closing proof — never narrow it, even if an earlier
+     narrowed run already came back green.
+   - Else if `rerun_failed_command` is present in your brief (non-empty)
+     AND the previous iteration's exit was non-zero, run
+     `rerun_failed_command` **verbatim** — no argument substitution, no
+     parsing of the previous capture to build a test-name filter. Most
+     failed-only modes (pytest `--lf`, jest/vitest caches, RSpec
+     `.rspec_status`) track their own last-failure state on disk from the
+     immediately preceding run, so running the configured command as-is is
+     the whole mechanism.
+   - Else (no `rerun_failed_command`, or the previous run was already
+     green), run the FULL command — this is the pre-existing behavior,
+     unchanged whenever `rerun_failed_command` is absent from your brief.
+
+   **A narrowed run that exits 0 is not proof of anything beyond the
+   previously-failing subset.** Never let a narrowed green run short-circuit
+   the loop. If this iteration ran the narrowed command and it exits 0, do
+   not treat step 3 below as satisfied — the very next iteration is forced
+   to run the FULL command by the first bullet above, and that FULL run's
+   exit code is the real verdict.
+
+2. **Run + capture (stream via Monitor).** Run this iteration's chosen
+   command (from step 1) via the Monitor tool so progress and failures land
+   as events while the run is in flight. Tee output to a stable capture
+   path; the file remains the authoritative artifact.
 
        Monitor(
-         command: "((<verify_command_resolved>); echo $? > <data_dir>/captures/<task_id>/run-<iteration>.exit) 2>&1 | tee <data_dir>/captures/<task_id>/run-<iteration>.log | grep -E --line-buffered '<filter>' || true",
+         command: "((<this iteration's resolved command>); echo $? > <data_dir>/captures/<task_id>/run-<iteration>.exit) 2>&1 | tee <data_dir>/captures/<task_id>/run-<iteration>.log | grep -E --line-buffered '<filter>' || true",
          description: "<task_id> verify run <iteration>",
          timeout_ms: 1800000
        )
 
-   The inner `(<verify_command_resolved>)` matters: if verify itself contains
+   The inner `(<...resolved command>)` matters: if verify itself contains
    `exit`, that `exit` only terminates the inner subshell, so the outer shell's
    `echo $?` (writing the sentinel) still runs against the correct exit code.
    This sentinel-file pattern is the robust way to propagate an exit code
@@ -73,29 +103,38 @@ Otherwise, proceed.
    the monitor-filters reference path in your brief for runner-specific
    recipes.
 
-2. **Update task frontmatter.** Run:
-       shipyard-data task append-verify <task_id> iteration=<N> command="<resolved command>" exit=<code> capture=captures/<task_id>/run-<N>.log
+3. **Update task frontmatter.** Run:
+       shipyard-data task append-verify <task_id> iteration=<N> command="<the command actually run this iteration — full or rerun_failed>" exit=<code> capture=captures/<task_id>/run-<N>.log
    The CLI appends the structured `verify_history:` entry atomically (with
    `at:` defaulting to now) and refuses a duplicate `iteration`. Never
-   hand-Edit `verify_history:`.
+   hand-Edit `verify_history:`. Recording the literal command run (not a
+   fixed label) is how a later reader can tell a narrowed entry from a full
+   one.
 
-3. **If exit == 0:** stop. Set verify_output: pointing at the latest capture.
-   Return STATUS: COMPLETE.
+4. **If exit == 0 AND this iteration ran the FULL command:** stop. Set
+   verify_output: pointing at the latest (full) capture. Return
+   STATUS: COMPLETE.
 
-4. **If exit ≠ 0:** parse the capture. For each finding:
+   **If exit == 0 but this iteration ran the narrowed `rerun_failed`
+   command:** do not stop and do not parse for findings (there are none) —
+   go straight to step 5. Step 1 forces the next iteration to be a FULL
+   confirmation run regardless of the iteration-selection rule.
+
+5. **If exit ≠ 0:** parse the capture. For each finding:
    - In-scope → fix it; commit atomically as `fix(<task_id>): <one-line>`.
    - Out-of-scope → file as a bug or idea (cap at max-patch-tasks from your
      brief); do NOT fix inline.
 
-5. **Increment iteration.** Loop to step 1. Cap at max-iterations from your
+6. **Increment iteration.** Loop to step 1. Cap at max-iterations from your
    brief; beyond cap, return STATUS: BLOCKED with the latest capture's
-   failure summary.
+   failure summary — the latest capture is always from the most recent FULL
+   attempt, since the final iteration never narrows.
 
 Emit a `operational_iteration` event per cycle so a user inspecting
 `/ship-status` or the event log mid-run can see the loop converging without
 re-reading the capture file:
 
-    shipyard-data events emit operational_iteration task=<task_id> iteration=<N> exit=<code> findings=<count>
+    shipyard-data events emit operational_iteration task=<task_id> iteration=<N> exit=<code> findings=<count> scope=<full|narrowed>
 
 # Required Return Shape
 

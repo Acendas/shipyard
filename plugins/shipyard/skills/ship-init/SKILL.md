@@ -106,7 +106,7 @@ Check if `<SHIPYARD_DATA>/config.md` exists:
 If `<SHIPYARD_DATA>/config.md` exists, run these checks before doing anything else:
 
 1. **Legacy footprint clean?** The legacy cleanup section above runs first regardless. By the time you reach Quick Check, Check 1 (`.claude/rules/shipyard-*.md`) and Check 2 (`.claude/settings.local.json` legacy entries) have already been offered to the user. Nothing to re-check here.
-2. **Config version current?** Read `config_version` from `<SHIPYARD_DATA>/config.md` — if matches latest (4), no migration needed
+2. **Config version current?** Read `config_version` from `<SHIPYARD_DATA>/config.md` — if matches latest (5), no migration needed
 3. **Codebase context exists?** Use the Read tool on `<SHIPYARD_DATA>/codebase-context.md` (substitute the literal SHIPYARD_DATA path) — if it exists, no re-analysis needed
 
 **If ALL checks pass** → report and exit immediately:
@@ -158,10 +158,23 @@ Scan the project first — auto-detect as much as possible. Only ask what you ca
    - `unit` — run unit tests (e.g., `vitest run`)
    - `integration` — run integration tests
    - `e2e` — run E2E tests (if applicable)
-   - `scoped` — run a subset by pattern (e.g., `vitest run --testPathPattern`)
+   - `scoped` — run a subset by changed base/files (e.g., `jest --changedSince={base}`, `vitest related {files} --run`, `pytest {files}`)
+   - `rerun_failed` — re-run only what failed last time, for operational fix loops (e.g., `jest --onlyFailures`, `vitest --changed`, `pytest --lf`, `gradle test --tests <pattern>`). Leave empty if the detected runner has no failed-only mode — the fix loop then keeps re-running the full command each iteration, exactly today's behavior.
    If not detectable, AskUserQuestion: "I couldn't auto-detect your test commands. What commands do you use to run tests? (e.g., `npm test`, `pytest`, `go test ./...`)"
 
+   **Runnability requirement (`scoped` and `rerun_failed` only).** A populated value must be either empty, or a *complete, runnable command* — never a bare flag with no argument (a real customer ended up with `"./gradlew test --tests"`, which cannot execute; and a shipped example once named `--testPathPattern`, a jest flag, under a vitest example). Use `{base}` (wave base sha / changed-since ref) and `{files}` (space-joined changed-file list) as placeholders where the runner needs an argument — `ship-execute` substitutes them at dispatch time. If detection can only produce a bare flag or an incomplete command, leave the key empty rather than writing something unrunnable; empty is always today's exact behavior, a broken command is worse.
+
    These keys double as the resolution target for `kind: operational` tasks — an operational task whose `verify_command: test_commands.e2e` resolves to whatever is under `test_commands.e2e` here. Keeping one source of truth for "how do I run X" means renaming a test runner in one place updates every operational task that references it.
+
+   **Build commands** — auto-detect from the same sources (package.json `build` script, `Makefile`, `Cargo.toml`, `build.gradle`, `*.csproj`, etc.) and populate `build_commands` in config (this key is written now — previously `/ship-init` never wrote it at all, so `build_commands.full`/`.scoped` sat as permanent no-ops for every project it created):
+   - `full` — the whole-project build (e.g., `npm run build`, `cargo build`, `gradle assemble`)
+   - `scoped` — build a subset by changed base/files, same `{base}`/`{files}` placeholder and runnability requirement as `test_commands.scoped` above (e.g., `nx affected --target=build --base={base}`, `turbo build --filter={files}`). Leave empty if the detected build tool has no native scoped form.
+   If no build step is detectable (e.g., an interpreted-language project with nothing to compile), leave both empty — this is a legitimate no-op, not a detection failure.
+
+   **Config-smell detection.** Before writing `test_commands`/`build_commands`, check for two smells seen in the wild and, if found, render the concrete evidence as chat text and ask before writing (never silently rewrite what was detected or user-supplied):
+   - **`integration` byte-identical to `unit`** — if the detected/confirmed `test_commands.integration` string equals `test_commands.unit` exactly, both tiers would run the same command twice for zero extra coverage. Show both values, then AskUserQuestion: "Your unit and integration commands are identical — running both re-executes the same suite twice. Leave `integration` empty (skip the redundant tier) or keep it as-is?"
+   - **`build_commands.full` embeds a test command** — if the detected build command's string contains the detected `test_commands.unit`/`.integration` string (or an obvious test-runner invocation like `test`, `pytest`, `jest`, `go test`), the build stage would run the suite, which the test stage then re-runs. Show the evidence, then AskUserQuestion: "Your build command appears to also run tests — that means the build stage and the test stage both run the suite. Split them (tell me the build-only command) or leave as-is?"
+   Either answer is respected verbatim — this is a warn-and-offer, not an enforced rewrite.
 
    **`operational_tasks.max_iterations`** (default `3`) and **`operational_tasks.max_patch_tasks`** (default `5`) are the fix-findings loop budget and scope-creep guard for `kind: operational` tasks. See `skills/ship-sprint/references/task-kinds.md` for the full semantics. Override per-task with `verify_max_iterations:` in task frontmatter.
 
@@ -177,6 +190,23 @@ Scan the project first — auto-detect as much as possible. Only ask what you ca
    Default: empty (`quality_gates.standing: []`). Quality gates are opt-in. Write accepted gates to `config.md` under `quality_gates.standing`. Each gate is a free-text description — verification type is inferred during sprint planning.
 
    **Model tiers (`models:` block, config v4)** — no question. Defaults ship as `think: opus`, `build: sonnet`, `orchestrate: sonnet` (the `ship-execute` shell tier — informational here, actually set by that skill's frontmatter) and init writes them without asking. State it as one line, don't gate on an answer: "Thinking/planning work (critics, spec review, decomposition deep-dives, escalation consults) defaults to Opus; `/ship-discuss --think fable` overrides it for a single discussion when Fable is enabled on your plan, or run `shipyard-data config set-model think fable` (or `... think opus`) to change the project default persistently — either way, no re-init needed." `escalation.enabled` defaults to `true` with `max_consults_per_sprint: 6` — mention it, only ask if the user pushes back.
+
+   **Warm worktrees (`worktree_warm.paths`, config v5)** — no question, populated from stack detection alongside the tech-stack scan in item 2. Every new builder worktree otherwise starts cold (none of a project's gitignored build/dependency state is copied in by `git worktree add`), so a per-ecosystem set of *regenerable artifact/cache dirs* — never dependency-resolution dirs — can be warmed into each new worktree to skip a cold first build. Detect using the already-identified `tech_stack` as the classification key, defaulting from this table (illustrative, not exhaustive — extend it if a detected stack isn't listed, always checking the artifact/dependency-resolution distinction below first):
+
+   | Ecosystem | Warm (artifact/cache — safe) | Never warm (dependency resolution — refused in code) |
+   |---|---|---|
+   | Gradle / Android | `.gradle`, `build`, `*/build`, `.kotlin` | — |
+   | Maven | `target` | — |
+   | Rust | `target` | — |
+   | .NET | `bin`, `obj` | — |
+   | Xcode / Swift | `.build`, `DerivedData` | — |
+   | Elixir | `_build` | `deps` |
+   | Node | `dist`, `.next`, `.turbo`, `.parcel-cache`, `*.tsbuildinfo` | `node_modules` |
+   | Python | `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache` | `.venv`, `venv`, `env`, `.tox` |
+   | Ruby | `tmp/cache` | `vendor/bundle` |
+   | Go | *(build cache is user-level — nothing to warm)* | — |
+
+   Only include a path in `worktree_warm.paths` if it actually exists in the project (Glob-check first — don't populate a path for a stack the project doesn't use) and is gitignored (these are, by construction, gitignored build artifacts; a tracked dir is never a candidate regardless of this table). **Never** write a dependency-resolution dir into `paths` — the right-hand column is refused by name in code as a second line of defense, but detection itself must not offer them. Projects with no matching artifact dirs (many Go or plain-interpreted-language projects) get `paths: []` and the whole warming phase is a no-op for them — this is expected, not a detection gap. `worktree_warm.enabled` itself defaults to `false` (opt-in) regardless of what `paths` detection finds; state as one line, don't gate on an answer: "Detected these regenerable build/cache dirs for warm-worktree copying: [list] (or: none detected for this stack). This is off by default — enable with `worktree_warm.enabled: true` in config.md when you want new task worktrees to start from a warm build instead of cold."
 
 **Auto-detect these (confirm, don't ask):**
 Scan the project and present findings: "I detected [X]. Correct?" Only ask if detection fails.
@@ -483,6 +513,8 @@ Run each check using Claude's native tools (substitute the literal SHIPYARD_DATA
 5. **Git ready?** Bash: `git rev-parse --git-dir 2>/dev/null && git log -1 --format=%H 2>/dev/null`. Expected: both succeed.
 6. **Worktree capability?** Bash: `git rev-parse --git-common-dir 2>/dev/null`. If it differs from `--git-dir`, the project is a worktree and parallel execution falls back to the parent.
 7. **Test commands configured?** Use Read on `<SHIPYARD_DATA>/config.md` and confirm a `unit:` field appears under `test_commands`. Expected: yes.
+8. **Build commands written?** Use Read on `<SHIPYARD_DATA>/config.md` and confirm the `build_commands:` key exists (`full:`/`scoped:` may legitimately be empty strings for a no-build stack — the key existing at all is what's being verified, since pre-v5 `/ship-init` never wrote it). Expected: yes.
+9. **Scoped/rerun_failed runnable, if set?** For each of `test_commands.scoped`, `test_commands.rerun_failed`, `build_commands.scoped` that is non-empty, confirm it isn't a bare flag with no argument (contains a command word plus either a full argument or a `{base}`/`{files}` placeholder). Expected: yes, or empty.
 
 Report:
 ```
@@ -492,10 +524,12 @@ Report:
   ✅ Plugin rules: 4/4 reachable in plugin
   ✅ Legacy injection: clean (0 .claude/rules/shipyard-*.md)
   ✅ Templates: 9/9 installed
-  ✅ Config: valid (v4)
+  ✅ Config: valid (v5)
   ✅ Git: ready (has commits)
   ✅ Worktree: supported (or: ⚠️ project is a worktree — parallel uses parent repo)
   ✅ Test commands: configured (vitest)
+  ✅ Build commands: configured (npm run build) (or: key present, empty — no build step for this stack)
+  ✅ Scoped/rerun_failed commands: runnable (or: none set — full-tier fallback)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
@@ -504,6 +538,8 @@ If any check fails, fix it before reporting. For example:
 - Legacy injection found → run the legacy cleanup step (offer to remove `.claude/rules/shipyard-*.md`)
 - No git → run `git init && git add -A && git commit -m "chore: initial commit"`
 - No test commands → note in report: "⚠️ Test commands not configured. Run /ship-init again after setting up your test framework."
+- `build_commands` key missing → re-run the build-detection step from Step 1 item 4 and write the key (empty strings are fine; the key must exist).
+- A `scoped`/`rerun_failed` value is a bare flag or otherwise unrunnable → clear the offending key back to `""` (never leave an unrunnable command in place) and note: "⚠️ [key] looked incomplete, cleared to empty — full-tier fallback stays in effect."
 
 ### Step 5.5: Configure Permissions (opt-in)
 
@@ -594,6 +630,13 @@ Never remove existing fields — only add missing ones. If a field was renamed b
 **If migrating from v2 (or earlier) to v3:** proceed to Step 2b for data model migration.
 
 **If migrating from v3 to v4:** the generic backfill above covers it — v4 adds `models:` (defaults: `think: opus`, `build: sonnet`, `orchestrate: sonnet`) and `escalation:` (enabled: true, max_consults_per_sprint: 6). No question after backfilling — the defaults are written directly (see Step 1's note on the model-tiers default). An existing config whose `models:` values are empty strings is a valid manual choice (inherit) — leave those alone.
+
+**If migrating from v4 to v5:** the generic backfill above covers the new keys structurally (`test_commands.rerun_failed: ""`, `worktree_warm: {enabled: false, paths: []}`), but backfilling them as empty/disabled would silently forfeit this version's actual benefit for every already-initialized project — the whole point is that these get populated, not just added blank. So v4→v5 migration does the field-diff backfill AND re-runs the relevant Step 1 detection against the existing project to populate real values:
+1. Backfill `test_commands.rerun_failed` and the `worktree_warm` block structurally (as the generic step above does).
+2. Re-run the `rerun_failed` detection (Step 1 item 4) and the `worktree_warm.paths` stack-detection (Step 1's warm-worktrees paragraph) against the current codebase; write detected values in place of the blank backfill.
+3. If `build_commands` is present but was never actually populated (both `full` and `scoped` are empty strings and the project clearly has a build step — e.g., a `package.json` `build` script or `Cargo.toml` exists), run the build-command detection from Step 1 item 4 now, since pre-v5 `/ship-init` never wrote this key at all and an empty backfill would leave it a permanent no-op exactly as before.
+4. Run the config-smell detection (`integration`≡`unit`, `build_commands.full` embedding a test command) against whatever values now exist and offer fixes per the same warn-and-offer flow as Step 1.
+No new AskUserQuestion beyond what those detection steps already ask — this is "re-run detection for the fields that are new in v5," not a fresh interrogation.
 
 ### Step 2b: Data Model Migration (v2 → v3)
 

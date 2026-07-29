@@ -202,5 +202,35 @@
     "type": "contains",
     "pattern": "does not count as rendered",
     "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+  },
+  {
+    "name": "check1_uses_doctor_cli",
+    "type": "contains",
+    "pattern": "shipyard-data doctor",
+    "why": "perf plan fix 3.1/3.2: Check 1 used to Glob every .md under spec/ and Read each one (measured 779 files and growing on one customer project) \u2014 now delegates schema validation to the incremental, watermark-gated shipyard-data doctor CLI."
+  },
+  {
+    "name": "check1_no_whole_tree_glob_read",
+    "type": "not_contains",
+    "pattern": "Use Glob to enumerate every `\\.md` file under",
+    "why": "fix 3.1: the old whole-tree Glob-then-Read-every-file instruction is retired in favor of the doctor CLI's incremental watermark scan."
+  },
+  {
+    "name": "check1_describes_watermark_contract",
+    "type": "contains",
+    "pattern": "watermark",
+    "why": "fix 3.1: Check 1 prose must describe the incremental contract \u2014 validate files whose mtime exceeds the last clean-validation timestamp, full sweep on demand or on schema-version change."
+  },
+  {
+    "name": "check1_full_sweep_escape_hatch",
+    "type": "contains",
+    "pattern": "--full",
+    "why": "fix 3.1: a full sweep must remain available on demand (manual bulk edit under spec/) or automatically on schema-version mismatch, not just the incremental path."
+  },
+  {
+    "name": "check1_auto_fix_targets_named_file",
+    "type": "contains",
+    "pattern": "never re-Glob-and-Read the whole tree",
+    "why": "fix 3.1: auto-fix must Edit only the specific file doctor's finding names, not re-scan the whole tree to locate it."
   }
 ]

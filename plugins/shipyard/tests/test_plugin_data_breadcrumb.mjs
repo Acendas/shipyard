@@ -65,10 +65,24 @@ function setup() {
   return { root, projectDir, pluginData, projectRoot, hash, dataDir, linkPath, cleanup };
 }
 
-test("creates .shipyard symlink when the data dir exists", () => {
+/**
+ * Make a data dir look genuinely `shipyard-data init`-ed.
+ *
+ * Bare existence is NOT enough and must not be: the diagnostic-log writers in
+ * _hook_lib mkdir the data dir recursively, so one appears merely from editing
+ * a file in any git repo with Shipyard installed. Gating the symlink on
+ * existence planted a stray `.shipyard` in never-initialized projects
+ * (observed 2026-07-28). `ensureDataDirLink` now requires an init marker.
+ */
+function markInitialized(dataDir) {
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(join(dataDir, ".project-root"), "/some/project\n");
+}
+
+test("creates .shipyard symlink for an initialized data dir", () => {
   const t = setup();
   try {
-    mkdirSync(t.dataDir, { recursive: true });
+    markInitialized(t.dataDir);
 
     const rc = run({}, { CLAUDE_PLUGIN_DATA: t.pluginData });
     assert.equal(rc, 0);
@@ -121,10 +135,35 @@ test("leaves a real .shipyard directory untouched (blocked)", () => {
   }
 });
 
+test("does NOT create .shipyard for a data dir that was never initialized", () => {
+  const t = setup();
+  try {
+    // Bare dir with only a diagnostic log — exactly what the auto-approve hook
+    // leaves behind in a repo the user never ran /ship-init against.
+    mkdirSync(t.dataDir, { recursive: true });
+    writeFileSync(join(t.dataDir, ".auto-approve.log"), "some diagnostics\n");
+
+    const rc = run({}, { CLAUDE_PLUGIN_DATA: t.pluginData });
+    assert.equal(rc, 0, "hook must still succeed — the link is best-effort");
+
+    assert.ok(
+      !existsSync(t.linkPath),
+      ".shipyard must NOT be planted in a project that was never initialized",
+    );
+
+    // The breadcrumb half is unconditional and must still have happened.
+    for (const p of breadcrumbCandidates(t.hash)) {
+      assert.equal(readFileSync(p, "utf8").trim(), t.pluginData);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
 test("idempotent: a correct existing link is not recreated", () => {
   const t = setup();
   try {
-    mkdirSync(t.dataDir, { recursive: true });
+    markInitialized(t.dataDir);
 
     run({}, { CLAUDE_PLUGIN_DATA: t.pluginData });
     const inoBefore = lstatSync(t.linkPath).ino;

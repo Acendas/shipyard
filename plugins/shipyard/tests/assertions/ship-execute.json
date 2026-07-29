@@ -1326,5 +1326,168 @@
     "name": "quiet_by_default",
     "type": "contains",
     "pattern": "Quiet by default"
+  },
+  {
+    "name": "verify_record_at_sprint_full_tests",
+    "type": "contains",
+    "pattern": "verify record --key sprint_full_tests",
+    "why": "Perf plan P1 (issue 1.1): after a clean full-suite pass, ship-execute must record evidence into the shared ledger so /ship-review's Stage 1a can prove-not-rerun instead of re-running the whole suite."
+  },
+  {
+    "name": "verify_record_skips_on_non_clean",
+    "type": "contains",
+    "pattern": "Skip BOTH the per-tier and the aggregate calls on any non-clean outcome",
+    "why": "A falsely-fresh ledger entry is unsafe (D3); only a genuinely clean, all-tiers-passed run may be recorded — for both the per-tier and aggregate keys."
+  },
+  {
+    "name": "dedup_identical_test_tiers",
+    "type": "contains",
+    "pattern": "Dedupe identical tiers before dispatching",
+    "why": "Perf plan P3 (issues 1.5/4.6): sprint_full_tests named no config key and left tier dispatch to the model, so a project whose test_commands.integration is byte-identical to unit (a real customer's is) ran it twice. Tiers must be resolved and deduped by exact command string before dispatch."
+  },
+  {
+    "name": "dedup_notes_distinct_run_count",
+    "type": "contains",
+    "pattern": "deduped to.*distinct runs",
+    "why": "The dedup decision must be visible in the tick note, not silently absorbed."
+  },
+  {
+    "name": "scoped_substitution_base_files_placeholders",
+    "type": "contains",
+    "pattern": "\\{base\\}.*\\{files\\}",
+    "dotall": true,
+    "why": "Perf plan P6 (issue 4.1): test_commands.scoped/build_commands.scoped had one reader and no mechanism deriving its argument. {base}/{files} placeholders, substituted from the wave base sha and changed-file list, make the shipped scoped examples actually runnable."
+  },
+  {
+    "name": "scoped_widen_emits_event",
+    "type": "contains",
+    "pattern": "test_selection_widened",
+    "why": "Widen-on-uncertainty is the safety property of P6 — every uncertain-selection branch must run the full tier and emit this event, never silently narrow."
+  },
+  {
+    "name": "scoped_widen_never_narrow",
+    "type": "contains",
+    "pattern": "never narrow on uncertainty",
+    "why": "States the mandatory direction of every widen trigger: uncertainty always resolves to running MORE (the full tier), never less."
+  },
+  {
+    "name": "scoped_widen_exit_code_cannot_detect_empty",
+    "type": "contains",
+    "pattern": "Exit code alone cannot detect this",
+    "why": "Probe-established fact (P6): jest --passWithNoTests exits 0 on zero matches and vitest related exits 0 unconditionally on zero matches, so an empty scoped selection is invisible to exit-code checks alone — list-mode (or widening) is required."
+  },
+  {
+    "name": "scoped_widen_lockfile_global_trigger",
+    "type": "contains",
+    "pattern": "lockfile or a global/root-level config path",
+    "why": "P6 widen trigger: a diff touching a lockfile or global config can't be proven safe by a scoped run."
+  },
+  {
+    "name": "scoped_widen_windows_arg_limit_trigger",
+    "type": "contains",
+    "pattern": "Windows ~8K argument-length limit",
+    "why": "P6 widen trigger: a substituted {files} command that would blow the Windows arg-length ceiling must widen instead of truncate silently."
+  },
+  {
+    "name": "scoped_unset_is_byte_identical_fallback",
+    "type": "contains",
+    "pattern": "unset.*whole procedure is skipped.*byte-identical to today's behavior",
+    "dotall": true,
+    "why": "An ecosystem with no scoped form must never be made worse — the existing .unit/.full fallback is untouched when .scoped is empty."
+  },
+  {
+    "name": "preflight_uses_doctor_incremental",
+    "type": "contains",
+    "pattern": "shipyard-data doctor.*incremental, watermark-gated",
+    "dotall": true,
+    "why": "Perf plan P5 (issue 3.1): preflight's old in-model Check 1 reproduction (Glob every .md under spec/, Read each) was O(registry size), re-paid every sprint. The incremental, watermark-gated doctor CLI replaces it."
+  },
+  {
+    "name": "preflight_no_full_status_check_1_7_reproduction",
+    "type": "not_contains",
+    "pattern": "ship-status. validation silently \\(Check 1",
+    "why": "Regression guard: preflight must not go back to reproducing all of /ship-status's Check 1-7 in-model — that's exactly the O(registry size) cost P5 removes."
+  },
+  {
+    "name": "preflight_still_checks_sprint_task_refs",
+    "type": "contains",
+    "pattern": "spec/tasks/<id>-\\*\\.md. exists",
+    "why": "The doctor CLI doesn't validate SPRINT.md's own task references; that check is bounded by sprint size (not registry size) and must stay to preserve the existing halt-on-critical-issues behavior."
+  },
+  {
+    "name": "goal_mode_preflight_sprint_verify_defined_valid_keys",
+    "type": "contains",
+    "target": "ref:goal-mode-preflight.md",
+    "pattern": "test_commands\\.unit.*test_commands\\.integration.*test_commands\\.e2e.*build_commands\\.full",
+    "dotall": true,
+    "why": "Perf plan P3 (issue 4.5): the sprint_verify_defined gate previously checked for test_commands.full, a key that exists in neither the config template nor /ship-init — only the 'or equivalent key' escape kept it from false-failing, making the gate vacuous. It must gate on keys that actually exist."
+  },
+  {
+    "name": "goal_mode_preflight_no_bare_test_commands_full_key",
+    "type": "not_contains",
+    "target": "ref:goal-mode-preflight.md",
+    "pattern": "has `test_commands\\.full`",
+    "why": "Regression guard: the gate must not go back to naming test_commands.full as if it were a real, checkable key."
+  },
+  {
+    "name": "verify_record_per_tier_key_scheme",
+    "type": "contains",
+    "pattern": "verify record --key test_commands\\.<tier>",
+    "why": "Integration fix: /ship-review's Stage 1a and quality-gate checks look up per-tier keys (test_commands.unit/.integration/.e2e), not the aggregate sprint_full_tests key. Recording only the aggregate left Stage 1a's per-tier check permanently stale, delivering zero speedup."
+  },
+  {
+    "name": "verify_record_per_tier_literal_names",
+    "type": "contains",
+    "pattern": "literal `unit`, `integration`, or `e2e`",
+    "why": "Pins the exact tier-name vocabulary the per-tier ledger keys must use — must match what /ship-review's Stage 1a checks against, not a paraphrase."
+  },
+  {
+    "name": "dedup_records_one_entry_per_deduped_tier",
+    "type": "contains",
+    "pattern": "records TWO entries",
+    "why": "A deduped group (two tier names mapping to one dispatched command) must still record a ledger entry per tier name — otherwise review re-runs the tier that was deduped away, silently defeating the dedup work."
+  },
+  {
+    "name": "verify_record_aggregate_key_matches_full_suite_key",
+    "type": "contains",
+    "pattern": "FULL_SUITE_KEY.*bin/verify-ledger\\.mjs",
+    "why": "Pins that the aggregate ledger key stays the exact literal the terminal gate (evaluateReviewTerminal) checks for release approval — a future rename here would silently break release-gate reuse."
+  },
+  {
+    "name": "verify_record_demo_probe_key_scheme",
+    "type": "contains",
+    "pattern": "verify record --key demo_probe\\.<F>",
+    "why": "Integration fix: /ship-review Stage 4.8 checks verify check --key demo_probe.<FID>, not the acceptance_probe_completed event alone. Without a matching record call, Stage 4.8 always re-runs demo probes it used to skip — a regression versus pre-ledger behavior."
+  },
+  {
+    "name": "demo_probe_skip_with_reason_also_records",
+    "type": "contains",
+    "pattern": "skip-with-reason:<demo_probe_skip_reason>",
+    "why": "The skip-with-reason path must also record ledger evidence (with the skip marker as the command, not feature.demo_probe) so Stage 4.8 doesn't re-ask the same skip question every review."
+  },
+  {
+    "name": "demo_probe_fail_path_never_records",
+    "type": "contains",
+    "pattern": "Do NOT record ledger evidence on this path",
+    "why": "Only a clean pass or a justified skip is proof — a FAIL/TIMEOUT/ERROR outcome must never write a ledger entry."
+  },
+  {
+    "name": "acceptance_probe_completed_event_still_emitted",
+    "type": "contains",
+    "pattern": "emit `acceptance_probe_completed feature=<F> probe_type=demo",
+    "why": "The ledger recording is additive — acceptance_probe_completed events must keep firing, since evaluating-sprint-complete Invariant 8 reads them."
+  },
+  {
+    "name": "demo_probe_skip_records_marker_not_real_command",
+    "type": "contains",
+    "pattern": "recorded command is the skip marker, NOT `feature\\.demo_probe` itself",
+    "why": "Pins the specific skip-with-reason design decision: the ledger entry's command is a skip marker, not the feature's real demo_probe — so a later-authored real probe invalidates the entry via commandHash mismatch instead of a stale skip surviving. A future 'simplification' recording the real command would silently defeat that invalidation path."
+  },
+  {
+    "name": "demo_probe_ledger_asymmetry_stated",
+    "type": "contains",
+    "pattern": "[Ss]tale/absent .demo_probe\\.<F>. ledger entry is always safe.*falsely-fresh one is not",
+    "dotall": true,
+    "why": "The stale-safe/falsely-fresh-unsafe asymmetry is the load-bearing property of the whole ledger design and must be stated as prose at every record site (per-tier/aggregate AND demo-probe), not just implied by the exit-code gating."
   }
 ]

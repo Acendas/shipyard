@@ -45,9 +45,11 @@ If project not initialized → "Project not initialized. Run /ship-init to get s
 
 Before showing the dashboard, run health checks and fix what can be fixed automatically. Do NOT prompt the user for each fix — just fix it and report what was fixed at the bottom of the dashboard.
 
-### Check 1: Frontmatter Schema
+### Check 1: Frontmatter Schema (incremental, CLI-backed)
 
-Use Glob to enumerate every `.md` file under `<SHIPYARD_DATA>/spec/` (substitute the literal SHIPYARD_DATA from the context block), then Read each one and validate frontmatter:
+Run `shipyard-data doctor` (read-only). This used to be a whole-tree Glob-every-`.md`-under-`spec/`-then-Read-each-one sweep — measured at **779 files and growing** on one customer project, re-paid on every `/ship-status` invocation AND every `/ship-execute` preflight. The CLI applies the identical schema rules incrementally instead: it tracks a watermark (`<SHIPYARD_DATA>/.doctor-watermark.json`, `{lastCleanAt, schemaVersion}`) and only re-validates files whose mtime is newer than the last fully-clean run. It falls back to a full sweep automatically when the watermark is absent, corrupted, or its recorded `schemaVersion` doesn't match the CLI's current one (a rule-set change invalidates every prior "this file was clean" claim) — pass `--full` to force a whole-tree sweep on demand (e.g. after a manual bulk edit under `spec/`). The watermark only advances past a scan with **zero** findings — a dirty scan never lets an unfixed file silently age out of a future incremental check.
+
+`doctor` validates the same fields Check 1 always has — it just no longer requires Reading every file into this skill's context to do it:
 
 **Feature files** — required: `id` (F+digits), `title` (non-empty), `type` (feature), `epic` (string), `status` (proposed|approved|in-progress|done|deployed|released|cancelled), `story_points` (≥0), `complexity` (low|medium|high|""), `token_estimate` (≥0), `rice_reach` (0-10), `rice_impact` (0-3), `rice_confidence` (0-100), `rice_effort` (>0), `rice_score` (≥0), `dependencies` (list), `references` (list), `tasks` (list), `created` (date)
 
@@ -59,7 +61,9 @@ Use Glob to enumerate every `.md` file under `<SHIPYARD_DATA>/spec/` (substitute
 
 **Epic files** — required: `id` (E+digits), `title`, `status`
 
-**Auto-fix:** Backfill missing fields with defaults where safe (e.g., `dependencies: []`, `references: []`, `tasks: []`). Log unfixable issues (wrong type, invalid status).
+`doctor`'s output names, per finding, the `kind` (features/tasks/bugs/ideas/epics), the `file`, and the `problem` (missing/empty required field, invalid status, malformed id) — it does NOT auto-fix.
+
+**Auto-fix:** for each finding whose field has a safe default (`dependencies: []`, `references: []`, `tasks: []`), Edit that specific file named in the finding — never re-Glob-and-Read the whole tree to locate it, `doctor` already named the file. **Log unfixable issues** (wrong type, invalid status, malformed id) exactly as before. `/ship-execute`'s preflight calls the same `shipyard-data doctor` CLI directly instead of asking the model to Glob-and-Read every spec file into its own context.
 
 ### Check 2: ID & Reference Integrity
 

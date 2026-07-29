@@ -177,7 +177,24 @@ After Stage 0 exits clean, spawn a general-purpose simplifier subagent (inline p
 
 ### Stage 1: Run Tests & Spec Verification (stage_id: tests, then spec_review)
 
-**1a. Run all tests** — follow the **`dispatching-operational-task` playbook** to avoid polluting the review context with raw test output. Pass `verify_command` resolved to each tier from `<SHIPYARD_DATA>/config.md` (`test_commands.unit`, `test_commands.integration`, `test_commands.e2e`); the capability skill captures output to `<SHIPYARD_DATA>/captures/` and returns the structured verdict (PASS/FAIL counts in `LAST_LINES:`). One operational dispatch per tier, or one combined dispatch if your project supports a single command. Use the returned verdicts for Stages 3–5 — do not re-run tests yourself.
+**1a. Run all tests — check-first against the verification ledger.** `/ship-execute` already ran these exact tiers against this exact commit before handing off to review (measured cost of blindly re-running them: 7m 9s on one customer project). For each tier configured in `<SHIPYARD_DATA>/config.md` (`test_commands.unit`, `test_commands.integration`, `test_commands.e2e`), resolve the literal command string first, then run `shipyard-data verify check --key test_commands.<tier> --command "<resolved command>"` BEFORE dispatching anything:
+
+- **Exit 0 (FRESH)** — a clean pass for this exact command is already recorded against the current working tree (same `git rev-parse HEAD^{tree}`, recorded with a clean porcelain status, within TTL, capture file intact). Skip dispatching this tier entirely — reuse the recorded exit code + capture path as this tier's verdict for Stages 3–5.
+- **Exit 3 (STALE)** — no fresh proof exists (never recorded, tree changed, TTL expired, capture missing, or any other unevaluable condition — the ledger fails safe to STALE, never to a skip). Run it exactly as before: follow the **`dispatching-operational-task` playbook**; the capability skill captures output to `<SHIPYARD_DATA>/captures/` and returns the structured verdict (PASS/FAIL counts in `LAST_LINES:`). On the tier passing (exit 0), run `shipyard-data verify record --key test_commands.<tier> --command "<same resolved command>" --exit 0 --capture <capture path>` so a later check (a subsequent tick, or the release-approval gate) can reuse it.
+
+One operational dispatch per stale tier, or one combined dispatch if your project supports a single command (check/record that combined command under one key, e.g. `test_commands.all`, instead of per-tier).
+
+**This is never a blanket skip.** Stage 0 (code-review fixer) and Stage 0.5 (simplifier) run before Stage 1a and both commit whenever they find something to fix — so on any review that found something, the working tree has changed since `/ship-execute` recorded its tiers, and `verify check` correctly reports STALE (the recorded tree-id no longer matches `HEAD^{tree}`) — that re-run is intended behavior, not a bug to work around. On a clean review (nothing for Stage 0/0.5 to fix), the tree is unchanged and every tier reports FRESH.
+
+**Render the decision as chat text** — a skip the user can't see is indistinguishable from a stage that silently didn't run. One line per tier, naming which were skipped (with the evidence: tree-id prefix + when recorded) and which ran (with why: dirty tree since fixer commit, no prior record, TTL expired, etc.):
+
+```
+→ Stage 1a: unit SKIPPED (fresh — tree a3f9c21…, recorded 4m ago)
+→ Stage 1a: integration SKIPPED (fresh — tree a3f9c21…, recorded 4m ago)
+→ Stage 1a: e2e RAN (stale — working tree changed since recording) → PASS
+```
+
+Use the returned or reused verdicts for Stages 3–5 either way — do not run a tier a second time in this invocation.
 
 - **Cursor advance (after 1a)**: run `shipyard-data cursor advance review spec_review --note "Run Stage 1b spec review per feature"`.
 
@@ -384,7 +401,14 @@ Body: test summary, goal verification results (observable truths, artifacts, wir
 
 **v2.6.0 sequencing change.** `/ship-execute` now runs demo_probes at its `sprint_demo_probes` stage (Step 5 item 3), before flipping SPRINT.md to `status: completed`. By the time `/ship-review` reaches this stage, the demo probes have usually already passed. This stage's job is to **re-verify on freshly-checked-out HEAD** as a sanity check (defends against "passed during execute, broken at merge" race conditions), with a skip-if-already-passed preflight to keep review fast on the happy path.
 
-**Preflight.** Scan the event log for `acceptance_probe_completed feature=<F> probe_type=demo exit_code=0` per feature within the sprint window. If every feature in scope has a passing event, emit `stage_4_8_skipped reason=already_passed_in_execute` and advance straight to `stage: demo_user` — no need to re-run probes that just passed. Otherwise (some feature's probe wasn't run in execute, OR the user is reviewing a sprint that pre-dates v2.6.0), run the full sequence below.
+**Preflight — ledger predicate, not event-window (fixes 5.2).** The old preflight scanned the event log for `acceptance_probe_completed feature=<F> probe_type=demo exit_code=0` "within the sprint window" — no sha, no tree, no timestamp-vs-HEAD comparison. That was unsound: Stage 0 (code-review fixer) and Stage 0.5 (simplifier) commit BEFORE this stage runs, so a demo probe that passed in `/ship-execute` could be skipped here even though the fixer has since rewritten the code it exercised — exactly the "passed during execute, broken at merge" gap this stage exists to catch.
+
+For each feature in scope, resolve its `demo_probe:` command and run `shipyard-data verify check --key demo_probe.<FID> --command "<feature.demo_probe>"`:
+
+- **Exit 0 (FRESH)** — the probe already passed against this exact working tree, clean, recently (recorded by `/ship-execute`'s `sprint_demo_probes` stage, or by an earlier Stage 4.8 tick in this same review). Skip re-running it for this feature.
+- **Exit 3 (STALE)** — tree changed since the last pass (e.g. Stage 0/0.5 committed a fix touching this feature), or it never ran, or the record expired/is missing. Run the full sequence below for this feature.
+
+Render the per-feature skip/run decision as chat text (same form as Stage 1a — a skip the user can't see is indistinguishable from a stage that silently didn't run). If every feature in scope comes back FRESH, emit `stage_4_8_skipped reason=already_passed_in_execute` and advance straight to `stage: demo_user` — still fast on the genuine happy path, now for a sound reason instead of an event-presence guess. Otherwise, run the full sequence below only for the features that came back STALE.
 
 For each feature whose probe wasn't already verified:
 
@@ -393,7 +417,7 @@ For each feature whose probe wasn't already verified:
 3. **If `demo_probe: skip-with-reason`** with a `demo_probe_skip_reason` populated: include the reason in the per-feature summary (Stage 5) as a known limitation. Allow approval to proceed.
 4. **Otherwise**: follow the **`running-acceptance-probe` playbook** with `probe_command: <feature.demo_probe>`, `cwd: <repo root>`, `timeout_seconds: 120`. The capability skill runs the probe in a fresh shell and returns the structured verdict.
 5. Emit `acceptance_probe_completed feature=<F> probe_type=demo exit_code=<n>` to the event log via `shipyard-data events emit ...` and include the verdict in the Stage 5 per-feature summary (PROGRESS.md auto-renders the verdict from the event):
-   - **PASS** → ✅ Demo verified (last 5 lines of output captured below)
+   - **PASS** → ✅ Demo verified (last 5 lines of output captured below); run `shipyard-data verify record --key demo_probe.<FID> --command "<feature.demo_probe>" --exit 0 --capture <capture path>` so a later tick, or a resumed review, reuses this proof instead of re-running the probe.
    - **FAIL** → ❌ Demo failed; demo probe doesn't exit 0 against the merged feature
    - **TIMEOUT** → ⚠ Demo exceeded 120s; probe is too broad — split or narrow it
    - **ERROR** → ⚠ Demo couldn't run; probe definition is wrong (likely missing dependency or misconfigured command)

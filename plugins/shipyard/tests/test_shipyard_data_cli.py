@@ -473,9 +473,46 @@ class TestShipyardDataLinkDataDir(unittest.TestCase):
         self.expected_link = os.path.join(
             os.path.realpath(self.project_dir), '.shipyard'
         )
+        # Actually initialize the data dir. link-data-dir now refuses an
+        # uninitialized one: a data dir can be minted as a side effect of
+        # diagnostic logging alone, and linking that planted a stray
+        # `.shipyard` into projects that never ran /ship-init. Real usage
+        # always inits first, so the fixture should too.
+        _, init_err, init_code = run_cli(['init'], env_extra=self.env)
+        self.assertEqual(init_code, 0, f'init failed: {init_err}')
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_refuses_when_data_dir_was_never_initialized(self):
+        """A data dir minted by diagnostic logging is not a real project.
+
+        _hook_lib's log writers mkdir the data dir recursively, so one appears
+        merely from editing a file in any git repo with Shipyard installed.
+        Linking that planted a stray `.shipyard` symlink into projects the user
+        never ran /ship-init against (observed 2026-07-28). Refuse loudly
+        rather than silently no-op, so "I ran link-data-dir and got nothing"
+        is never a mystery.
+        """
+        # Strip the init markers written by setUp, leaving only a diagnostic
+        # log — exactly the shape the auto-approve hook leaves behind.
+        for marker in ('.project-root', 'config.md'):
+            path = os.path.join(self.expected_target, marker)
+            if os.path.exists(path):
+                os.remove(path)
+        shutil.rmtree(os.path.join(self.expected_target, 'templates'),
+                      ignore_errors=True)
+        with open(os.path.join(self.expected_target, '.auto-approve.log'),
+                  'w') as fh:
+            fh.write('some diagnostics\n')
+
+        out, err, code = run_cli(['link-data-dir'], env_extra=self.env)
+        self.assertEqual(code, 1, 'should refuse an uninitialized data dir')
+        self.assertIn('never initialized', err)
+        self.assertFalse(
+            os.path.lexists(self.expected_link),
+            'no .shipyard may be planted for an uninitialized project',
+        )
 
     def test_creates_symlink_pointing_at_data_dir(self):
         out, err, code = run_cli(['link-data-dir'], env_extra=self.env)
@@ -636,8 +673,16 @@ class TestShipyardDataDoctor(unittest.TestCase):
         self._emit_patch_task('T-CI017')
         tasks_dir = os.path.join(self.data_dir, 'spec', 'tasks')
         os.makedirs(tasks_dir, exist_ok=True)
+        # Full frontmatter (not just `id:`) — P5's registry-schema scan
+        # (shipyard-data doctor) now also validates required task fields,
+        # so a minimal fixture would itself trip a registry-schema finding
+        # and mask the thing this test actually checks (dangling-patch-task
+        # absence once the file exists).
         with open(os.path.join(tasks_dir, 'T-CI017-ci-fix.md'), 'w') as f:
-            f.write('---\nid: T-CI017\n---\n')
+            f.write(
+                '---\nid: T-CI017\ntitle: ci fix\nfeature: F-CI\nstatus: done\n'
+                'effort: S\ndependencies: []\n---\n'
+            )
         out, _, code = run_cli(['doctor'], env_extra=self.env)
         self.assertEqual(code, 0, f'patch task with a file must pass; out={out!r}')
         self.assertIn('no issues found', out)

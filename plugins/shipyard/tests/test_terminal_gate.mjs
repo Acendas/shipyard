@@ -15,6 +15,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,6 +28,7 @@ import {
   parseFrontmatter,
   parseWaves,
 } from "../bin/terminal-gate.mjs";
+import { FULL_SUITE_KEY, recordVerification } from "../bin/verify-ledger.mjs";
 
 function withTempDataDir(fn) {
   const dir = mkdtempSync(join(tmpdir(), "terminal-gate-test-"));
@@ -86,6 +88,39 @@ recommendation: ${recommendation}
 Body.
 `;
   writeFileSync(join(dataDir, "verify", `${featureId}-verdict.md`), content);
+}
+
+/**
+ * Build a fresh, ledger-recorded full-suite proof for `evaluateReviewTerminal`'s
+ * new P1 requirement. Sets up a real git repo (the ledger's freshness
+ * predicate genuinely shells to git) as the data dir's project root, then
+ * calls recordVerification the same way `shipyard-data verify record` would.
+ */
+function git(args, cwd) {
+  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+}
+
+function makeFreshFullSuiteProof(dataDir) {
+  const repo = join(dataDir, "_test-repo");
+  mkdirSync(repo, { recursive: true });
+  git(["init", "-q"], repo);
+  git(["-c", "user.email=t@t", "-c", "user.name=t", "config", "commit.gpgsign", "false"], repo);
+  writeFileSync(join(repo, "a.txt"), "content\n");
+  git(["add", "-A"], repo);
+  git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"], repo);
+  writeFileSync(join(dataDir, ".project-root"), repo + "\n");
+
+  // Deliberately OUTSIDE the repo — a capture file living inside the repo
+  // would itself be untracked-and-dirty and defeat the clean-tree check.
+  const capturePath = join(dataDir, "capture.log");
+  writeFileSync(capturePath, "all green\n");
+  const result = recordVerification(dataDir, {
+    key: FULL_SUITE_KEY,
+    command: "full test suite",
+    exitCode: 0,
+    capturePath,
+  });
+  assert.equal(result.ok, true, `test setup: expected recordVerification to succeed: ${result.message}`);
 }
 
 // --- Frontmatter parser -------------------------------------------------
@@ -317,7 +352,7 @@ test("execute terminal: task_blocked event alone is valid parking evidence", () 
 
 // --- Review terminal gate -----------------------------------------------
 
-test("review terminal_approved: allows when every feature verdict approves", () => {
+test("review terminal_approved: allows when every feature verdict approves AND a fresh full-suite proof exists", () => {
   withTempDataDir((dataDir) => {
     writeSprint(dataDir, { features: ["F001", "F002"] });
     writeVerdict(dataDir, "F001", "approve");
@@ -325,6 +360,57 @@ test("review terminal_approved: allows when every feature verdict approves", () 
     writeEvents(dataDir, [
       { type: "pipeline_tick_completed", pipeline: "ship-review", stage: "demo_user" },
     ]);
+    makeFreshFullSuiteProof(dataDir);
+    const v = evaluateReviewTerminal({ dataDir, terminalStage: "terminal_approved" });
+    assert.equal(v.allowed, true, `expected allow; got: ${v.reasons.join("; ")}`);
+  });
+});
+
+// --- P1: release approval requires a fresh full-suite verification proof (fixes 5.1) ---
+
+test("review terminal_approved: denies release without a fresh full-suite verification proof", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, { features: ["F001"] });
+    writeVerdict(dataDir, "F001", "approve");
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-review", stage: "demo_user" },
+    ]);
+    // No verify-ledger entry recorded at all.
+    const v = evaluateReviewTerminal({ dataDir, terminalStage: "terminal_approved" });
+    assert.equal(v.allowed, false);
+    assert.ok(v.reasons.some((r) => r.includes(FULL_SUITE_KEY)), `expected a full-suite reason; got: ${v.reasons.join("; ")}`);
+  });
+});
+
+test("review terminal_approved: denies release when the recorded full-suite proof is stale (tree changed)", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, { features: ["F001"] });
+    writeVerdict(dataDir, "F001", "approve");
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-review", stage: "demo_user" },
+    ]);
+    makeFreshFullSuiteProof(dataDir);
+
+    // A fixer commits after the proof was recorded — the tree moves on.
+    const repo = join(dataDir, "_test-repo");
+    writeFileSync(join(repo, "b.txt"), "fix\n");
+    git(["add", "-A"], repo);
+    git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "fix"], repo);
+
+    const v = evaluateReviewTerminal({ dataDir, terminalStage: "terminal_approved" });
+    assert.equal(v.allowed, false);
+    assert.ok(v.reasons.some((r) => r.includes(FULL_SUITE_KEY)));
+  });
+});
+
+test("review terminal_approved: allows release once a fresh full-suite verification proof is recorded", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, { features: ["F001"] });
+    writeVerdict(dataDir, "F001", "approve");
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-review", stage: "demo_user" },
+    ]);
+    makeFreshFullSuiteProof(dataDir);
     const v = evaluateReviewTerminal({ dataDir, terminalStage: "terminal_approved" });
     assert.equal(v.allowed, true, `expected allow; got: ${v.reasons.join("; ")}`);
   });

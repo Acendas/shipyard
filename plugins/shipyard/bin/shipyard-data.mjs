@@ -29,6 +29,11 @@
  *   shipyard-data scan-stubs <base>..<head>    → diff scan for stub patterns
  *                            [--lang <x>]        (see anti-stub-scan/SKILL.md).
  *                                                Exit 3 on unmarked HIGH finding.
+ *   shipyard-data verify record --key <k>      → record a verification result
+ *     --command <literal> --exit <n>              (see bin/verify-ledger.mjs)
+ *     --capture <path>
+ *   shipyard-data verify check --key <k>       → exit 0 = fresh (reusable),
+ *     --command <literal> [--ttl-hours <n>]       exit 3 = stale (re-run it)
  */
 
 import { execFileSync } from "node:child_process";
@@ -36,12 +41,13 @@ import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirS
 import { basename, dirname, join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
-import { ensureDataDirLink, getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
+import { dirLooksInitialized, ensureDataDirLink, getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
 import { cursorCmd } from "./cursor-cli.mjs";
-import { parseWaves } from "./terminal-gate.mjs";
+import { parseFrontmatter, parseWaves } from "./terminal-gate.mjs";
 import { specStateCmd } from "./spec-state-cli.mjs";
 import { releaseLock, skillLockCmd } from "./skill-lock.mjs";
 import { scanStubsCmd } from "./scan-stubs.mjs";
+import { verifyCmd } from "./verify-ledger.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -310,7 +316,89 @@ function archiveSprint(sprintId, opts = {}) {
   // SPRINT-DRAFT.md there) don't ENOENT on the first read after archive.
   mkdirSync(currentDir, { recursive: true });
 
+  // P5 (fixes 3.3): archiveSprint previously renamed sprints/current/ only
+  // — nothing archived the task files belonging to that sprint, so
+  // spec/tasks/ grows unbounded (measured: 779 files and growing on the
+  // customer workspace) and every O(product) scan over spec/ pays for it
+  // forever. Move DONE task files for this sprint into spec/archive/tasks/;
+  // best-effort — never fail the sprint archive itself over task cleanup.
+  try {
+    const taskArchiveResult = archiveSprintTasks(dataDir, archiveDir);
+    if (taskArchiveResult.archived.length > 0) {
+      logEvent(dataDir, "sprint_tasks_archived", {
+        sprint: sprintId,
+        count: taskArchiveResult.archived.length,
+        tasks: taskArchiveResult.archived.join(","),
+      });
+    }
+  } catch {
+    /* best-effort — the sprint archive above already succeeded */
+  }
+
   process.stdout.write(archiveDir + "\n");
+}
+
+/**
+ * Archive DONE task files belonging to a just-archived sprint into
+ * spec/archive/tasks/. Reads the archived SPRINT.md's `### Wave N` bodies
+ * (parseWaves — the same parser the terminal gate uses) to find which task
+ * IDs belong to this sprint, then moves only the ones whose frontmatter
+ * `status:` is the terminal `done` value. Non-terminal tasks (blocked,
+ * needs-attention, in-progress, pending) are left in spec/tasks/ so they
+ * stay visible for follow-up — archiving is a bounding measure for
+ * completed history, not a place to lose open work.
+ *
+ * Read-only on SPRINT.md; the only mutation is renameSync per task file
+ * (atomic, same filesystem). Never throws — a task file it can't read or
+ * move is recorded as skipped and left in place.
+ */
+function archiveSprintTasks(dataDir, archiveDir) {
+  const archived = [];
+  const skipped = [];
+  const sprintPath = join(archiveDir, "SPRINT.md");
+  if (!existsSync(sprintPath)) return { archived, skipped };
+
+  let content;
+  try {
+    content = readFileSync(sprintPath, "utf8");
+  } catch {
+    return { archived, skipped };
+  }
+  const waves = parseWaves(content);
+  const taskIds = [...new Set(waves.flatMap((w) => w.tasks))];
+  if (taskIds.length === 0) return { archived, skipped };
+
+  const archiveTasksDir = join(dataDir, "spec", "archive", "tasks");
+
+  for (const id of taskIds) {
+    const filePath = findTaskFile(dataDir, id);
+    if (!filePath) {
+      skipped.push({ id, reason: "no task file found" });
+      continue;
+    }
+    let taskContent;
+    try {
+      taskContent = readFileSync(filePath, "utf8");
+    } catch (err) {
+      skipped.push({ id, reason: `unreadable: ${err.message}` });
+      continue;
+    }
+    const fm = parseFrontmatter(taskContent);
+    if (fm.status !== "done") {
+      skipped.push({ id, reason: `status=${fm.status || "(none)"}` });
+      continue;
+    }
+    try {
+      mkdirSync(archiveTasksDir, { recursive: true });
+      const dest = join(archiveTasksDir, basename(filePath));
+      renameSync(filePath, dest);
+      archived.push(id);
+    } catch (err) {
+      skipped.push({ id, reason: `move failed: ${err.message}` });
+    }
+  }
+
+  return { archived, skipped };
 }
 
 
@@ -956,7 +1044,18 @@ function linkDataDir(opts = {}) {
     }
   }
 
-  ensureDataDirLink(projectRoot, dataDir);
+  const linked = ensureDataDirLink(projectRoot, dataDir);
+  if (linked.status === "uninitialized") {
+    // Explicit operator command — fail loud rather than silently no-op, so
+    // "I ran link-data-dir and got nothing" is never a mystery.
+    process.stderr.write(
+      `shipyard-data link-data-dir: refusing — ${dataDir} was never initialized\n` +
+      `  (no .project-root, config.md, or templates/). A data dir can appear from\n` +
+      `  diagnostic logging alone; linking it would plant a .shipyard symlink in a\n` +
+      `  project that never ran /ship-init. Run /ship-init (or shipyard-data init) first.\n`
+    );
+    process.exit(1);
+  }
   process.stdout.write(linkPath + "\n");
 }
 
@@ -1537,19 +1636,9 @@ function dirHoldsState(dir) {
   return false;
 }
 
-/**
- * Was a project data dir created by `shipyard-data init` (vs. minted as a
- * side effect of a bookkeeping command)? `init` writes `.project-root` and
- * copies `templates/`; `/ship-init` additionally writes `config.md`. A dir
- * with none of these is not a real project.
- */
-function dirLooksInitialized(dir) {
-  return (
-    existsSync(join(dir, ".project-root")) ||
-    existsSync(join(dir, "config.md")) ||
-    existsSync(join(dir, "templates"))
-  );
-}
+// dirLooksInitialized now lives in shipyard-resolver.mjs (imported above) so
+// `ensureDataDirLink` can gate on the same predicate. Kept as one copy on
+// purpose — duplicated resolver helpers have drifted here before.
 
 /**
  * Find the task file for an id under `spec/tasks/`, or null. Task files are
@@ -1570,6 +1659,169 @@ function findTaskFile(dataDir, id) {
 }
 
 /**
+ * P5 (fixes 3.1, 3.2): registry-schema validation, watermark-gated for
+ * incrementality. `ship-status`'s Check 1 currently does this by Glob'ing
+ * every `.md` file under spec/ and Read'ing each one into the model's own
+ * context — an O(product) cost re-paid on every invocation (measured:
+ * 779 files and growing on the customer workspace). This is the CLI half:
+ * the same per-file schema check, but bounded to files touched since the
+ * last clean run.
+ *
+ * Watermark: `<SHIPYARD_DATA>/.doctor-watermark.json`, `{lastCleanAt,
+ * schemaVersion}`. A run only re-validates files whose mtime is newer than
+ * `lastCleanAt` — UNLESS `full` is requested, or the stored schema version
+ * doesn't match `REGISTRY_SCHEMA_VERSION` (a rule-set change invalidates
+ * any prior "this file was clean" claim). The watermark only advances on a
+ * fully clean scan — advancing it on a dirty scan would let an unfixed
+ * file silently age out of every future incremental scan.
+ */
+const REGISTRY_SCHEMA_VERSION = 1;
+const DOCTOR_WATERMARK_BASENAME = ".doctor-watermark.json";
+
+const REGISTRY_ENTITY_RULES = {
+  features: {
+    dir: join("spec", "features"),
+    idRe: /^F\d+$/,
+    requiredKeys: [
+      "id", "title", "type", "epic", "status", "story_points", "complexity",
+      "token_estimate", "rice_reach", "rice_impact", "rice_confidence",
+      "rice_effort", "rice_score", "dependencies", "references", "tasks", "created",
+    ],
+    statusValues: ["proposed", "approved", "in-progress", "done", "deployed", "released", "cancelled"],
+  },
+  tasks: {
+    dir: join("spec", "tasks"),
+    idRe: /^T[-A-Za-z0-9]*\d+$/,
+    requiredKeys: ["id", "title", "feature", "status", "effort", "dependencies"],
+    statusValues: ["pending", "in-progress", "done", "blocked", "needs-attention", "approved"],
+  },
+  bugs: {
+    dir: join("spec", "bugs"),
+    idRe: /^B\d+$/,
+    requiredKeys: ["id", "title", "status", "severity"],
+  },
+  ideas: {
+    dir: join("spec", "ideas"),
+    idRe: /^IDEA-?\d+$/,
+    requiredKeys: ["id", "title", "status"],
+  },
+  epics: {
+    dir: join("spec", "epics"),
+    idRe: /^E\d+$/,
+    requiredKeys: ["id", "title", "status"],
+  },
+};
+
+function readDoctorWatermark(dataDir) {
+  const p = join(dataDir, DOCTOR_WATERMARK_BASENAME);
+  if (!existsSync(p)) return null;
+  try {
+    const obj = JSON.parse(readFileSync(p, "utf8"));
+    if (obj && typeof obj === "object" && typeof obj.lastCleanAt === "string" && typeof obj.schemaVersion === "number") {
+      return obj;
+    }
+  } catch {
+    /* corrupt watermark — treated as absent, forces a full sweep */
+  }
+  return null;
+}
+
+function writeDoctorWatermark(dataDir, obj) {
+  const p = join(dataDir, DOCTOR_WATERMARK_BASENAME);
+  const tmp = p + ".tmp";
+  writeFileSync(tmp, JSON.stringify(obj, null, 2) + "\n", "utf8");
+  renameSync(tmp, p);
+}
+
+function validateRegistryFile(rules, filePath) {
+  const content = readFileSync(filePath, "utf8");
+  const fm = parseFrontmatter(content);
+  const problems = [];
+  for (const key of rules.requiredKeys) {
+    if (!(key in fm) || fm[key] === "") problems.push(`missing/empty field: ${key}`);
+  }
+  if (rules.statusValues && fm.status && !rules.statusValues.includes(fm.status)) {
+    problems.push(`invalid status: "${fm.status}"`);
+  }
+  if (rules.idRe && fm.id && !rules.idRe.test(fm.id)) {
+    problems.push(`id "${fm.id}" does not match the expected pattern`);
+  }
+  return problems;
+}
+
+/**
+ * Run the registry-schema scan. Read-only except for the watermark file
+ * itself (and only on a fully clean result). `opts.full` forces a whole-
+ * tree sweep regardless of the watermark.
+ */
+function scanRegistry(dataDir, opts = {}) {
+  const watermark = readDoctorWatermark(dataDir);
+  const schemaMatches = watermark && watermark.schemaVersion === REGISTRY_SCHEMA_VERSION;
+  const incremental = !opts.full && schemaMatches;
+  const sinceMs = incremental ? Date.parse(watermark.lastCleanAt) : NaN;
+  const hasSince = Number.isFinite(sinceMs);
+
+  const findings = [];
+  let scannedCount = 0;
+  let skippedCount = 0;
+  const scanStartedAt = new Date();
+
+  for (const [kind, rules] of Object.entries(REGISTRY_ENTITY_RULES)) {
+    const dir = join(dataDir, rules.dir);
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue; // entity dir doesn't exist yet — nothing to scan
+    }
+    for (const ent of entries) {
+      if (!ent.isFile() || !ent.name.endsWith(".md")) continue;
+      const filePath = join(dir, ent.name);
+      if (incremental && hasSince) {
+        let st;
+        try {
+          st = statSync(filePath);
+        } catch {
+          continue;
+        }
+        if (st.mtimeMs <= sinceMs) {
+          skippedCount++;
+          continue;
+        }
+      }
+      scannedCount++;
+      let problems;
+      try {
+        problems = validateRegistryFile(rules, filePath);
+      } catch (err) {
+        problems = [`unreadable/unparseable: ${err.message}`];
+      }
+      for (const p of problems) {
+        findings.push({ kind, file: filePath, problem: p });
+      }
+    }
+  }
+
+  const clean = findings.length === 0;
+  if (clean) {
+    // Only advance the watermark on a fully clean scan — advancing it
+    // after finding problems would let an unfixed file age out of every
+    // future incremental scan (mtime never changes again if nobody
+    // touches it, so it would never get re-checked).
+    try {
+      writeDoctorWatermark(dataDir, {
+        lastCleanAt: scanStartedAt.toISOString(),
+        schemaVersion: REGISTRY_SCHEMA_VERSION,
+      });
+    } catch {
+      /* best-effort — a failed watermark write just costs the next run its incrementality */
+    }
+  }
+
+  return { findings, scannedCount, skippedCount, incremental: incremental && hasSince, clean };
+}
+
+/**
  * `shipyard-data doctor` — read-only integrity scan for the classes of data
  * corruption reported in upstream issue #4:
  *
@@ -1585,11 +1837,17 @@ function findTaskFile(dataDir, id) {
  *      no `spec/tasks/<id>-*.md` file, so everything that frontmatter-checks
  *      tasks (ship-status, review's evidence check, carry-over scan) sees a
  *      broken reference (issue #4, defect 3).
+ *   4. Registry-schema drift (P5) — a spec/ entity file missing a required
+ *      frontmatter field, an invalid status value, or a malformed id.
+ *      Watermark-gated (see scanRegistry above) so a doctor run after a
+ *      large sprint doesn't re-read every spec/ file, only ones touched
+ *      since the last clean run. `--full` forces a whole-tree sweep.
  *
- * Exits 0 when clean, 1 when any issue is found. Never mutates state — it
- * only reports, with a remediation hint per finding.
+ * Exits 0 when clean, 1 when any issue is found. Never mutates state other
+ * than the doctor watermark itself — it only reports, with a remediation
+ * hint per finding.
  */
-function doctor() {
+function doctor(opts = {}) {
   let dataDir;
   try {
     dataDir = getDataDir({ silent: true });
@@ -1666,11 +1924,33 @@ function doctor() {
     }
   }
 
+  // --- Current project: registry-schema validation (P5, watermark-gated). ---
+  let registryScan = null;
+  try {
+    registryScan = scanRegistry(dataDir, { full: !!opts.full });
+  } catch {
+    /* best-effort — the other doctor checks above still stand */
+  }
+  if (registryScan) {
+    for (const f of registryScan.findings) {
+      findings.push({
+        kind: "registry-schema",
+        detail: `${f.kind} ${f.file} — ${f.problem}`,
+        hint: `Fix the frontmatter field, then re-run 'shipyard-data doctor' to confirm (or --full to re-check everything).`,
+      });
+    }
+  }
+
+  const registrySummary = registryScan
+    ? `; registry: ${registryScan.scannedCount} file(s) checked` +
+      (registryScan.incremental ? ` (incremental, ${registryScan.skippedCount} skipped via watermark)` : " (full sweep)")
+    : "";
+
   if (findings.length === 0) {
     process.stdout.write(
       `shipyard-data doctor: no issues found ` +
         `(scanned ${scanned} project dir${scanned === 1 ? "" : "s"} under ${projectsDir}; ` +
-        `current project ${currentHash}).\n`,
+        `current project ${currentHash}${registrySummary}).\n`,
     );
     return;
   }
@@ -1797,7 +2077,7 @@ function main() {
       break;
     }
     case "doctor": {
-      doctor();
+      doctor({ full: process.argv.slice(3).includes("--full") });
       break;
     }
     case "feature":
@@ -1815,11 +2095,15 @@ function main() {
       scanStubsCmd(getDataDir({ silent: true }), process.argv.slice(3));
       break;
     }
+    case "verify": {
+      verifyCmd(getDataDir({ silent: true }), process.argv.slice(3));
+      break;
+    }
     // For project-id / project-root use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash|project-root`.
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated | doctor | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|clear-tasks> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify> ... | config set <key> <value> | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>]\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... | events emit <type> [k=v ...] | next-id <kind> | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|clear-tasks> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify> ... | config set <key> <value> | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] | verify <record|check> ...\n`,
       );
       process.exit(1);
   }

@@ -11,7 +11,7 @@ Run each gate in order. The first failure emits `sprint_goal_preflight_failed` v
 | `sprint_plan_accepted` | SPRINT.md frontmatter `status: planned` or `status: in-progress` (not `proposed`) | A plan not accepted may be wrong; running it as /goal compounds the wrong-ness | `/ship-sprint --accept` or edit SPRINT.md frontmatter |
 | `every_feature_has_ac_signal` | Each feature in SPRINT.md has at least one `acceptance_probe:`-bearing task OR a `demo_probe:` on the feature | Without acceptance signals, the sprint-complete predicate is undefined — invariant 4 (orphan AC) becomes vacuously true | `/ship-discuss <feature-id>` to add probes |
 | `no_open_spec_ambiguities` | grep linked feature/AC files for `ambiguity:` markers — none must be present | These are the `design_ambiguity` escalation in disguise; surface them now, not after /goal halts | Resolve via `/ship-discuss <feature-id>` or remove the marker |
-| `sprint_verify_defined` | `config.md` has `test_commands.full` (or an equivalent sprint-level verify command) set | Without it, sprint-complete invariant 2 (sprint-boundary probe) is undefined | Edit `<SHIPYARD_DATA>/config.md` to add `test_commands.full` |
+| `sprint_verify_defined` | `config.md` has at least one of `test_commands.unit`, `test_commands.integration`, `test_commands.e2e`, or `build_commands.full` set | Without one, sprint-complete invariant 2 (sprint-boundary probe) is undefined | Edit `<SHIPYARD_DATA>/config.md` to set at least one of `test_commands.unit`/`.integration`/`.e2e` or `build_commands.full` |
 | `working_branch_correct` | Current branch equals SPRINT.md `branch:` (existing Pre-spawn Branch Check, lifted earlier) | Catches the worktree-branch-leak case before any subagent spawns | `git checkout <sprint-working-branch>` |
 | `no_active_discussion_lock` | `.active-session.json` not held by a live different session (existing `acquiring-skill-lock` check) | Discussion-in-flight conflicts with execution | Wait for the other session to release, or force-clear if known-dead |
 | `event_log_initialized` | `<SHIPYARD_DATA>/.shipyard-events.jsonl` exists | Required for /goal observability and resume-from-event-log | Run `/ship-init --repair` or emit any event to bootstrap |
@@ -24,7 +24,7 @@ All gates green → proceed. Any gate red → emit the failure event, show the u
 
 /goal-mode is /ship-execute's most powerful surface and its most opaque. Without pre-flight gates, the orchestrator could enter /goal on a plan that's missing acceptance signals, hit a wall mid-flight, and surface a confusing failure to the user — *"why did /goal halt? I don't see what's broken."*
 
-The gates frame the halt up front with concrete remediation, before any tokens get spent on actual work. Users see "Pre-flight failed: sprint_verify_defined — add `test_commands.full` to config.md" instead of "Sprint-complete predicate failed at invariant 2 after 4 hours of execution."
+The gates frame the halt up front with concrete remediation, before any tokens get spent on actual work. Users see "Pre-flight failed: sprint_verify_defined — set `test_commands.unit` (or `.integration`/`.e2e`/`build_commands.full`) in config.md" instead of "Sprint-complete predicate failed at invariant 2 after 4 hours of execution."
 
 ## Per-gate detail
 
@@ -57,7 +57,7 @@ Spec ambiguities are intentional placeholders — "this AC needs clarification b
 
 The sprint-boundary verify-probe is broader than wave-probes — it's the full-suite or integration check. Without it, sprint-complete invariant 2 has nothing to test, so invariant 2 is undefined and the predicate is undermined.
 
-Read `<SHIPYARD_DATA>/config.md` and check for `test_commands.full` (or any equivalent key the project uses). The check is structural — content of the command doesn't matter, just that one exists.
+Read `<SHIPYARD_DATA>/config.md` and check that at least one of `test_commands.unit`, `test_commands.integration`, `test_commands.e2e`, or `build_commands.full` is a non-empty string — these are the keys the template and `/ship-init` actually create (there is no `test_commands.full` key anywhere in the shipped surface; gating on it made this check unfailable and vacuous). The check is structural — content of the command doesn't matter, just that at least one of the four exists.
 
 ### `working_branch_correct`
 

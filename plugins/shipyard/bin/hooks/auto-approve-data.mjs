@@ -49,6 +49,11 @@ const CLI_OWNED_BASENAMES = new Set([
   "REVIEW-CURSOR.md",
   "PROGRESS.md",
   "HANDOFF.md",
+  // v-perf-P1: the verification-evidence ledger (bin/verify-ledger.mjs) —
+  // the CLI computes tree-id/porcelain state itself so the model cannot
+  // fabricate a clean-tree claim; hand-authoring this file would defeat
+  // that guarantee.
+  ".verification-ledger.json",
 ]);
 
 // v3.7.0: the two skill-mutex lock files are now CLI-owned too —
@@ -154,18 +159,25 @@ export async function run(hookInput, _env) {
         filePath,
         "cli_owned_state",
       ]);
-      const response = {
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: "deny",
-          permissionDecisionReason:
-            `${base} is deterministic pipeline state with a single writer — the shipyard-data CLI. ` +
+      const reason =
+        base === ".verification-ledger.json"
+          ? `${base} is the verification-evidence ledger with a single writer — the shipyard-data CLI, ` +
+            "which computes the tree-id and porcelain state itself so this file can't carry a fabricated " +
+            "clean-tree claim. Do not Write/Edit it. Use instead:\n" +
+            "  - record a pass:  shipyard-data verify record --key <k> --command <literal> --exit <n> --capture <path>\n" +
+            "  - check freshness: shipyard-data verify check --key <k> --command <literal> [--ttl-hours <n>]"
+          : `${base} is deterministic pipeline state with a single writer — the shipyard-data CLI. ` +
             "Do not Write/Edit it. Use instead:\n" +
             "  - advance a stage:  shipyard-data cursor advance <execute|review> <stage> [k=v ...] [--note \"...\"]\n" +
             "  - pause:            shipyard-data cursor pause <execute|review> --note \"...\"\n" +
             "  - escalate:         shipyard-data cursor escalate <execute|review> reason=<short>\n" +
             "  - already-complete: shipyard-data cursor noop <execute|review>\n" +
-            "PROGRESS.md is auto-rendered from the event log; HANDOFF.md is retired (pause state lives in the cursor).",
+            "PROGRESS.md is auto-rendered from the event log; HANDOFF.md is retired (pause state lives in the cursor).";
+      const response = {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: reason,
         },
       };
       process.stdout.write(JSON.stringify(response));

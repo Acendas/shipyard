@@ -820,5 +820,92 @@
     "name": "quiet_by_default",
     "type": "contains",
     "pattern": "Quiet by default"
+  },
+  {
+    "name": "stage1a_check_first_ledger",
+    "type": "contains",
+    "pattern": "shipyard-data verify check --key test_commands",
+    "why": "perf plan fix 1.1: Stage 1a must consult the verification ledger before re-running a tier /ship-execute already ran on this commit (measured 7m 9s cost of blindly re-running)"
+  },
+  {
+    "name": "stage1a_verify_record_on_stale_pass",
+    "type": "contains",
+    "pattern": "shipyard-data verify record --key test_commands",
+    "why": "fix 1.1: when a tier is stale and re-run, Stage 1a records the fresh pass so a later tick or the release gate can reuse it"
+  },
+  {
+    "name": "stage1a_not_a_blanket_skip",
+    "type": "contains",
+    "pattern": "never a blanket skip",
+    "why": "fix 1.1: Stage 0/0.5 commit before Stage 1a, so a dirty tree must correctly re-run tiers — the check-first change must not silently skip on every invocation"
+  },
+  {
+    "name": "stage1a_renders_skip_decision",
+    "type": "contains",
+    "pattern": "Render the decision as chat text",
+    "why": "fix 1.1: a skip the user can't see is indistinguishable from a stage that silently didn't happen"
+  },
+  {
+    "name": "stage4_8_ledger_predicate_not_event_window",
+    "type": "contains",
+    "pattern": "shipyard-data verify check --key demo_probe",
+    "why": "fix 5.2: Stage 4.8's freshness preflight was judged by event-log presence within a prose-level sprint window (no sha/tree/timestamp comparison); replaced with the tree-id-backed ledger predicate"
+  },
+  {
+    "name": "stage4_8_verify_record_on_pass",
+    "type": "contains",
+    "pattern": "shipyard-data verify record --key demo_probe",
+    "why": "fix 5.2: a freshly-passed demo probe is recorded into the ledger so a later tick or resumed review can reuse it"
+  },
+  {
+    "name": "quality_gate_satisfied_by_evidence",
+    "type": "contains",
+    "target": "ref:quality-gate-enforcement.md",
+    "pattern": "[Ss]atisfied by evidence",
+    "why": "fix 1.2: a quality gate whose text names a test_commands key must be satisfiable by ledger evidence instead of dispatching a third execution of tiers already run twice"
+  },
+  {
+    "name": "quality_gate_evidence_column_never_dropped",
+    "type": "contains",
+    "target": "ref:quality-gate-enforcement.md",
+    "pattern": "Never drop a gate row",
+    "why": "fix 1.2: satisfied-by-evidence gates must still write a row (with an Evidence column) so the audit trail gets richer, not thinner — an absent row reads as a gate that was never evaluated"
+  },
+  {
+    "name": "quality_gate_evidence_column_named",
+    "type": "contains",
+    "target": "ref:quality-gate-enforcement.md",
+    "pattern": "\\*\\*Evidence\\*\\* column",
+    "why": "fix 1.2: QUALITY-GATE.md gains an Evidence column naming tree-id, capture path, and producing stage"
+  },
+  {
+    "name": "pinned_ledger_key_test_commands_unit",
+    "type": "contains",
+    "pattern": "test_commands\\.unit",
+    "why": "cross-agent contract (perf plan P1): the ledger key literal `test_commands.unit` must match exactly between ship-execute's recorder and ship-review's Stage 1a checker — a rename on either side silently disables the skip and quietly restores the slow re-run path"
+  },
+  {
+    "name": "pinned_ledger_key_test_commands_integration",
+    "type": "contains",
+    "pattern": "test_commands\\.integration",
+    "why": "cross-agent contract (perf plan P1): pinned ledger key literal, must match ship-execute's recorder exactly"
+  },
+  {
+    "name": "pinned_ledger_key_test_commands_e2e",
+    "type": "contains",
+    "pattern": "test_commands\\.e2e",
+    "why": "cross-agent contract (perf plan P1): pinned ledger key literal, must match ship-execute's recorder exactly"
+  },
+  {
+    "name": "pinned_ledger_key_demo_probe",
+    "type": "contains",
+    "pattern": "verify (check|record) --key demo_probe\\.",
+    "why": "cross-agent contract (perf plan P1/5.2): the ledger key literal `demo_probe.<FID>` must match exactly between ship-execute's sprint_demo_probes recorder and ship-review's Stage 4.8 checker, or Stage 4.8 regresses to always re-running probes it currently skips"
+  },
+  {
+    "name": "stage4_8_still_emits_acceptance_probe_completed",
+    "type": "contains",
+    "pattern": "acceptance_probe_completed",
+    "why": "cross-agent contract note: evaluating-sprint-complete Invariant 8 depends on this event independently of the ledger check — the ledger check-first change must not replace or remove this emit"
   }
 ]

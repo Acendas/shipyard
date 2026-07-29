@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { validateStatusTransition, FEATURE_TRANSITIONS, IDEA_TRANSITIONS } from "../bin/spec-lifecycle.mjs";
@@ -65,7 +65,20 @@ function makeProject() {
     });
     return { code: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
   };
-  const dataDir = run(["init"]).stdout.trim();
+  const initResult = run(["init"]);
+  const dataDir = initResult.stdout.trim();
+  // Fail HERE if init didn't actually work. Without this guard an empty stdout
+  // leaves dataDir === "", and every later join(dataDir, "spec", ...) silently
+  // degrades to a RELATIVE path — surfacing much later as a baffling
+  // `ENOENT: spec/...` that looks like a product bug rather than a failed
+  // fixture. That is the shape of the intermittent failure seen under
+  // concurrent `node --test tests/*.mjs` runs.
+  if (initResult.code !== 0 || !isAbsolute(dataDir)) {
+    throw new Error(
+      `fixture setup failed: shipyard-data init exited ${initResult.code}, ` +
+        `stdout=${JSON.stringify(initResult.stdout)} stderr=${initResult.stderr}`,
+    );
+  }
   writeFileSync(join(dataDir, "backlog", "BACKLOG.md"), BACKLOG_TEMPLATE);
   return { root, repo, dataDir, run, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
@@ -569,13 +582,85 @@ test("idea set-status: --to naming a missing feature is refused", () => {
 test("config set product-spec-path: round-trips and refuses unknown keys", () => {
   const p = makeProject();
   try {
-    writeFileSync(join(p.dataDir, "config.md"), "---\nconfig_version: 4\n---\n");
+    writeFileSync(join(p.dataDir, "config.md"), "---\nconfig_version: 5\n---\n");
     const r = p.run(["config", "set", "product-spec-path", "docs/spec/"]);
     assert.equal(r.code, 0);
     const content = readFileSync(join(p.dataDir, "config.md"), "utf8");
     assert.match(content, /product_spec_path: docs\/spec\//);
     const bad = p.run(["config", "set", "not-a-real-key", "x"]);
     assert.equal(bad.code, 2);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("config set worktree-warm-enabled: writes into the nested worktree_warm block, preserving paths + comment", () => {
+  const p = makeProject();
+  try {
+    writeFileSync(
+      join(p.dataDir, "config.md"),
+      "---\nconfig_version: 5\nworktree_warm:\n  enabled: false        # opt-in\n  paths: []\n---\n",
+    );
+    const r = p.run(["config", "set", "worktree-warm-enabled", "true"]);
+    assert.equal(r.code, 0);
+    assert.equal(r.stdout.trim(), "config: worktree_warm.enabled = true");
+    const content = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(content, /worktree_warm:\n\s+enabled: true\s+# opt-in\n\s+paths: \[\]/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("config set worktree-warm-enabled: refuses a non-boolean value", () => {
+  const p = makeProject();
+  try {
+    writeFileSync(join(p.dataDir, "config.md"), "---\nconfig_version: 5\nworktree_warm:\n  enabled: false\n  paths: []\n---\n");
+    const r = p.run(["config", "set", "worktree-warm-enabled", "yes"]);
+    assert.equal(r.code, 2);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("config set worktree-warm-paths: comma-separated CLI value renders as a flow-style array", () => {
+  const p = makeProject();
+  try {
+    writeFileSync(join(p.dataDir, "config.md"), "---\nconfig_version: 5\nworktree_warm:\n  enabled: false\n  paths: []\n---\n");
+    const r = p.run(["config", "set", "worktree-warm-paths", ".gradle,build,target"]);
+    assert.equal(r.code, 0);
+    const content = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(content, /paths: \[".gradle", "build", "target"\]/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("config set test-commands-rerun-failed: writes into the nested test_commands block", () => {
+  const p = makeProject();
+  try {
+    writeFileSync(
+      join(p.dataDir, "config.md"),
+      "---\nconfig_version: 5\ntest_commands:\n  unit: \"vitest run\"\n  rerun_failed: \"\"\n---\n",
+    );
+    const r = p.run(["config", "set", "test-commands-rerun-failed", "--onlyFailures"]);
+    assert.equal(r.code, 0);
+    const content = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(content, /rerun_failed: --onlyFailures/);
+    // sibling key inside the same block must survive untouched
+    assert.match(content, /unit: "vitest run"/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("config set worktree-warm-enabled: creates the worktree_warm block when absent (pre-P4 config.md)", () => {
+  const p = makeProject();
+  try {
+    writeFileSync(join(p.dataDir, "config.md"), "---\nconfig_version: 5\n---\n");
+    const r = p.run(["config", "set", "worktree-warm-enabled", "true"]);
+    assert.equal(r.code, 0);
+    const content = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(content, /worktree_warm:\n\s+enabled: true/);
   } finally {
     p.cleanup();
   }

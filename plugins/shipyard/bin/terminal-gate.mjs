@@ -35,6 +35,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { evaluateFreshness, FULL_SUITE_KEY } from "./verify-ledger.mjs";
 
 /**
  * Parse a YAML-ish frontmatter block from markdown content.
@@ -283,6 +284,11 @@ export function evaluateExecuteTerminal({ dataDir }) {
  * by the normal flow. It is kept so that IF a future flow writes a
  * `terminal_approved` cursor, the approve-verdict check still fires. Per-
  * feature approve-verdicts are enforced upstream today (verify/<F>-verdict.md).
+ *
+ * `terminal_approved` also requires a fresh full-suite verification proof
+ * from the ledger (bin/verify-ledger.mjs, P1) — closes correctness hole
+ * 5.1, where release approval previously required no test evidence
+ * whatsoever.
  */
 export function evaluateReviewTerminal({ dataDir, terminalStage }) {
   const reasons = [];
@@ -337,6 +343,22 @@ export function evaluateReviewTerminal({ dataDir, terminalStage }) {
           );
         }
       }
+    }
+
+    // Correctness hole 5.1: release approval previously required NO test
+    // evidence at all — a perfect verdict trail could still ship on a
+    // commit nobody had actually run the full suite against. Require a
+    // fresh (untampered-with-since, clean-tree) full-suite proof from the
+    // verification-evidence ledger (P1). "Fresh" is evaluated the same way
+    // Stage 1a's own reuse decision is — same predicate, same fail-safe
+    // direction (any unevaluable condition => stale => deny).
+    const freshness = evaluateFreshness(dataDir, { key: FULL_SUITE_KEY });
+    if (!freshness.fresh) {
+      reasons.push(
+        `Missing fresh full-suite verification proof (ledger key="${FULL_SUITE_KEY}") — ${freshness.reason}. ` +
+          `Run the full suite once after all mutating stages and record it: ` +
+          `shipyard-data verify record --key ${FULL_SUITE_KEY} --command "<full-suite-command>" --exit 0 --capture <captured-output-path>.`,
+      );
     }
   } else if (
     terminalStage === "terminal_changes" ||

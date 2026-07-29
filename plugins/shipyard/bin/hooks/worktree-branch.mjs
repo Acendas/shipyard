@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative as pathRelative, resolve as pathResolve } from "node:path";
 import { withLockfile, WORKTREE_NAME_RE } from "../_hook_lib.mjs";
+import { warmWorktreeFromConfig } from "../worktree-warm.mjs";
 
 function runGit(args, cwd) {
   try {
@@ -190,6 +191,20 @@ export async function run(hookInput, _env) {
   }
 
   if (exitCode !== 0) return exitCode;
+
+  // P4: best-effort artifact-dir warm (opt-in via worktree_warm.enabled,
+  // default off). Deliberately runs HERE — after the lockfile block above
+  // has already closed — never inside it: that lock's ttlMs is 30000, and
+  // a multi-GB copy running inside it would have the lock stolen mid-copy
+  // by a concurrent worktree spawner. See bin/worktree-warm.mjs for the
+  // classification rule and refusal list. Never allowed to affect the
+  // stdout contract or the hook's exit code — wrapped defensively even
+  // though warmWorktreeFromConfig already swallows its own errors.
+  try {
+    warmWorktreeFromConfig({ sourceRoot: repoRoot, worktreePath: resultPath });
+  } catch (err) {
+    process.stderr.write(`shipyard worktree hook: worktree warm failed (non-blocking): ${err?.message ?? err}\n`);
+  }
 
   // STDOUT CONTRACT: Only the path, nothing else (bug #40262). No newline.
   process.stdout.write(resultPath);

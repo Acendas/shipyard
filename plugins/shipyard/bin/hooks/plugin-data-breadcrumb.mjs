@@ -28,7 +28,7 @@
  * Content: the raw CLAUDE_PLUGIN_DATA path (no newline, no JSON)
  */
 
-import { existsSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   getProjectRoot,
@@ -63,14 +63,23 @@ export function run(_hookInput, env) {
 
   // Ensure the env/TMPDIR-independent `<projectRoot>/.shipyard` fallback exists
   // so a later session can resolve the data dir even if the breadcrumb is
-  // stranded by a TMPDIR split (the failure this guards against). Only when the
-  // data dir actually exists — don't drop a dangling link into a directory
-  // that was never `/ship-init`-ed. Best-effort: a real .shipyard entry comes
-  // back 'blocked' (left untouched) and any fs error is swallowed; the link is
-  // a convenience + fallback, never required for correctness.
+  // stranded by a TMPDIR split (the failure this guards against). Never drop a
+  // link into a project that was never `/ship-init`-ed — `ensureDataDirLink`
+  // now enforces that itself via `dirLooksInitialized` and returns
+  // 'uninitialized' without writing.
+  //
+  // This used to gate on `existsSync(dataDir)`, which was the wrong test: the
+  // diagnostic-log writers in `_hook_lib` mkdir the data dir recursively, so
+  // merely EDITING a file in any git repo with Shipyard installed minted one,
+  // and the next session planted a stray `.shipyard` symlink there (observed
+  // 2026-07-28 in the plugin's own repo). The intent was always right; the
+  // predicate wasn't.
+  //
+  // Best-effort: a real .shipyard entry comes back 'blocked' (left untouched)
+  // and any fs error is swallowed; the link is a convenience + fallback, never
+  // required for correctness.
   try {
-    const dataDir = join(pluginData, "projects", hash);
-    if (existsSync(dataDir)) ensureDataDirLink(projectRoot, dataDir);
+    ensureDataDirLink(projectRoot, join(pluginData, "projects", hash));
   } catch {
     // Non-fatal.
   }
