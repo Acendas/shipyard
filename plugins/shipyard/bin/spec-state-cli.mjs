@@ -613,6 +613,142 @@ function featureClearTasks(dataDir, args) {
   });
 }
 
+// --- user_flow_probe ---------------------------------------------------------
+
+export const USER_FLOW_PROBE_KINDS = ["auto", "assisted", "manual"];
+
+/**
+ * Classify a feature's `user_flow_probe:` field, tolerating the legacy
+ * `demo_probe: <command>` scalar for one release.
+ *
+ * Shapes:
+ *   absent   — neither key present.
+ *   skip     — `user_flow_probe: skip-with-reason` (no proof of any kind exists;
+ *              NOT "a human checked it" — that is kind: manual).
+ *   scalar   — a bare command (legacy `demo_probe: |` or `user_flow_probe: |`).
+ *              Treated as {kind: auto, command: <scalar>}.
+ *   mapping  — the current shape; `kind` is read from the nested key.
+ *
+ * Returned `legacy` marks a value read from the old `demo_probe:` key, so
+ * callers can print the one-line deprecation note.
+ */
+export function readUserFlowProbe(block) {
+  for (const key of ["user_flow_probe", "demo_probe"]) {
+    const span = findKeySpan(block, key);
+    if (!span) continue;
+    const legacy = key === "demo_probe";
+    const ownLine = span.lines[span.startIdx];
+    const inlineValue = (ownLine.match(new RegExp(`^${escapeRe(key)}:\\s*(.*)$`)) || [])[1].trim();
+
+    if (inlineValue === "skip-with-reason") return { shape: "skip", key, legacy };
+    // A block-scalar indicator (`|`, `>`, `|-`) or any inline text is the
+    // legacy single-command form: auto by definition, since only a machine
+    // can act on a bare command with no steps.
+    if (inlineValue) return { shape: "scalar", kind: "auto", key, legacy };
+
+    // Empty after the colon => nested mapping. Read `kind:` from its span.
+    const nested = span.lines.slice(span.startIdx + 1, span.endIdx).join("\n");
+    const kind = (nested.match(/^\s+kind:\s*(\S+)/m) || [])[1];
+    return { shape: "mapping", kind, key, legacy };
+  }
+  return { shape: "absent" };
+}
+
+const PROOF_VERDICTS = ["pass", "fail"];
+const COMMIT_RE = /^[0-9a-f]{7,40}$/i;
+
+/**
+ * `feature record-proof <FID> verdict= confirmed-by= commit= [note=] [at=]`
+ *
+ * Persists a HUMAN verdict on an `assisted`/`manual` user_flow_probe as
+ * first-class evidence. Before this existed, the only way to record
+ * "a person installed the build and walked the flow" was
+ * `demo_probe: skip-with-reason` — i.e. the strongest available proof was
+ * filed as an ABSENCE of proof, and sprint-complete invariant 8 graded it
+ * PASS-with-warning. This verb is the other half of that fix: the emitted
+ * `user_flow_probe_confirmed` event satisfies invariant 8 exactly as an
+ * exit-0 `auto` run does.
+ *
+ * Refuses on an `auto` probe: that kind's verdict IS its exit code, and
+ * hand-recording one would let a green claim bypass the actual run.
+ */
+function featureRecordProof(dataDir, args) {
+  const fid = args[0];
+  const kv = {};
+  for (const a of args.slice(1)) {
+    const eq = a.indexOf("=");
+    if (eq <= 0) fail(2, `spec-state: unrecognized argument "${a}" — expected k=v`);
+    kv[a.slice(0, eq)] = a.slice(eq + 1);
+  }
+  const usage =
+    'usage: feature record-proof <FID> verdict=pass|fail confirmed-by=<who> commit=<sha> [note="..."] [at=<ISO>]';
+  if (!fid || !("verdict" in kv) || !("confirmed-by" in kv) || !("commit" in kv)) fail(2, usage);
+
+  const verdict = kv.verdict;
+  if (!PROOF_VERDICTS.includes(verdict)) {
+    fail(3, `spec-state: verdict must be one of ${PROOF_VERDICTS.join("|")} (got "${verdict}")`);
+  }
+  const confirmedBy = kv["confirmed-by"].trim();
+  if (!confirmedBy) {
+    fail(3, "spec-state: confirmed-by must name who confirmed the flow — an unattributed verdict is not evidence");
+  }
+  const commit = kv.commit.trim();
+  if (!COMMIT_RE.test(commit)) {
+    fail(3, `spec-state: commit must be a git sha (7-40 hex chars, got "${commit}")`);
+  }
+  const at = kv.at || new Date().toISOString();
+
+  withNamedLock(dataDir, `feature-${fid}`, () => {
+    const path = resolveFeatureFile(dataDir, fid);
+    const content = readFileSync(path, "utf8");
+    const fm = parseFm(content);
+    if (!fm) fail(3, `spec-state: ${fid} has no frontmatter block — refusing`);
+
+    const probe = readUserFlowProbe(fm.block);
+    if (probe.shape === "absent") {
+      fail(3, `spec-state: ${fid} has no user_flow_probe — author one via /ship-discuss ${fid} before recording a verdict`);
+    }
+    if (probe.shape === "skip") {
+      fail(
+        3,
+        `spec-state: ${fid} is marked skip-with-reason (no proof of any kind exists). A human verdict means the flow IS demonstrable — change it to kind: manual, then re-run.`,
+      );
+    }
+    if (probe.kind === "auto") {
+      fail(
+        3,
+        `spec-state: ${fid}'s user_flow_probe is kind: auto — its verdict is the probe's exit code. Run the probe, or change kind to assisted|manual if a human must confirm it.`,
+      );
+    }
+    if (!USER_FLOW_PROBE_KINDS.includes(probe.kind)) {
+      fail(3, `spec-state: ${fid}'s user_flow_probe has kind "${probe.kind ?? "(unset)"}" — expected ${USER_FLOW_PROBE_KINDS.join("|")}`);
+    }
+
+    let block = fm.block;
+    block = setNestedScalarAppend(block, "user_flow_probe", "last_verdict", verdict);
+    block = setNestedScalarAppend(block, "user_flow_probe", "last_confirmed_by", JSON.stringify(confirmedBy));
+    block = setNestedScalarAppend(block, "user_flow_probe", "last_confirmed_at", JSON.stringify(at));
+    block = setNestedScalarAppend(block, "user_flow_probe", "last_commit", commit);
+    if (kv.note) block = setNestedScalarAppend(block, "user_flow_probe", "last_note", JSON.stringify(kv.note));
+    block = setScalar(block, "updated", today());
+    writeFrontmatteredFile(path, fm, block);
+
+    logEvent(dataDir, "user_flow_probe_confirmed", {
+      feature: fid,
+      kind: probe.kind,
+      verdict,
+      commit,
+      confirmed_by: confirmedBy,
+    });
+    if (probe.legacy) {
+      process.stderr.write(
+        `spec-state: ${fid} still uses the legacy \`demo_probe:\` key — rename to \`user_flow_probe:\` (mapping form).\n`,
+      );
+    }
+    process.stdout.write(`${fid}: user_flow_probe ${probe.kind} verdict=${verdict} by ${confirmedBy} @ ${commit}\n`);
+  });
+}
+
 // --- backlog commands --------------------------------------------------------
 
 function backlogAdd(dataDir, args) {
@@ -943,7 +1079,7 @@ const CONFIG_SET_ALLOWLIST = {
  * yet — a project initialized before a key existed should still be able to
  * opt in via this CLI rather than requiring a full re-init.
  */
-function setNestedScalar(block, parentKey, key, value) {
+function setNestedScalar(block, parentKey, key, value, { append = false } = {}) {
   const lines = block.split("\n");
   const startIdx = lines.findIndex((l) => new RegExp(`^${parentKey}:\\s*$`).test(l));
   if (startIdx === -1) {
@@ -966,8 +1102,18 @@ function setNestedScalar(block, parentKey, key, value) {
       break;
     }
   }
-  if (!found) lines.splice(startIdx + 1, 0, `  ${key}: ${value}`);
+  // `append` puts a new key at the END of the parent's span rather than
+  // directly under the parent line. Used where the block has a defining
+  // prefix that should stay on top (user_flow_probe's kind/command/steps)
+  // and appended keys are a growing record (last_verdict/…). Safe against a
+  // trailing block scalar: the new line's 2-space indent terminates it.
+  if (!found) lines.splice(append ? endIdx : startIdx + 1, 0, `  ${key}: ${value}`);
   return lines.join("\n");
+}
+
+/** setNestedScalar, inserting a new key at the end of the parent's span. */
+function setNestedScalarAppend(block, parentKey, key, value) {
+  return setNestedScalar(block, parentKey, key, value, { append: true });
 }
 
 /** Same as setNestedScalar, but for a flow-style array field (`paths: [...]`). */
@@ -1074,8 +1220,10 @@ function dispatch(dataDir, entity, sub, rest) {
         return featureDepLink(dataDir, rest, { add: false });
       case "clear-tasks":
         return featureClearTasks(dataDir, rest);
+      case "record-proof":
+        return featureRecordProof(dataDir, rest);
       default:
-        fail(2, `shipyard-data feature: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|clear-tasks`);
+        fail(2, `shipyard-data feature: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|clear-tasks|record-proof`);
     }
   } else if (entity === "backlog") {
     switch (sub) {

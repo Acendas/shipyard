@@ -30,7 +30,7 @@ Other entry points:
 - `sprint_head_sha` — current HEAD
 - `sprint_verify_capture` — path to the sprint-boundary verify-probe capture
 - `sprint_verify_exit_code` — exit code from sprint-boundary verify
-- `demo_probe_event_window_start` — ISO timestamp; only `acceptance_probe_completed` events at or after this count for Invariant 8 (typically SPRINT.md `started_at`)
+- `demo_probe_event_window_start` — ISO timestamp; only `acceptance_probe_completed` / `user_flow_probe_confirmed` events at or after this count for Invariant 8 (typically SPRINT.md `started_at`)
 - `review_verdict_path` — path to the latest `/ship-review` verdict file (or null if review hasn't run)
 
 ## The Eight Invariants — Summary Table
@@ -46,7 +46,7 @@ Detailed per-invariant logic and primitives live in [references/invariants.md](r
 | 5 | No silent-failure / loop-detected / bogus-pass / anti-stub / wave-escalated markers in window | `shipyard-context scan-events --tail 2000 silent_failure loop_detected operational_task_bogus_pass anti_stub_finding wave_check_escalated` |
 | 6 | No uncommitted state in any `shipyard/wt-*` worktree | `shipyard-context check-dirty-worktrees` |
 | 7 | Code-review verdict recommends approve or issues (not changes) | Read `review_verdict_path` frontmatter |
-| 8 | Every shipped feature's `demo_probe` ran and passed in the sprint window | `shipyard-context scan-events --tail 2000 acceptance_probe_completed` + feature frontmatter `demo_probe:` |
+| 8 | Every shipped feature's `user_flow_probe` was proven in the sprint window — by exit code (`auto`) or human confirmation (`assisted`/`manual`) | `shipyard-context scan-events --tail 2000 acceptance_probe_completed` + `… user_flow_probe_confirmed` + feature frontmatter `user_flow_probe:` |
 
 Invariant 7 is expected to FAIL on the first `/ship-execute` Step 5 invocation because `/ship-review` runs after — that's by design. The pre-review call surfaces invariants 1–6 and 8 before burning review time on a structurally incomplete sprint. Invariant 8 was added in v2.6.0 to catch broken cross-task wiring at execute-time instead of waiting for `/ship-review` Stage 4.8.
 

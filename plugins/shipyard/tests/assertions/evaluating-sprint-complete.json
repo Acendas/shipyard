@@ -74,5 +74,11 @@
     "name": "no_registered_shipyard_agent",
     "type": "not_contains",
     "pattern": "subagent_type: *shipyard:shipyard-"
+  },
+  {
+    "name": "invariant_8_accepts_human_verdict",
+    "type": "contains",
+    "pattern": "user_flow_probe_confirmed",
+    "why": "v3.17.0: invariant 8 keyed only on an exit code, so an assisted/manual probe could never satisfy it — forcing on-device verification through skip-with-reason."
   }
 ]

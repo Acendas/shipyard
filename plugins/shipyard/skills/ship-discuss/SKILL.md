@@ -591,6 +591,7 @@ Output the discussion outcome as text. Use these sections only — describe what
   For each feature, group scenarios by tier:
   - **Core AC** — happy path + edge cases
   - **E2E AC** — taxonomy-validated scenarios (show `[category]` tag for context) Do not paraphrase, do not summarize, do not list "N scenarios" without showing them. These scenarios are the test contract that `/ship-execute` will treat as authoritative — the user must read the actual text, not approve on a count.
+- **HOW WE'LL PROVE IT WORKS** — per feature, the `user_flow_probe`: its `kind` and, verbatim, the `command` and/or `steps`. This is the proof the feature works *for a user*, and it is part of what "Approve everything" approves — a probe the user never read is a bar they never agreed to. Flag `kind: manual`/`assisted` explicitly ("this one needs you to confirm on a device at sprint end") so the later interruption is expected rather than a surprise, and flag any `skip-with-reason` as a known gap.
 - **IDEAS CAPTURED** — tangential ideas filed during discussion
 - **EPIC** — if assigned, show epic with all features
 - **IMPACTS** — cross-feature changes already applied to spec files

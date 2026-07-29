@@ -90,26 +90,29 @@ shipyard-context check-dirty-worktrees
 
 **Verdict.** PASS = verdict recommends approve or issues. FAIL = recommends changes, OR `review_verdict_path` is null (the latter is only "FAIL" at the post-review invocation; the pre-review call expects this).
 
-## Invariant 8 — Every shipped feature's `demo_probe` ran and passed in the sprint window
+## Invariant 8 — Every shipped feature's `user_flow_probe` was proven in the sprint window
 
-**What it checks.** This is the cross-task user-flow proof — added in v2.6.0 after the confedit/sprint-001 incident demonstrated that "all unit tests pass + all per-task probes pass" does NOT imply "the feature's user-facing flow works." Per-task probes test isolated wiring; the per-feature `demo_probe` tests the integrated flow (e.g., "load schema → fill form → see validation → download data" rather than just "the download component renders").
+**What it checks.** This is the cross-task proof that the feature works *for a user* — added in v2.6.0 after the confedit/sprint-001 incident demonstrated that "all unit tests pass + all per-task probes pass" does NOT imply "the feature's user-facing flow works." Per-task probes test isolated wiring; the per-feature `user_flow_probe` tests the integrated flow (e.g., "load schema → fill form → see validation → download data" rather than just "the download component renders").
 
-For each `feature_id` in SPRINT.md:
+**Proof comes in two forms, and they are equally valid.** A machine verdict (an `auto` probe's exit code) and a human verdict (an `assisted`/`manual` probe confirmed by a person) both satisfy this invariant. Accepting only the machine form is what forced every on-device or hand-checked flow through `skip-with-reason` — i.e. filed the *strongest* available evidence as an ABSENCE of proof.
 
-- Read the feature file's frontmatter `demo_probe:` field.
-- **Absent / null** → FAIL with `missing-demo_probe` for the feature.
-- **`skip-with-reason` + populated `demo_probe_skip_reason`** → PASS-with-warning. The warning is surfaced in the verdict but doesn't block.
-- **Otherwise** → scan the event log for `acceptance_probe_completed feature=<feature_id> probe_type=demo exit_code=0` with `ts >= sprint.started_at`. PASS if found; FAIL otherwise.
+For each `feature_id` in SPRINT.md, read the feature file's `user_flow_probe:` (legacy scalar `demo_probe:` reads as `kind: auto`):
 
-**Primitive.**
+- **Absent / null** → FAIL with `missing-user_flow_probe` for the feature.
+- **`skip-with-reason` + populated `user_flow_probe_skip_reason`** → PASS-with-warning. This now means *no proof of any kind exists*; a hand-checked flow is `kind: manual`, which takes the confirmation path below. The warning is surfaced in the verdict but doesn't block.
+- **`kind: auto`** → PASS iff the event log has `acceptance_probe_completed feature=<feature_id> probe_type=demo exit_code=0` with `ts >= sprint.started_at`.
+- **`kind: assisted` or `manual`** → PASS iff the event log has `user_flow_probe_confirmed feature=<feature_id> verdict=pass` with `ts >= sprint.started_at` AND whose `commit` is an ancestor of `sprint_head_sha` (`git merge-base --is-ancestor <commit> <sprint_head_sha>`). The ancestry check is what stops a confirmation against work that was later rebased away or reverted from counting as proof of the shipped tree.
+
+**Primitives.**
 
 ```text
 shipyard-context scan-events --tail 2000 acceptance_probe_completed
+shipyard-context scan-events --tail 2000 user_flow_probe_confirmed
 ```
 
-Filter the returned events by `feature`, `probe_type=demo`, and `exit_code=0` within the sprint window.
+Filter the first by `feature`, `probe_type=demo`, `exit_code=0`; the second by `feature`, `verdict=pass`. Both within the sprint window.
 
-**Verdict.** PASS = every feature has a passing demo probe (or explicit skip-with-reason). FAIL = one or more features missing a passing probe.
+**Verdict.** PASS = every feature has a passing probe by either form (or explicit skip-with-reason). FAIL = one or more features missing proof.
 
 **Why this is sprint-complete, not just review.** Before v2.6.0, demo_probe ran only in `/ship-review` Stage 4.8 — AFTER `/ship-execute` had already flipped SPRINT.md to `status: completed`. So a sprint with broken cross-task wiring could be declared complete by execute, and the user had to wait for review to discover the breakage. Moving demo_probe into the sprint-complete predicate inverts the sequence: execute halts at `sprint_demo_probes` stage on probe failure, SPRINT.md stays `in-progress` until the wiring works, and the "Sprint complete" report becomes a real claim instead of a wishful one.
 
@@ -122,4 +125,4 @@ All eight PASS → STATUS: COMPLETE
 Any FAIL       → STATUS: INCOMPLETE with the failing-invariant list
 ```
 
-The user (not the skill) decides next action on FAIL — re-dispatch a task, fix a missing AC, fix a missing demo_probe, re-run review.
+The user (not the skill) decides next action on FAIL — re-dispatch a task, fix a missing AC, author a missing `user_flow_probe`, re-run review.

@@ -61,8 +61,28 @@ For each well-defined feature:
    tasks: []              # populated during sprint planning
    created: YYYY-MM-DD
    updated: YYYY-MM-DD
+   user_flow_probe:       # REQUIRED — see below
+     kind: auto           # auto | assisted | manual
+     command: |           # auto + assisted only
+       <command>
+     steps: |             # assisted + manual only
+       <numbered user steps + expected observable outcome>
    ---
    ```
+
+   **`user_flow_probe` is authored HERE, with the acceptance criteria — not later.** It is the proof the feature works *for a user*: unit/integration/e2e-in-CI runs do not exercise the path a user takes, and the per-task `acceptance_probe` only proves wiring inside one task. Authoring it at spec time is what makes it a real bar; a probe written after the sprint has already built the feature is a rubber stamp. `/ship-sprint` refuses to plan a feature without one, and `/ship-execute` re-checks before wave 1 — so omitting it here blocks the feature downstream rather than silently deferring.
+
+   Pick `kind` from what actually demonstrates the flow — this is a two-way door, so decide and inform rather than asking (confidence gate, `question-design.md`):
+
+   | Signal | kind |
+   |---|---|
+   | The flow has a callable surface (HTTP endpoint, CLI, library entry point) | `auto` — one command, exit 0 == works |
+   | The flow is on-device / in-UI but a machine can deploy and launch to it | `assisted` — `command` sets up, a human confirms `steps` |
+   | The flow can only be judged by a person (visual, hardware, third-party sandbox) | `manual` — `steps` only |
+
+   For `assisted`/`manual`, write `steps` as numbered user actions with the **expected observable outcome** on each — "2. Expect: lands on the home screen with the account name in the header", not "2. Check it works". The person confirming may not be the person who wrote it, and a step with no stated expectation cannot be failed.
+
+   An `assisted`/`manual` verdict is recorded as evidence (`shipyard-data feature record-proof`) and satisfies sprint-complete invariant 8 exactly as an `auto` exit-0 does. `skip-with-reason` is reserved for features where **no proof of any kind exists** — a hand-checked flow is `kind: manual`, not a skip.
 
    **Body sections:**
    - User story ("As a... I want... so that...")

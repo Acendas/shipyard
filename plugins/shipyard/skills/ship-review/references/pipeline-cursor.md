@@ -73,7 +73,7 @@ The graph below is what `cursor advance` enforces (source of truth: `bin/pipelin
 | `critic` | Stage 4.6 — critic subagent | `final_pass` | `final_pass` |
 | `final_pass` | Stage 4.7 — surgical pass on critic findings | `verdict` | `verdict` |
 | `verdict` | Write `verify/[feature-id]-verdict.md` (model-authored — verdicts stay Write) | `demo_probe` | `demo_probe` |
-| `demo_probe` | Stage 4.8 — run each feature's `demo_probe` | `demo_user` | escalate (FAIL/TIMEOUT) |
+| `demo_probe` | Stage 4.8 — verify each feature's `user_flow_probe` | `demo_user` | escalate (FAIL/TIMEOUT) |
 | `demo_user` | Stage 5 — present results + AskUserQuestion approval (pause-before-ask; manual gates batched into one call) | `process_approved` / `process_issues` / `process_changes` | (pause → waits for user → resume) |
 | `process_approved` | Stage 6 — update feature statuses to `done` | `retro_step_1` | — |
 | `process_issues` | Stage 6 — create bug entries, feature → `approved` | `terminal_issues` | — |

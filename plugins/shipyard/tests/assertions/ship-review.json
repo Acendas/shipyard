@@ -708,7 +708,7 @@
   {
     "name": "hotfix_reports_statement_not_ask",
     "type": "contains",
-    "pattern": "Merge when ready \u2014 Shipyard doesn't touch your branches",
+    "pattern": "Merge when ready — Shipyard doesn't touch your branches",
     "why": "v3.4.0: hotfix verification is a statement, not a merge-permission question Shipyard can't act on"
   },
   {
@@ -720,7 +720,7 @@
   {
     "name": "plugin_issue_detection_plain_text_not_ask",
     "type": "contains",
-    "pattern": "Print this as plain text and continue the retro \u2014 do not `AskUserQuestion`",
+    "pattern": "Print this as plain text and continue the retro — do not `AskUserQuestion`",
     "why": "v3.4.0: plugin-issue detection is a plain-text report, not a blocking question"
   },
   {
@@ -759,7 +759,7 @@
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   },
   {
     "name": "stage_task_checklist_created_at_preflight",
@@ -907,5 +907,23 @@
     "type": "contains",
     "pattern": "acceptance_probe_completed",
     "why": "cross-agent contract note: evaluating-sprint-complete Invariant 8 depends on this event independently of the ledger check — the ledger check-first change must not replace or remove this emit"
+  },
+  {
+    "name": "user_flow_probe_human_verdict_carried_forward",
+    "type": "contains",
+    "pattern": "do not re-ask",
+    "why": "v3.17.0: an assisted/manual confirmation whose commit is an ancestor of HEAD is proof; re-asking a person to re-walk an unchanged flow is the interrupt this stage must not add."
+  },
+  {
+    "name": "user_flow_probe_reconfirm_on_ancestry_break",
+    "type": "contains",
+    "pattern": "merge-base --is-ancestor",
+    "why": "v3.17.0: Stage 0/0.5 commit before this stage, so a confirmation against pre-fix code must not count — same soundness argument as the ledger-predicate preflight."
+  },
+  {
+    "name": "stage_id_and_ledger_key_unchanged",
+    "type": "contains",
+    "pattern": "stage id and ledger key stay `demo_probe`",
+    "why": "v3.17.0 compat: renaming the stage id would strand in-flight cursors and renaming the ledger key would invalidate every recorded entry. Only the frontmatter field was renamed."
   }
 ]

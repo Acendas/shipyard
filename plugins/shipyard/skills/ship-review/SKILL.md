@@ -72,7 +72,7 @@ $ARGUMENTS
 
 The CLI is the single cursor writer (auto-approved; a direct model Write to the cursor is DENIED by the hook). The marker text it prints is load-bearing — `/loop` drivers (and the loop-driving model) read `CYCLE COMPLETE` + `/loop should stop` as the structural signal to refrain from scheduling another wakeup, and the CLI guarantees that marker is the LAST line.
 
-**Pause before every blocking ask (load-bearing rule): a tick never exits with a pending question and no stop marker.** At every stage that blocks on `AskUserQuestion` for user input — `demo_user` (Stage 5 approval), `retro_step_2` (retro discussion), `release_step_1` (release plan) — run `shipyard-data cursor pause review --note "awaiting user: <what>"` **before** invoking `AskUserQuestion`. The pause writes `status: paused` and prints the stop marker, so if the tick is torn down (context loss, or the `/loop` driver treating the ask as end-of-tick) the persisted state is `paused` and the next wakeup no-ops instead of re-running the stage and re-asking the same question every wakeup. On the user's answer, run `shipyard-data cursor resume review`, then proceed with the stage handler. The `demo_probe` FAIL path already does exactly this (Stage 4.8) — it's the pattern to mirror. (pause keeps the current stage; resume returns to it — no stage-graph change is involved.)
+**Pause before every blocking ask (load-bearing rule): a tick never exits with a pending question and no stop marker.** At every stage that blocks on `AskUserQuestion` for user input — `demo_user` (Stage 5 approval), `retro_step_2` (retro discussion), `release_step_1` (release plan) — run `shipyard-data cursor pause review --note "awaiting user: <what>"` **before** invoking `AskUserQuestion`. The pause writes `status: paused` and prints the stop marker, so if the tick is torn down (context loss, or the `/loop` driver treating the ask as end-of-tick) the persisted state is `paused` and the next wakeup no-ops instead of re-running the stage and re-asking the same question every wakeup. On the user's answer, run `shipyard-data cursor resume review`, then proceed with the stage handler. The Stage 4.8 FAIL path already does exactly this (Stage 4.8) — it's the pattern to mirror. (pause keeps the current stage; resume returns to it — no stage-graph change is involved.)
 
 **Direct invocation vs /loop driver.** The same skill body serves both callers:
 
@@ -127,7 +127,7 @@ Pick the stage set by mode:
 
 | Mode | Stage tasks created |
 |---|---|
-| Default (full review, no flags) | preflight, Stage 0: Code Review (code_review_iter_N), Stage 0.5: Simplify (simplify), Stage 1a: Tests (tests), Stage 1b: Spec Review (spec_review), Stage 1.5: Quality Gates (quality_gates), Stage 2: Visual (visual), Stage 3: Goal Verify (goal_verify), Stage 4: Gap Analysis (gap_analysis), Stage 4.6: Critic (critic), Stage 4.7: Final Pass (final_pass), Stage 4.8: Demo Probe (demo_probe), Stage 5: Demo & Approval (demo_user), Retro Step 1-4 (retro_step_1..4), Release Step 1-3 (release_step_1..3), Wrap Up (terminal) |
+| Default (full review, no flags) | preflight, Stage 0: Code Review (code_review_iter_N), Stage 0.5: Simplify (simplify), Stage 1a: Tests (tests), Stage 1b: Spec Review (spec_review), Stage 1.5: Quality Gates (quality_gates), Stage 2: Visual (visual), Stage 3: Goal Verify (goal_verify), Stage 4: Gap Analysis (gap_analysis), Stage 4.6: Critic (critic), Stage 4.7: Final Pass (final_pass), Stage 4.8: User-Flow Verification (demo_probe), Stage 5: Demo & Approval (demo_user), Retro Step 1-4 (retro_step_1..4), Release Step 1-3 (release_step_1..3), Wrap Up (terminal) |
 | `--skip-code-review` | same as default minus Stage 0 (code_review_iter_N) and Stage 0.5 (simplify) — jumps preflight → tests |
 | `--retro-only` | Retro Step 1-4, Release Step 1-3, Wrap Up only (no review stages) |
 | `--hotfix ID` | single task `[review-NNN] Hotfix Review` — the hotfix path doesn't tick through the cursor's per-stage graph |
@@ -395,15 +395,17 @@ recommendation: approve|issues|changes
 
 Body: test summary, goal verification results (observable truths, artifacts, wiring), and gap list. After Stage 5 (Demo) completes, update the verdict: set `complete: true`. This file persists as a review artifact — no cleanup needed. Incomplete verdicts (from interrupted sessions) are re-entered at the review pipeline.
 
-- **Cursor advance**: run `shipyard-data cursor advance review demo_probe --note "Run Stage 4.8 demo probe per feature"`.
+- **Cursor advance**: run `shipyard-data cursor advance review demo_probe --note "Run Stage 4.8 user-flow verification per feature"`.
 
-### Stage 4.8: Demo-Path Verification (stage_id: demo_probe)
+### Stage 4.8: User-Flow Verification (stage_id: demo_probe)
 
-**v2.6.0 sequencing change.** `/ship-execute` now runs demo_probes at its `sprint_demo_probes` stage (Step 5 item 3), before flipping SPRINT.md to `status: completed`. By the time `/ship-review` reaches this stage, the demo probes have usually already passed. This stage's job is to **re-verify on freshly-checked-out HEAD** as a sanity check (defends against "passed during execute, broken at merge" race conditions), with a skip-if-already-passed preflight to keep review fast on the happy path.
+**v2.6.0 sequencing change.** `/ship-execute` now runs the user-flow probes at its `sprint_demo_probes` stage (Step 5 item 3), before flipping SPRINT.md to `status: completed`. By the time `/ship-review` reaches this stage, they have usually already passed. This stage's job is to **re-verify on freshly-checked-out HEAD** as a sanity check (defends against "passed during execute, broken at merge" race conditions), with a skip-if-already-passed preflight to keep review fast on the happy path.
 
-**Preflight — ledger predicate, not event-window (fixes 5.2).** The old preflight scanned the event log for `acceptance_probe_completed feature=<F> probe_type=demo exit_code=0` "within the sprint window" — no sha, no tree, no timestamp-vs-HEAD comparison. That was unsound: Stage 0 (code-review fixer) and Stage 0.5 (simplifier) commit BEFORE this stage runs, so a demo probe that passed in `/ship-execute` could be skipped here even though the fixer has since rewritten the code it exercised — exactly the "passed during execute, broken at merge" gap this stage exists to catch.
+(The stage id and ledger key stay `demo_probe` / `demo_probe.<FID>` — they are internal identifiers in the stage graph and the verify ledger, and renaming them would strand any in-flight cursor and invalidate every recorded entry. The user-facing field is `user_flow_probe:`.)
 
-For each feature in scope, resolve its `demo_probe:` command and run `shipyard-data verify check --key demo_probe.<FID> --command "<feature.demo_probe>"`:
+**Preflight — ledger predicate, not event-window (fixes 5.2).** The old preflight scanned the event log for `acceptance_probe_completed feature=<F> probe_type=demo exit_code=0` "within the sprint window" — no sha, no tree, no timestamp-vs-HEAD comparison. That was unsound: Stage 0 (code-review fixer) and Stage 0.5 (simplifier) commit BEFORE this stage runs, so a probe that passed in `/ship-execute` could be skipped here even though the fixer has since rewritten the code it exercised — exactly the "passed during execute, broken at merge" gap this stage exists to catch.
+
+For each feature in scope, resolve its `user_flow_probe:` and run `shipyard-data verify check --key demo_probe.<FID> --command "<probe.command, or the skip/manual marker>"`:
 
 - **Exit 0 (FRESH)** — the probe already passed against this exact working tree, clean, recently (recorded by `/ship-execute`'s `sprint_demo_probes` stage, or by an earlier Stage 4.8 tick in this same review). Skip re-running it for this feature.
 - **Exit 3 (STALE)** — tree changed since the last pass (e.g. Stage 0/0.5 committed a fix touching this feature), or it never ran, or the record expired/is missing. Run the full sequence below for this feature.
@@ -412,13 +414,14 @@ Render the per-feature skip/run decision as chat text (same form as Stage 1a —
 
 For each feature whose probe wasn't already verified:
 
-1. Read the feature's frontmatter `demo_probe:` field.
-2. **If `demo_probe` is missing**: refuse to advance to Stage 5. Surface to user via AskUserQuestion: *"Feature [F-NNN] has no `demo_probe`. Approval is gated on a feature-level smoke test that exercises the cross-task user flow. (a) author one now via /ship-discuss [F-NNN], (b) skip with explicit reason, (c) abort review."* Recommended: (a).
-3. **If `demo_probe: skip-with-reason`** with a `demo_probe_skip_reason` populated: include the reason in the per-feature summary (Stage 5) as a known limitation. Allow approval to proceed.
-4. **Otherwise**: follow the **`running-acceptance-probe` playbook** with `probe_command: <feature.demo_probe>`, `cwd: <repo root>`, `timeout_seconds: 120`. The capability skill runs the probe in a fresh shell and returns the structured verdict.
-5. Emit `acceptance_probe_completed feature=<F> probe_type=demo exit_code=<n>` to the event log via `shipyard-data events emit ...` and include the verdict in the Stage 5 per-feature summary (PROGRESS.md auto-renders the verdict from the event):
-   - **PASS** → ✅ Demo verified (last 5 lines of output captured below); run `shipyard-data verify record --key demo_probe.<FID> --command "<feature.demo_probe>" --exit 0 --capture <capture path>` so a later tick, or a resumed review, reuses this proof instead of re-running the probe.
-   - **FAIL** → ❌ Demo failed; demo probe doesn't exit 0 against the merged feature
+1. Read the feature's frontmatter `user_flow_probe:` (legacy scalar `demo_probe:` reads as `kind: auto`).
+2. **If it is missing**: this is a planning-gate escape, not a decision for this stage — `/ship-sprint` refuses to plan a feature without one and `/ship-execute` Step 0 re-checks it. Refuse to advance to Stage 5, name the feature, and point at `/ship-discuss [F-NNN]` to author one. Do not offer to skip: a probe authored after the work shipped is a rubber stamp.
+3. **If `user_flow_probe: skip-with-reason`** with a `user_flow_probe_skip_reason` populated: include the reason in the per-feature summary (Stage 5) as a known limitation — this means no proof of any kind exists. Allow approval to proceed.
+4. **`kind: auto`**: follow the **`running-acceptance-probe` playbook** with `probe_command: <probe.command>`, `cwd: <repo root>`, `timeout_seconds: 120`. The capability skill runs the probe in a fresh shell and returns the structured verdict.
+5. **`kind: assisted` / `manual`**: a human already confirmed this during execute. Check for `user_flow_probe_confirmed feature=<F> verdict=pass` whose `commit` is an ancestor of HEAD (`git merge-base --is-ancestor`). **Ancestor → PASS, carried forward into the Stage 5 summary with the confirmer and commit; do not re-ask.** Re-asking a person to re-walk a flow they already confirmed against unchanged code is the interrupt this stage must not add. **Not an ancestor** (Stage 0/0.5 rewrote the code since) → render `probe.steps` verbatim as chat text, `shipyard-data cursor pause review --note "user_flow_probe re-confirmation for <F>"`, then ask for a fresh verdict and record it via `shipyard-data feature record-proof <F> verdict=… confirmed-by=… commit=<HEAD>`.
+6. For `auto`, emit `acceptance_probe_completed feature=<F> probe_type=demo exit_code=<n>` to the event log via `shipyard-data events emit ...` and include the verdict in the Stage 5 per-feature summary (PROGRESS.md auto-renders the verdict from the event):
+   - **PASS** → ✅ User flow verified (last 5 lines of output captured below); run `shipyard-data verify record --key demo_probe.<FID> --command "<probe.command>" --exit 0 --capture <capture path>` so a later tick, or a resumed review, reuses this proof instead of re-running the probe.
+   - **FAIL** → ❌ User flow failed; the probe doesn't exit 0 against the merged feature
    - **TIMEOUT** → ⚠ Demo exceeded 120s; probe is too broad — split or narrow it
    - **ERROR** → ⚠ Demo couldn't run; probe definition is wrong (likely missing dependency or misconfigured command)
 
@@ -427,8 +430,8 @@ For each feature whose probe wasn't already verified:
 This is the per-feature counterpart to per-task acceptance probes. Together they form the reliability ladder:
 
 ```
-per-task acceptance_probe   →  unit-level wiring proof (dispatching-task-loop gate)
-per-feature demo_probe       →  cross-task user-flow proof (this stage)
+per-task acceptance_probe    →  unit-level wiring proof (dispatching-task-loop gate)
+per-feature user_flow_probe  →  cross-task proof it works FOR A USER (this stage)
 sprint-level full test suite →  regression / integration proof (Stage 1)
 ```
 

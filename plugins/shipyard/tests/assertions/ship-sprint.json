@@ -189,12 +189,12 @@
   {
     "name": "has_wave_timeline_visual",
     "type": "contains",
-    "pattern": "visual timeline|Wave.*\u2588\u2588\u2588\u2588"
+    "pattern": "visual timeline|Wave.*████"
   },
   {
     "name": "has_dependency_dag",
     "type": "contains",
-    "pattern": "DEPENDENCY GRAPH|DAG|\u2500\u252c\u2500\u25b6"
+    "pattern": "DEPENDENCY GRAPH|DAG|─┬─▶"
   },
   {
     "name": "has_lsp_in_tools",
@@ -240,12 +240,12 @@
     "name": "mutex_has_2hr_staleness",
     "type": "contains",
     "pattern": "stale.*recovery line|stale/corrupt-lock recovery",
-    "why": "v3.7.0 wave 3: the 2h threshold itself is defined once in skill-lock.mjs (pinned in acquiring-skill-lock.json) \u2014 the calling skill only needs to know it must echo the CLI's recovery line."
+    "why": "v3.7.0 wave 3: the 2h threshold itself is defined once in skill-lock.mjs (pinned in acquiring-skill-lock.json) — the calling skill only needs to know it must echo the CLI's recovery line."
   },
   {
     "name": "mutex_hard_blocks_active",
     "type": "contains",
-    "pattern": "\u26d4.*STOP|exit 3",
+    "pattern": "⛔.*STOP|exit 3",
     "dotall": true
   },
   {
@@ -642,7 +642,7 @@
     "name": "no_hand_write_lock_file",
     "type": "not_contains",
     "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
-    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned \u2014 no skill body hand-Writes them anymore."
+    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore."
   },
   {
     "name": "wave_size_cap_in_deep_dive",
@@ -665,11 +665,17 @@
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
   },
   {
     "name": "quiet_by_default",
     "type": "contains",
     "pattern": "Quiet by default"
+  },
+  {
+    "name": "gates_user_flow_probe_at_plan_time",
+    "type": "contains",
+    "pattern": "user_flow_probe",
+    "why": "v3.17.0: a feature admitted to a sprint without a user-flow probe builds for hours before ship-execute Step 5.3 blocks on it."
   }
 ]

@@ -20,22 +20,55 @@ children: []
 tasks: []
 created: null
 updated: null
-# REQUIRED at /ship-review approval-time:
-# demo_probe: |
-#   <single shell command, exit 0 == feature works end-to-end, observable
-#    output, deterministic, bounded ≤120s. Distinct from per-task acceptance
-#    probes — this exercises the cross-task user-facing flow. Authored by
-#    /ship-discuss alongside acceptance criteria; consumed by /ship-review's
-#    Stage 4.8 demo verification before user approval is offered.>
-# Example:
-#   demo_probe: |
-#     curl -fsS -X POST localhost:3000/auth/signup -d '{"email":"d@d.io","password":"x"}' \
-#       | jq -e .id
-# Without one, /ship-review refuses to advance to user approval. If the
-# feature is genuinely too cross-cutting to demo (rare), explicitly mark:
-#   demo_probe: skip-with-reason
-#   demo_probe_skip_reason: "<why the cross-task flow can't be one shell command>"
-# and reviewer surfaces it to user as a known limitation.
+# REQUIRED — authored by /ship-discuss alongside acceptance criteria, gated at
+# sprint-plan time, consumed by /ship-execute Step 5.3 and /ship-review Stage 4.8.
+#
+# user_flow_probe proves THE FEATURE WORKS FOR A USER. Unit/JVM/e2e-in-CI tests
+# do not exercise the path a user takes; per-task acceptance_probe proves wiring
+# within one task. This proves the cross-task, user-facing flow — by whatever
+# means actually demonstrates it, including a human on a real device.
+#
+# user_flow_probe:
+#   kind: auto | assisted | manual
+#   command: |     # required for auto + assisted; omit for manual
+#     <shell command; for auto, exit 0 == the user flow works>
+#   steps: |       # required for assisted + manual; omit for auto
+#     <numbered user steps + the expected observable outcome>
+#
+#   auto     — machine runs `command`, exit code is the verdict.
+#              Deterministic, observable output, bounded ≤120s.
+#   assisted — machine runs `command` to set up (deploy to device, seed data,
+#              launch to the screen), then a human observes `steps` and confirms.
+#   manual   — a human follows `steps` and confirms. No command.
+#
+# Example (auto):
+#   user_flow_probe:
+#     kind: auto
+#     command: |
+#       curl -fsS -X POST localhost:3000/auth/signup -d '{"email":"d@d.io","password":"x"}' \
+#         | jq -e .id
+#
+# Example (assisted):
+#   user_flow_probe:
+#     kind: assisted
+#     command: ./gradlew installDebug && adb shell am start -n com.app/.SignupActivity
+#     steps: |
+#       1. Enter a new email + password, tap Create Account.
+#       2. Expect: lands on the home screen with the account name in the header.
+#       3. Force-quit and reopen. Expect: still signed in.
+#
+# An assisted/manual verdict is RECORDED EVIDENCE, never a skip:
+#   shipyard-data feature record-proof FNNN verdict=pass confirmed-by=<who> commit=<sha>
+# which emits user_flow_probe_confirmed and satisfies sprint-complete invariant 8
+# exactly as an exit-0 auto run does.
+#
+# skip-with-reason means NO PROOF OF ANY KIND EXISTS — not "it was checked by
+# hand" (that is kind: manual). Rare, and surfaced to the user as a limitation:
+#   user_flow_probe: skip-with-reason
+#   user_flow_probe_skip_reason: "<why no user-facing flow can be demonstrated>"
+#
+# Legacy: a bare scalar `demo_probe: <command>` still reads as
+# {kind: auto, command: <command>} for one release. Prefer the mapping.
 ---
 
 # [Title]
