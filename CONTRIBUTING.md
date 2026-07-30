@@ -34,15 +34,17 @@ After editing source files, run `/reload-plugins` inside Claude Code — no rest
 shipyard/
 ├── .claude-plugin/
 │   └── plugin.json              Plugin manifest
-├── skills/ship-*/               Slash commands (15 skills)
+├── skills/*/                    Slash commands and capability skills
 │   └── SKILL.md
-├── agents/                      Subagent definitions (4 agents)
+├── agents/                      Subagent definitions (6 agents)
 │   └── shipyard-*.md
+├── bin/                         Node CLIs and hook modules
+│   ├── shipyard-data.mjs
+│   └── hooks/*.mjs
 ├── hooks/                       Hook configuration
 │   └── hooks.json
-├── project-files/               Files copied into projects by /ship-init
-│   ├── rules/shipyard-*.md      Path-scoped rules (7 rules)
-│   ├── scripts/*.py             Python hook scripts (6 scripts)
+├── project-files/               Templates and plugin-local references
+│   ├── rules/shipyard-*.md      Plugin-local rules
 │   └── templates/*.md           Markdown templates (9 templates)
 ├── tests/                       Eval framework
 │   ├── eval-run.py
@@ -75,11 +77,11 @@ Agent definitions follow [Claude Code agent format](https://docs.anthropic.com/e
 
 ### Rules (`project-files/rules/shipyard-*.md`)
 
-Rules load automatically based on file path globs in their frontmatter (or `alwaysApply: true`). They provide passive guidance — Claude sees them when working in matching directories. Plugins can't ship rules directly, so `/ship-init` copies them into the project's `.claude/rules/`.
+Rules provide passive guidance for Shipyard's own skills and references. They stay plugin-local; `/ship-init` does not copy `shipyard-*.md` rules into the user's project.
 
-### Hook Scripts (`project-files/scripts/`)
+### Hook Scripts (`bin/hooks/`)
 
-Python scripts invoked by Claude Code's hook system. They receive JSON on stdin:
+Node modules invoked by Claude Code's hook system via `bin/hook-runner.mjs`. They receive JSON on stdin:
 
 ```json
 {
@@ -92,7 +94,8 @@ Python scripts invoked by Claude Code's hook system. They receive JSON on stdin:
 Conventions:
 - All errors go to stderr (stdout is for user-facing messages)
 - Exit 0 to allow, exit 2 to block (PreToolUse only)
-- Use atomic file writes (`tempfile.mkstemp` + `os.replace`) for state files
+- Keep hot paths in-process Node; hooks run on frequent tool calls
+- Use the shared helpers in `bin/_hook_lib.mjs` for containment, logs, atomic writes, and lockfiles
 
 ### Templates (`project-files/templates/`)
 
@@ -108,8 +111,8 @@ python3 tests/eval-run.py --skill ship-execute  # one skill
 
 For hook scripts:
 ```bash
-echo '{"tool_name":"Bash","tool_input":{"command":"git commit -m test"}}' | python3 project-files/scripts/tdd-check.py
-echo $?  # should be 0
+node --check bin/hook-runner.mjs
+node --check bin/hooks/auto-approve-data.mjs
 ```
 
 ## Conventions
@@ -146,11 +149,11 @@ Plugins integrate natively — skills, agents, and hooks load automatically. No 
 **Why markdown files instead of a database?**
 Shipyard state must survive Claude Code context resets (`/clear`). Files are the only durable medium. Markdown with YAML frontmatter is human-readable, git-diffable, and parseable.
 
-**Why Python for hooks?**
-Python 3 ships with macOS and most Linux distributions. The scripts are simple (< 200 lines each) and have zero dependencies beyond the standard library.
+**Why Node for hooks?**
+Hooks run on frequent Claude Code tool calls, so they stay in-process Node through `bin/hook-runner.mjs` and shared modules under `bin/`. This avoids an extra interpreter dependency and keeps the edit/write hot path fast.
 
-**Why rules are project-local, not in the plugin?**
-Claude Code plugins can't ship `.claude/rules/` files. Rules need path-scoped frontmatter relative to the project root, so they belong in the project anyway. `/ship-init` copies them from `project-files/rules/`.
+**Why rules are plugin-local?**
+Shipyard rules describe Shipyard's own state model and command behavior. Keeping them plugin-local avoids mutating user projects and keeps upgrades authoritative.
 
 ## Questions?
 

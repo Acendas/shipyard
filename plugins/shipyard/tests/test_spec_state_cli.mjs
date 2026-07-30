@@ -113,6 +113,21 @@ function writeIdea(p, id, status = "proposed") {
   writeFileSync(join(p.dataDir, "spec", "ideas", `${id}-test.md`), `---\nid: ${id}\ntitle: Test Idea\nstatus: ${status}\n---\n\n# Test Idea\n`);
 }
 
+function writeTask(p, tid, overrides = {}) {
+  const fm = {
+    id: tid,
+    title: "Test Task",
+    type: "task",
+    feature: "F001",
+    status: "planned",
+    kind: "feature",
+    acceptance_probe: "'node --test'",
+    ...overrides,
+  };
+  const lines = Object.entries(fm).map(([k, v]) => `${k}: ${v}`);
+  writeFileSync(join(p.dataDir, "spec", "tasks", `${tid}-test.md`), `---\n${lines.join("\n")}\n---\n\n# Test Task\n`);
+}
+
 function readFeature(p, fid) {
   const dir = join(p.dataDir, "spec", "features");
   return readFileSync(join(dir, `${fid}-test.md`), "utf8");
@@ -217,6 +232,24 @@ test("feature set: allowlisted numeric keys update, updated auto-bumps", () => {
     assert.match(content, /story_points: 5/);
     assert.doesNotMatch(content, /updated: 2020-01-01/);
     assert.match(readEvents(p), /feature_field_set/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("feature set: rice component updates refresh cached rice_score", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001", {
+      rice_reach: 10,
+      rice_impact: 2,
+      rice_confidence: 0.8,
+      rice_effort: 2,
+      rice_score: 8,
+    });
+    const r = p.run(["feature", "set", "F001", "rice_reach=20", "rice_impact=3", "rice_confidence=0.5", "rice_effort=2"]);
+    assert.equal(r.code, 0);
+    assert.match(readFeature(p, "F001"), /rice_score: 15/);
   } finally {
     p.cleanup();
   }
@@ -547,6 +580,51 @@ test("feature clear-tasks: empties tasks: and emits count", () => {
     assert.equal(r.code, 0);
     assert.match(readFeature(p, "F001"), /tasks: \[\]/);
     assert.match(readEvents(p), /"feature_tasks_cleared".*"feature":"F001".*"count":2/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("feature set-tasks: writes deduped task membership through the CLI-owned path", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001", { tasks: "[]" });
+    writeTask(p, "T001", { feature: "F001" });
+    writeTask(p, "T002", { feature: "F001" });
+    const r = p.run(["feature", "set-tasks", "F001", "T001,T002"]);
+    assert.equal(r.code, 0);
+    assert.match(readFeature(p, "F001"), /tasks: \[T001, T002\]/);
+    assert.match(readEvents(p), /feature_tasks_set/);
+    const dup = p.run(["feature", "set-tasks", "F001", "T001,T001"]);
+    assert.equal(dup.code, 3);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("feature set-tasks: refuses missing task references", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001", { tasks: "[]" });
+    const r = p.run(["feature", "set-tasks", "F001", "T999"]);
+    assert.equal(r.code, 4);
+    assert.match(r.stderr, /refuses missing task T999/);
+    assert.match(readFeature(p, "F001"), /tasks: \[\]/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("feature set-tasks: refuses tasks owned by another feature", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001", { tasks: "[]" });
+    writeFeature(p, "F002", { tasks: "[]" });
+    writeTask(p, "T001", { feature: "F002" });
+    const r = p.run(["feature", "set-tasks", "F001", "T001"]);
+    assert.equal(r.code, 3);
+    assert.match(r.stderr, /task feature is "F002", not "F001"/);
+    assert.match(readFeature(p, "F001"), /tasks: \[\]/);
   } finally {
     p.cleanup();
   }

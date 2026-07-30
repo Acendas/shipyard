@@ -4,7 +4,9 @@ This reference holds the step-by-step detail for the Sprint Retrospective and Re
 
 ## Sprint Retrospective
 
-After sprint approval (or when `--retro-only` is passed), run the retrospective. This analyzes what happened, captures learnings, and creates improvement items.
+After sprint approval, ask at `retro_decision` whether to run or skip the retrospective. Run it only if the user chooses **Run retro**, unless `--retro-only` was passed. `--skip-retro` bypasses the decision and goes directly to release planning/archive.
+
+At `retro_decision`, render a short data-derived recommendation first: sprint size, patch-task count, review iterations, salvage/timeout/plugin issue signals, and whether this looks like a high-learning sprint. Pause before asking with `shipyard-data cursor pause review --note "awaiting user: retro decision"`, then ask one question: **Run retro** or **Skip retro**. Do not ask the three retro questions unless the user chose **Run retro**.
 
 If `--retro-only` with a sprint ID (e.g., `--retro-only sprint-003`), Read that sprint's archived files from `<SHIPYARD_DATA>/sprints/sprint-NNN/` instead of `current/`.
 
@@ -27,6 +29,9 @@ Compute from source files (read SPRINT.md for task IDs, then read each task file
 - **Patch tasks** — gaps found during review
 - **Estimate accuracy** — planned effort vs actual per task
 - **Token accuracy** — compare `token_estimate` from feature frontmatter (planned) against actual if available. Note: actual token usage isn't automatically tracked (Claude Code doesn't expose per-session token counts). Record as "estimated: NNK" for now. As actual data becomes available from billing/usage, it can be fed back to improve estimates.
+- **Agentic delivery signals** — build/test rerun count, verification-ledger reuse count, code-review iterations, gap-analysis iterations, patch tasks created during review, user-flow probe failures, timeout/salvage events, and Shipyard plugin issue candidates.
+
+**Agentic quality bar.** Shipyard is an agentic one-shot build framework, so the retro should optimize the system that makes future one-shots faster and safer. Prefer evidence-backed conclusions from event logs, cursor history, task files, captures, and the verification ledger. Ask the user only for judgment the data cannot provide.
 
 **Throughput computation:**
 1. Read `started_at`, `completed_at`, `total_paused_minutes` from SPRINT.md frontmatter
@@ -62,7 +67,7 @@ On the answers, `shipyard-data cursor resume review`, then append responses to R
 
 ### Retro Step 3: Create Action Items
 
-For each actionable improvement, allocate an ID atomically and write an idea file.
+For each actionable improvement, allocate an ID atomically and write an idea file. Cap at 5 IDEAs per retrospective. Each IDEA must cite the trigger metric or event evidence from `RETRO-DATA.md`; duplicate, vague, or one-off observations stay in `RETRO-DATA.md` as notes instead of entering the backlog.
 
 **Allocate the ID.** Run `shipyard-data next-id ideas` — the CLI returns a zero-padded 3-digit string (e.g., `042`). Use it as `IDEA-042` in the filename and the `id` frontmatter field. **Do NOT `ls spec/ideas/` and pick a number manually** — parallel sessions would race and clobber each other. The allocator is the only safe way to pick an idea ID.
 

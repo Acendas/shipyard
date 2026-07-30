@@ -4,20 +4,19 @@ Eight invariants, each evaluated as PASS or FAIL. Unlike wave-completion (which 
 
 The deterministic primitives backing these checks live in the `shipyard-context` CLI — use them instead of inline git/jq prose so the predicate is script-verifiable.
 
-## Invariant 1 — Every task has a commit_sha that exists in git
+## Invariant 1 — Every completed task has integration evidence
 
-**What it checks.** For each task ID in this sprint (read from SPRINT.md's wave structure), find its `task_dispatch_returned` event with `status="complete"`, extract `commit_sha`, and confirm it's reachable from `sprint_head_sha` AND in `sprint_base_sha..sprint_head_sha`.
+**What it checks.** For each task ID in this sprint (read from SPRINT.md's wave structure), find its `task_dispatch_returned` event. `status="complete"` tasks must have a `commit_sha` that exists, and the sprint's wave-integration primitive must prove all live `shipyard/wt-*` branches are merged and returned commits are still reachable through the working branch or `shipyard/keep-*` anchors. Do **not** require the original returned SHA to be an ancestor of `sprint_head_sha`: successful worktree rebases legitimately rewrite that SHA.
 
 **Primitive.**
 
 ```text
 shipyard-context scan-events --tail 1000 task_dispatch_returned
 shipyard-context check-commit-exists <sha>     # per sha
-git merge-base --is-ancestor <sha> <sprint_head_sha>
-! git merge-base --is-ancestor <sha> <sprint_base_sha>
+shipyard-data verify-wave-integrated
 ```
 
-**Verdict.** PASS = every task in the sprint has a verified commit in range. FAIL = any task lacks a commit or the commit is outside the sprint's range.
+**Verdict.** PASS = every completed task in the sprint has verified integration/reachability evidence. Parked tasks require `task_dispatch_returned status=blocked` or `task_blocked` evidence. FAIL = any task lacks evidence, any complete task lacks a valid commit, or the integration primitive reports unmerged/dangling work.
 
 ## Invariant 2 — Sprint-boundary verify-probe exits 0 with non-empty capture
 
@@ -29,7 +28,7 @@ git merge-base --is-ancestor <sha> <sprint_head_sha>
 
 ## Invariant 3 — Every linked spec item is marked done
 
-**What it checks.** For each `feature_id` in SPRINT.md, the feature file's frontmatter has `status: done` (or `status: released` if /ship-review has already advanced it). Same for any directly-linked AC entries.
+**What it checks.** For each `feature_id` in SPRINT.md, the feature file's frontmatter has the lifecycle state expected by the caller. During the pre-review `/ship-execute` call, features remain `status: in-progress` because `/ship-review` owns the transition to `done`. During post-review/release verification, features must be `done` or `released`. Same for any directly-linked AC entries.
 
 **Primitive.** Read the feature files; parse YAML frontmatter.
 
@@ -86,9 +85,9 @@ shipyard-context check-dirty-worktrees
 
 **What it checks.** Read `review_verdict_path` if provided. The verdict's `recommendation:` field must be `approve` or `issues` (issues tracked as IDEAs/B-CR/follow-ups count as accepted). `recommendation: changes` is a FAIL.
 
-**Special case at first invocation.** `/ship-execute` Step 5 calls this skill BEFORE running `/ship-review`. At that point `review_verdict_path` is null, and this invariant is expected to FAIL — that's the gate's purpose: surface invariants 1–6 BEFORE the user spends review time on a sprint that's structurally incomplete. After `/ship-review` has run, re-invoke the predicate with the verdict path supplied.
+**Special case at first invocation.** `/ship-execute` Step 5 calls this skill BEFORE running `/ship-review`. At that point `review_verdict_path` is null, and this invariant is SKIPPED — not failed. The pre-review call surfaces invariants 1–6 and 8 BEFORE the user spends review time on a sprint that's structurally incomplete. After `/ship-review` has run, re-invoke the predicate with the verdict path supplied.
 
-**Verdict.** PASS = verdict recommends approve or issues. FAIL = recommends changes, OR `review_verdict_path` is null (the latter is only "FAIL" at the post-review invocation; the pre-review call expects this).
+**Verdict.** PASS = verdict recommends approve or issues. SKIP = `review_verdict_path` is null on the pre-review invocation. FAIL = recommends changes, or `review_verdict_path` is null on a post-review invocation.
 
 ## Invariant 8 — Every shipped feature's `user_flow_probe` was proven in the sprint window
 

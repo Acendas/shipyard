@@ -17,8 +17,8 @@
  * targeting `sprints/current/EXECUTE-CURSOR.md` or
  * `sprints/current/REVIEW-CURSOR.md`. When the proposed content claims
  * success (execute: `terminal: true` + `status: complete`; review:
- * `terminal: true` + `stage: terminal_approved`), the gate scans the event
- * log for the required signals. Missing signals → deny the write.
+ * `terminal: true` + `stage: terminal` / `terminal_approved`), the gate scans
+ * the event log for the required signals. Missing signals → deny the write.
  *
  * Why this is the only place to plug. Skill bodies can be skipped by an
  * over-eager model. The auto-approve hook is the only mechanism every
@@ -26,11 +26,9 @@
  * bypass structurally impossible without asking the model to do anything
  * different from what the skill body already documents.
  *
- * Escalation / abort cursors are NOT gated. `status: escalated`,
- * `status: paused`, `stage: terminal_changes`, `stage: terminal_issues`
- * all carry their own meaning — they don't claim success and shouldn't
- * trigger evidence-requirement denials. Only the affirmative-success path
- * is gated.
+ * Escalation / abort cursors are NOT gated. `status: escalated` and
+ * `status: paused` carry their own meaning. Review terminal cursors are gated
+ * so the user-approval step cannot be skipped before any terminal outcome.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -272,10 +270,11 @@ export function evaluateExecuteTerminal({ dataDir }) {
 /**
  * Review-pipeline gate.
  *
- * For `terminal_changes` / `terminal_issues` we require evidence that the
- * user-approval step actually ran (the demo_user tick) plus at least one
- * patch_task_created / bug_created event — these are the escalation
- * terminals the skill actually writes, and the gate enforces them.
+ * For all review terminal stages we require evidence that the user-approval
+ * step actually ran (the demo_user tick). For `terminal_changes` /
+ * `terminal_issues` we also require at least one patch_task_created /
+ * bug_created event — these are the escalation terminals the skill actually
+ * writes, and the gate enforces them.
  *
  * The `terminal_approved` branch (approve-verdict enforcement) is a
  * DEFENSIVE path: the current /ship-review approved-success flow archives
@@ -405,8 +404,9 @@ function classify(proposedContent) {
     return { shouldEvaluate: false };
   }
   if (pipeline === "ship-review") {
-    // All three review terminals get gated, but with different evidence.
+    // All review terminals get gated, but with different evidence.
     if (
+      stage === "terminal" ||
       stage === "terminal_approved" ||
       stage === "terminal_changes" ||
       stage === "terminal_issues"

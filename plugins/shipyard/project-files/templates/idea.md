@@ -5,7 +5,7 @@ type: idea
 status: proposed
 source: ""
 story_points: 0
-captured: null
+created: null
 ---
 
 # [Title]

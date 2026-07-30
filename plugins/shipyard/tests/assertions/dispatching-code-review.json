@@ -51,5 +51,12 @@
     "type": "contains",
     "pattern": "code-quality-standards\\.md",
     "why": "v3.13.0 shift-left: the reviewer's brief always carries the shared standard so its Verify halves are available regardless of which concerns subset is active."
+  },
+  {
+    "name": "ship_review_auto_fixes_routine_findings",
+    "type": "contains",
+    "pattern": "Other ≥ 80 findings in `/ship-review`.*auto-fix by default",
+    "dotall": true,
+    "why": "The code-review capability must not tell /ship-review to ask the user for routine high-confidence findings."
   }
 ]

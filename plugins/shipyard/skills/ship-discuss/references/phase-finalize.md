@@ -21,7 +21,9 @@ REFINE-specific differences from the NEW-mode finalize:
 - Phase 6 step 1 is a no-op for features that were already `status: approved` before this session — leave the status alone.
 - Phase 6 step 2 is a no-op if the feature ID is already in BACKLOG.md (REFINE edits an existing backlog entry, it does not append a duplicate).
 - Phase 6 step 3 (idea graduation via `shipyard-data idea set-status ... graduated --to ...`) only applies if this REFINE run just graduated an idea; otherwise skip.
-- Phase 6 steps 4 and 5 (Next Up + `lock release planning`) always run, in that order. The guard cleanup is still the very last action so any accidental source-code Edit during the wrap-up is still blocked.
+- Phase 6 step 4 (constitution amendment prompt) runs when this REFINE pass produced constitution decisions worth recording; otherwise skip it.
+- Phase 6 step 5 (draft cleanup) runs when a current `.research-draft.md` exists; otherwise skip it.
+- Phase 6 steps 6 and 7 (Next Up + `lock release planning`) always run, in that order. The guard cleanup is still the very last action so any accidental source-code Edit during the wrap-up is still blocked.
 
 If the REFINE run was interrupted by the "cancel" branch of the Sprint Impact Check (Step 0), the active-skill mutex still needs to be cleaned up — run `shipyard-data lock release planning --skill ship-discuss` as the last action before returning control to the user.
 

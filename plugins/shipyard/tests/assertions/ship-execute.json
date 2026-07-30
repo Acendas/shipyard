@@ -1600,5 +1600,39 @@
     "type": "contains",
     "pattern": "readiness-check --classify",
     "why": "v3.17.0: build output, OS junk and regenerated lockfiles are routine churn — only a non-empty source[] bucket is worth an interrupt."
+  },
+  {
+    "name": "pending_subagents_records_agent_identity",
+    "type": "contains",
+    "pattern": "agent_name.*builder-<task_id>.*agent_handle",
+    "dotall": true,
+    "why": "Background timeout recovery can only TaskStop a presumed-dead builder if the cursor persisted the builder identity returned at dispatch."
+  },
+  {
+    "name": "wave_build_test_exact_dedupe",
+    "type": "contains",
+    "pattern": "Wave build/test de-duplication.*byte-identical.*wave_probe_reused",
+    "dotall": true,
+    "why": "Large repos should not run the same wave command twice when build and test resolve to exact identical proof."
+  },
+  {
+    "name": "sprint_build_records_proven_test_tiers",
+    "type": "contains",
+    "pattern": "build_proves_test_tier.*verify record --key test_commands\\.<tier>",
+    "dotall": true,
+    "why": "Runtime config drift can make build_commands.full run a test tier that sprint_full_tests would then rerun; a passing build should record exact proof for that tier."
+  },
+  {
+    "name": "sprint_full_tests_check_first_before_grouping",
+    "type": "contains",
+    "pattern": "Check the verification ledger before grouping.*verify check --key test_commands\\.<tier>",
+    "dotall": true,
+    "why": "Full test dispatch should only run stale/unproven tiers; fresh tier proofs from build or prior ticks are reused."
+  },
+  {
+    "name": "execute_allows_only_discuss_cross_lock",
+    "type": "contains",
+    "pattern": "allows the narrow `ship-discuss` \\+ `ship-execute` pair",
+    "why": "Execution should remain blocked by sprint planning/review-like planning work, while permitting future-work discussion in parallel."
   }
 ]

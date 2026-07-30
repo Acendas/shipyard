@@ -1,10 +1,10 @@
 ---
 name: ship-review
 description: "Run multi-agent review, retrospective, and release."
-allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, AskUserQuestion, TaskCreate, TaskUpdate, TaskList]
+allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, Agent, Skill, AskUserQuestion, TaskCreate, TaskUpdate, TaskList, ScheduleWakeup, CronCreate, CronList, CronDelete]
 model: opus
 effort: medium
-argument-hint: "[feature ID] [--demo] [--hotfix ID] [--retro-only] [--skip-code-review] [--single-tick]"
+argument-hint: "[feature ID] [--demo] [--hotfix ID] [--retro-only] [--skip-retro] [--skip-code-review] [--single-tick]"
 ---
 
 # Shipyard: Review & Verification
@@ -26,6 +26,8 @@ Verify completed work against spec. Auto-test, screenshot, demo to user, get app
 
 **Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves **does not count as rendered** (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
 
+**Auto-fix before asking.** `/ship-review` is expected to repair review findings, not ask the user whether routine findings should be fixed. For must-fix code-review findings, spec gaps, quality-gate probe failures, user-flow FAILs, simple in-scope gaps, and critic-confirmed blind spots: dispatch the appropriate fixer (`dispatching-task-loop` or `dispatching-operational-task`) and re-check. AskUserQuestion only for load-bearing approval gates or genuinely severe/risky cases: destructive migration, irreversible data change, credential/security-policy choice, large dependency/platform change, ambiguous product/spec decision, accepting a known defect, BLOCKED tool/agent state, or hard-ceiling escalation. If the fix is merely tedious, expensive, or spans multiple files, create/dispatch patch work; do not ask for permission just because findings exist.
+
 **Quiet by default.** Between user-input gates, work quietly — run scanners, tests, and gap analysis without narrating each stage. Only three things reach the chat outside a gate: a one-line transition marker per stage, the compact per-stage status lines, and a one-line banner when launching or receiving a background dispatch (code-review loop, gap-analysis agent, critic). The self-looping stages (code-review loop, gap-analysis / self-review) run silently to convergence — surface only a one-line result, never a per-iteration narration or a re-printed checklist. Review results, verdicts, and gate summaries are rendered in full ONLY at a gate (render-before-ask — Stage 5 demo, retro, release) or a terminal summary. **No running commentary** ("Now I'll…", "Let me…", explaining a no-input step). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
 
 **Capability-skill playbooks.** Where a step says *"follow the `X` playbook"* or "dispatch `X`", X is a capability skill — **Read** `${CLAUDE_PLUGIN_ROOT}/skills/<X>/SKILL.md` and execute it inline; never hand it to the `Skill` tool (capability skills are `disable-model-invocation: true`, so `Skill` refuses them). The only skill loaded via the `Skill` tool is `loop`.
@@ -40,6 +42,7 @@ $ARGUMENTS
 - `--demo` → Include interactive demo (open browser, fill forms)
 - `--hotfix B-HOT-001` → Fast-track hotfix review
 - `--retro-only` → Skip review, run only the retrospective (for cancelled sprints or re-running retro)
+- `--skip-retro` → After approval, skip the retrospective and go directly to release planning/archive. This is explicit user intent, not a default shortcut.
 - No args → Review all completed tasks in current sprint, then run retrospective
 - No active sprint and no feature ID (sprint already archived: `current/` directory is empty or absent of `SPRINT.md`) → **No-op terminal path.** Run `shipyard-data cursor noop review sprint=<last-known-or-unknown> reason=sprint_already_archived` and echo its output (it emits `pipeline_terminal outcome=noop`, runs repeat-leak detection, and prints the stop marker as the final line). Exit cleanly without invoking AskUserQuestion. (This is the exact path that fired the original /loop bug — there was no terminal signal so /loop kept scheduling wakeups against an archived sprint.)
 
@@ -72,7 +75,7 @@ $ARGUMENTS
 
 The CLI is the single cursor writer (auto-approved; a direct model Write to the cursor is DENIED by the hook). The marker text it prints is load-bearing — `/loop` drivers (and the loop-driving model) read `CYCLE COMPLETE` + `/loop should stop` as the structural signal to refrain from scheduling another wakeup, and the CLI guarantees that marker is the LAST line.
 
-**Pause before every blocking ask (load-bearing rule): a tick never exits with a pending question and no stop marker.** At every stage that blocks on `AskUserQuestion` for user input — `demo_user` (Stage 5 approval), `retro_step_2` (retro discussion), `release_step_1` (release plan) — run `shipyard-data cursor pause review --note "awaiting user: <what>"` **before** invoking `AskUserQuestion`. The pause writes `status: paused` and prints the stop marker, so if the tick is torn down (context loss, or the `/loop` driver treating the ask as end-of-tick) the persisted state is `paused` and the next wakeup no-ops instead of re-running the stage and re-asking the same question every wakeup. On the user's answer, run `shipyard-data cursor resume review`, then proceed with the stage handler. The Stage 4.8 FAIL path already does exactly this (Stage 4.8) — it's the pattern to mirror. (pause keeps the current stage; resume returns to it — no stage-graph change is involved.)
+**Pause before every blocking ask (load-bearing rule): a tick never exits with a pending question and no stop marker.** At every stage that blocks on `AskUserQuestion` for user input — `demo_user` (Stage 5 approval), `retro_decision` (run/skip retro), `retro_step_2` (retro discussion), `release_step_1` (release plan) — run `shipyard-data cursor pause review --note "awaiting user: <what>"` **before** invoking `AskUserQuestion`. The pause writes `status: paused` and prints the stop marker, so if the tick is torn down (context loss, or the `/loop` driver treating the ask as end-of-tick) the persisted state is `paused` and the next wakeup no-ops instead of re-running the stage and re-asking the same question every wakeup. On the user's answer, run `shipyard-data cursor resume review`, then proceed with the stage handler. The Stage 4.8 FAIL path already does exactly this (Stage 4.8) — it's the pattern to mirror. (pause keeps the current stage; resume returns to it — no stage-graph change is involved.)
 
 **Direct invocation vs /loop driver.** The same skill body serves both callers:
 
@@ -127,8 +130,9 @@ Pick the stage set by mode:
 
 | Mode | Stage tasks created |
 |---|---|
-| Default (full review, no flags) | preflight, Stage 0: Code Review (code_review_iter_N), Stage 0.5: Simplify (simplify), Stage 1a: Tests (tests), Stage 1b: Spec Review (spec_review), Stage 1.5: Quality Gates (quality_gates), Stage 2: Visual (visual), Stage 3: Goal Verify (goal_verify), Stage 4: Gap Analysis (gap_analysis), Stage 4.6: Critic (critic), Stage 4.7: Final Pass (final_pass), Stage 4.8: User-Flow Verification (demo_probe), Stage 5: Demo & Approval (demo_user), Retro Step 1-4 (retro_step_1..4), Release Step 1-3 (release_step_1..3), Wrap Up (terminal) |
+| Default (full review, no flags) | preflight, Stage 0: Code Review (code_review_iter_N), Stage 0.5: Simplify (simplify), Stage 1a: Tests (tests), Stage 1b: Spec Review (spec_review), Stage 1.5: Quality Gates (quality_gates), Stage 2: Visual (visual), Stage 3: Goal Verify (goal_verify), Stage 4: Gap Analysis (gap_analysis), Stage 4.6: Critic (critic), Stage 4.7: Final Pass (final_pass), Stage 4.8: User-Flow Verification (demo_probe), Stage 5: Demo & Approval (demo_user), Retro Decision (retro_decision), optional Retro Step 1-4 (retro_step_1..4), Release Step 1-3 (release_step_1..3), Wrap Up (terminal) |
 | `--skip-code-review` | same as default minus Stage 0 (code_review_iter_N) and Stage 0.5 (simplify) — jumps preflight → tests |
+| `--skip-retro` | same as default minus Retro Decision and Retro Step 1-4 — after approved Stage 6, jumps directly to Release Step 1 |
 | `--retro-only` | Retro Step 1-4, Release Step 1-3, Wrap Up only (no review stages) |
 | `--hotfix ID` | single task `[review-NNN] Hotfix Review` — the hotfix path doesn't tick through the cursor's per-stage graph |
 
@@ -163,9 +167,11 @@ Run the multi-agent code review on the sprint's diff before tests and spec compl
 
 **Stuck detection (replaces the prior hard iteration limit):** `pipeline_stuck` warns when `stuck_counter >= 5` (5 consecutive ticks with no change in the (must_fix, should_fix) tuple) — non-blocking, the loop keeps running. The absolute safety stop is `hard_ceiling: 50` iterations; in practice the 5-tick stuck warning surfaces intervention much sooner. See the "Self-looping stages" section above for the full protocol.
 
+**Severe/risky exception.** A scanner finding can interrupt the auto-fix loop only when fixing it would require a decision outside the code-review remit: destructive migration, irreversible data rewrite, credential/security-policy choice, large dependency/platform change, ambiguous product/spec tradeoff, or knowingly shipping a degraded behavior. Render that decision context as chat text, then ask once. Ordinary must-fix findings stay in the loop.
+
 **At hard ceiling only** (`iteration == 50`): emit `shipyard-data events emit code_review_escalated sprint=<id> must_fix_remaining=<count> should_fix_remaining=<count>`, write `B-CR-*` bugs for the residual findings, run `shipyard-data cursor escalate review reason=hard_ceiling_stage_code_review_iter` (sets `status: escalated`, `terminal: true`, prints the stop marker), render the residual must-fix findings (title + file:line each, from CODE-REVIEW.md — file content does not count as shown until printed) as chat text, then surface ONCE via AskUserQuestion: *"Code review hit its hard ceiling of 50 iterations with [N] must-fix items remaining. (a) write B-CR bugs and proceed to demo, (b) hand back without demo so I can investigate manually."* Recommended: (a). Out-of-scope scanner findings become IDEAs (see Stage 4 protocol). Full mechanics — checkpoint tags, fixer parameters, event-log trajectory, scope guard — in `references/scanner-dispatch.md`.
 
-- **Cursor advance**: on iteration completing with `must_fix > 0`: run `shipyard-data cursor advance review code_review_iter_<N+1> iteration=<N+1> stuck_counter=<n> --note "Re-scan after fixer iteration <N+1>"` (pass `stuck_counter=0` only when the (must_fix, should_fix) tuple changed — otherwise the CLI auto-increments). On iteration completing with `must_fix == 0 && should_fix == 0`: run `shipyard-data cursor advance review simplify`. On hard ceiling (`iteration == 50`): `shipyard-data cursor escalate review reason=hard_ceiling_stage_code_review_iter` (see the hard-ceiling bullet above).
+- **Cursor advance**: on iteration completing with `must_fix > 0`: dispatch the fixer, then run `shipyard-data cursor advance review code_review_iter_<N+1> iteration=<N+1> stuck_counter=<n> --note "Re-scan after fixer iteration <N+1>"` (pass `stuck_counter=0` only when the (must_fix, should_fix) tuple changed — otherwise the CLI auto-increments). Do not ask merely because findings remain. On iteration completing with `must_fix == 0 && should_fix == 0`: run `shipyard-data cursor advance review simplify`. On hard ceiling (`iteration == 50`) or severe/risky exception only: `shipyard-data cursor escalate review reason=hard_ceiling_stage_code_review_iter` or pause-before-ask with the rendered decision context (see the hard-ceiling bullet above).
 
 ### Stage 0.5: Code Simplification (stage_id: simplify)
 
@@ -322,9 +328,9 @@ Additionally detect:
 
 For each gap, classify into one of four destinations — this is a decision tree, not a menu, and the classification determines which persistence target the gap lands in:
 
-- **Existing-code one-line / template defect** (v2.6.0) → **inline-fix** via `dispatching-task-loop` with a synthetic patch task. Mirrors Stage 0's auto-fix pattern. Boundary criteria: fix is ≤5 lines of diff, touches files already on the working branch, needs no new dependencies/modules/test scaffolding, and the regression test either exists or can be written in ≤30 lines. Concrete shape: a missing prop on an existing component, a faulty `cloneElement` in an existing template, a forgotten `await`, a missing null guard with an existing test that already exercises the path. After the synthetic task lands its commit, re-enter Stage 4 once (`gap_analysis_iter_<N+1>`) on the patched diff — the gap should no longer appear. If the boundary check is uncertain or the inline fix introduces a new gap, fall through to the **patch task** classification below; the asymmetric cost (missed inline-fix is one extra `/ship-execute --task` invocation, wrong inline-fix is a bad commit landing without user approval) biases toward safety. Emit `patch_task_created task_id=<id> feature=<F> source=review-inline-fix` for traceability.
-- **Simple and in-scope, new functionality** (missing test for this feature, missing endpoint, missing widget, TODO left in this feature's files, missing validation on this feature's inputs) → **patch task** for builder. Use the existing patch-task creation flow. Hand off to the user via Stage 5's `Fix first` branch ("run `/ship-execute --task <id>`").
-- **Complex and in-scope** (feature doesn't work but tests pass, wiring broken within this feature, behavior contradicts this feature's spec) → **debug session**. Use the Write tool to create `<SHIPYARD_DATA>/debug/[feature-id]-[gap].md` with the symptoms and evidence from the review.
+- **Existing-code one-line / template defect** (v2.6.0) → **inline-fix** via `dispatching-task-loop` with a synthetic patch task. Mirrors Stage 0's auto-fix pattern. Boundary criteria: fix is ≤5 lines of diff, touches files already on the working branch, needs no new dependencies/modules/test scaffolding, and the regression test either exists or can be written in ≤30 lines. Concrete shape: a missing prop on an existing component, a faulty `cloneElement` in an existing template, a forgotten `await`, a missing null guard with an existing test that already exercises the path. After the synthetic task lands its commit, re-enter Stage 4 once (`gap_analysis_iter_<N+1>`) on the patched diff — the gap should no longer appear. If the boundary check is uncertain or the inline fix introduces a new gap, fall through to the **patch task** classification below; the asymmetric cost (missed inline-fix is one extra task dispatch, wrong inline-fix is a bad commit landing without user approval) biases toward safety. Emit `patch_task_created task_id=<id> feature=<F> source=review-inline-fix` for traceability.
+- **Simple and in-scope, new functionality** (missing test for this feature, missing endpoint, missing widget, TODO left in this feature's files, missing validation on this feature's inputs) → **patch task + auto-dispatch**. Use the existing patch-task creation flow, then immediately follow `dispatching-task-loop` for that patch task in the same review cycle. After the task lands, re-enter `gap_analysis` on the patched diff. Do not defer to Stage 5's `Fix first` branch unless the patch task returns BLOCKED, hits a severe/risky exception, or cannot be verified.
+- **Complex and in-scope** (feature doesn't work but tests pass, wiring broken within this feature, behavior contradicts this feature's spec) → **debug/patch task + auto-dispatch when bounded**. Use the Write tool to create `<SHIPYARD_DATA>/debug/[feature-id]-[gap].md` with the symptoms and evidence from the review, then create and dispatch a patch task when the acceptance probe can be stated. Ask only when the gap requires a product/spec decision or an unsafe migration rather than implementation.
 - **Out-of-scope** (real defect or smell that isn't in the feature being reviewed — e.g., while reviewing the payments feature, the scanner flagged a race condition in the auth middleware) → **IDEA file**. Capture the observation as an idea so it doesn't vanish, without polluting the current feature's review. See "Capture Out-of-Scope Gaps as IDEAs" below.
 
 **Capture Out-of-Scope Gaps as IDEAs.** Out-of-scope gaps are real defects but don't belong in the current feature's patch-task list or debug session. Allocate an ID via `shipyard-data next-id ideas` (never `ls`-and-guess), then Write `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with `source: review-gap/<sprint-id>`, `found_during: surface-gap-stage-4` (or `code-review-stage-0`), and `feature_reviewed: <feature-id>`. **Hard cap: 5 per stage** (Stage 0 and Stage 4 budgets are independent); on overflow, write one `overflow: true` summary IDEA. **Hard rule — out-of-scope only:** in-scope must-fix → `B-CR-*` bugs, in-scope complex → debug session, in-scope simple → patch task. Full IDEA frontmatter schema, capture-vs-skip criteria, and frontmatter template in `references/scanner-dispatch.md`.
@@ -425,7 +431,7 @@ For each feature whose probe wasn't already verified:
    - **TIMEOUT** → ⚠ Demo exceeded 120s; probe is too broad — split or narrow it
    - **ERROR** → ⚠ Demo couldn't run; probe definition is wrong (likely missing dependency or misconfigured command)
 
-**Approval gate.** A feature with a FAIL or TIMEOUT verdict cannot be approved. The reviewer must either (a) re-dispatch task-loops to fix the cross-task wiring, or (b) flag the feature as `needs-attention` and defer approval to a future review pass. ERROR verdicts: render the probe command and its error output (from the probe return — not shown until printed) as chat text, then route through AskUserQuestion to fix the probe definition.
+**Approval gate.** A feature with a FAIL or TIMEOUT verdict cannot be approved. The reviewer must first re-dispatch task-loops to fix the cross-task wiring, then re-run this stage. Only flag the feature as `needs-attention` or ask the user when the fix is blocked, severe/risky, or requires a product/spec decision. ERROR verdicts are different: render the probe command and its error output (from the probe return — not shown until printed) as chat text, then route through AskUserQuestion only when the probe definition itself needs user/product clarification; otherwise create and dispatch a probe-fix patch task.
 
 This is the per-feature counterpart to per-task acceptance probes. Together they form the reliability ladder:
 
@@ -437,7 +443,7 @@ sprint-level full test suite →  regression / integration proof (Stage 1)
 
 Mid-tier failures (passing tasks, failing demo) are exactly the bug class the customer-reported "review rubber-stamps stubs" complaint described — the task tests passed against properly wired code, but the cross-task user flow was broken because nobody ever ran it end-to-end.
 
-- **Cursor advance**: on all probes PASS (or skip-with-reason): run `shipyard-data cursor advance review demo_user --note "Present results, AskUserQuestion approval"` and echo its output. On any FAIL/TIMEOUT: handler routes to AskUserQuestion (blocking) — run `shipyard-data cursor pause review --note "Awaiting user decision on demo failure"` (keeps `stage: demo_probe`, sets `status: paused`) before invoking AskUserQuestion.
+- **Cursor advance**: on all probes PASS (or skip-with-reason): run `shipyard-data cursor advance review demo_user --note "Present results, AskUserQuestion approval"` and echo its output. On any FAIL/TIMEOUT: create/dispatch the appropriate patch task or task-loop fix, then self-loop/re-enter `demo_probe`; do not ask just because the probe failed. On BLOCKED, severe/risky, or user/product-decision cases only, run `shipyard-data cursor pause review --note "Awaiting user decision on demo failure"` (keeps `stage: demo_probe`, sets `status: paused`) before invoking AskUserQuestion.
 
 ### Stage 5: Demo to User (stage_id: demo_user)
 
@@ -467,13 +473,13 @@ After all features are reviewed and verdicts written, present the complete revie
 
 **Recommended action** per feature:
 - ✅ Approve — all checks passed
-- ⚠️ Issues — minor gaps, suggest patch tasks
-- ❌ Needs changes — significant gaps, needs rework
+- ⚠️ Issues — only unresolved non-blocking gaps remain after auto-fix attempts
+- ❌ Needs changes — severe/risky, blocked, or product-decision gaps remain after auto-fix attempts
 
 **Pause before the approval ask** (per the pause-before-ask rule above): run `shipyard-data cursor pause review --note "awaiting user: sprint approval decision"` before invoking `AskUserQuestion`. Then use `AskUserQuestion` for approval (this approval is load-bearing — NEVER skip user approval; batch the manual-gate questions above into this same call when there are few of them):
 - **Approve (Recommended)** — update feature statuses to `done`, proceed to Sprint Retrospective
 - **Refine** — give feedback on specific features, iterate
-- **Fix first** — create patch tasks, show: "/ship-execute --task [patch task ID]"
+- **Fix first** — only for findings that auto-fix could not safely resolve; create patch tasks, show: "/ship-execute --task [patch task ID]"
 
 On the user's answer, run `shipyard-data cursor resume review`, then advance:
 
@@ -482,7 +488,7 @@ On the user's answer, run `shipyard-data cursor resume review`, then advance:
 ### Stage 6: Process Decision (stage_id: process_approved | process_issues | process_changes)
 
 Based on the approval:
-- **Approved** → `shipyard-data feature set-status <FID> done`. Proceed to Sprint Retrospective (below).
+- **Approved** → `shipyard-data feature set-status <FID> done`. Proceed to Retro Decision (below), unless `--skip-retro` was passed; then proceed directly to Release Step 1.
 - **Issues found** → Create bug entries via /ship-bug logic. **Emit `bug_created` per bug** (`shipyard-data events emit bug_created bug=<id>`) — the terminal gate requires at least one such event in the review window before it will allow the `terminal_issues` cursor write (clause 3 below). `shipyard-data feature set-status <FID> approved` (not `in-progress` — it needs re-planning) followed by `shipyard-data backlog add <FID>` so the next `/ship-sprint` picks it up.
 - **Needs changes** → Update spec with new criteria. Create patch tasks — **write each `spec/tasks/<id>-<slug>.md` file first**, then **emit `patch_task_created` per task** (`shipyard-data events emit patch_task_created task=<id>`). Order matters: a `patch_task_created` event for an id with no task file leaves a dangling reference that ship-status validation, this review's evidence check, and the next sprint's carry-over scan all trip over (`shipyard-data doctor` flags it). The terminal gate requires the event before allowing the `terminal_changes` cursor write (clause 3 below). `shipyard-data feature set-status <FID> approved` followed by `shipyard-data backlog add <FID>`. Show:
   ```
@@ -491,7 +497,7 @@ Based on the approval:
     (tip: /clear first for a fresh context window)
   ```
 
-- **Cursor advance**: on `process_approved` → run `shipyard-data cursor advance review retro_step_1` and echo its output. On `process_issues` → run `shipyard-data cursor advance review terminal_issues outcome=issues reason=user_flagged_issues`. On `process_changes` → run `shipyard-data cursor advance review terminal_changes outcome=changes reason=user_requested_changes`. The CLI emits the terminal event and prints the stop marker as the final line.
+- **Cursor advance**: on `process_approved` → run `shipyard-data cursor advance review retro_decision --note "Ask whether to run retrospective"` and echo its output, unless `--skip-retro` was passed; with `--skip-retro`, run `shipyard-data cursor advance review release_step_1 --note "Skip retrospective by explicit user flag; present release plan"` and echo its output. On `process_issues` → run `shipyard-data cursor advance review terminal_issues outcome=issues reason=user_flagged_issues`. On `process_changes` → run `shipyard-data cursor advance review terminal_changes outcome=changes reason=user_requested_changes`. The CLI emits the terminal event and prints the stop marker as the final line.
 
 - **Terminal-gate enforcement (v2.6.0).** The two **escalation** terminal advances — `terminal_changes` and `terminal_issues` — run the terminal-evidence gate in-process inside `shipyard-data cursor advance`. The advance is refused (exit 3, reasons printed) unless: (1) `pipeline_tick_completed pipeline=ship-review stage=demo_user` is in the event log (proving the user-approval step ran); **and** (2) at least one `patch_task_created` or `bug_created` event was emitted in this review window (this is why process_issues/process_changes MUST emit those events — see Stage 6 above; those non-cursor events are still emitted via `shipyard-data events emit`). If the advance exits 3, fix the missing evidence (or escalate) — do NOT try to Write the cursor directly, the hook denies it. **The approved-success path does NOT run a gated `terminal_approved` advance** — it archives the sprint (rotating `current/` away) and the terminal advance emits `pipeline_terminal outcome=approved`, so the gate's `terminal_approved` branch (per-feature approve-verdict enforcement in `bin/terminal-gate.mjs`) is a **defensive path the current flow doesn't exercise**; the approve-verdicts and the user-approval gate are enforced upstream (per-feature `verify/<F>-verdict.md` files + the demo_user tick). Run `shipyard-context terminal-gate ship-review` to inspect what would block a terminal advance right now.
 
@@ -507,12 +513,21 @@ Fast-track for hotfixes:
 
 ## Sprint Retrospective
 
-After sprint approval (or when `--retro-only` is passed), run the retrospective. This analyzes what happened, captures learnings, and creates improvement items. If `--retro-only` with a sprint ID, Read that sprint's archived files from `<SHIPYARD_DATA>/sprints/sprint-NNN/` instead of `current/`.
+After sprint approval (or when `--retro-only` is passed), run the retrospective only when the user chooses it at Retro Decision, unless `--retro-only` was passed. `--skip-retro` bypasses this decision and goes directly to release planning. This analyzes what happened, captures learnings, and creates improvement items. If `--retro-only` with a sprint ID, Read that sprint's archived files from `<SHIPYARD_DATA>/sprints/sprint-NNN/` instead of `current/`.
+
+### Retro Decision (stage_id: retro_decision)
+Present a short data-derived prompt: sprint size, patch-task count, review iterations, any salvage/timeout/plugin issue signals, and whether this looks like a high-learning sprint. Pause before asking: run `shipyard-data cursor pause review --note "awaiting user: retro decision"` before `AskUserQuestion`. Ask one question only:
+- **Run retro (Recommended when high-learning signals exist)** — run Retro Step 1, then ask retro questions in Step 2.
+- **Skip retro** — skip Retro Step 1-4 and proceed to Release Step 1.
+
+On the user's answer, run `shipyard-data cursor resume review`, then advance: **Run retro** → `shipyard-data cursor advance review retro_step_1 --note "Gather retrospective data"`; **Skip retro** → `shipyard-data cursor advance review release_step_1 --note "Retrospective skipped by user decision; present release plan"`. Echo the CLI output. Do not ask the three retro questions unless the user chose **Run retro**.
 
 The retro runs in four steps with compaction recovery via `RETRO-DATA.md`'s `step` frontmatter field. Full mechanics — data-gathering source files, throughput computation, IDEA allocation/frontmatter, metrics rollover, anti-pattern flags — in `references/retro-and-release.md`.
 
+**Agentic retrospective quality bar.** Shipyard is an agentic one-shot build framework, so the retro must not become a ceremonial meeting simulator. Step 1 is the primary artifact: derive facts from event logs, cursor history, task files, verification ledger reuse, patch-task count, blocker/salvage events, repeated build/test dispatches, and review findings. Step 2 asks the user only for judgment that cannot be inferred from data. Step 3 creates at most five IDEAs, only when the action would change future Shipyard behavior, sprint planning, quality gates, or project defaults; duplicate, vague, or one-off observations stay in `RETRO-DATA.md` as notes. Classify every candidate as `project`, `process`, or `shipyard-framework`; `shipyard-framework` issues follow the plugin issue detection rule below and do not enter the user's project backlog.
+
 ### Retro Step 1: Gather Data (stage_id: retro_step_1)
-Compute planned-vs-delivered, velocity, carry-over, bugs, blocked time, swaps, patch tasks, estimate accuracy, throughput from SPRINT.md + task/feature files. Write to `RETRO-DATA.md` (`step: data_gathered`) and present the summary block.
+Compute planned-vs-delivered, velocity, carry-over, bugs, blocked time, swaps, patch tasks, estimate accuracy, throughput from SPRINT.md + task/feature files. Also compute agentic delivery signals: build/test rerun count, verification-ledger reuse count, code-review iterations, gap-analysis iterations, patch tasks created during review, user-flow probe failures, timeout/salvage events, and Shipyard plugin issue candidates. Write to `RETRO-DATA.md` (`step: data_gathered`) and present the summary block.
 
 - **Cursor advance**: run `shipyard-data cursor advance review retro_step_2 --note "Facilitate retro discussion (one bulk AskUserQuestion)"`.
 
@@ -527,7 +542,7 @@ On the user's answers, run `shipyard-data cursor resume review`, append response
 - **Cursor advance**: after the answers are collected, run `shipyard-data cursor advance review retro_step_3 --note "Create IDEA action items"` and echo its output.
 
 ### Retro Step 3: Create Action Items (stage_id: retro_step_3)
-For each actionable improvement, allocate an ID via `shipyard-data next-id ideas` (never `ls`-and-guess) and Write `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with `source: retro/<sprint-id>` (slash form — matches the carry-over scan regex). Update `RETRO-DATA.md`: `step: action_items_created`.
+For each actionable improvement, allocate an ID via `shipyard-data next-id ideas` (never `ls`-and-guess) and Write `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with `source: retro/<sprint-id>` (slash form — matches the carry-over scan regex). Cap this at 5 IDEAs per retrospective and require each IDEA to name the trigger metric or event evidence from `RETRO-DATA.md`; otherwise leave it as a retro note. Update `RETRO-DATA.md`: `step: action_items_created`.
 
 - **Cursor advance**: run `shipyard-data cursor advance review retro_step_4 --note "Update metrics"`.
 
@@ -565,7 +580,7 @@ Print this as plain text and continue the retro — do not `AskUserQuestion`. Bo
 After retro completes, generate the release record. This is a changelog + status tracker — Shipyard does not create git tags, push, or create GitHub releases. Full mechanics — release-plan output format, frontmatter writes, archive command, status dashboard — in `references/retro-and-release.md`.
 
 ### Release Step 1: Present Release Plan (stage_id: release_step_1)
-Read all `status: done` features from this sprint. Output the release plan as text — CHANGELOG block, STATUS CHANGES, RETRO HIGHLIGHTS, FILES WRITTEN. Release is the most irreversible action in the workflow; surface everything before confirming.
+Read all `status: done` features from this sprint. Output the release plan as text — CHANGELOG block, STATUS CHANGES, RETRO HIGHLIGHTS when available, FILES WRITTEN. If `--skip-retro` was passed or no `RETRO-DATA.md` exists, write `RETRO HIGHLIGHTS: skipped by explicit user flag` instead of inventing metrics. Release is the most irreversible action in the workflow; surface everything before confirming.
 
 Pause before asking (per the pause-before-ask rule): run `shipyard-data cursor pause review --note "awaiting user: release approval"` before the `AskUserQuestion`. This approval is load-bearing (most irreversible action) — never skip it. Then use `AskUserQuestion` for approval:
 - **Release (Recommended)** — proceed to Release Step 2 (write everything)
@@ -624,6 +639,6 @@ The stop marker is load-bearing and **must be the final line** — `/loop` drive
 - Present screenshots inline when possible (Claude can read images).
 - If dev server isn't running, start it. If database needs seeding, seed it.
 - Make it effortless for the user to test — provide everything they need.
-- Retro is NOT optional — it runs automatically after sprint approval.
+- Retro runs automatically after sprint approval unless the user explicitly passes `--skip-retro`; never infer a skip from impatience, sprint size, or a clean review.
 - Action items from retro become idea files — promote via `/ship-discuss IDEA-NNN`.
 - Shipyard does not create git tags, push, or create GitHub releases — the user handles that.

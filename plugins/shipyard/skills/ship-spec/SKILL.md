@@ -156,7 +156,7 @@ If argument doesn't match an ID pattern or a known subcommand, search across all
 
 `/ship-spec ideas` — List all captured ideas pending discussion.
   1. Use Glob with `pattern: <SHIPYARD_DATA>/spec/ideas/IDEA-*.md` to enumerate idea files, then Read each.
-  2. For each, read frontmatter: `id`, `title`, `created`, `status`, and first line of body as description. Skip files where `status: graduated` (they were already promoted to features).
+  2. For each, read frontmatter: `id`, `title`, `created` (fallback: legacy `captured`), `status`, and first line of body as description. Skip files where `status: graduated` (already promoted to features) or `status: rejected` (triaged out).
   3. Display as a scannable list:
 
 ```
@@ -174,7 +174,7 @@ IDEAS — [N] pending discussion
 
   If no ideas exist: "No ideas captured yet. Run /ship-discuss with a quick one-liner to capture one."
 
-`/ship-spec status F001 approved` — Change feature F001 status to approved. Run `shipyard-data feature set-status F001 approved`. On exit 3 (illegal transition), print the CLI's valid-next-states list as chat text, then AskUserQuestion: "F001 is [current status]. Valid next states: [list from the CLI's error]. Which would you like?"
+`/ship-spec status F001 approved` — Change feature F001 status to approved. Approval is special: before running the CLI, Read the feature and render the full approval contract as chat text — every Given/When/Then acceptance scenario verbatim, `user_flow_probe` kind plus command/steps verbatim, assumptions, unresolved items, and known `skip-with-reason` gaps — then AskUserQuestion for approval. Only after approval, run `shipyard-data feature set-status F001 approved`. On exit 3 (illegal transition), print the CLI's valid-next-states list as chat text, then AskUserQuestion: "F001 is [current status]. Valid next states: [list from the CLI's error]. Which would you like?" For non-approval statuses, run `shipyard-data feature set-status <id> <status>` directly after rendering the current status and target.
 
 `/ship-spec move F001 E002` — Move feature F001 to epic E002. Run `shipyard-data feature set F001 epic=E002` (the CLI verifies E002 exists under `spec/epics/` before writing).
 

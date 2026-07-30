@@ -75,7 +75,7 @@ For accepted gaps, use Edit to add to the feature file. Place them under a new `
 
 If adding E2E AC would push the feature file over 200 lines:
 1. Extract the entire `### E2E AC` section to `<SHIPYARD_DATA>/spec/references/FNNN-e2e-ac.md`
-2. Add the reference file path to the feature's `references:` array in frontmatter
+2. Run `shipyard-data feature add-ref FNNN <SHIPYARD_DATA>/spec/references/FNNN-e2e-ac.md` to add the reference path to the feature's `references:` array
 3. Replace the `### E2E AC` section in the feature body with: `### E2E AC → see references/FNNN-e2e-ac.md`
 
 ## Backfill Protocol (REFINE Mode)

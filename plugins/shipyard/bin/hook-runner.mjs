@@ -16,7 +16,7 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { getDataDir } from "./shipyard-resolver.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -92,7 +92,7 @@ for (const k of Object.keys(env)) {
   process.env[k] = env[k];
 }
 try {
-  const url = "file://" + modulePath;
+  const url = pathToFileURL(modulePath).href;
   const mod = await import(url);
   if (typeof mod.run !== "function") {
     process.stderr.write(

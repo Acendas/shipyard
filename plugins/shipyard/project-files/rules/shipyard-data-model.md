@@ -30,7 +30,7 @@ Every piece of data has exactly ONE authoritative location. All other files are 
 ### Feature Files (`$(shipyard-data)/spec/features/FNNN-*.md`)
 Authoritative for:
 - `title`, `status`, `epic`, `story_points`, `complexity`, `feasibility`
-- `rice_reach`, `rice_impact`, `rice_confidence`, `rice_effort` (the RICE score is derived live from these four, never stored)
+- `rice_reach`, `rice_impact`, `rice_confidence`, `rice_effort`; `rice_score` is a cached derived value updated by `shipyard-data feature set` when those four change, never hand-authored
 - `token_estimate`, `dependencies`, `references`, `children`
 - User story, acceptance scenarios (Given/When/Then), decision log
 - `tasks:` array in frontmatter — list of task IDs belonging to this feature

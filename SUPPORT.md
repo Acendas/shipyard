@@ -21,7 +21,7 @@
 
 **"Tests aren't running"** — Check that `test_commands` is configured in your project config. Run `/ship-init` to reconfigure if needed.
 
-**"Plugin not loading"** — Make sure you installed with `claude plugin add acendas/shipyard`. Run `/reload-plugins` after any manual edits.
+**"Plugin not loading"** — Make sure you added the Acendas marketplace and installed with `claude plugin install shipyard@acendas`. Run `/reload-plugins` after any manual edits.
 
 ## What to include when reporting
 

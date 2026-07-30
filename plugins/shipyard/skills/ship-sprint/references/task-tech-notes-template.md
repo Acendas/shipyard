@@ -48,6 +48,11 @@ This is the canonical template for the `## Technical Notes` section in every tas
 - [exact code pattern to follow — copy-paste ready, with placeholders marked as `<PLACEHOLDER>`]
 - [second pattern if multiple files need similar changes]
 
+**First failing test:**
+- [exact test file/name/assertion the builder must author first; it should fail before implementation]
+
+## Test Strategy
+
 **Verification steps**
 - [ ] [specific check: "run X, expect Y"]
 - [ ] [specific check: "open Z, verify W is visible"]

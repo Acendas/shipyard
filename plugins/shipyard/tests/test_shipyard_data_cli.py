@@ -10,6 +10,7 @@ dir is never touched.
 """
 
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -635,6 +636,39 @@ class TestShipyardDataDoctor(unittest.TestCase):
         self.assertEqual(code, 0)
         return out.strip()
 
+    def _write_feature(self, fid='F001', **overrides):
+        features_dir = os.path.join(self.data_dir, 'spec', 'features')
+        os.makedirs(features_dir, exist_ok=True)
+        fm = {
+            'id': fid,
+            'title': 'Doctor Feature',
+            'type': 'feature',
+            'epic': 'E001',
+            'status': 'proposed',
+            'story_points': '3',
+            'complexity': 'M',
+            'token_estimate': '1000',
+            'rice_reach': '10',
+            'rice_impact': '2',
+            'rice_confidence': '0.8',
+            'rice_effort': '2',
+            'rice_score': '8',
+            'dependencies': '[]',
+            'references': '[]',
+            'tasks': '[]',
+            'created': '2026-01-01',
+        }
+        fm.update(overrides)
+        lines = [f'{k}: {v}' for k, v in fm.items() if v is not None]
+        path = os.path.join(features_dir, f'{fid}-doctor.md')
+        with open(path, 'w') as f:
+            f.write('---\n' + '\n'.join(lines) + '\n---\n\n# Doctor Feature\n')
+        return path
+
+    def _watermark(self):
+        with open(os.path.join(self.data_dir, '.doctor-watermark.json')) as f:
+            return json.load(f)
+
     def test_doctor_clean_project_reports_no_issues(self):
         out, _, code = run_cli(['doctor'], env_extra=self.env)
         self.assertEqual(code, 0, f'clean project should exit 0; out={out!r}')
@@ -686,6 +720,59 @@ class TestShipyardDataDoctor(unittest.TestCase):
         out, _, code = run_cli(['doctor'], env_extra=self.env)
         self.assertEqual(code, 0, f'patch task with a file must pass; out={out!r}')
         self.assertIn('no issues found', out)
+
+    def test_doctor_flags_invalid_feature_status(self):
+        self._write_feature(status='cancelled')
+        out, _, code = run_cli(['doctor', '--full'], env_extra=self.env)
+        self.assertEqual(code, 1, f'invalid feature status must fail; out={out!r}')
+        self.assertIn('registry-schema', out)
+        self.assertIn('invalid status: "cancelled"', out)
+
+    def test_doctor_accepts_feature_lifecycle_statuses(self):
+        for i, status in enumerate([
+            'proposed', 'approved', 'in-progress', 'done', 'deployed',
+            'released', 'deferred', 'rejected',
+        ], start=1):
+            self._write_feature(fid=f'F{i:03d}', status=status)
+        out, _, code = run_cli(['doctor', '--full'], env_extra=self.env)
+        self.assertEqual(code, 0, f'valid feature lifecycle statuses should pass; out={out!r}')
+        self.assertIn('registry: 8 file(s) checked', out)
+
+    def test_doctor_flags_missing_required_feature_field(self):
+        self._write_feature(rice_score=None)
+        out, _, code = run_cli(['doctor', '--full'], env_extra=self.env)
+        self.assertEqual(code, 1, f'missing required field must fail; out={out!r}')
+        self.assertIn('missing/empty field: rice_score', out)
+
+    def test_doctor_clean_run_creates_watermark_and_dirty_run_does_not_advance_it(self):
+        self._write_feature()
+        out, _, code = run_cli(['doctor', '--full'], env_extra=self.env)
+        self.assertEqual(code, 0, f'clean full doctor should pass; out={out!r}')
+        first = self._watermark()
+        self.assertEqual(first['schemaVersion'], 1)
+        self._write_feature(fid='F002', status='cancelled')
+        out, _, code = run_cli(['doctor', '--full'], env_extra=self.env)
+        self.assertEqual(code, 1, f'dirty doctor should fail; out={out!r}')
+        self.assertEqual(first, self._watermark(), 'dirty doctor run must not advance the watermark')
+
+    def test_doctor_full_forces_scan_even_when_incremental_would_skip(self):
+        self._write_feature()
+        out, _, code = run_cli(['doctor', '--full'], env_extra=self.env)
+        self.assertEqual(code, 0, f'initial clean scan should pass; out={out!r}')
+        wm = self._watermark()
+        skipped = self._write_feature(fid='F002', status='cancelled')
+        old = 1
+        os.utime(skipped, (old, old))
+
+        out, _, code = run_cli(['doctor'], env_extra=self.env)
+        self.assertEqual(code, 0, f'incremental scan should skip old untouched file; out={out!r}')
+        self.assertIn('incremental', out)
+        with open(os.path.join(self.data_dir, '.doctor-watermark.json'), 'w') as f:
+            json.dump(wm, f)
+
+        out, _, code = run_cli(['doctor', '--full'], env_extra=self.env)
+        self.assertEqual(code, 1, f'--full must re-check skipped files; out={out!r}')
+        self.assertIn('invalid status: "cancelled"', out)
 
     def _emit_patch_task(self, task_id):
         _, err, code = run_cli(

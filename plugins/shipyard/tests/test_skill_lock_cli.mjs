@@ -184,10 +184,51 @@ test("acquire: held by another fresh session exits 3 with block text and blocked
 test("cross-lock guard: acquiring execution while planning is held by a different fresh session is blocked", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     const r = p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sessB"]);
     assert.equal(r.code, 3);
     assert.match(r.stderr, /planning session is active/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cross-lock guard: ship-execute may run while ship-discuss planning is held", () => {
+  const p = makeProject();
+  try {
+    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    const r = p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sessB"]);
+    assert.equal(r.code, 0);
+    const json = stdoutJson(r);
+    assert.equal(json.acquired, true);
+    assert.equal(json.cross_lock_allowed, "ship-discuss+ship-execute");
+    assert.match(readEvents(p), /"skill_lock_concurrent_allowed"/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cross-lock guard: ship-discuss may run while ship-execute execution is held", () => {
+  const p = makeProject();
+  try {
+    p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sessA"]);
+    const r = p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessB"]);
+    assert.equal(r.code, 0);
+    const json = stdoutJson(r);
+    assert.equal(json.acquired, true);
+    assert.equal(json.cross_lock_allowed, "ship-discuss+ship-execute");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cross-lock guard: ship-sprint is still blocked while ship-execute execution is held", () => {
+  const p = makeProject();
+  try {
+    p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sessA"]);
+    const r = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessB"]);
+    assert.equal(r.code, 3);
+    assert.match(r.stderr, /execution lock is active/);
   } finally {
     p.cleanup();
   }

@@ -54,7 +54,7 @@ Do NOT re-score everything — only features with a clear reason to change. For 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-Apply these updates directly — this is a two-way door and evidence-based (Shipyard decides estimates, never the user). Update `rice_*` fields and `rice_score` in the affected feature files, and log each change as `ASSUMED: <feature> <field> X → Y because <evidence>` in that feature's Decision Log. Include the rendered RICE RE-EVALUATION block in the wrap-up summary with a veto line ("Say the word if any of these re-scores look wrong — I'll adjust"). Do NOT reorder BACKLOG.md — note in the wrap-up: "Run `/ship-backlog rank` to re-sort by updated RICE scores."
+Apply these updates directly — this is a two-way door and evidence-based (Shipyard decides estimates, never the user). Update the `rice_*` component fields via `shipyard-data feature set`; the CLI refreshes cached `rice_score` atomically from those components. Log each change as `ASSUMED: <feature> <field> X → Y because <evidence>` in that feature's Decision Log. Include the rendered RICE RE-EVALUATION block in the wrap-up summary with a veto line ("Say the word if any of these re-scores look wrong — I'll adjust"). Do NOT reorder BACKLOG.md — note in the wrap-up: "Run `/ship-backlog rank` to re-sort by updated RICE scores."
 
 ## Step 3: Ordering check
 

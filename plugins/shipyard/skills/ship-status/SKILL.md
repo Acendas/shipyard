@@ -51,7 +51,7 @@ Run `shipyard-data doctor` (read-only). This used to be a whole-tree Glob-every-
 
 `doctor` validates the same fields Check 1 always has — it just no longer requires Reading every file into this skill's context to do it:
 
-**Feature files** — required: `id` (F+digits), `title` (non-empty), `type` (feature), `epic` (string), `status` (proposed|approved|in-progress|done|deployed|released|cancelled), `story_points` (≥0), `complexity` (low|medium|high|""), `token_estimate` (≥0), `rice_reach` (0-10), `rice_impact` (0-3), `rice_confidence` (0-100), `rice_effort` (>0), `rice_score` (≥0), `dependencies` (list), `references` (list), `tasks` (list), `created` (date)
+**Feature files** — required: `id` (F+digits), `title` (non-empty), `type` (feature), `epic` (string), `status` (proposed|approved|in-progress|done|deployed|released|deferred|rejected), `story_points` (≥0), `complexity` (low|medium|high|""), `token_estimate` (≥0), `rice_reach` (0-10), `rice_impact` (0-3), `rice_confidence` (0-100), `rice_effort` (>0), `rice_score` (≥0, cached derived value), `dependencies` (list), `references` (list), `tasks` (list), `created` (date)
 
 **Task files** — required: `id` (T+digits), `title` (non-empty), `feature` (valid feature ID), `status` (pending|in-progress|done|blocked|needs-attention), `effort` (S|M|L), `dependencies` (list). The `needs-attention` status is set by the operational fix-findings loop or the research dispatcher when escalation triggers — it means "prior attempt produced a full audit trail but the task did not converge; needs a human decision." Distinct from `blocked` (waiting on an external dependency). See `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-kinds.md` for the escalation semantics.
 

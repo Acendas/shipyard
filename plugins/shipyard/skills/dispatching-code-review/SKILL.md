@@ -68,7 +68,8 @@ The reviewer's return always carries `STATUS:`, `SCOPE:`, and `TARGETS:`; a `FIN
 2. **`STATUS: FINDINGS`**:
 
    - **High-confidence security findings** (`concern: security`, confidence ≥ 90) → block. Re-dispatch `dispatching-task-loop` with the security findings inlined: *"Code review found security issues that must be fixed: <list>; re-implement and re-probe."*
-   - **Other ≥ 80 findings** → present in the calling skill's report. 'Present' means the full finding blocks (file:line, snippet, reason) rendered as chat text before any per-finding decision ask — findings that exist only in this skill's return are not presented. The user (in `/ship-review`) decides per finding: fix now, file as bug, or accept. The post-task path can auto-redispatch the task once for high-density findings (≥ 3) but stops there to avoid loop-on-quality.
+   - **Other ≥ 80 findings in `/ship-review`** → auto-fix by default through the Stage 0 code-review loop. The reviewer does not ask the user whether to fix routine bugs, tests, silent failures, pattern violations, observability gaps, or data defects; those are the review pipeline's job. Render findings only at user gates or terminal escalation. AskUserQuestion is reserved for severe/risky cases where an automatic fix would require a product decision, destructive migration, credential/security-policy choice, large dependency/platform change, or accepting a known defect.
+   - **Other ≥ 80 findings outside `/ship-review`** → present in the calling skill's report. 'Present' means the full finding blocks (file:line, snippet, reason) rendered as chat text before any per-finding decision ask — findings that exist only in this skill's return are not presented. The post-task path can auto-redispatch the task once for high-density findings (≥ 3) but stops there to avoid loop-on-quality.
    - **Advisory (60–80)** → log to PROGRESS.md deviations; no auto-action.
 
 3. **`STATUS: BLOCKED`** → quote the subagent's `REASON:` paragraph verbatim as chat text (it exists only in the Agent return — content in a subagent return or in the question/option strings does not count as shown), then AskUserQuestion. Likely: diff is too large, spec missing, project rules path bad.
@@ -92,6 +93,6 @@ For high-stakes reviews (release-bound, large diff, payments/auth/data), `/ship-
 
 - One dispatch to the registered `shipyard-code-reviewer` agent, seven concern domains (the seventh, `data`, auto-gates on persistence-touching diffs).
 - Read-only; structured findings; confidence ≥ 80 to block.
-- Security ≥ 90 auto-redispatches; everything else surfaces for orchestrator/user decision.
+- Security ≥ 90 auto-redispatches; `/ship-review` auto-fixes all routine ≥80 findings and asks only for severe/risky product decisions or true BLOCKED outcomes.
 - Silent-return gate: one re-dispatch, then surface as BLOCKED rather than loop.
 - Post-return git-status check enforces the read-only contract.

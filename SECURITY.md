@@ -17,7 +17,7 @@ We will acknowledge receipt within 48 hours and aim to provide a fix or mitigati
 
 Shipyard is a Claude Code plugin — it runs locally on the user's machine. Security concerns include:
 
-- **Hook scripts** — Python scripts that run on every tool invocation. A vulnerability here could execute arbitrary code.
+- **Hook scripts** — Node hook modules that run on frequent tool invocations. A vulnerability here could execute arbitrary code.
 - **Data file handling** — Shipyard reads and writes project data. Path traversal or injection in file paths is a concern.
 - **Shell commands** — Skills and hooks execute shell commands. Command injection is a concern.
 - **Auto-approve hook** — Automatically approves writes to Shipyard data directories. A bypass could approve writes to unintended paths.

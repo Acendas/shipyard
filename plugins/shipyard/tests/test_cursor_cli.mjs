@@ -75,6 +75,10 @@ test("stage graph: review skip-flag routes from preflight", () => {
   assert.ok(validateTransition("ship-review", "preflight", "code_review_iter_1").ok);
   assert.ok(validateTransition("ship-review", "preflight", "tests").ok, "--skip-code-review");
   assert.ok(validateTransition("ship-review", "preflight", "retro_step_1").ok, "--retro-only");
+  assert.ok(validateTransition("ship-review", "process_approved", "retro_decision").ok);
+  assert.ok(validateTransition("ship-review", "retro_decision", "retro_step_1").ok);
+  assert.ok(validateTransition("ship-review", "retro_decision", "release_step_1").ok);
+  assert.ok(validateTransition("ship-review", "process_approved", "release_step_1").ok, "--skip-retro");
 });
 
 // --- CLI integration fixture --------------------------------------------

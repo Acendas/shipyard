@@ -10,8 +10,8 @@ Per iteration (data-driven; **no fixed cap** — convergence is by clean-scanner
 
 1. **Checkpoint.** `git tag pre-code-review-$(date +%s)` — rollback point for failed fix iterations.
 2. **Orchestrate.** Follow `code-review-orchestration.md` end-to-end. Iteration 1 uses `git diff $(git merge-base HEAD <main_branch>)...HEAD`; iteration 2+ uses the cumulative delta `git diff <pre-code-review-tag>..HEAD`. Phase 5 writes `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md` with VERDICT / COUNTS / ---ACTIONABLE--- sections.
-3. **Evaluate.** Emit the per-iteration `code_review_iteration` event (must_fix / should_fix counts) — PROGRESS.md is a render-only artifact regenerated from the event log by the `render-progress` hook; never write it directly. Zero must-fix + zero should-fix → clean pass, proceed to Stage 1. Only consider items → acceptable, proceed to Stage 1. Must-fix or should-fix → continue.
-4. **Diminishing returns** (iteration 2+). Read the previous iteration's counts from the event log (`code_review_iteration` events). If unchanged or increased, render the remaining must-fix items as chat text (title + file:line each, from CODE-REVIEW.md — file content you Read does not count as shown until printed), then AskUserQuestion: "Code review isn't converging — [N] must-fix issues remain after [iteration] fix attempts. Proceed to demo with current state, or investigate manually?"
+3. **Evaluate.** Emit the per-iteration `code_review_iteration` event (must_fix / should_fix counts) — PROGRESS.md is a render-only artifact regenerated from the event log by the cursor CLI renderer; never write it directly. Zero must-fix + zero should-fix → clean pass, proceed to Stage 1. Only consider items → acceptable, proceed to Stage 1. Must-fix or should-fix → continue.
+4. **Diminishing returns** (iteration 2+). Read the previous iteration's counts from the event log (`code_review_iteration` events). If unchanged or increased, keep the loop running and let the cursor's stuck-detection machinery account for it; do not ask the user at iteration 2. At `stuck_counter >= 5`, surface the non-blocking warning from SKILL.md and continue. AskUserQuestion is reserved for hard ceiling, true BLOCKED state, or a severe/risky exception where fixing would require a product decision, destructive migration, credential/security-policy choice, large dependency/platform change, or accepting a known defect.
 5. **Fix.** Follow the **`dispatching-task-loop` playbook** with a synthetic continuation task that points at the CODE-REVIEW.md findings. Pass:
    - `task_id`: a synthetic ID like `CR-FIX-iter-N`
    - `task_file_path`: `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md` (the findings doc serves as the spec — the capability skill's prompt instructs the subagent to skip everything above `---ACTIONABLE---` and fix all M/S items below)
@@ -28,7 +28,7 @@ Per iteration (data-driven; **no fixed cap** — convergence is by clean-scanner
 
 **Out-of-scope findings in Stage 0 code review.** If any scanner surfaces a concrete defect that is real but *outside the sprint's diff scope* (e.g., while reviewing the auth feature's diff, the silent-failures scanner flagged a swallowed exception in a helper that wasn't touched by the sprint), capture it as an IDEA — not a `B-CR-*` bug. The B-CR bugs are for in-scope code-review findings that need fixing before this sprint ships; out-of-scope findings are for the next sprint's planning to consider. See Stage 4's "Capture Out-of-Scope Gaps as IDEAs" section for the full protocol — it applies to Stage 0 findings too, with `found_during: code-review-stage-0` in the frontmatter instead of `surface-gap-stage-4`. Hard cap: 5 per stage (enforced separately from Stage 4's cap — Stage 0 and Stage 4 have independent budgets).
 
-Each iteration's trajectory is captured by the `code_review_iteration` event (iteration, must_fix, should_fix). The `render-progress` hook renders the Code Review table into PROGRESS.md from those events — do not write the table by hand.
+Each iteration's trajectory is captured by the `code_review_iteration` event (iteration, must_fix, should_fix). Cursor CLI rendering updates the Code Review table in PROGRESS.md from those events — do not write the table by hand.
 
 ## Stage 0.5 — Code Simplification (mechanics)
 
@@ -60,7 +60,7 @@ After the code review loop exits clean, run a simplification pass on the sprint'
 
 ## Stage 4 — Existing-code Inline Fix Path (v2.6.0)
 
-Before classifying a Stage 4 gap as a patch task, evaluate whether it fits the **existing-code one-line / template defect** boundary. If so, route through `dispatching-task-loop` for an inline fix instead of filing manual work for the user.
+Before classifying a Stage 4 gap as a patch task, evaluate whether it fits the **existing-code one-line / template defect** boundary. If so, route through `dispatching-task-loop` for an inline fix instead of filing manual work for the user. More broadly, Stage 4 fixes before asking: simple in-scope gaps become patch tasks and are dispatched immediately; complex in-scope gaps become debug/patch artifacts and are dispatched when an acceptance probe can be stated. Ask only for BLOCKED, severe/risky, or product-decision cases.
 
 ### Boundary criteria (all must hold)
 
@@ -86,7 +86,7 @@ Before classifying a Stage 4 gap as a patch task, evaluate whether it fits the *
 
 For a gap matching the boundary, allocate a patch task ID via `shipyard-data next-id tasks`, write the synthetic task file with `kind: patch`, `source: review-inline-fix`, `acceptance_probe:` populated with the regression test command, and `First failing test:` describing the gap. Then follow the `dispatching-task-loop` playbook with the synthetic task. The capability skill enforces the same structured-return contract as a Stage 0 fixer dispatch.
 
-After the dispatched commit lands, re-enter `gap_analysis_iter_<N+1>` on the patched diff. If the same gap reappears, fall through to patch-task — the inline fix failed and the user needs to inspect.
+After the dispatched commit lands, re-enter `gap_analysis_iter_<N+1>` on the patched diff. If the same gap reappears, fall through to patch-task auto-dispatch — the inline fix failed, but the review should still attempt the normal builder path before interrupting the user.
 
 Emit `patch_task_created task_id=<id> feature=<F> source=review-inline-fix verdict=<outcome>` for observability — **only after `spec/tasks/<id>-*.md` exists** (written above). Never emit `patch_task_created` for an id with no task file: everything that frontmatter-checks tasks (ship-status, this review's evidence check, next sprint's carry-over scan) then sees a dangling reference. `shipyard-data doctor` flags any that slip through.
 

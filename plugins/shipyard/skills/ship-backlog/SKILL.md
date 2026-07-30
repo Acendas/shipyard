@@ -50,7 +50,7 @@ For bankruptcy: check if any feature files have status `deferred` with today's d
 Read BACKLOG.md for the ordered list of feature IDs. If BACKLOG.md doesn't exist or contains no IDs:
 
 1. Use the Grep tool with `pattern: ^status: proposed`, `path: <SHIPYARD_DATA>/spec/features`, `glob: F*.md`, `output_mode: files_with_matches` to find proposed features. Then Read each returned file for title, RICE, points.
-2. If proposed features exist → show them and offer to approve:
+2. If proposed features exist → show them and offer to approve. Before any approval option, render each candidate's full approval contract as chat text: title, story points, RICE components, every Given/When/Then acceptance scenario verbatim, `user_flow_probe` kind plus command/steps verbatim, assumptions, unresolved items, and known `skip-with-reason` gaps. A title/RICE list alone is not approval-grade context.
    ```
    Backlog is empty, but [N] proposed features are waiting for approval:
 
@@ -59,7 +59,7 @@ Read BACKLOG.md for the ordered list of feature IDs. If BACKLOG.md doesn't exist
 
    Approve all and add to backlog? (yes / pick / discuss first)
    ```
-   - **yes** → for each ID, run `shipyard-data feature set-status F00N approved`, then one `shipyard-data backlog add F003 F007 ...` call for all of them together (the CLI inserts each in RICE-sorted position)
+   - **yes** → only after the approval contract above is rendered for every selected ID, run `shipyard-data feature set-status F00N approved`, then one `shipyard-data backlog add F003 F007 ...` call for all of them together (the CLI inserts each in RICE-sorted position)
    - **pick** → AskUserQuestion with numbered list, user picks which to approve
    - **discuss first** → suggest `/ship-discuss [ID]` for the top one
 3. If no proposed features either → AskUserQuestion: "The backlog is empty and no features are proposed. Run /ship-discuss to define features."
@@ -68,7 +68,7 @@ Read BACKLOG.md for the ordered list of feature IDs. If BACKLOG.md doesn't exist
 
 For each ID, use the Read tool on `<SHIPYARD_DATA>/spec/features/F<NNN>-*.md` (Glob first if you need to discover the slug) to get live data (title, RICE, points, status, epic, updated date). Also use Glob `<SHIPYARD_DATA>/spec/epics/E*.md` then Read each to build the epic index. Also Read `<SHIPYARD_DATA>/sprints/current/SPRINT.md` to identify which features are in the active sprint.
 
-**Also load ideas.** Use Glob `<SHIPYARD_DATA>/spec/ideas/IDEA-*.md` to enumerate ideas, then Read each one. Filter out any idea whose `status:` is `graduated` (already promoted to a feature) or `rejected` (triaged out). The remaining ideas form the pool for the IDEAS section below. Sort by `created:` descending (newest first).
+**Also load ideas.** Use Glob `<SHIPYARD_DATA>/spec/ideas/IDEA-*.md` to enumerate ideas, then Read each one. Filter out any idea whose `status:` is `graduated` (already promoted to a feature) or `rejected` (triaged out). The remaining ideas form the pool for the IDEAS section below. Sort by `created:` descending (fallback: legacy `captured:`; newest first).
 
 **Display in four sections — sprint first, then backlog, then proposed, then ideas:**
 
@@ -157,7 +157,7 @@ Walk through each backlog item one at a time. For each item:
    ```
 3. Then AskUserQuestion: "Keep / Reprioritize / Split / Archive / Kill?"
    - **Keep** — no changes
-   - **Reprioritize** — update RICE scores **in the feature file frontmatter** (ask which dimension changed)
+   - **Reprioritize** — update RICE component fields via `shipyard-data feature set` (ask which dimension changed; the CLI refreshes cached `rice_score`)
    - **Split** — break into smaller features (create new feature files, archive original)
    - **Archive** — status to `deferred` (removes from backlog automatically)
    - **Kill** — status to `rejected` (removes from backlog automatically)
@@ -243,7 +243,7 @@ When backlog is overwhelmingly large (50+ items) or consistently ignored:
 
 ### `approve [IDs]` → Approve proposed features into backlog
 
-For each ID provided, run `shipyard-data feature set-status F00N approved` (the CLI verifies `status: proposed` and refuses otherwise, naming the actual status). Then run one `shipyard-data backlog add <IDs>` call for all of them together — the CLI inserts each in RICE-sorted position and dedupes.
+For each ID provided, first Read the feature and render the same approval contract required by `/ship-discuss`: full Given/When/Then acceptance scenarios verbatim, `user_flow_probe` kind plus command/steps verbatim, assumptions, unresolved items, and known `skip-with-reason` gaps. Then AskUserQuestion for approval. Only after approval, run `shipyard-data feature set-status F00N approved` (the CLI verifies `status: proposed` and refuses otherwise, naming the actual status). Then run one `shipyard-data backlog add <IDs>` call for all of them together — the CLI inserts each in RICE-sorted position and dedupes.
 
 If no IDs provided, render every proposed feature (ID — title | RICE | pts) as chat text, then AskUserQuestion to pick. Feature data sitting in Read results or in the option labels does not count as rendered.
 

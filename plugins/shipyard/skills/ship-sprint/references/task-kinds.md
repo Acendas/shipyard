@@ -8,7 +8,7 @@ This file is the authoritative definition of the taxonomy. When planning a sprin
 
 | Kind | Executor | "Done" means | Required fields |
 |---|---|---|---|
-| `feature` (default) | `dispatching-task-loop` | Atomic commit containing impl + tests (Red → Green → Refactor) | — |
+| `feature` (default) | `dispatching-task-loop` | Atomic commit containing impl + tests (Red → Green → Refactor) | `acceptance_probe:` + `First failing test:` in Technical Notes |
 | `operational` | `dispatching-operational-task` | `verify_output:` points at a non-empty logcap capture from a passing run | `verify_command:` |
 | `research` | `dispatching-research-task` | `research_output:` points at a findings doc under `<SHIPYARD_DATA>/research/` | — |
 
@@ -17,6 +17,15 @@ Absent `kind:` is treated as `feature` — every legacy task file keeps working 
 ## `kind: feature`
 
 The default. A task that writes new code or modifies existing code. The builder runs the TDD cycle: write the failing test first (RED), implement the smallest change that passes it (GREEN), refactor (REFACTOR), commit atomically (`feat(TASK_ID): …`). The exit gate is a clean git tree + a commit whose subject contains the task ID.
+
+### Required fields
+```yaml
+kind: feature
+acceptance_probe: |
+  <single smoke command that proves this task's wiring>
+```
+
+The task body must also include a Technical Notes entry beginning with `First failing test:` so the builder knows what RED means before implementation. Without `acceptance_probe:`, `dispatching-task-loop` refuses to dispatch the task.
 
 Examples:
 - "Add JWT refresh to the auth middleware"

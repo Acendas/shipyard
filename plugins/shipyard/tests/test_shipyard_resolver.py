@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """Tests for bin/shipyard-resolver.mjs.
 
 The resolver is the single source of truth for project root, project hash,
@@ -11,6 +13,7 @@ behavior callers depend on, not just the source code.
 """
 
 import json
+
 import os
 import subprocess
 import sys

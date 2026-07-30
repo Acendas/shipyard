@@ -129,7 +129,15 @@ The `verification_tool` field is informational — it tells the reviewer what to
 
 ### verification_type: "manual"
 
-The AC requires human judgment and cannot be meaningfully automated (e.g., "degraded mode messaging is user-friendly", "admin dashboard layout is intuitive"). **Do not author a probe.** Instead, write a verification checklist in the task file's Technical Notes:
+The AC requires human judgment and cannot be meaningfully automated (e.g., "degraded mode messaging is user-friendly", "admin dashboard layout is intuitive"). This is valid for feature-level `user_flow_probe.kind: manual`, but a `kind: feature` task still needs an executable `acceptance_probe:` before `dispatching-task-loop` can run it.
+
+For task decomposition, route manual-only criteria explicitly:
+
+- If the task also changes executable behavior, author a narrow machine probe for the behavior and add the human judgment as a `## Manual Verification` checklist in Technical Notes.
+- If the task is purely subjective/manual, do **not** make it `kind: feature`; make it `kind: operational` with a `verify_command` that prepares or opens the verification surface, then carry the checklist into `/ship-review` quality gates.
+- If neither path is clear, refine or split the task before approval.
+
+Checklist format:
 
 ```markdown
 ## Manual Verification
@@ -138,7 +146,7 @@ The AC requires human judgment and cannot be meaningfully automated (e.g., "degr
 - [ ] [How to trigger the scenario]
 ```
 
-Manual verification items are presented as a checklist during `/ship-review` Stage 5. The reviewer must confirm each item before the sprint can be approved.
+Manual verification items are presented as a checklist during `/ship-review` Stage 5. The reviewer must confirm each item before the sprint can be approved. They do not satisfy the `acceptance_probe:` requirement for `kind: feature` tasks.
 
 **When to convert manual to probe:** If you can describe the check as "run X, expect Y", it's a probe — even if it requires a browser automation tool. Reserve `manual` for genuinely subjective checks: visual aesthetics, copy quality, workflow intuitiveness, accessibility judgment calls.
 
@@ -160,10 +168,10 @@ In the task file's frontmatter:
 
 ```yaml
 ---
-id: T-042
+id: T042
 title: Add user creation endpoint
 kind: feature
-parent_feature: F-007
+feature: F007
 status: approved
 effort: M
 acceptance_probe: |

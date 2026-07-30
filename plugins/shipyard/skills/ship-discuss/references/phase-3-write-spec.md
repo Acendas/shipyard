@@ -53,7 +53,7 @@ For each well-defined feature:
    rice_impact: 0         # 0–3: massive=3, high=2, medium=1, low=0.5
    rice_confidence: 0     # 0–100: % confidence in reach/impact estimates
    rice_effort: 0         # person-months (use 0.5 for small features)
-   rice_score: 0          # computed: (reach × impact × confidence) / effort
+   rice_score: 0          # cached derived score: (reach × impact × confidence) / effort; keep in sync with components
    feasibility: 0         # 1–10 from viability gate
    dependencies: []       # feature IDs this depends on
    references: []         # full relative paths: <SHIPYARD_DATA>/spec/references/FNNN-slug.md

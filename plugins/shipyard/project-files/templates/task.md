@@ -4,7 +4,7 @@ title: ""
 type: task
 kind: feature          # feature | operational | research — see ship-sprint/references/task-kinds.md
 feature: ""
-status: approved       # pending|in-progress|done|blocked|needs-attention — see ship-status/SKILL.md
+status: approved       # pending|approved|in-progress|done|blocked|needs-attention — see ship-status/SKILL.md
 effort: ""
 dependencies: []
 external_refs: []           # links to external systems: "JIRA-123", "GH-456", "https://..."

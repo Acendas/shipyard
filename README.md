@@ -278,7 +278,7 @@ Each `/ship-*` command is a [skill](https://docs.anthropic.com/en/docs/claude-co
 
 ### Registered agents + thin dispatch wrappers
 
-Shipyard ships 5 registered agents under `agents/` — `shipyard-code-reviewer`, `shipyard-spec-reviewer` (both read-only), `shipyard-disciplined-builder`, `shipyard-researcher`, and `shipyard-operational-task`. Capability skills (`dispatching-task-loop`, `dispatching-spec-review`, `dispatching-code-review`, `dispatching-research-task`, `dispatching-operational-task`, and others) are thin gate wrappers around them: each dispatches the matching `subagent_type: shipyard:<name>` with a structured-return contract that the wrapper verifies independently (commit sha exists, probe exit code is 0, no stub patterns in the diff) rather than trusting the subagent's own claim of success. The verification spine — task-return contract, orchestrator gate, wave-integration check, commit anchoring — lives in the wrapper skills and CLI, not in the agents themselves.
+Shipyard ships 6 registered agents under `agents/` — `shipyard-code-reviewer`, `shipyard-spec-reviewer` (both read-only), `shipyard-disciplined-builder`, `shipyard-researcher`, `shipyard-operational-task`, and `shipyard-track-coordinator`. Capability skills (`dispatching-task-loop`, `dispatching-spec-review`, `dispatching-code-review`, `dispatching-research-task`, `dispatching-operational-task`, `dispatching-track-coordinator`, and others) are thin gate wrappers around them: each dispatches the matching `subagent_type: shipyard:<name>` with a structured-return contract that the wrapper verifies independently (commit sha exists, probe exit code is 0, no stub patterns in the diff) rather than trusting the subagent's own claim of success. The verification spine — task-return contract, orchestrator gate, wave-integration check, commit anchoring — lives in the wrapper skills and CLI, not in the agents themselves.
 
 ### Rules (4)
 
@@ -294,9 +294,9 @@ Node [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) that enforce 
 
 ### Project Data
 
-All Shipyard data lives **outside your project** in `${CLAUDE_PLUGIN_DATA}/projects/<hash>/`. Zero git noise — the only in-repo artifact is a **gitignored `.shipyard` symlink** pointing at that data dir (a navigation convenience that also serves as the resolver's last-resort fallback). Only `.claude/rules/shipyard-*.md` files are installed in the project (plugins can't ship rules remotely).
+All Shipyard data lives **outside your project** in `${CLAUDE_PLUGIN_DATA}/projects/<hash>/`. Zero git noise — the only in-repo artifact is a **gitignored `.shipyard` symlink** pointing at that data dir (a navigation convenience that also serves as the resolver's last-resort fallback). Shipyard's bundled rules stay plugin-local and are read on demand; `/ship-init` does not copy `shipyard-*.md` rules into your project.
 
-The hash is derived from the **parent repo root**, so all worktrees of the same project share one data directory. Builder subagents running in `<repo>/.claude/worktrees/<task>` write back to the orchestrator's data dir on `main` — no state divergence across waves.
+Builder subagent worktrees under `<repo>/.claude/worktrees/<task>` share the orchestrator's parent-repo data directory, so wave state does not diverge. User-created worktrees elsewhere hash their own toplevel and get isolated Shipyard state, so they do not clobber the parent project.
 
 ```
 plugin-data/projects/<hash>/

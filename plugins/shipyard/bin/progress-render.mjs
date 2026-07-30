@@ -6,14 +6,15 @@
  * truth. Eliminates the dual-authority confusion where /ship-execute
  * treated PROGRESS.md as "confirmatory" and /ship-review treated it as a
  * drift mirror — they disagreed, and the model freelanced its own schema
- * at creation time. After v2.6.0, no skill Writes or Edits PROGRESS.md;
- * the PostToolUse render-progress hook regenerates it whenever a cursor
- * write lands, and ship-sprint's init-sprint CLI lays down the initial
+ * at creation time. After v2.9.0, no skill Writes or Edits PROGRESS.md;
+ * cursor CLI writes call this renderer in-process whenever cursor state
+ * changes, and ship-sprint's init-sprint CLI lays down the initial
  * template-canonical copy.
  *
  * The render is deterministic: same event log + SPRINT.md frontmatter
- * always produces the same PROGRESS.md byte-for-byte. The hook fires on
- * every cursor write, so the file stays current without skill effort.
+ * always produces the same PROGRESS.md byte-for-byte. The cursor CLI invokes
+ * the renderer on every cursor write, so the file stays current without skill
+ * effort.
  *
  * Sections (matching project-files/templates/PROGRESS.md):
  *   - Frontmatter `current_wave:` — latest wave_check_passed event's wave
@@ -38,6 +39,7 @@
 
 import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { getDataDir, ShipyardResolverError } from "./shipyard-resolver.mjs";
 
 function readSprintFrontmatter(dataDir) {
@@ -257,7 +259,7 @@ export function writeProgress(dataDir) {
 }
 
 // CLI entry point. Idempotent — safe to call repeatedly.
-const isMain = import.meta.url === `file://${process.argv[1]}`;
+const isMain = import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   let dataDir;
   try {

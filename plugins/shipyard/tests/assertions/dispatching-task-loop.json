@@ -307,5 +307,11 @@
     "pattern": "next-id ideas.{0,80}--data-dir \\{\\{data_dir\\}\\}",
     "dotall": true,
     "why": "The dispatch site (this skill) must make the allocation requirement visible too, not bury it only in the agent body — and confirm data_dir is available to the builder for this call."
+  },
+  {
+    "name": "background_dispatch_names_builder",
+    "type": "contains",
+    "pattern": "name: \"builder-<task_id>\"",
+    "why": "Background builders need deterministic names so timeout recovery can TaskStop the exact presumed-dead subagent."
   }
 ]

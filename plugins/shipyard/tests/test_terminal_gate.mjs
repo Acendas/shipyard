@@ -6,7 +6,7 @@
  *
  * The gate's job is to refuse terminal-cursor writes that claim sprint
  * success (execute: terminal + status complete; review: terminal +
- * stage terminal_approved/changes/issues) without the supporting event-log
+ * stage terminal/terminal_approved/changes/issues) without the supporting event-log
  * evidence. Escalation/paused cursors bypass the gate (different meaning).
  *
  * Each test sets up an isolated $SHIPYARD_DATA tree with a SPRINT.md, an
@@ -413,6 +413,21 @@ test("review terminal_approved: allows release once a fresh full-suite verificat
     makeFreshFullSuiteProof(dataDir);
     const v = evaluateReviewTerminal({ dataDir, terminalStage: "terminal_approved" });
     assert.equal(v.allowed, true, `expected allow; got: ${v.reasons.join("; ")}`);
+  });
+});
+
+test("evaluateTerminalGate: review stage terminal requires demo_user evidence", () => {
+  withTempDataDir((dataDir) => {
+    const content = `---
+pipeline: ship-review
+terminal: true
+stage: terminal
+---
+
+body`;
+    const v = evaluateTerminalGate({ dataDir, proposedContent: content });
+    assert.equal(v.allowed, false);
+    assert.match(v.reasons.join("\n"), /stage=demo_user/);
   });
 });
 

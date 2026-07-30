@@ -13,14 +13,9 @@ You are facilitating a feature discovery conversation. This is fluid — not a q
 
 ## Context
 
-!`shipyard-context path`
+Context is loaded only after the planning mutex is acquired. Do not add `!` backtick context commands above the mutex; they execute before the model can take the lock.
 
-!`shipyard-context view config`
-!`shipyard-context view codebase`
-!`shipyard-context list epics`
-!`shipyard-context list features`
-
-**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. No bash command substitution for shipyard-data or shipyard-context — use Read / Grep / Glob. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
+**Paths.** After the mutex is acquired, run the context commands listed in "Load Context" and use the absolute SHIPYARD_DATA prefix from `shipyard-context path`. No `~`, `$HOME`, or shell variables in `file_path`. No bash command substitution for shipyard-data or shipyard-context — use Read / Grep / Glob after context is loaded. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
 
 **Quiet by default.** This is a conversation, so the interruption *rounds* carry real discussion — but between them, work quietly. Only three things reach the chat outside a user-input round: a one-line transition marker per phase, a compact ASCII diagram/status block, and a one-line banner when launching or receiving the background deep-dive (`→ Deep-dive back: 3 findings, 1 data-model risk`). Research findings, viability reads, impact maps, and diagrams are rendered in full ONLY when they feed an imminent AskUserQuestion (render-before-ask) — otherwise they collapse to a one-line result and fold into the eventual gate summary. Reading the dossier puts it in YOUR context; that is not a reason to re-emit it as prose unless a decision rides on it now. **No running commentary** ("Now I'll research…", "Let me run the viability gate…", explaining a no-input phase). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
 
@@ -35,6 +30,28 @@ $ARGUMENTS
 ## Session Mutex Check
 
 **Absolute first action — before reading any context, before mode detection, before anything.** Run `shipyard-data lock acquire planning --skill ship-discuss`. Exit 0 → proceed to "Detect Mode" below. Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP — do not continue with any other instructions, do not load any context, do not call any other tools. If the CLI printed a stale/corrupt-lock recovery line on stderr, echo it, then proceed (see the `acquiring-skill-lock` capability skill for the full contract — locks are CLI-owned as of v3.7.0, never Read or Write either lock file by hand).
+
+**Concurrent execution safety.** The lock CLI allows exactly one cross-lock pair: `ship-discuss` may run while `ship-execute` holds the execution lock. This exception is for **future/backlog work** only. If the acquire stdout includes `cross_lock_allowed: "ship-discuss+ship-execute"`, continue in **future-work mode**:
+- Load the active sprint summary (`shipyard-context view sprint 80`) and treat every feature/task referenced by `<SHIPYARD_DATA>/sprints/current/SPRINT.md` as read-only.
+- Safe: create new IDEAs, discuss new features, write future feature specs, graduate an idea into a new feature, and add future approved features to BACKLOG.md. `/ship-execute` has already snapshotted its active sprint; backlog additions do not enter the running sprint.
+- Unsafe: editing active-sprint feature specs, active-sprint task files, SPRINT.md, PROGRESS.md, cursors, task statuses, or acceptance/user-flow probes for features in the running sprint. If the user asks for one, refuse the edit and offer to capture a follow-up IDEA or bug for the next sprint.
+- EPIC/refine flows that would cascade into an active-sprint feature must skip those files and surface them as deferred follow-ups. Never silently mutate a feature that `/ship-execute` may be reading or verifying.
+
+## Load Context
+
+After the lock is acquired, run these context reads exactly once before mode detection:
+
+```bash
+shipyard-context path
+shipyard-context view config
+shipyard-context view codebase
+shipyard-context list epics
+shipyard-context list features
+```
+
+Use the returned SHIPYARD_DATA path literally in all file operations.
+
+If the lock acquire reported `cross_lock_allowed: "ship-discuss+ship-execute"`, also run `shipyard-context view sprint 80` before mode detection and keep its feature/task IDs as the active-sprint read-only set for the whole invocation.
 
 ## Detect Mode
 
@@ -100,7 +117,7 @@ title: "[cleaned up title from description]"
 type: idea
 status: proposed
 source: "inline capture (--idea)"
-captured: [today's date]
+created: [today's date]
 ---
 
 # [Title]
@@ -167,7 +184,7 @@ title: "[title from user's description]"
 type: idea
 status: proposed
 source: "inline capture"
-captured: [today's date]
+created: [today's date]
 ---
 
 # [Title]
@@ -450,7 +467,7 @@ The user can override: "Just capture it as proposed, we'll refine later."
 
 For each well-defined feature: generate the next FNNN ID, determine the epic (existing, new, or empty — see reference for the decision tree), and write `<SHIPYARD_DATA>/spec/features/FNNN-[slug].md` with full required frontmatter (id, title, type, epic, status, story_points, complexity, token_estimate, all RICE fields, feasibility, dependencies, references, external_refs, children, tasks, created, updated).
 
-**External linking:** If the user mentioned an external issue key during discussion (e.g., "this is JIRA-123" or "relates to GH-456"), add it to `external_refs` in the feature frontmatter. Don't ask — if they said it, link it. Body sections: user story, Why This Matters, **acceptance criteria in Given/When/Then format** (happy path + at least one edge case), optional Interface / Data Model / Configuration / Flows / Error Handling sections (include only if discussed), Technical Notes (absorbed from `.research-draft.md`), Decision Log. **Hard limit: 200 lines per file** — split into sub-features (F001a/b) or extract to `<SHIPYARD_DATA>/spec/references/FNNN-<slug>.md` if larger. Fill every RICE field; compute `rice_score = (reach × impact × confidence) / effort`. Mark `.research-draft.md` `obsolete: true` only after Phase 3 finishes (it is the recovery checkpoint until then).
+**External linking:** If the user mentioned an external issue key during discussion (e.g., "this is JIRA-123" or "relates to GH-456"), add it to `external_refs` in the feature frontmatter. Don't ask — if they said it, link it. Body sections: user story, Why This Matters, **acceptance criteria in Given/When/Then format** (happy path + at least one edge case), optional Interface / Data Model / Configuration / Flows / Error Handling sections (include only if discussed), Technical Notes (absorbed from `.research-draft.md`), Decision Log. **Hard limit: 200 lines per file** — split into sub-features (F001a/b) or extract to `<SHIPYARD_DATA>/spec/references/FNNN-<slug>.md` if larger. Fill every RICE component field; `rice_score` is the derived cached score `(reach × impact × confidence) / effort` and must match those components. Mark `.research-draft.md` `obsolete: true` only after Phase 3 finishes (it is the recovery checkpoint until then).
 
 **Diagram persistence:** Every diagram shown during Phase 1.5 — C4, sequence, state machine, ER, deployment, data-flow, or user-journey — is converted to Mermaid and written to the feature's `## Flows` section (an ER diagram may live under `## Data Model` instead when the schema is the feature's primary artifact). Diagrams shown in conversation are ephemeral — this is the only chance to persist them. The canonical diagram-type → Mermaid-syntax mapping is the single source of truth in `references/phase-3-write-spec.md`; keep this list in lock-step with it. See that reference for format rules.
 
@@ -608,7 +625,7 @@ Render the full summary as text first (all sections above — this is the render
 - **Fix an acceptance scenario** — a scenario is wrong, unclear, or missing. A follow-up `AskUserQuestion` captures which scenario and the correction; update the feature file, re-render the affected scenario(s) as text, and re-present this gate.
 - **Something's missing from the original scope** — using the SCOPE-DRIFT DIFF, the user names a dropped concern. Re-enter Phase 1 with it as the seed (re-run 1.5b → 2 → 3), or promote a captured IDEA back into the feature (inline-merge or split into a sibling feature); then re-render and re-present this gate.
 - **Refine** — broader iteration; stay in discussion, re-enter Phase 5 when ready. Do not run `lock release` — the planning lock stays held.
-- **Reject** — leave features at `status: proposed`, stop. User can resume with `/ship-discuss [ID]`. Do not run `lock release` — the planning lock stays held.
+- **Reject** — leave features at `status: proposed`, then release the planning mutex with `shipyard-data lock release planning --skill ship-discuss` as the last action and stop. User can resume with `/ship-discuss [ID]`. Keep the lock only for nonterminal **Refine** paths.
 
 **Do not skip rendering the verbatim scenarios and the scope-drift diff before this gate.** The v2.4.0 audit flagged approving-a-count as the single largest risk surface in `/ship-discuss`; the mitigation is now the render-before-ask guarantee (the actual scenario text is on screen), not a dedicated extra round. Loop the "Fix an acceptance scenario" and "Something's missing" adjust paths — re-rendering and re-asking — until the user picks **Approve everything**.
 
@@ -621,9 +638,10 @@ Run these steps in order. The active-skill mutex stays active until the **very l
 1. **Update feature statuses** — run `shipyard-data feature set-status FNNN approved` for each approved feature.
 2. **Append to BACKLOG.md** — run `shipyard-data backlog add <IDs>` (one call, all approved IDs together).
 3. **Mark graduated ideas** — for IDEA-sourced features, run `shipyard-data idea set-status IDEA-NNN graduated --to FNNN`. This `shipyard-data` Bash call runs fine inside the guarded window — the active-skill mutex only blocks accidental Edits to source files, not CLI state mutations — and doing it here keeps the lifecycle change inside the mutex window.
-4. **Mark `.research-draft.md` obsolete** if it still exists with the current topic (`obsolete: true`).
-5. **Print the Next Up block** (see below).
-6. **Last action — after everything above has flushed:** run `shipyard-data lock release planning --skill ship-discuss` (soft-delete sentinel — CLI-owned, never a hand Write). After this step, do **not** continue with any tool calls — the discussion is done. If the user wants to build the feature, they will run `/ship-sprint` in a new session.
+4. **Constitution amendment prompt** — if `.research-draft.md` has `## Constitution Gaps`, render the candidate rules as chat text and ask whether to add them to project rules. Keep this before draft cleanup so the gap evidence is still present.
+5. **Mark `.research-draft.md` obsolete** if it still exists with the current topic (`obsolete: true`).
+6. **Print the Next Up block** (see below).
+7. **Last action — after everything above has flushed:** run `shipyard-data lock release planning --skill ship-discuss` (soft-delete sentinel — CLI-owned, never a hand Write). After this step, do **not** continue with any tool calls — the discussion is done. If the user wants to build the feature, they will run `/ship-sprint` in a new session.
 
 ---
 

@@ -1018,5 +1018,37 @@
     "type": "contains",
     "pattern": "user_flow_probe",
     "why": "v3.17.0: nothing authored this field before — the template claimed /ship-discuss did, but it had zero references, which is why it was reliably discovered missing after the sprint had built."
+  },
+  {
+    "name": "mutex_before_context_load",
+    "type": "contains",
+    "pattern": "Absolute first action.{0,160}lock acquire planning",
+    "dotall": true,
+    "why": "/ship-discuss must acquire the planning mutex before loading any context."
+  },
+  {
+    "name": "concurrent_execute_discuss_future_work_mode",
+    "type": "contains",
+    "pattern": "Concurrent execution safety",
+    "why": "ship-discuss is allowed to overlap ship-execute only in future-work mode."
+  },
+  {
+    "name": "concurrent_execute_discuss_active_sprint_read_only",
+    "type": "contains",
+    "pattern": "active-sprint read-only set",
+    "why": "When discussion overlaps execution, features/tasks in the running sprint must be treated as read-only."
+  },
+  {
+    "name": "concurrent_execute_discuss_allows_future_backlog",
+    "type": "contains",
+    "pattern": "future/backlog work",
+    "why": "The concurrency exception is for future backlog/spec work, not active sprint mutation."
+  },
+  {
+    "name": "phase6_constitution_before_next_up",
+    "type": "contains",
+    "pattern": "4\\. \\*\\*Constitution amendment prompt[\\s\\S]*6\\. \\*\\*Print the Next Up block[\\s\\S]*7\\. \\*\\*Last action",
+    "dotall": true,
+    "why": "Phase 6 finalize ordering keeps constitution updates and Next Up inside the mutex, with lock release last."
   }
 ]

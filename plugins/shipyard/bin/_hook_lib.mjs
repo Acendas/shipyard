@@ -1,9 +1,8 @@
 /**
  * Shared helpers for Shipyard hook scripts.
  *
- * Node port of `project-files/scripts/_hook_lib.py`. The two implementations
- * MUST stay behaviorally equivalent during the H1→H4 cutover. Tests in
- * `tests/test_hook_lib.mjs` exercise the same matrix as `test_hook_lib.py`.
+ * Shared Node implementation for hook modules. Tests in
+ * `tests/test_hook_lib.mjs` exercise the security and portability matrix.
  *
  * What lives here vs the individual hook modules:
  *
@@ -48,8 +47,8 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const DEFAULT_LOG_MAX_LINES = 1000;
 const DEFAULT_LOG_MAX_BYTES = 256 * 1024;
@@ -104,7 +103,7 @@ export async function resolveShipyardData() {
 
   try {
     // Convert filesystem path to file:// URL for ESM import on all platforms.
-    const url = "file://" + (isAbsolute(resolverPath) ? resolverPath : resolve(resolverPath));
+    const url = pathToFileURL(isAbsolute(resolverPath) ? resolverPath : resolve(resolverPath)).href;
     const mod = await import(url);
     if (typeof mod.getDataDir === "function") {
       try {
@@ -188,7 +187,7 @@ export function dataDirContains(filePath, dataDir) {
   try {
     const rel = relative(dataDir, filePath);
     if (!rel) return true; // same path
-    if (rel.startsWith("..")) return false;
+    if (rel === ".." || rel.startsWith(".." + sep)) return false;
     if (isAbsolute(rel)) return false; // Windows cross-drive
     return true;
   } catch {
@@ -263,7 +262,7 @@ export function logBreadcrumb(
     } catch {
       // swallow
     }
-  });
+  }, { failOpen: true });
 }
 
 /**
@@ -384,7 +383,7 @@ export function logEvent(dataDir, type, fields = {}, opts = {}) {
     } catch {
       // swallow — diagnostics must not break hooks
     }
-  });
+  }, { failOpen: true });
 }
 
 /**
@@ -432,7 +431,7 @@ function require_basename(p) {
  * Acquires `lockPath` via `openSync(..., 'wx')` (O_EXCL). On EEXIST, stats
  * the existing file — if mtime is older than `ttlMs`, treats it as stale
  * and retries once after deletion. Otherwise polls every `retryMs` until
- * `maxRetries` is exhausted, then throws.
+ * `maxRetries` is exhausted, then throws unless `opts.failOpen` is true.
  *
  * On exit (normal or thrown), the lockfile is removed in a finally block.
  *
@@ -458,10 +457,8 @@ export function withLockfile(lockPath, fn, opts = {}) {
       break;
     } catch (err) {
       if (err.code !== "EEXIST") {
-        // Some other error — fail open (caller swallows for breadcrumb,
-        // surfaces for guard hooks).
-        try { fn(); } catch { /* ignore */ }
-        return;
+        if (opts.failOpen) return fn();
+        throw err;
       }
       // Lock contended. Check if stale.
       if (!staleRecovered) {
@@ -479,10 +476,10 @@ export function withLockfile(lockPath, fn, opts = {}) {
       }
       attempt++;
       if (attempt > maxRetries) {
-        // Could not acquire — fail open. Better to lose serialization
-        // than to fail the hook and break a tool call.
-        try { fn(); } catch { /* ignore */ }
-        return;
+        const err = new Error(`timed out acquiring lock ${lockPath}`);
+        err.code = "ELOCKTIMEOUT";
+        if (opts.failOpen) return fn();
+        throw err;
       }
       // Synchronous sleep via Atomics.wait. Never notified.
       Atomics.wait(sleepBuf, 0, 0, retryMs);

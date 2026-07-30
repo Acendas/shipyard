@@ -114,8 +114,8 @@ The middle row — **tests pass, probe fails** — is the one that justifies pro
 
 ## When to Run a Probe
 
-1. **After a subagent returns `STATUS: COMPLETE`** in `dispatching-task-loop` — the orchestrator MUST verify the subagent's claimed `PROBE_EXIT: 0` by running the probe itself, in the orchestrator session, against the subagent's commit. This catches subagents that fabricate probe output.
-2. **At `/ship-review`** — the reviewer runs each task's probe (or the wave-level demo-path probe, if defined) before approving. No probe pass = no approval.
+1. **Inside `dispatching-task-loop` subagents** — the builder runs the task's `acceptance_probe:` in its own worktree before recording `STATUS: COMPLETE`. The orchestrator does **not** re-run that probe during task-loop gating; it verifies the structured captured result (`PROBE_EXIT: 0`, non-empty output tail, commit exists, anti-stub scan). Pre-merge worktree state is not reliably reconstructable in the orchestrator session, so the captured exit code is the authoritative task-loop signal.
+2. **At `/ship-review` or other post-merge checks** — the reviewer may run each task's probe again against the merged tree when the stage explicitly calls for durable proof. No probe pass = no approval.
 3. **Manually**, when a user wants to confirm a feature still works after a merge or a config change — the probe is durable, not session-bound.
 
 ## Probe Hygiene

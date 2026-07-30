@@ -75,9 +75,10 @@ The graph below is what `cursor advance` enforces (source of truth: `bin/pipelin
 | `verdict` | Write `verify/[feature-id]-verdict.md` (model-authored — verdicts stay Write) | `demo_probe` | `demo_probe` |
 | `demo_probe` | Stage 4.8 — verify each feature's `user_flow_probe` | `demo_user` | escalate (FAIL/TIMEOUT) |
 | `demo_user` | Stage 5 — present results + AskUserQuestion approval (pause-before-ask; manual gates batched into one call) | `process_approved` / `process_issues` / `process_changes` | (pause → waits for user → resume) |
-| `process_approved` | Stage 6 — update feature statuses to `done` | `retro_step_1` | — |
+| `process_approved` | Stage 6 — update feature statuses to `done` | `retro_decision` (or `release_step_1` if `--skip-retro`) | — |
 | `process_issues` | Stage 6 — create bug entries, feature → `approved` | `terminal_issues` | — |
 | `process_changes` | Stage 6 — update spec, create patch tasks | `terminal_changes` | — |
+| `retro_decision` | Ask whether to run or skip the retrospective (pause-before-ask) | `retro_step_1` (Run retro) / `release_step_1` (Skip retro) | (pause → waits for user → resume) |
 | `retro_step_1` → `retro_step_2` → `retro_step_3` → `retro_step_4` | Retro (data → discussion → IDEA items → metrics); `retro_step_2` is pause-before-ask with all three prompts in ONE AskUserQuestion call | next retro step, then `release_step_1` | `retro_step_2`: pause → waits for user → resume |
 | `release_step_1` | Present release plan + AskUserQuestion (pause-before-ask; load-bearing approval) | `release_step_2` (Release) / `archive` (Skip) / `release_step_1` (Edit — self-loop) | (pause → waits for user → resume) |
 | `release_step_2` | Update feature frontmatter, prepend CHANGELOG.md | `release_step_3` | — |

@@ -258,6 +258,10 @@ function resolveTaskFile(dataDir, tid, opts) {
   return resolveEntityFile(dataDir, "tasks", tid, opts);
 }
 
+function validateTaskId(tid) {
+  if (!TID_RE.test(tid)) fail(2, `spec-state: invalid task id "${tid}" — expected T### (e.g. T004)`);
+}
+
 // --- RICE ------------------------------------------------------------------
 
 function readFeatureRice(dataDir, fid) {
@@ -277,6 +281,19 @@ function readFeatureRice(dataDir, fid) {
   if (!Number.isFinite(effort) || effort <= 0) missing.push("rice_effort");
   if (missing.length > 0) return { score: null, missing };
   return { score: (reach * impact * confidence) / effort, missing: [] };
+}
+
+function formatRiceScore(score) {
+  return Number.isInteger(score) ? String(score) : score.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function computeRiceScoreFromBlock(block) {
+  const reach = parseFloat(getScalar(block, "rice_reach"));
+  const impact = parseFloat(getScalar(block, "rice_impact"));
+  const confidence = parseFloat(getScalar(block, "rice_confidence"));
+  const effort = parseFloat(getScalar(block, "rice_effort"));
+  if (![reach, impact, confidence, effort].every(Number.isFinite) || effort <= 0) return null;
+  return (reach * impact * confidence) / effort;
 }
 
 // --- BACKLOG.md parse / serialize ------------------------------------------
@@ -392,7 +409,7 @@ const FEATURE_SET_REFUSED_HINTS = {
   status: "use `feature set-status <FID> <status>` instead",
   id: "the id is fixed at creation — not settable",
   title: "title changes go through Edit on the feature file body/frontmatter directly (not CLI-owned)",
-  tasks: "the tasks array is maintained by the task-creation flow, not `feature set`",
+  tasks: "use `feature set-tasks <FID> <TID,TID,...>` or `feature clear-tasks <FID>` instead",
   references: "use `feature add-ref <FID> <path>` instead",
   external_refs: "use `feature add-external-ref <FID> <key>` instead",
 };
@@ -454,6 +471,10 @@ function featureSet(dataDir, args) {
     let block = fm.block;
     for (const [key, value] of Object.entries(kv)) {
       block = setScalar(block, key, key === "epic" && value === "" ? '""' : value);
+    }
+    if (Object.keys(kv).some((key) => key.startsWith("rice_"))) {
+      const score = computeRiceScoreFromBlock(block);
+      if (score !== null) block = setScalar(block, "rice_score", formatRiceScore(score));
     }
     if (!("updated" in kv)) {
       block = setScalar(block, "updated", today());
@@ -610,6 +631,45 @@ function featureClearTasks(dataDir, args) {
     writeFrontmatteredFile(path, fm, block);
     logEvent(dataDir, "feature_tasks_cleared", { feature: fid, count: existing.length });
     process.stdout.write(`${fid}: cleared ${existing.length} task(s) from tasks:\n`);
+  });
+}
+
+function featureSetTasks(dataDir, args) {
+  const fid = args[0];
+  const raw = args[1];
+  if (!fid || raw === undefined) fail(2, "usage: feature set-tasks <FID> <TID,TID,...>");
+  if (!FID_RE.test(fid)) fail(2, `spec-state: invalid feature id "${fid}" — expected F###`);
+  const tasks = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const tid of tasks) validateTaskId(tid);
+  const deduped = [...new Set(tasks)];
+  if (deduped.length !== tasks.length) fail(3, `spec-state: feature set-tasks refuses duplicate task IDs`);
+
+  withNamedLock(dataDir, `feature-${fid}`, () => {
+    const path = resolveFeatureFile(dataDir, fid);
+    const validatedTasks = [];
+    for (const tid of deduped) {
+      const taskPath = resolveTaskFile(dataDir, tid, { optional: true });
+      if (!taskPath) fail(4, `spec-state: feature set-tasks refuses missing task ${tid}`);
+      const taskContent = readFileSync(taskPath, "utf8");
+      const taskFm = parseFm(taskContent);
+      if (!taskFm) fail(3, `spec-state: task ${tid} has no frontmatter block — refusing`);
+      const parentFeature = getScalar(taskFm.block, "feature");
+      if (parentFeature !== fid) {
+        fail(3, `spec-state: feature set-tasks refuses ${tid}: task feature is "${parentFeature || "(missing)"}", not "${fid}"`);
+      }
+      validatedTasks.push(tid);
+    }
+    const content = readFileSync(path, "utf8");
+    const fm = parseFm(content);
+    if (!fm) fail(3, `spec-state: ${fid} has no frontmatter block — refusing`);
+    let block = setArrayField(fm.block, "tasks", validatedTasks);
+    block = setScalar(block, "updated", today());
+    writeFrontmatteredFile(path, fm, block);
+    logEvent(dataDir, "feature_tasks_set", { feature: fid, tasks: validatedTasks.join(","), count: validatedTasks.length });
+    process.stdout.write(`${fid}: tasks = [${validatedTasks.join(", ")}]\n`);
   });
 }
 
@@ -1220,10 +1280,12 @@ function dispatch(dataDir, entity, sub, rest) {
         return featureDepLink(dataDir, rest, { add: false });
       case "clear-tasks":
         return featureClearTasks(dataDir, rest);
+      case "set-tasks":
+        return featureSetTasks(dataDir, rest);
       case "record-proof":
         return featureRecordProof(dataDir, rest);
       default:
-        fail(2, `shipyard-data feature: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|clear-tasks|record-proof`);
+        fail(2, `shipyard-data feature: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof`);
     }
   } else if (entity === "backlog") {
     switch (sub) {
@@ -1281,6 +1343,12 @@ export function specStateCmd(dataDir, args) {
     if (err instanceof CliFail) {
       process.stderr.write(err.message.endsWith("\n") ? err.message : err.message + "\n");
       process.exit(err.code);
+    }
+    if (err && err.code === "ELOCKTIMEOUT") {
+      // Lock contention exhausted its retries (withLockfile no longer fails
+      // open). Surface a clean message + exit 3 rather than a raw stack trace.
+      process.stderr.write(`spec-state: ${err.message} — another process holds it; retry shortly.\n`);
+      process.exit(3);
     }
     throw err;
   }

@@ -129,7 +129,7 @@ title: "Simplify: [what] using [new thing from feature]"
 type: idea
 status: proposed
 source: "simplification-scan from [feature ID]"
-captured: [today's date]
+created: [today's date]
 ---
 
 # Simplify: [what] using [new thing]

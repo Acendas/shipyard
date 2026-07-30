@@ -3,6 +3,12 @@
  *   `<SHIPYARD_DATA>/.active-session.json`   (kind: "planning"  — ship-discuss/ship-sprint/ship-quick's planning phase)
  *   `<SHIPYARD_DATA>/.active-execution.json` (kind: "execution" — ship-execute/ship-review/ship-quick's execution phase)
  *
+ * Planning and execution are mutually exclusive except for the narrow
+ * ship-discuss + ship-execute pair. That exception is intentional: discussion
+ * can safely author future/backlog work while execute owns the active sprint.
+ * The skill body is responsible for treating active-sprint specs/tasks as
+ * read-only in that concurrent mode.
+ *
  * Pre-v3.7.0, these were hand-Written by skill bodies following the
  * `acquiring-skill-lock` capability skill's prose procedure — the same
  * class of drift the CLI absorption already closed for SPRINT.md/feature
@@ -77,6 +83,24 @@ function lockPath(dataDir, kind) {
 
 function metaLockPath(dataDir, kind) {
   return join(dataDir, `.skill-lock.${kind}.lock`);
+}
+
+function acquireMetaLockPath(dataDir) {
+  return join(dataDir, ".skill-lock.acquire.lock");
+}
+
+function isAllowedConcurrentPair(requestedKind, requestedSkill, otherKind, otherSkill) {
+  return (
+    requestedKind === "planning" &&
+    requestedSkill === "ship-discuss" &&
+    otherKind === "execution" &&
+    otherSkill === "ship-execute"
+  ) || (
+    requestedKind === "execution" &&
+    requestedSkill === "ship-execute" &&
+    otherKind === "planning" &&
+    otherSkill === "ship-discuss"
+  );
 }
 
 /**
@@ -176,7 +200,7 @@ export function acquireLock(dataDir, kind, opts) {
   }
 
   let result;
-  withLockfile(metaLockPath(dataDir, kind), () => {
+  withLockfile(acquireMetaLockPath(dataDir), () => {
     const nowMs = Date.now();
     const nowIso = new Date(nowMs).toISOString();
     const own = classify(dataDir, kind, sessionId, unverified, nowMs);
@@ -188,7 +212,10 @@ export function acquireLock(dataDir, kind, opts) {
 
     const otherKind = kind === "planning" ? "execution" : "planning";
     const other = classify(dataDir, otherKind, sessionId, unverified, nowMs);
-    const otherBlocked = other.state === "held";
+    const concurrentAllowed =
+      other.state === "held" &&
+      isAllowedConcurrentPair(kind, skill, otherKind, other.read.obj?.skill ?? null);
+    const otherBlocked = other.state === "held" && !concurrentAllowed;
 
     if (ownBlocked || otherBlocked) {
       const blocks = [];
@@ -262,8 +289,17 @@ export function acquireLock(dataDir, kind, opts) {
         depth: newObj.depth,
         ...(recovered ? { recovered } : {}),
         ...(crossLockSameSession ? { cross_lock_same_session: true } : {}),
+        ...(concurrentAllowed ? { cross_lock_allowed: "ship-discuss+ship-execute" } : {}),
       },
     };
+    if (concurrentAllowed) {
+      logEvent(dataDir, "skill_lock_concurrent_allowed", {
+        kind,
+        skill,
+        other_kind: otherKind,
+        other_skill: other.read.obj?.skill ?? null,
+      });
+    }
   });
   return result;
 }

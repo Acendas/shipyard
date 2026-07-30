@@ -657,6 +657,12 @@
     "why": "v3.4.0: retro_step_2 pauses before AskUserQuestion"
   },
   {
+    "name": "pause_before_ask_at_retro_decision",
+    "type": "contains",
+    "pattern": "cursor pause review --note \"awaiting user: retro decision",
+    "why": "Retro run/skip choice is a blocking ask, so it must use the same pause-before-ask safety protocol."
+  },
+  {
     "name": "pause_before_ask_at_release_step_1",
     "type": "contains",
     "pattern": "cursor pause review --note \"awaiting user: release approval",
@@ -925,5 +931,80 @@
     "type": "contains",
     "pattern": "stage id and ledger key stay `demo_probe`",
     "why": "v3.17.0 compat: renaming the stage id would strand in-flight cursors and renaming the ledger key would invalidate every recorded entry. Only the frontmatter field was renamed."
+  },
+  {
+    "name": "review_auto_fix_before_asking",
+    "type": "contains",
+    "pattern": "Auto-fix before asking",
+    "why": "Review should repair routine findings by dispatching fixers instead of asking whether findings should be fixed."
+  },
+  {
+    "name": "review_asks_only_for_severe_risky_or_blocked",
+    "type": "contains",
+    "pattern": "severe/risky.*BLOCKED.*hard-ceiling|BLOCKED.*severe/risky.*product-decision",
+    "dotall": true,
+    "why": "User interrupts are reserved for severe/risky/product decisions, BLOCKED states, or hard-ceiling escalation."
+  },
+  {
+    "name": "stage0_no_iteration2_user_ask",
+    "type": "contains",
+    "target": "ref:scanner-dispatch.md",
+    "pattern": "do not ask the user at iteration 2",
+    "why": "Stage 0 must keep fixing until clean/stuck/hard-ceiling, not ask after early non-convergence."
+  },
+  {
+    "name": "stage4_patch_tasks_auto_dispatch",
+    "type": "contains",
+    "pattern": "patch task \\+ auto-dispatch",
+    "why": "Simple in-scope review gaps should become patch tasks that are dispatched immediately, not deferred to the user by default."
+  },
+  {
+    "name": "demo_fail_auto_dispatch_before_ask",
+    "type": "contains",
+    "pattern": "On any FAIL/TIMEOUT: create/dispatch",
+    "why": "User-flow failures should trigger an automatic fix attempt before asking the user."
+  },
+  {
+    "name": "has_skip_retro_flag",
+    "type": "contains",
+    "pattern": "--skip-retro",
+    "why": "Users need an explicit fast path from approved review to release/archive without running the retrospective."
+  },
+  {
+    "name": "has_retro_decision_stage",
+    "type": "contains",
+    "pattern": "Retro Decision \\(stage_id: retro_decision\\)",
+    "why": "Default review should ask once whether to run or skip retro before asking any retro questions."
+  },
+  {
+    "name": "retro_questions_only_after_yes",
+    "type": "contains",
+    "pattern": "Do not ask the three retro questions unless the user chose \\*\\*Run retro\\*\\*",
+    "why": "The retro discussion prompts should only appear after the user opts into the retrospective."
+  },
+  {
+    "name": "skip_retro_routes_to_release_step_1",
+    "type": "contains",
+    "pattern": "skip-retro.*release_step_1",
+    "dotall": true,
+    "why": "The skip-retro flag must route to release planning, not silently terminal or archive without release approval."
+  },
+  {
+    "name": "retro_agentic_quality_bar",
+    "type": "contains",
+    "pattern": "Agentic retrospective quality bar",
+    "why": "Shipyard retros should be data-first learning loops for an agentic build framework, not generic meeting prompts."
+  },
+  {
+    "name": "retro_action_items_capped",
+    "type": "contains",
+    "pattern": "Cap this at 5 IDEAs per retrospective",
+    "why": "Retros should not flood the backlog; only high-leverage improvements become IDEAs."
+  },
+  {
+    "name": "retro_collects_agentic_delivery_signals",
+    "type": "contains",
+    "pattern": "agentic delivery signals",
+    "why": "The retro should inspect build/test reruns, ledger reuse, review iterations, salvage/timeouts and plugin issue candidates."
   }
 ]

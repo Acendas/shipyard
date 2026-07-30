@@ -99,7 +99,7 @@ const FRONTMATTER_KEY_COMMANDS = Object.freeze({
   external_refs: "shipyard-data feature add-external-ref <FID> <key>",
   dependencies:
     "shipyard-data feature add-dep <A> <B>  |  shipyard-data feature remove-dep <A> <B>",
-  tasks: "shipyard-data feature clear-tasks <FID>",
+  tasks: "shipyard-data feature set-tasks <FID> <TID,TID,...>  |  shipyard-data feature clear-tasks <FID>",
   blocked_reason: 'shipyard-data task set-status <TID> blocked --reason "..."',
   blocked_since: 'shipyard-data task set-status <TID> blocked --reason "..."',
   attention_reason:

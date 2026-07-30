@@ -461,9 +461,9 @@
     "pattern": "Use Write to create SPRINT.md and PROGRESS.md"
   },
   {
-    "name": "quality_gate_has_22_checks",
+    "name": "quality_gate_has_24_checks",
     "type": "contains",
-    "pattern": "22-check table|22-row checklist"
+    "pattern": "24-check table|24-row checklist"
   },
   {
     "name": "quality_gate_references_technical_notes_mapping",
@@ -677,5 +677,19 @@
     "type": "contains",
     "pattern": "user_flow_probe",
     "why": "v3.17.0: a feature admitted to a sprint without a user-flow probe builds for hours before ship-execute Step 5.3 blocks on it."
+  },
+  {
+    "name": "deep_dive_draft_first_handoff",
+    "type": "contains",
+    "pattern": "draft task specs.{0,260}before writing final task files",
+    "dotall": true,
+    "why": "Deep-dive decomposition must not write final task files before the shell resolves required AskUserQuestion gates."
+  },
+  {
+    "name": "feature_tasks_updated_after_files_exist",
+    "type": "contains",
+    "pattern": "feature set-tasks.{0,180}after every referenced task file exists",
+    "dotall": true,
+    "why": "Feature task arrays are CLI-owned and must only point at existing task files owned by the feature."
   }
 ]

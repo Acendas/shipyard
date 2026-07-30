@@ -1,7 +1,7 @@
 /**
  * WorktreeCreate hook: create worktrees from the user's current branch.
  *
- * Node port of project-files/scripts/worktree-branch.py.
+ * WorktreeCreate hook for Shipyard builder worktrees.
  *
  * Replaces Claude Code's default worktree creation to handle:
  *  1. Default branches from origin/HEAD — use the user's current branch

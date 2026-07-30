@@ -51,6 +51,7 @@ import { dirLooksInitialized, ensureDataDirLink, getDataDir, getProjectRoot, Shi
 import { cursorCmd } from "./cursor-cli.mjs";
 import { parseFrontmatter, parseWaves } from "./terminal-gate.mjs";
 import { specStateCmd } from "./spec-state-cli.mjs";
+import { FEATURE_TRANSITIONS } from "./spec-lifecycle.mjs";
 import { releaseLock, skillLockCmd } from "./skill-lock.mjs";
 import { scanStubsCmd } from "./scan-stubs.mjs";
 import { verifyCmd } from "./verify-ledger.mjs";
@@ -1043,9 +1044,10 @@ function nextIdCmd(args, { dataDir: dataDirOverride } = {}) {
   });
 
   if (allocated === null) {
-    // withLockfile fails open (runs fn anyway if it can't acquire). The
-    // closure wrote `allocated`, so we should always have a value — if
-    // not, something is very wrong.
+    // withLockfile throws (ELOCKTIMEOUT) if it can't acquire, so a timeout
+    // never reaches here — it propagates out before this guard. The closure
+    // always writes `allocated` on the success path, so a null here means the
+    // closure ran without setting it: something is very wrong.
     process.stderr.write(
       `shipyard-data next-id: allocation failed — lockfile unavailable and closure did not run. This is a bug.\n`,
     );
@@ -1765,7 +1767,7 @@ const REGISTRY_ENTITY_RULES = {
       "token_estimate", "rice_reach", "rice_impact", "rice_confidence",
       "rice_effort", "rice_score", "dependencies", "references", "tasks", "created",
     ],
-    statusValues: ["proposed", "approved", "in-progress", "done", "deployed", "released", "cancelled"],
+    statusValues: Object.keys(FEATURE_TRANSITIONS),
   },
   tasks: {
     dir: join("spec", "tasks"),
@@ -2199,7 +2201,7 @@ function main() {
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|clear-tasks|record-proof> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify> ... [--data-dir <path>] | config set <key> <value> | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
+          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify> ... [--data-dir <path>] | config <set-model|set> ... | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
       );
       process.exit(1);
   }

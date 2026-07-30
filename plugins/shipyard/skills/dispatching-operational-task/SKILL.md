@@ -181,7 +181,7 @@ Before flipping the operational task to `done`:
 
    d. **Verify `LAST_LINES:` content matches the tail of the capture file** (sanity check that the subagent didn't fabricate). If divergent → contract violation.
 
-   e. All checks pass → mark task `done`. Note the `PATCH_TASKS_FILED` count in PROGRESS.md so the user knows new tasks materialized.
+   e. All checks pass → mark task `done`, emit `shipyard-data events emit operational_task_completed pipeline=ship-execute task=<id> status=complete capture=<verify_output_path>`, and emit `shipyard-data events emit task_dispatch_returned pipeline=ship-execute task=<id> status=complete kind=operational commit_sha=<current HEAD sha>`. The second event is the terminal-gate evidence shared with feature tasks; do not skip it just because no builder worktree was involved. Note the `PATCH_TASKS_FILED` count in PROGRESS.md so the user knows new tasks materialized.
 
 3. **If `STATUS: BLOCKED`:** render the `REASON:` and the failing capture tail (last ~20 lines) as chat text — a tail read via the Read tool exists only in context and does not count as shown — then AskUserQuestion. Likely options:
    - User fixes manually and re-runs the task

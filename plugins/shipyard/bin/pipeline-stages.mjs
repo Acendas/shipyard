@@ -75,6 +75,7 @@ const STAGE_PATTERNS = {
     { re: /^process_approved$/, key: "process_approved" },
     { re: /^process_issues$/, key: "process_issues" },
     { re: /^process_changes$/, key: "process_changes" },
+    { re: /^retro_decision$/, key: "retro_decision" },
     { re: /^retro_step_(?<iter>[1-4])$/, key: "retro_step" },
     { re: /^release_step_(?<iter>[1-3])$/, key: "release_step" },
     { re: /^archive$/, key: "archive" },
@@ -127,8 +128,8 @@ const GRAPH = {
     terminal_single_task: { terminal: true, next: [] },
   },
   "ship-review": {
-    // preflight → code review, or straight to tests (--skip-code-review),
-    // or retro (--retro-only)
+    // preflight → code review, straight to tests (--skip-code-review),
+    // or retro (--retro-only). process_approved asks whether to run retro.
     preflight: { entry: true, next: ["code_review_iter", "tests", "retro_step"] },
     code_review_iter: { selfLoop: true, next: ["simplify"] },
     simplify: { next: ["tests"] },
@@ -147,9 +148,10 @@ const GRAPH = {
     verdict: { next: ["demo_probe"] },
     demo_probe: { next: ["demo_user"] },
     demo_user: { next: ["process_approved", "process_issues", "process_changes"] },
-    process_approved: { next: ["retro_step"] },
+    process_approved: { next: ["retro_decision", "retro_step", "release_step"] },
     process_issues: { next: ["terminal_issues"] },
     process_changes: { next: ["terminal_changes"] },
+    retro_decision: { next: ["retro_step", "release_step"] },
     retro_step: { selfLoop: true, next: ["release_step"] },
     release_step: { selfLoop: true, next: ["archive", "terminal"] },
     archive: { next: ["terminal"] },
