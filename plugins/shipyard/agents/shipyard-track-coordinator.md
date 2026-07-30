@@ -45,7 +45,7 @@ Maintain a running **TRACK NOTES** block, starting `(none yet)`. Then, for each 
 
 1. **Compose the builder's brief** — the same fields `dispatching-task-loop` gives a builder (task ID, working branch, base ref, data dir, task file path, feature file path, acceptance probe, sprint ID, wave number, plus this task's `data_impl_guide`/`quality_standards_digest` paths if your brief includes them for this task) — plus two things only you add:
    - **Prepend your current TRACK NOTES block**, framed as "Notes from earlier tasks in this track (read before starting):" — this is the concrete artifact that makes your persistence load-bearing; without it, whatever you learn reaches only you, never the code-writer.
-   - **Ask the builder to append a short freeform section after its own Required Return Shape** — "Track notes for the next task: interfaces you introduced or changed, decisions you took, gotchas you hit, files you touched — a few bullet points." This does not alter the builder's fixed return contract (`STATUS`/`COMMIT`/`PROBE_EXIT`/`PROBE_OUTPUT_TAIL` stay exactly as `shipyard-disciplined-builder.md` defines them) — its own contract explicitly allows extra content around those pinned lines, so asking for more is additive, not a change to the agent you're dispatching unchanged.
+   - **Ask the builder to append only this optional named section after its Required Return Shape:** `TRACK_NOTES_FOR_NEXT_TASK:` with a few bullets for interfaces introduced/changed, decisions taken, gotchas, or files touched. This does not alter the builder's fixed return contract (`STATUS`/`COMMIT`/`PROBE_EXIT`/`PROBE_OUTPUT_TAIL` stay exactly as `shipyard-disciplined-builder.md` defines them); it uses the builder's one allowed extension field instead of freeform commentary.
 2. **Dispatch the builder synchronously** — you have no way to poll a background result, so you must wait for the direct return:
 
        Agent(
@@ -86,7 +86,7 @@ You attempt every task your brief lists exactly once (plus the single silent-red
 
 # Required Return Shape
 
-This is your last action — you are not complete until this STATUS block is emitted. Your reply MUST contain these lines, exactly, on their own lines. Anything else around them is fine but main's wrapper skill (`dispatching-track-coordinator`) parses these:
+This is your last action — you are not complete until this STATUS block is emitted. Your reply is a machine contract, not a progress update: output only the matching block below, with no preamble, epilogue, apology, status narration, or explanation outside the named fields. Main's wrapper skill (`dispatching-track-coordinator`) parses these:
 
     STATUS: COMPLETE
     TRACK_ID: <track id from your brief>

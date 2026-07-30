@@ -16,7 +16,7 @@ This is how Shipyard executes one task without burning the orchestrator's contex
 
 This loop is /goal-shaped at the task level: "work until the acceptance probe passes." There is no flag, no opt-in — the subagent's internal cycle and iteration cap (5) ARE the /goal semantics. The cap exists so the orchestrator can redirect on genuinely stuck tasks (one redispatch via the orchestrator-side rule, then `needs-attention`), not so the subagent can give up early. The subagent must not return `STATUS: COMPLETE` until the probe passes; it must not return `STATUS: BLOCKED` before exhausting reasonable attempts.
 
-The orchestrator does NOT surface mid-loop to the user. Probe failures inside the iteration cap stay inside the subagent context. The user sees only the final structured return: COMPLETE with evidence, or BLOCKED with a one-paragraph reason after the cap. This is the trade /goal makes — silence between dispatch and result, with the structured return contract guaranteeing no silent false completion.
+The orchestrator does NOT surface mid-loop to the user. Probe failures inside the iteration cap stay inside the subagent context. The user sees only the final structured return summarized by the caller: COMPLETE with evidence, or BLOCKED with a one-paragraph reason after the cap. Do not forward subagent preamble, epilogue, or incidental commentary. This is the trade /goal makes — silence between dispatch and result, with the structured return contract guaranteeing no silent false completion.
 
 The subagent emits a `task_loop_iteration` event per iteration (`shipyard-data events emit task_loop_iteration task=<id> iteration=<N> probe_exit=<code> --data-dir {{data_dir}}`) so `/ship-status` can render the trajectory without re-reading the subagent's transcript. The event log is the user's window into a running /goal loop. **Always pass `--data-dir {{data_dir}}`** — the subagent runs inside a builder worktree that can hash to a different project data dir than the orchestrator when the orchestrator itself is running in a user worktree of the same repo; the literal path from the brief sidesteps re-resolution entirely.
 
@@ -77,7 +77,7 @@ Agent(
 
 ## Orchestrator-Side Parsing and Gating
 
-After the Agent call returns, parse the reply:
+After the Agent call returns, parse the reply. Ignore `TRACK_NOTES_FOR_NEXT_TASK:` unless this task-loop invocation was nested under `shipyard-track-coordinator`; the track coordinator consumes that optional field itself. In normal `/ship-execute` task dispatch, it is not user-facing and must not be forwarded as commentary.
 
 1. **Find the `STATUS:` line.** If neither `STATUS: COMPLETE` nor `STATUS: BLOCKED` is present → contract violation; treat as `STATUS: BLOCKED` with reason `contract violation: no STATUS line`.
 

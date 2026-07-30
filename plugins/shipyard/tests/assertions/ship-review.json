@@ -845,6 +845,11 @@
     "pattern": "Quiet by default"
   },
   {
+    "name": "review_does_not_paste_subagent_chatter",
+    "type": "contains",
+    "pattern": "Subagent returns are internal contracts"
+  },
+  {
     "name": "stage1a_check_first_ledger",
     "type": "contains",
     "pattern": "shipyard-data verify check --key test_commands",

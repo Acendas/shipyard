@@ -48,6 +48,15 @@ Otherwise, proceed.
    `shipyard-logcap run <name> -- <cmd>` (ships a `.cmd` shim), or use Node inline
    (`node -e "…"`).
 
+5. **Capture every executed diagnostic command on the first run.** If you run a
+   test command, acceptance probe, repro script, dev server, `adb logcat`, or
+   any other log-producing diagnostic command, the FIRST run must go through
+   `shipyard-logcap run <task_id>-<phase> -- <command>`. Do not run it bare
+   "just to see the failure" and then rerun with capture; that loses the only
+   output that matters and wastes time on flakes. After a failure, inspect the
+   existing capture with `shipyard-logcap grep`, `shipyard-logcap view`, or
+   `shipyard-logcap tail` before deciding to rerun.
+
 Reading list (read these files before doing anything else):
 - the task file path from your brief           (your task spec — frontmatter + acceptance criteria)
 - the feature file path from your brief, if present (parent feature spec — Technical Notes, references)
@@ -118,17 +127,26 @@ Loop until the acceptance probe passes AND no stubs remain. Do not exit otherwis
 3. **Write implementation (GREEN)** — minimum code to satisfy the test contract you
    just wrote. Trust the assertions; the wave boundary will execute them.
 4. **Run the acceptance probe** (from your brief) to demonstrate wiring works
-   end-to-end. The probe is your authoritative signal. Capture exit code and the
-   last 20 lines of output verbatim.
+   end-to-end. The probe is your authoritative signal. Run it through logcap on
+   the first attempt:
+
+       shipyard-logcap run <task_id>-probe-<iteration> -- <acceptance_probe>
+
+   Capture the exit code and resolve the capture path with
+   `shipyard-logcap path <task_id>-probe-<iteration>`. Read that file for the
+   last 20 lines of output verbatim. Never run the probe bare first and then
+   rerun with capture after it fails.
 5. **If probe exit ≠ 0:** reflect on the output. What does the failure tell you about
-   what's actually wired? Fix it. Re-run the probe. Loop.
+   what's actually wired? Fix it. Re-read the existing logcap capture with
+   `shipyard-logcap grep/view/tail` as needed, then re-run the probe through
+   logcap with the next iteration name. Loop.
 6. **If probe passes:** scan your own diff for stubs (the rules above). Bound the
    scan to your own work: `git diff <base_ref-from-brief>...HEAD`. If any stub remains, fix
    it and re-probe. Otherwise commit.
 7. **Commit atomically:** `feat(<task_id>): <one-line>` with the probe output tail
    in the commit body.
 8. **Persist the structured return via the CLI (MANDATORY).** Do NOT hand-write
-   the return file. First write your probe output tail to a plain file (use the
+   the return file. First write your probe output tail from the logcap capture to a plain file (use the
    Write tool — it is auto-approved for SHIPYARD_DATA):
        <data_dir>/sprints/current/.subagent-returns/<task_id>.probe-tail.txt
    Then run:
@@ -186,7 +204,7 @@ loop indefinitely — give the orchestrator the chance to redirect.
 
 # Required Return Shape
 
-This is your last action — you are not complete until this STATUS block is emitted AND `task-return` has been written (step 8). Done-without-task-return is a contract violation. Your reply MUST contain these lines, exactly, on their own lines, in this order. Anything else around them is fine but the orchestrator parses these:
+This is your last action — you are not complete until this STATUS block is emitted AND `task-return` has been written (step 8). Done-without-task-return is a contract violation. Your reply is a machine contract, not a progress update: output only the block below, with no preamble, epilogue, apology, status narration, or explanation outside the named fields. If a track coordinator explicitly asked for notes, append only a `TRACK_NOTES_FOR_NEXT_TASK:` section after the required block; otherwise append nothing.
 
     STATUS: COMPLETE
     COMMIT: <full git sha of your final commit>
@@ -199,6 +217,11 @@ OR, if blocked:
     STATUS: BLOCKED
     ESCALATION_CODE: <one of: isolation_failure | misrouted_kind | design_ambiguity | verify_flaky | spec_coverage_gap | external_dependency_unreachable | dispatch_loop_repeated | (omit if none fits)>
     REASON: <one paragraph, plain text, what you tried and what's stuck>
+
+Optional only when requested by a track coordinator:
+
+    TRACK_NOTES_FOR_NEXT_TASK:
+    <short bullets about interfaces, decisions, gotchas, or files touched>
 
 Prefer a specific ESCALATION_CODE over BLOCKED-with-prose-only when one fits — the
 orchestrator routes on the code, not the prose. Codes:

@@ -12,6 +12,18 @@
     "why": "check_dispatch_contract_pairs also enforces this structurally; pinned here too as a content-level regression guard, matching dispatching-task-loop.json's own convention."
   },
   {
+    "name": "track_coordinator_return_is_machine_contract",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "machine contract, not a progress update"
+  },
+  {
+    "name": "track_builder_notes_are_named_field",
+    "type": "contains",
+    "target": "agent:shipyard-track-coordinator",
+    "pattern": "TRACK_NOTES_FOR_NEXT_TASK"
+  },
+  {
     "name": "coordinator_never_builds_never_certifies",
     "type": "contains",
     "target": "agent:shipyard-track-coordinator",

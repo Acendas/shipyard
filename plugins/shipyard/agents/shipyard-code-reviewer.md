@@ -96,7 +96,7 @@ You MAY:
 
 # Required Return Shape
 
-This is your last action — you are not complete until this STATUS block is emitted. Your reply MUST contain these lines exactly:
+This is your last action — you are not complete until this STATUS block is emitted. Your reply is a machine contract, not a progress update: output only the matching block below, with no preamble, epilogue, apology, status narration, or explanation outside the named fields and finding blocks.
 
     STATUS: CLEAN                               (only when no findings ≥ 80)
     FINDINGS: 0

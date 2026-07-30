@@ -121,6 +121,8 @@ Everything else waits for a gate. **Findings, diagrams, analysis, and reasoning 
 
 **No running commentary.** Do not announce a step before doing it ("Now I'll…", "Let me analyze…", "I'm going to check…"), do not explain the rationale for a step that needs no user input, do not restate what a stage does before running it, and do not re-narrate what a tool result already showed. If nothing needs a decision and no boundary was crossed, say nothing — do the work and move on.
 
+**Subagent and capability-skill returns are internal by default.** A registered agent's final reply is a machine contract, not a user-facing progress note. Agents return only their required `STATUS:` block and fields, with no preamble, epilogue, apology, "here's what I did", or freeform explanation outside named fields such as `REASON:`, `LAST_LINES:`, `TLDR:`, `TRACK_NOTES:`, or structured findings. Orchestrator skills parse those fields and surface only one of: a gate summary, a blocker that needs a decision, a terminal summary, or the compact boundary marker. Never paste a subagent's commentary into chat just because the Agent tool returned it.
+
 This does NOT loosen render-before-ask. At a user-input gate, render fully — that is exactly the "explaining when a decision is needed is justified" the user wants. Quiet-by-default governs the space *between* gates; render-before-ask governs the moment *at* a gate. They are complements: quiet in the corridors, full light in the rooms where the user decides.
 
 ## Ask vs Assume

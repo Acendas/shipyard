@@ -217,6 +217,14 @@ class TestNameValidation(LogcapTestBase):
         self.assertNotEqual(rc, 0)
         self.assertIn('reserved suffix', stderr)
 
+    def test_rejects_reserved_latest_name(self):
+        _, stderr, rc = run_cli(
+            ['run', 'latest', '--', 'sh', '-c', 'true'],
+            env_extra=self.env,
+        )
+        self.assertNotEqual(rc, 0)
+        self.assertIn('reserved', stderr)
+
     def test_rejects_empty_name(self):
         _, _, rc = run_cli(
             ['run', '', '--', 'sh', '-c', 'true'],
@@ -344,6 +352,58 @@ class TestReadSubcommands(LogcapTestBase):
         # Captured content includes all three tokens.
         self.assertIn('two', stdout)
 
+    def test_run_filter_narrows_live_output_only(self):
+        stdout, _, rc = run_cli(
+            ['run', 'livefilter', '--filter', 'KEEP',
+             '--', 'sh', '-c', 'printf "DROP\\nKEEP this\\n"'],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 0)
+        self.assertIn('KEEP this', stdout)
+        self.assertNotIn('DROP', stdout)
+
+        path, _, _ = run_cli(['path', 'livefilter'], env_extra=self.env)
+        with open(path.strip()) as f:
+            content = f.read()
+        self.assertIn('DROP', content)
+        self.assertIn('KEEP this', content)
+
+    def test_latest_points_to_most_recent_capture(self):
+        self._seed_capture('older', content='old\\n')
+        self._seed_capture('newer', content='new\\n')
+        stdout, _, rc = run_cli(['path', 'latest'], env_extra=self.env)
+        self.assertEqual(rc, 0)
+        self.assertTrue(stdout.strip().endswith('newer.log'))
+
+    def test_view_filters_time_window_and_caps(self):
+        content = (
+            '06-11 10:00:00.000 I/Tag( 1): first\n'
+            'continuation first\n'
+            '06-11 10:01:00.000 I/Tag( 1): second needle\n'
+            '06-11 10:02:00.000 I/Tag( 1): third needle\n'
+        )
+        _, _, rc = run_cli(
+            ['run', 'windowed', '--', 'sh', '-c', f'printf {content!r}'],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 0)
+        stdout, stderr, rc = run_cli(
+            ['view', 'windowed', '--filter', 'needle', '--since', '10:01:00',
+             '--until', '10:02:00', '--max', '1'],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 0)
+        self.assertIn('second needle', stdout)
+        self.assertNotIn('third needle', stdout)
+        self.assertIn('truncated', stderr)
+
+        stdout, _, rc = run_cli(
+            ['view', 'windowed', '--filter', 'needle', '--count'],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 0)
+        self.assertIn('2 matching lines', stdout)
+
 
 class TestProbeAndPrune(LogcapTestBase):
 
@@ -357,10 +417,61 @@ class TestProbeAndPrune(LogcapTestBase):
         # The probe's reported tmp_dir should be our sandbox tmp.
         self.assertIn(self.tmpdir, stdout)
 
-    # test_prune_removes_old_sessions REMOVED in 2.0 (F-19/F-22). The
-    # `prune` subcommand was deleted from shipyard-logcap because no skill
-    # ever called it — capture-session housekeeping is a user-side cron
-    # concern, not a Shipyard CLI surface.
+    def test_prune_keep_removes_older_captures(self):
+        self._seed_named_capture('keep-a')
+        self._seed_named_capture('keep-b')
+        self._seed_named_capture('keep-c')
+
+        stdout, _, rc = run_cli(['prune', '--keep', '2'], env_extra=self.env)
+        self.assertEqual(rc, 0)
+        self.assertIn('removed 1 capture', stdout)
+
+        stdout, _, rc = run_cli(['list'], env_extra=self.env)
+        self.assertEqual(rc, 0)
+        self.assertNotIn('keep-a.log', stdout)
+        self.assertIn('keep-b.log', stdout)
+        self.assertIn('keep-c.log', stdout)
+
+    def test_prune_older_than_removes_stale_capture(self):
+        self._seed_named_capture('stale')
+        path, _, _ = run_cli(['path', 'stale'], env_extra=self.env)
+        old = 946684800  # 2000-01-01
+        os.utime(path.strip(), (old, old))
+
+        stdout, _, rc = run_cli(['prune', '--older-than', '1s'], env_extra=self.env)
+        self.assertEqual(rc, 0)
+        self.assertIn('removed 1 capture', stdout)
+        self.assertFalse(os.path.exists(path.strip()))
+
+    def _seed_named_capture(self, name):
+        _, _, rc = run_cli(
+            ['run', name, '--', 'sh', '-c', f'echo {name}'],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 0)
+
+
+class TestDurationAndExitFile(LogcapTestBase):
+
+    def test_run_duration_stops_stream_and_exits_zero(self):
+        stdout, _, rc = run_cli(
+            ['run', 'duration', '--duration', '1s',
+             '--', 'sh', '-c', 'while true; do echo tick; sleep 0.1; done'],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 0)
+        self.assertIn('tick', stdout)
+
+    def test_exit_file_records_child_exit_code(self):
+        exit_file = os.path.join(self.tmp_root, 'exit.txt')
+        _, _, rc = run_cli(
+            ['run', 'exitfile', '--exit-file', exit_file,
+             '--', 'sh', '-c', 'exit 7'],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 7)
+        with open(exit_file) as f:
+            self.assertEqual(f.read().strip(), '7')
 
 
 class TestProjectIsolation(LogcapTestBase):

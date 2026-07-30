@@ -28,6 +28,12 @@
     "pattern": "STATUS: BLOCKED"
   },
   {
+    "name": "gap_analyst_return_is_machine_contract",
+    "type": "contains",
+    "target": "agent:shipyard-gap-analyst",
+    "pattern": "machine contract, not a progress update"
+  },
+  {
     "name": "has_read_only_section",
     "type": "contains",
     "target": "agent:shipyard-gap-analyst",

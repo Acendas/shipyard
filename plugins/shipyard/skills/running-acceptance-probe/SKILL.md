@@ -48,21 +48,21 @@ The probe is authored alongside acceptance criteria (see `authoring-acceptance-p
 
 ## How to Run It
 
-The orchestrator runs the probe via the `Bash` tool with **`run_in_background: false`** and a **timeout**:
+The orchestrator runs the probe via the `Bash` tool with **`run_in_background: false`** and a **timeout**. The command itself is wrapped in `shipyard-logcap` on the first run:
 
 ```
 Bash(
-  command: <probe_command>,
+  command: "shipyard-logcap run {session_name-or-task_id}-probe -- <probe_command>",
   description: "Run acceptance probe for {task_id}",
   timeout: <timeout_seconds * 1000>
 )
 ```
 
-Capture the full output (stdout + stderr) and the exit code from the Bash tool's return.
+Capture the full output (stdout + stderr) in the logcap file and the exit code from the Bash tool's return. Resolve the durable file with `shipyard-logcap path {session_name-or-task_id}-probe`.
 
 **Run in a fresh shell.** The Bash tool already does this — each invocation spawns its own shell. Do not chain probes with `;` or `&&` to other setup commands; the probe must be self-contained. If setup is needed, that's a problem with the probe — fix the probe, not the runner.
 
-**Capture once, do not re-run.** Re-running the probe to "double-check" wastes tokens and risks flaky-test syndrome (the second run passes, you assume the first was a flake, you ship a real bug). One run, one exit code, one verdict.
+**Capture once, do not re-run.** Re-running the probe to "double-check" wastes tokens and risks flaky-test syndrome (the second run passes, you assume the first was a flake, you ship a real bug). One logcap run, one exit code, one verdict. If the output needs a different slice, use `shipyard-logcap grep/view/tail` against the existing capture.
 
 ## Output Shape
 
@@ -89,13 +89,13 @@ The caller (`dispatching-task-loop` orchestrator-side, `/ship-review`, etc.) dec
 
 ## Output Capture
 
-By default, the probe's output is captured by the Bash tool's return value. For wave-level retrospectives or `/ship-review` audit trails, the orchestrator can also tee output to a file by wrapping the probe:
+The probe's output is captured by `shipyard-logcap`. Resolve the durable artifact immediately after the run:
 
 ```
-<probe_command> 2>&1 | tee <SHIPYARD_DATA>/captures/{session_name}/{task_id}-probe.log
+shipyard-logcap path {session_name-or-task_id}-probe
 ```
 
-This is optional. The structured return above is the primary contract; the file capture is for human review later. The `shipyard-logcap` CLI offers richer rotation/grouping, but a plain `tee` is sufficient for the probe-run case.
+This is required for any probe execution. The structured return above is the primary contract, but the logcap file is the audit trail and recovery surface when the first run fails. Do not use raw `tee` and do not run the probe bare before capturing.
 
 ## Probe Failure Interpretation
 

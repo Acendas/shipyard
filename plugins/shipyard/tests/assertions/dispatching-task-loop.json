@@ -54,6 +54,36 @@
     "pattern": "PROBE_OUTPUT_TAIL"
   },
   {
+    "name": "builder_return_is_machine_contract",
+    "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
+    "pattern": "machine contract, not a progress update"
+  },
+  {
+    "name": "builder_forbids_return_chatter",
+    "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
+    "pattern": "no preamble, epilogue, apology, status narration"
+  },
+  {
+    "name": "builder_captures_diagnostics_on_first_run",
+    "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
+    "pattern": "Capture every executed diagnostic command on the first run"
+  },
+  {
+    "name": "builder_probe_runs_through_logcap",
+    "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
+    "pattern": "shipyard-logcap run <task_id>-probe-<iteration>"
+  },
+  {
+    "name": "builder_forbids_bare_first_probe",
+    "type": "contains",
+    "target": "agent:shipyard-disciplined-builder",
+    "pattern": "Never run the probe bare first"
+  },
+  {
     "name": "has_iteration_cap",
     "type": "contains",
     "target": "agent:shipyard-disciplined-builder",

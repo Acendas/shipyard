@@ -69,24 +69,21 @@ Otherwise, proceed.
 
 2. **Run + capture (stream via Monitor).** Run this iteration's chosen
    command (from step 1) via the Monitor tool so progress and failures land
-   as events while the run is in flight. Tee output to a stable capture
-   path; the file remains the authoritative artifact.
+   as events while the run is in flight. Use `shipyard-logcap` as the capture
+   primitive; the file it writes remains the authoritative artifact.
 
        Monitor(
-         command: "((<this iteration's resolved command>); echo $? > <data_dir>/captures/<task_id>/run-<iteration>.exit) 2>&1 | tee <data_dir>/captures/<task_id>/run-<iteration>.log | grep -E --line-buffered '<filter>' || true",
+         command: "shipyard-logcap run <task_id>-run-<iteration> --filter '<filter>' --exit-file <data_dir>/captures/<task_id>/run-<iteration>.exit -- <this iteration's resolved command>",
          description: "<task_id> verify run <iteration>",
          timeout_ms: 1800000
        )
 
-   The inner `(<...resolved command>)` matters: if verify itself contains
-   `exit`, that `exit` only terminates the inner subshell, so the outer shell's
-   `echo $?` (writing the sentinel) still runs against the correct exit code.
-   This sentinel-file pattern is the robust way to propagate an exit code
-   through a pipe — a naive `| grep` can falsely flag a clean run as failed
-   (grep finds no match) or `|| true` can silently swallow the verify's own
-   failure. Read the sentinel `run-<iteration>.exit` after Monitor returns for
-   the authoritative exit code; the `|| true` on the grep is fine because the
-   sentinel is the source of truth, not grep's own exit.
+   `--filter` narrows only the live Monitor stream. The capture file remains
+   the full raw stdout+stderr stream, so you can re-filter it later without
+   re-running the command. `--exit-file` writes the wrapped command's exit code
+   to the sentinel path; Read `run-<iteration>.exit` after Monitor returns for
+   the authoritative exit code. Do not recreate this with `tee | grep`, and do
+   not pipe `shipyard-logcap run` into another filter.
 
    The `<filter>` regex MUST match BOTH progress markers (so a healthy run
    still produces events) AND failure signatures (so a crash, hang, or
@@ -96,7 +93,9 @@ Otherwise, proceed.
 
    Tighten or extend per the runner in use; when in doubt, broaden it. After
    Monitor exits, Read the sentinel `run-<iteration>.exit` for the verify's
-   exit code, and Read the capture file from disk for the LAST_LINES tail.
+   exit code, run `shipyard-logcap path <task_id>-run-<iteration>` to resolve
+   the capture path, and Read that capture file from disk for the LAST_LINES
+   tail.
 
    **Notification budget.** ~50 notifications per run is the target. For
    large suites, prefer summary-line filters over per-case PASS lines — see
@@ -104,7 +103,7 @@ Otherwise, proceed.
    recipes.
 
 3. **Update task frontmatter.** Run:
-       shipyard-data task append-verify <task_id> iteration=<N> command="<the command actually run this iteration — full or rerun_failed>" exit=<code> capture=captures/<task_id>/run-<N>.log
+       shipyard-data task append-verify <task_id> iteration=<N> command="<the command actually run this iteration — full or rerun_failed>" exit=<code> capture=<absolute path from shipyard-logcap path <task_id>-run-<N>>
    The CLI appends the structured `verify_history:` entry atomically (with
    `at:` defaulting to now) and refuses a duplicate `iteration`. Never
    hand-Edit `verify_history:`. Recording the literal command run (not a
@@ -112,7 +111,7 @@ Otherwise, proceed.
    one.
 
 4. **If exit == 0 AND this iteration ran the FULL command:** stop. Set
-   verify_output: pointing at the latest (full) capture. Return
+   verify_output: pointing at the latest full-run logcap capture path. Return
    STATUS: COMPLETE.
 
    **If exit == 0 but this iteration ran the narrowed `rerun_failed`
@@ -138,10 +137,10 @@ re-reading the capture file:
 
 # Required Return Shape
 
-This is your last action — you are not complete until this STATUS block is emitted. Your reply MUST contain these lines, exactly:
+This is your last action — you are not complete until this STATUS block is emitted. Your reply is a machine contract, not a progress update: output only the matching block below, with no preamble, epilogue, apology, status narration, or explanation outside the named fields.
 
     STATUS: COMPLETE
-    VERIFY_OUTPUT: captures/<task_id>/run-<final-N>.log
+    VERIFY_OUTPUT: <absolute path from shipyard-logcap path <task_id>-run-<final-N>>
     FINAL_EXIT: 0
     ITERATIONS_RUN: <integer>
     PATCH_TASKS_FILED: <integer>
@@ -153,7 +152,7 @@ OR:
     STATUS: BLOCKED
     ESCALATION_CODE: <one of: verify_flaky | external_dependency_unreachable | spec_coverage_gap | dispatch_loop_repeated | (omit if none fits)>
     REASON: <one paragraph: what's still failing and why>
-    VERIFY_OUTPUT: captures/<task_id>/run-<final-N>.log
+    VERIFY_OUTPUT: <absolute path from shipyard-logcap path <task_id>-run-<final-N>>
     FINAL_EXIT: <non-zero>
     ITERATIONS_RUN: <integer>
 

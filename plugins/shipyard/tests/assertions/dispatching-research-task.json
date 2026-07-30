@@ -36,6 +36,12 @@
     "pattern": "FINDINGS_COUNT"
   },
   {
+    "name": "researcher_return_is_machine_contract",
+    "type": "contains",
+    "target": "agent:shipyard-researcher",
+    "pattern": "machine contract, not a progress update"
+  },
+  {
     "name": "has_bogus_pass_event",
     "type": "contains",
     "pattern": "research_task_bogus_pass"

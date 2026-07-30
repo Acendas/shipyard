@@ -48,6 +48,17 @@
     "pattern": "LAST_LINES"
   },
   {
+    "name": "operational_agent_return_is_machine_contract",
+    "type": "contains",
+    "target": "agent:shipyard-operational-task",
+    "pattern": "machine contract, not a progress update"
+  },
+  {
+    "name": "operational_wrapper_does_not_forward_chatter",
+    "type": "contains",
+    "pattern": "does not forward subagent preamble, epilogue, or incidental commentary"
+  },
+  {
     "name": "has_bogus_pass_event",
     "type": "contains",
     "pattern": "operational_task_bogus_pass"
@@ -68,9 +79,15 @@
     "pattern": "Silence is not success"
   },
   {
-    "name": "monitor_grep_line_buffered",
+    "name": "monitor_uses_logcap_filter",
     "type": "contains",
-    "pattern": "grep -E --line-buffered"
+    "pattern": "shipyard-logcap run.*--filter",
+    "dotall": true
+  },
+  {
+    "name": "monitor_logcap_writes_exit_file",
+    "type": "contains",
+    "pattern": "--exit-file"
   },
   {
     "name": "monitor_filter_progress_token_required",

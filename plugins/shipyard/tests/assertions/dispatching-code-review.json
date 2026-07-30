@@ -35,6 +35,12 @@
     "pattern": "Silent return"
   },
   {
+    "name": "code_reviewer_return_is_machine_contract",
+    "type": "contains",
+    "target": "agent:shipyard-code-reviewer",
+    "pattern": "machine contract, not a progress update"
+  },
+  {
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",

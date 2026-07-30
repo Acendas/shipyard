@@ -16,7 +16,7 @@ Operational tasks have no Red step, no acceptance probe (the command itself is t
 
 This skill is /goal-shaped at the operational-task level: "run until the verify command exits 0." The Phase 1 (run+capture) → Phase 2 (fix-findings) → Phase 1 cycle is the /goal loop. It runs `max_iterations` (default 3 from config) times before returning `STATUS: BLOCKED` — there is no flag, no opt-in, no user prompt mid-loop. The cap is the only escape; otherwise the subagent stays inside the loop until the verify command exits 0. (This loop runs synchronously via Monitor; for the broader `/goal`-loop pacing discipline shared with the ScheduleWakeup-driven wave/sprint verifiers, see `references/schedule-wakeup-discipline.md`.)
 
-The orchestrator does not surface mid-loop to the user. The subagent absorbs every fix attempt, every re-run, every patch-task filing. Only the final structured return — `STATUS: COMPLETE` with `verify_output:` populated and the last capture's exit:0, or `STATUS: BLOCKED` with the failing-tail summary — reaches the orchestrator.
+The orchestrator does not surface mid-loop to the user. The subagent absorbs every fix attempt, every re-run, every patch-task filing. Only the final structured return — `STATUS: COMPLETE` with `verify_output:` populated and the last capture's exit:0, or `STATUS: BLOCKED` with the failing-tail summary — reaches the orchestrator. The caller summarizes that contract; it does not forward subagent preamble, epilogue, or incidental commentary.
 
 Emit a `operational_iteration` event from inside the subagent per cycle (`shipyard-data events emit operational_iteration task=<id> iteration=<N> exit=<code> findings=<count>`) so a user inspecting `/ship-status` or the event log mid-run can see the loop converging without re-reading the capture file. (The events this skill emits and the broader pipeline event vocabulary are cataloged in `references/event-types.md`.)
 
@@ -48,21 +48,19 @@ Operational tasks run in two phases inside the subagent's loop:
 1. Resolve the verify command (handle `test_commands.e2e` style indirection). Resolve `test_commands.rerun_failed` from the same config file at the same time, if present — used unmodified for interim narrowed re-runs (see "Failed-Only Rerun" below). Shipyard never edits, infers, or substitutes into this command; it is run verbatim exactly as configured.
 2. Run the command via **Monitor** so progress and failures stream to the orchestrator/user as notifications instead of arriving as one blob at the end. The capture file remains the source of truth for the structured return.
 
-   **Exit-code propagation — sentinel-file pattern.** A naive `<verify> | tee | grep` is broken in two ways: grep returning 1 on no-match would falsely flag a clean green run as failed, and `|| true` to suppress that swallows the *verify's* failure too. `set -o pipefail` plus `${PIPESTATUS[0]}` doesn't save you either — `|| true` resets PIPESTATUS by the time you read it. The robust pattern writes the verify's exit code to a sentinel file inside the subshell, BEFORE the pipe:
+   **Use `shipyard-logcap`, not raw `tee`.** Logcap is the single capture primitive: it records the full stdout+stderr stream, narrows only the live Monitor view with `--filter`, writes the wrapped command's exit to `--exit-file`, rotates without splitting log lines, and returns the wrapped command's exit code. Do not recreate this with `tee | grep`.
 
    ```
    Monitor(
-     command: "( (<verify_command>); echo $? > <SHIPYARD_DATA>/captures/<task_id>/run-<N>.exit ) 2>&1 | tee <SHIPYARD_DATA>/captures/<task_id>/run-<N>.log | grep -E --line-buffered '<filter-pattern>' || true",
+     command: "shipyard-logcap run <task_id>-run-<N> --filter '<filter-pattern>' --exit-file <SHIPYARD_DATA>/captures/<task_id>/run-<N>.exit -- <verify_command>",
      description: "<task_id> verify run <N>",
      timeout_ms: 1800000
    )
    ```
 
-   The inner `(<verify_command>)` matters: if verify itself contains `exit`, that `exit` only terminates the inner subshell. The outer shell then runs `echo $?` against the inner's exit code and writes the sentinel. Without the inner subshell, a verify like `printf '...'; exit 2` would terminate the surrounding subshell before the echo ran, and the sentinel file would never appear.
+   If `<verify_command>` is too shell-complex to pass safely as argv, write a newline-delimited argv file and use `shipyard-logcap run <task_id>-run-<N> ... --cmd-file <path>` instead. Do not pipe `shipyard-logcap run` into `grep` or `tail`; `--filter` is the live view, while the capture file stays raw.
 
-   After Monitor returns, Read `run-<N>.exit` for the authoritative exit code. The `|| true` on the grep is fine here — grep's exit no longer matters because the sentinel is the source of truth. Works under `bash`, `sh`, `dash`, `zsh` without shell-option assumptions.
-
-   `<N>` is the iteration number, starting at 1.
+   After Monitor returns, Read `run-<N>.exit` for the authoritative exit code. Then run `shipyard-logcap path <task_id>-run-<N>` and use that absolute capture path for `verify_history.capture`, `VERIFY_OUTPUT`, and `accept-operational capture=...`.
 
    `<N>` is the iteration number, starting at 1.
 
@@ -75,14 +73,14 @@ Operational tasks run in two phases inside the subagent's loop:
 
    **Notification budget.** Each filtered line is a notification = a turn cost. Aim for ~50 notifications per run. For suites with hundreds of tests, prefer summary-line filters (`Tests:|Suites:|Ran [0-9]+|^FAIL `) over per-case PASS/FAIL — the summary still surfaces final state plus any individual failure. Per-runner suggestions in `references/monitor-filters.md`.
 
-3. After Monitor exits, Read `run-<N>.exit` for the authoritative exit code. Read the capture file from disk (the file is the authoritative artifact; Monitor notifications are ephemeral). Take the last 20 lines for `LAST_LINES`.
+3. After Monitor exits, Read `run-<N>.exit` for the authoritative exit code. Resolve the capture path with `shipyard-logcap path <task_id>-run-<N>` and Read that file from disk (the file is the authoritative artifact; Monitor notifications are ephemeral). Take the last 20 lines for `LAST_LINES`.
 4. Append to the task's `verify_history:` frontmatter:
    ```yaml
    verify_history:
      - iteration: 1
        command: "<resolved command>"
        exit: <code>
-       capture: "captures/<task_id>/run-1.log"
+        capture: "<absolute path from shipyard-logcap path <task_id>-run-1>"
        at: "<ISO timestamp>"
    ```
 
@@ -125,7 +123,7 @@ Where a runner has no failed-only mode, leave `rerun_failed` unset — the loop 
 ## Dispatching the Operational Task
 
 The operational-task methodology (the three Iron Laws, The Loop — Monitor +
-sentinel-file exit-code propagation + the progress-AND-failure filter
+`shipyard-logcap` capture + exit-file propagation + the progress-AND-failure filter
 contract + notification budget, `task append-verify`, and the Required
 Return Shape) lives in the registered agent
 `agents/shipyard-operational-task.md` — read it once if you need to know
@@ -196,9 +194,9 @@ The combination of (Iron Law in prompt) + (orchestrator-side gate) catches:
 2. **Subagent disables failing tests instead of fixing**: gate steps b/c don't catch this directly — `dispatching-code-review` (test concern) does, ideally dispatched at sprint-completion. Operational tasks intrinsically can fall to this if not paired with code-review.
 3. **Subagent fabricates a green capture**: gate step d (`LAST_LINES:` vs file tail) catches divergence.
 
-## Note on logcap
+## Logcap Is Required
 
-The `shipyard-logcap` CLI is not required for the basic capture path — plain `tee` to a deterministic path under `<SHIPYARD_DATA>/captures/` is enough for typical operational tasks. logcap is preferable for rotation, grouping, or line-boundary-safe streaming on long-running processes.
+Operational verification runs use `shipyard-logcap`. Earlier Shipyard docs allowed a raw `tee` path for "typical" tasks; that split the capture contract and meant normal `/ship-execute` operational work could bypass the logcap primitive entirely. The single path is now: `Monitor` streams `shipyard-logcap run --filter ... --exit-file ...`, `shipyard-logcap path` resolves the capture artifact, and the orchestrator gate verifies that artifact.
 
 ## Pairing With Other Skills
 

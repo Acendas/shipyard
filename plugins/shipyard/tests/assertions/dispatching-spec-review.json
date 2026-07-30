@@ -48,6 +48,12 @@
     "pattern": "STATUS: FINDINGS"
   },
   {
+    "name": "spec_reviewer_return_is_machine_contract",
+    "type": "contains",
+    "target": "agent:shipyard-spec-reviewer",
+    "pattern": "machine contract, not a progress update"
+  },
+  {
     "name": "has_read_only_section",
     "type": "contains",
     "target": "agent:shipyard-spec-reviewer",

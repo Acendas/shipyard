@@ -32,14 +32,18 @@
  * capture.md), but the two names refer to different tools.
  *
  * Usage:
- *   shipyard-logcap run <name> [--max-size S] [--max-files N] -- <command...>
- *   shipyard-logcap run <name> [--max-size S] [--max-files N] --cmd-file <path>
- *   shipyard-logcap tail <name> [--filter <regex>] [--follow]
+ *   shipyard-logcap run <name> [--max-size S] [--max-files N]
+ *     [--filter <regex>] [--duration <duration>] [--exit-file <path>]
+ *     [--keep N] -- <command...>
+ *   shipyard-logcap run <name> [options] --cmd-file <path>
+ *   shipyard-logcap view <name|latest> [--filter <regex>] [--since TS]
+ *     [--until TS] [--max N] [--tail] [--count]
+ *   shipyard-logcap tail <name|latest> [--filter <regex>] [--follow]
  *   shipyard-logcap grep <name> <pattern> [--context N]
  *   shipyard-logcap list [--project]
- *   shipyard-logcap path <name>
+ *   shipyard-logcap path <name|latest>
  *   shipyard-logcap probe
- *   shipyard-logcap prune [--older-than 24h]
+ *   shipyard-logcap prune [--older-than 24h] [--keep N]
  */
 
 import { spawn } from "node:child_process";
@@ -104,6 +108,8 @@ const RESERVED_SUFFIXES = [".lock"];
 const BREADCRUMB_NAME = ".logcap.log";
 const BREADCRUMB_MAX_LINES = 1000;
 const BREADCRUMB_MAX_BYTES = 256 * 1024;
+const LATEST_NAME = ".latest-logcap";
+const DEFAULT_VIEW_MAX = 300;
 
 // ─── Error types ────────────────────────────────────────────────────────────
 
@@ -247,19 +253,73 @@ function validateName(name) {
       );
     }
   }
-  if (name === "." || name === ".." || name.includes("/") || name.includes("\\")) {
+  if (name === "." || name === ".." || name === "latest" || name.includes("/") || name.includes("\\")) {
     throw new LogcapError(
       `shipyard-logcap: name "${name}" contains path separators or is reserved.`,
     );
   }
 }
 
+function getSessionDirForCurrentProject() {
+  const captureRoot = getProjectCaptureRoot();
+  return getSessionDir(captureRoot);
+}
+
+function latestMarkerPath() {
+  return join(getSessionDirForCurrentProject(), LATEST_NAME);
+}
+
+function writeLatestName(name) {
+  try {
+    const marker = latestMarkerPath();
+    mkdirSync(dirname(marker), { recursive: true });
+    writeFileSync(marker, `${name}\n`);
+  } catch {
+    // Latest is a convenience pointer; capture must not depend on it.
+  }
+}
+
+function resolveCaptureName(name) {
+  if (name !== "latest") {
+    validateName(name);
+    return name;
+  }
+  const marker = latestMarkerPath();
+  if (!existsSync(marker)) {
+    throw new LogcapError(
+      `shipyard-logcap: no latest capture in this session.\n` +
+        `Run \`shipyard-logcap list\` to see available captures.`,
+    );
+  }
+  const latest = readFileSync(marker, "utf8").trim();
+  validateName(latest);
+  return latest;
+}
+
 /** Resolve the live log file path for a capture name (not a rotated tail). */
 function getLogPath(name) {
-  validateName(name);
+  name = resolveCaptureName(name);
   const captureRoot = getProjectCaptureRoot();
   const sessionDir = getSessionDir(captureRoot);
   return join(sessionDir, `${name}.log`);
+}
+
+function getSessionDirFromLogPath(logPath) {
+  return dirname(logPath);
+}
+
+function getCaptureFilesNewestFirst(logPath) {
+  const files = [logPath];
+  for (let i = 1; i < 100; i++) {
+    const rotated = `${logPath}.${i}`;
+    if (!existsSync(rotated)) break;
+    files.push(rotated);
+  }
+  return files;
+}
+
+function getCaptureFilesOldestFirst(logPath) {
+  return getCaptureFilesNewestFirst(logPath).reverse();
 }
 
 // ─── Size parsing ───────────────────────────────────────────────────────────
@@ -302,6 +362,35 @@ function parseDuration(input) {
   const unit = match[2];
   const mult = unit === "d" ? 86400000 : unit === "h" ? 3600000 : unit === "m" ? 60000 : 1000;
   return n * mult;
+}
+
+function parseViewMax(input) {
+  const n = parseInt(String(input), 10);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new LogcapError("shipyard-logcap view: --max must be a non-negative integer.");
+  }
+  return n;
+}
+
+function normalizeTimeBound(input, isUntil) {
+  if (!input) return "";
+  const value = String(input);
+  if (/^\d\d:\d\d:\d\d$/.test(value)) return `${value}.${isUntil ? "999" : "000"}`;
+  return value;
+}
+
+function lineTime(line) {
+  const match = /(?:^|\s)(\d\d:\d\d:\d\d(?:\.\d+)?)(?:\s|$)/.exec(line);
+  return match ? match[1] : null;
+}
+
+function lineWithinTimeWindow(line, since, until, state) {
+  if (!since && !until) return true;
+  const t = lineTime(line);
+  if (t) {
+    state.inRange = (!since || t >= since) && (!until || t <= until);
+  }
+  return state.inRange;
 }
 
 // ─── Breadcrumbs ────────────────────────────────────────────────────────────
@@ -467,6 +556,7 @@ async function cmdRun(args) {
   // Resolve paths. Fail-loud if resolver can't find project.
   const logPath = getLogPath(opts.name);
   mkdirSync(dirname(logPath), { recursive: true });
+  writeLatestName(opts.name);
 
   // Startup banner → stderr so it doesn't pollute the child's stdout.
   process.stderr.write(
@@ -511,6 +601,10 @@ async function cmdRun(args) {
   // line-boundary guarantee but the process stays bounded.
   const CARRY_MAX_BYTES = 1024 * 1024; // 1 MB
   let carryOver = Buffer.alloc(0);
+  const liveCarry = new Map([
+    [process.stdout, ""],
+    [process.stderr, ""],
+  ]);
 
   // Write a pre-line-aligned slice to the current file, rotating first if
   // the slice would push the file past maxSize. Splitting the rotation
@@ -567,17 +661,45 @@ async function cmdRun(args) {
     }
   }
 
-  function teeChunk(chunk, parentStream) {
-    // Forward to parent stream first — live view is the user's source of
-    // truth for watching progress. Even if the file write fails, the live
-    // stream stays intact. The live view is ALWAYS unbuffered; line-boundary
-    // alignment only applies to the file-on-disk path.
-    try {
-      parentStream.write(chunk);
-    } catch {
-      // Parent stream closed (pipe broken upstream). Continue capturing to
-      // the file; don't let a closed pipe kill the wrapped command.
+  function writeLive(chunk, parentStream) {
+    if (!opts.filter) {
+      try {
+        parentStream.write(chunk);
+      } catch {
+        // Parent stream closed (pipe broken upstream). Continue capturing to
+        // the file; don't let a closed pipe kill the wrapped command.
+      }
+      return;
     }
+
+    const text = (liveCarry.get(parentStream) ?? "") + chunk.toString("utf8");
+    const parts = text.split(/\n/);
+    liveCarry.set(parentStream, parts.pop() ?? "");
+    for (const line of parts) {
+      if (opts.filter.test(line)) {
+        try {
+          parentStream.write(line + "\n");
+        } catch {}
+      }
+    }
+  }
+
+  function flushLive(parentStream) {
+    const residual = liveCarry.get(parentStream) ?? "";
+    if (opts.filter && residual.length > 0) {
+      if (opts.filter.test(residual)) {
+        try {
+          parentStream.write(residual + "\n");
+        } catch {}
+      }
+      liveCarry.set(parentStream, "");
+    }
+  }
+
+  function teeChunk(chunk, parentStream) {
+    // Forward to parent stream first. If --filter is present, the live view is
+    // narrowed but capture remains raw and complete.
+    writeLive(chunk, parentStream);
 
     // Append to the carry buffer.
     carryOver = carryOver.length === 0 ? chunk : Buffer.concat([carryOver, chunk]);
@@ -624,6 +746,15 @@ async function cmdRun(args) {
   const child = spawn(cmdArgs[0], cmdArgs.slice(1), {
     stdio: ["inherit", "pipe", "pipe"],
   });
+  let durationTimer = null;
+  let durationElapsed = false;
+  if (opts.durationMs !== null) {
+    durationTimer = setTimeout(() => {
+      durationElapsed = true;
+      forward("SIGTERM");
+    }, opts.durationMs);
+    durationTimer.unref?.();
+  }
 
   child.on("error", (err) => {
     // Usually ENOENT — command not found. Fail loud with a clear message.
@@ -661,9 +792,10 @@ async function cmdRun(args) {
   // we fall through to the numeric-code branch which is what we want.
   const exitCode = await new Promise((resolve) => {
     child.on("exit", (code, signal) => {
+      if (durationTimer) clearTimeout(durationTimer);
       if (signal) {
         const SIGNAL_NUMS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15, SIGKILL: 9 };
-        resolve(128 + (SIGNAL_NUMS[signal] ?? 0));
+        resolve(durationElapsed ? 0 : 128 + (SIGNAL_NUMS[signal] ?? 0));
       } else {
         resolve(code ?? 0);
       }
@@ -675,16 +807,38 @@ async function cmdRun(args) {
   // or died mid-line (crash, SIGKILL). Without this flush, the tail of
   // the output would be silently lost.
   flushCarry();
+  flushLive(process.stdout);
+  flushLive(process.stderr);
 
   try {
     if (fd !== -1) closeSync(fd);
   } catch {}
+
+  if (opts.exitFile) {
+    try {
+      mkdirSync(dirname(opts.exitFile), { recursive: true });
+      writeFileSync(opts.exitFile, `${exitCode}\n`);
+    } catch (err) {
+      writeBreadcrumb("exit_file_failed", {
+        name: opts.name,
+        path: opts.exitFile,
+        error: err.message,
+      });
+      process.stderr.write(
+        `logcap: warning: cannot write exit file "${opts.exitFile}" (${err.message})\n`,
+      );
+    }
+  }
 
   writeBreadcrumb("run_end", {
     name: opts.name,
     exit: exitCode,
     bytes: written,
   });
+
+  if (opts.keep !== null) {
+    pruneSessionKeep(getSessionDirFromLogPath(logPath), opts.keep);
+  }
 
   process.exit(exitCode);
 }
@@ -695,8 +849,13 @@ function parseRunOptions(args) {
     throw new LogcapError("shipyard-logcap run: <name> is required.");
   }
   const name = args[0];
+  validateName(name);
   let maxSize = DEFAULT_MAX_SIZE;
   let maxFiles = DEFAULT_MAX_FILES;
+  let filter = null;
+  let durationMs = null;
+  let exitFile = null;
+  let keep = null;
 
   // Env-var overrides come between defaults and CLI flags.
   if (process.env.SHIPYARD_LOGCAP_MAX_SIZE) {
@@ -720,6 +879,20 @@ function parseRunOptions(args) {
       if (!Number.isFinite(maxFiles) || maxFiles < 1) {
         throw new LogcapError(`shipyard-logcap: --max-files must be a positive integer.`);
       }
+    } else if (arg === "--filter") {
+      const pattern = args[++i];
+      if (!pattern) throw new LogcapError("shipyard-logcap run: --filter requires a regex.");
+      filter = new RegExp(pattern);
+    } else if (arg === "--duration") {
+      durationMs = parseDuration(args[++i]);
+    } else if (arg === "--exit-file") {
+      exitFile = args[++i];
+      if (!exitFile) throw new LogcapError("shipyard-logcap run: --exit-file requires a path.");
+    } else if (arg === "--keep") {
+      keep = parseInt(args[++i], 10);
+      if (!Number.isFinite(keep) || keep < 1) {
+        throw new LogcapError("shipyard-logcap run: --keep must be a positive integer.");
+      }
     } else {
       throw new LogcapError(`shipyard-logcap run: unknown option "${arg}".`);
     }
@@ -732,7 +905,7 @@ function parseRunOptions(args) {
     );
   }
 
-  return { name, maxSize, maxFiles };
+  return { name, maxSize, maxFiles, filter, durationMs, exitFile, keep };
 }
 
 // ─── Subcommand: tail ───────────────────────────────────────────────────────
@@ -826,6 +999,81 @@ function streamFileLines(path, filter) {
   });
 }
 
+// ─── Subcommand: view ───────────────────────────────────────────────────────
+
+async function cmdView(args) {
+  if (args.length === 0) {
+    throw new LogcapError("shipyard-logcap view: <name|latest> is required.");
+  }
+  const name = args[0];
+  let filter = null;
+  let since = "";
+  let until = "";
+  let max = process.env.SHIPYARD_LOGCAP_VIEW_MAX
+    ? parseViewMax(process.env.SHIPYARD_LOGCAP_VIEW_MAX)
+    : DEFAULT_VIEW_MAX;
+  let tailMode = false;
+  let countOnly = false;
+
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === "--filter") {
+      const pattern = args[++i];
+      if (!pattern) throw new LogcapError("shipyard-logcap view: --filter requires a regex.");
+      filter = new RegExp(pattern);
+    } else if (args[i] === "--since") {
+      since = normalizeTimeBound(args[++i], false);
+    } else if (args[i] === "--until") {
+      until = normalizeTimeBound(args[++i], true);
+    } else if (args[i] === "--max") {
+      max = parseViewMax(args[++i]);
+    } else if (args[i] === "--tail") {
+      tailMode = true;
+    } else if (args[i] === "--count") {
+      countOnly = true;
+    } else {
+      throw new LogcapError(`shipyard-logcap view: unknown option "${args[i]}".`);
+    }
+  }
+
+  const logPath = getLogPath(name);
+  if (!existsSync(logPath)) {
+    throw new LogcapError(
+      `shipyard-logcap view: no capture named "${name}" in this session.`,
+    );
+  }
+
+  const rangeState = { inRange: false };
+  const matches = [];
+  for (const file of getCaptureFilesOldestFirst(logPath)) {
+    const lines = readFileSync(file, "utf8").split("\n");
+    for (const line of lines) {
+      if (line.length === 0) continue;
+      if (!lineWithinTimeWindow(line, since, until, rangeState)) continue;
+      if (filter && !filter.test(line)) continue;
+      matches.push(line);
+    }
+  }
+
+  if (countOnly) {
+    process.stdout.write(`${matches.length} matching lines\n`);
+    return;
+  }
+
+  let visible = matches;
+  if (max > 0 && matches.length > max) {
+    visible = tailMode ? matches.slice(-max) : matches.slice(0, max);
+  }
+  for (const line of visible) {
+    process.stdout.write(line + "\n");
+  }
+  if (max > 0 && matches.length > max) {
+    process.stderr.write(
+      `# [logcap] truncated: showing ${visible.length} of ${matches.length} ` +
+        `matching lines; narrow --since/--until or pass --max N (0=all)\n`,
+    );
+  }
+}
+
 // ─── Subcommand: grep ───────────────────────────────────────────────────────
 
 /**
@@ -860,12 +1108,7 @@ async function cmdGrep(args) {
   }
 
   // Gather files newest-first: live, then .1, .2, ...
-  const files = [logPath];
-  for (let i = 1; i < 100; i++) {
-    const rotated = `${logPath}.${i}`;
-    if (!existsSync(rotated)) break;
-    files.push(rotated);
-  }
+  const files = getCaptureFilesNewestFirst(logPath);
 
   let matchCount = 0;
   for (const file of files) {
@@ -940,6 +1183,83 @@ function cmdPath(args) {
   }
   const logPath = getLogPath(args[0]);
   process.stdout.write(logPath + "\n");
+}
+
+// ─── Subcommand: prune ───────────────────────────────────────────────────────
+
+function captureEntries(sessionDir) {
+  if (!existsSync(sessionDir)) return [];
+  const names = readdirSync(sessionDir)
+    .filter((f) => f.endsWith(".log"))
+    .map((f) => {
+      const path = join(sessionDir, f);
+      const st = statSync(path);
+      return {
+        name: f.slice(0, -4),
+        path,
+        mtimeMs: st.mtimeMs,
+      };
+    });
+  names.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return names;
+}
+
+function removeCapture(entry) {
+  rmSync(entry.path, { force: true });
+  for (let i = 1; i < 100; i++) {
+    const rotated = `${entry.path}.${i}`;
+    if (!existsSync(rotated)) break;
+    rmSync(rotated, { force: true });
+  }
+}
+
+function pruneSessionKeep(sessionDir, keep) {
+  const entries = captureEntries(sessionDir);
+  for (const entry of entries.slice(keep)) {
+    removeCapture(entry);
+  }
+}
+
+function cmdPrune(args) {
+  let keep = null;
+  let olderThanMs = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--keep") {
+      keep = parseInt(args[++i], 10);
+      if (!Number.isFinite(keep) || keep < 1) {
+        throw new LogcapError("shipyard-logcap prune: --keep must be a positive integer.");
+      }
+    } else if (args[i] === "--older-than") {
+      olderThanMs = parseDuration(args[++i]);
+    } else {
+      throw new LogcapError(`shipyard-logcap prune: unknown option "${args[i]}".`);
+    }
+  }
+
+  const sessionDir = getSessionDirForCurrentProject();
+  if (!existsSync(sessionDir)) {
+    process.stdout.write("(no captures in this session)\n");
+    return;
+  }
+
+  let removed = 0;
+  if (olderThanMs !== null) {
+    const cutoff = Date.now() - olderThanMs;
+    for (const entry of captureEntries(sessionDir)) {
+      if (entry.mtimeMs < cutoff) {
+        removeCapture(entry);
+        removed++;
+      }
+    }
+  }
+  if (keep !== null) {
+    const before = captureEntries(sessionDir).length;
+    pruneSessionKeep(sessionDir, keep);
+    const after = captureEntries(sessionDir).length;
+    removed += Math.max(0, before - after);
+  }
+
+  process.stdout.write(`removed ${removed} capture${removed === 1 ? "" : "s"}\n`);
 }
 
 // ─── Subcommand: probe ──────────────────────────────────────────────────────
@@ -1043,6 +1363,9 @@ async function main() {
       case "run":
         await cmdRun(rest);
         return;
+      case "view":
+        await cmdView(rest);
+        return;
       case "tail":
         await cmdTail(rest);
         return;
@@ -1057,6 +1380,9 @@ async function main() {
         return;
       case "probe":
         cmdProbe();
+        return;
+      case "prune":
+        cmdPrune(rest);
         return;
       default:
         process.stderr.write(`shipyard-logcap: unknown subcommand "${subcommand}".\n`);
@@ -1080,17 +1406,21 @@ function printHelp() {
       `   names refer to different tools: logc[a]p = Shipyard wrapper (this);\n` +
       `   log[ca]t = Android device log stream.)\n\n` +
       `Usage:\n` +
-      `  shipyard-logcap run <name> [--max-size S] [--max-files N] -- <command...>\n` +
-      `  shipyard-logcap run <name> [--max-size S] [--max-files N] --cmd-file <path>\n` +
+      `  shipyard-logcap run <name> [--max-size S] [--max-files N]\n` +
+      `       [--filter <regex>] [--duration <duration>] [--exit-file <path>]\n` +
+      `       [--keep N] -- <command...>\n` +
+      `  shipyard-logcap run <name> [options] --cmd-file <path>\n` +
       `       (--cmd-file reads newline-delimited argv tokens from a file — use this\n` +
       `        on Windows or for commands with quotes, globs, or shell-hostile tokens\n` +
       `        like \`adb logcat ActivityManager:I '*:S'\`)\n` +
-      `  shipyard-logcap tail <name> [--filter <regex>] [--follow]\n` +
-      `  shipyard-logcap grep <name> <pattern> [--context N]\n` +
+      `  shipyard-logcap view <name|latest> [--filter <regex>] [--since TS]\n` +
+      `       [--until TS] [--max N] [--tail] [--count]\n` +
+      `  shipyard-logcap tail <name|latest> [--filter <regex>] [--follow]\n` +
+      `  shipyard-logcap grep <name|latest> <pattern> [--context N]\n` +
       `  shipyard-logcap list\n` +
-      `  shipyard-logcap path <name>\n` +
+      `  shipyard-logcap path <name|latest>\n` +
       `  shipyard-logcap probe\n` +
-      `  shipyard-logcap prune [--older-than 24h]\n\n` +
+      `  shipyard-logcap prune [--older-than 24h] [--keep N]\n\n` +
       `Session (directory grouping) resolution order:\n` +
       `  1. $SHIPYARD_LOGCAP_SESSION env var\n` +
       `  2. <SHIPYARD_DATA>/.active-logcap-session file contents\n` +

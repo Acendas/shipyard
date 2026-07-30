@@ -1395,6 +1395,11 @@
     "pattern": "Quiet by default"
   },
   {
+    "name": "execute_does_not_paste_subagent_chatter",
+    "type": "contains",
+    "pattern": "Subagent returns are internal contracts"
+  },
+  {
     "name": "verify_record_at_sprint_full_tests",
     "type": "contains",
     "pattern": "verify record --key sprint_full_tests",

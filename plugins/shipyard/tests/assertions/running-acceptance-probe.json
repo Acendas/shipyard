@@ -40,6 +40,21 @@
     "pattern": "Capture once, do not re-run"
   },
   {
+    "name": "probe_runs_through_logcap",
+    "type": "contains",
+    "pattern": "shipyard-logcap run"
+  },
+  {
+    "name": "probe_resolves_logcap_path",
+    "type": "contains",
+    "pattern": "shipyard-logcap path"
+  },
+  {
+    "name": "probe_forbids_raw_tee",
+    "type": "not_contains",
+    "pattern": "<probe_command> 2>&1 \\| tee"
+  },
+  {
     "name": "no_registered_shipyard_agent",
     "type": "not_contains",
     "pattern": "subagent_type: *shipyard:shipyard-"
