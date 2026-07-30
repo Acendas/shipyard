@@ -13,12 +13,9 @@ Verify completed work against spec. Auto-test, screenshot, demo to user, get app
 
 ## Context
 
-!`shipyard-context path`
+!`shipyard-context review-context`
 
-!`shipyard-context view config`
-!`shipyard-context view sprint 80`
-!`shipyard-context view sprint-progress`
-!`shipyard-context view metrics 50`
+**Onboarding gate.** If the bundled context contains `SHIPYARD_ONBOARDING_REQUIRED=true`, run the exact `SHIPYARD_ONBOARDING_COMMAND` once with Bash, report the CLI output to the user, and STOP. Do not infer setup state by reading or writing Shipyard state files; onboarding decisions are CLI-owned.
 
 **Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Bash is for project tests, git, and the `shipyard-data` CLI (cursor/sprint mutations + `archive-sprint`). **Never `cd` into the data directory before running `shipyard-data` commands** — they resolve the data directory internally via git and env vars; `cd`-ing into a non-git directory breaks the resolver. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files.**
 
@@ -30,7 +27,7 @@ Verify completed work against spec. Auto-test, screenshot, demo to user, get app
 
 **Quiet by default.** Between user-input gates, work quietly — run scanners, tests, and gap analysis without narrating each stage. Only three things reach the chat outside a gate: a one-line transition marker per stage, the compact per-stage status lines, and a one-line banner when launching or receiving a background dispatch (code-review loop, gap-analysis agent, critic). The self-looping stages (code-review loop, gap-analysis / self-review) run silently to convergence — surface only a one-line result, never a per-iteration narration or a re-printed checklist. Review results, verdicts, and gate summaries are rendered in full ONLY at a gate (render-before-ask — Stage 5 demo, retro, release) or a terminal summary. **No running commentary** ("Now I'll…", "Let me…", explaining a no-input step). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
 
-**Capability-skill playbooks.** Where a step says *"follow the `X` playbook"* or "dispatch `X`", X is a capability skill — **Read** `${CLAUDE_PLUGIN_ROOT}/skills/<X>/SKILL.md` and execute it inline; never hand it to the `Skill` tool (capability skills are `disable-model-invocation: true`, so `Skill` refuses them). The only skill loaded via the `Skill` tool is `loop`.
+**Capability-skill playbooks.** Where a step says *"follow the `X` playbook"* or "dispatch `X`", X is a capability skill — **Read** `${CLAUDE_PLUGIN_ROOT}/skills/<X>/SKILL.md` and execute it inline; never hand it to the `Skill` tool (capability skills are `disable-model-invocation: true`, so `Skill` refuses them). The only skill loaded via the `Skill` tool is `loop`. Substantial analysis/labor dispatches use registered Shipyard agents through their wrapper skills; `general-purpose` is allowed only for tiny one-shot prompts with an explicit local justification.
 
 ## Input
 
@@ -50,15 +47,15 @@ $ARGUMENTS
 
 ## Cursor + Per-Tick Advance
 
-`/ship-review` is a multi-stage pipeline. To make it `/loop`-friendly, each invocation reads a persistent cursor at `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md`, dispatches to the matching stage handler, then advances the cursor for the next tick via the CLI. Full cursor schema, stage map, terminal protocol, event vocabulary, and stuck-detection rules live in `references/pipeline-cursor.md` — read it before changing the cursor surface.
+`/ship-review` is a multi-stage pipeline. To make it `/loop`-friendly, each invocation uses cursor state from the bundled `shipyard-context review-context` block (`SHIPYARD_CURSOR_*` fields), dispatches to the matching stage handler, then advances the cursor for the next tick via the CLI. Full cursor schema, stage map, terminal protocol, event vocabulary, and stuck-detection rules live in `references/pipeline-cursor.md` — read it before changing the cursor surface.
 
 **Cursor read at entry.** Begin every invocation with:
 
-1. Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` (use the Read tool — reads are unchanged; only writes are CLI-owned).
-   - **If the file exists and `terminal: true`**: run `shipyard-data cursor noop review sprint=<id> reason=cursor_already_terminal`, echo its output, exit.
-   - **If the file exists and `status: paused`** (a pause-before-ask stage is awaiting a user answer): **paused is wakeup-inert.** A `/loop` wakeup must NEVER resume it — a wakeup can't answer the pending question. Run `shipyard-data cursor noop review sprint=<id>`, echo its output (it emits `pipeline_terminal outcome=noop reason=awaiting_user_paused`, prints the pause note + resume hint + stop marker; a 2nd wakeup against the same paused sprint trips the ⛔ leak alarm pointing at `cursor resume`), and STOP. Only when the user is explicitly re-engaging this invocation (they answered the pending question, or asked to continue) run `shipyard-data cursor resume review` and dispatch to `cursor.stage`.
-   - **If the file exists and `terminal: false`** (and not paused): dispatch to the handler for `cursor.stage` (per the stage map in `references/pipeline-cursor.md`). (`pipeline_tick_started`/`pipeline_tick_completed` are CLI-emitted on every advance — no manual event emits.)
-   - **If the file does NOT exist**: fresh start. Dispatch to the preflight handler; the handler's `cursor advance` call materializes the cursor (and emits the tick events).
+1. Use the `SHIPYARD_CURSOR_*` fields from `shipyard-context review-context`; do not Read or parse `REVIEW-CURSOR.md` directly. If cursor state must be refreshed mid-invocation, run `shipyard-context cursor-state review`.
+   - **`SHIPYARD_CURSOR_PRESENT=true` and `SHIPYARD_CURSOR_TERMINAL=true`**: run `shipyard-data cursor noop review sprint=<id> reason=cursor_already_terminal`, echo its output, exit.
+   - **`SHIPYARD_CURSOR_PRESENT=true` and `SHIPYARD_CURSOR_STATUS=paused`** (a pause-before-ask stage is awaiting a user answer): **paused is wakeup-inert.** A `/loop` wakeup must NEVER resume it — a wakeup can't answer the pending question. Run `shipyard-data cursor noop review sprint=<id>`, echo its output (it emits `pipeline_terminal outcome=noop reason=awaiting_user_paused`, prints the pause note + resume hint + stop marker; a 2nd wakeup against the same paused sprint trips the ⛔ leak alarm pointing at `cursor resume`), and STOP. Only when the user is explicitly re-engaging this invocation (they answered the pending question, or asked to continue) run `shipyard-data cursor resume review` and dispatch to `SHIPYARD_CURSOR_STAGE`.
+   - **`SHIPYARD_CURSOR_PRESENT=true` and `SHIPYARD_CURSOR_TERMINAL=false`** (and not paused): dispatch to the handler for `SHIPYARD_CURSOR_STAGE` (per the stage map in `references/pipeline-cursor.md`). (`pipeline_tick_started`/`pipeline_tick_completed` are CLI-emitted on every advance — no manual event emits.)
+   - **`SHIPYARD_CURSOR_PRESENT=false`**: fresh start. Dispatch to the preflight handler; the handler's `cursor advance` call materializes the cursor (and emits the tick events).
 
 2. **No-op terminal sweep (MANDATORY — load-bearing for /loop safety).** Even if step 1 read a non-terminal cursor (or no cursor at all), verify the sprint is actually alive by checking all THREE conditions:
    - cursor exists with `terminal: true` (already covered in step 1; re-checking here is belt-and-braces)
@@ -106,7 +103,7 @@ Two stages can self-loop until they converge by data: `code_review_iter_N` (Stag
 If you lose context mid-review (e.g., after auto-compaction):
 
 0. **Call `TaskList()` first.** If `[review-NNN] <stage>` tasks exist from the stage checklist (below), the last non-`completed` task names a candidate resume stage — a structured position anchor. **Confirm against the cursor before acting on it** (step 1) — the tasks are a mirror, not authority; if tasks and cursor disagree, the cursor wins.
-1. **Cursor is authoritative.** Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` first. The `stage:` field tells you exactly where to resume; verdict files are the secondary cross-check. PROGRESS.md is a rendered artifact (auto-regenerated from the event log on every cursor write) — never reconcile against it as if it were authoritative state, and never Write or Edit it.
+1. **Cursor is authoritative.** Use the `SHIPYARD_CURSOR_*` fields from the entry context or refresh with `shipyard-context cursor-state review`. `SHIPYARD_CURSOR_STAGE` tells you exactly where to resume; verdict files are the secondary cross-check. PROGRESS.md is a rendered artifact (auto-regenerated from the event log on every cursor write) — never reconcile against it as if it were authoritative state, and never Write or Edit it.
 2. Use Glob `<SHIPYARD_DATA>/verify/*-verdict.md` to find existing verdict files — these features are already reviewed
 3. Read SPRINT.md — get the list of features to review
 4. Skip features with verdict files where `complete: true`. If a verdict has `complete: false`, that review was interrupted — re-run the pipeline for that feature
@@ -311,13 +308,11 @@ Any operational task that fails any of these is a **critical gap** — automatic
 
 ### Stage 4: Surface Gap Analysis (stage_id: gap_analysis, part 1)
 
-**Dispatch the analytical body to a think-tier gap-analysis agent (per gap_analysis tick).** The surface-gap detection below AND the Stage 4.5 10-check self-review are reasoning-heavy read-only analysis — dispatch them as **ONE** agent so the reviewer shell doesn't hold every feature spec, the full diff, and all test/spec-review evidence in context while it reasons. The shell keeps everything with a side effect: the cursor advance, the `stuck_counter` computation, the gap→persistence-target actions (patch task / debug session / IDEA file / inline-fix dispatch in the classification tree below), and all user-facing surfacing. The agent only analyzes and returns.
+**Dispatch the analytical body via `dispatching-gap-analysis` (per gap_analysis tick).** The surface-gap detection below AND the Stage 4.5 10-check self-review are reasoning-heavy read-only analysis — follow the `dispatching-gap-analysis` playbook so this substantial prompt goes through the registered `shipyard-gap-analyst` agent, not a hand-rolled generic subagent. The reviewer shell keeps everything with a side effect: the cursor advance, the `stuck_counter` computation, the gap→persistence-target actions (patch task / debug session / IDEA file / inline-fix dispatch in the classification tree below), and all user-facing surfacing. The agent only analyzes and returns.
 
-**Model tier (think)** — read `models.think` from `<SHIPYARD_DATA>/config.md` (the context block above already carries config, or Read it). If non-empty, pass `model: <value>` on the `Agent(...)` call; if empty or absent, OMIT `model:` so the agent inherits the session model. Never hardcode a literal.
+Pass to the capability skill: the sprint's feature and task file paths (under `<SHIPYARD_DATA>/spec/`), the verdict-relevant evidence paths gathered so far (Stage 1 test-output captures, Stage 1b spec-review findings, Stage 3 goal-verification results as recorded), the literal SHIPYARD_DATA path, `base_ref`, `head_ref`, `scope`, and target feature IDs. The playbook handles the think-tier model rule, read-only contract, silent-return re-dispatch, and structured `STATUS: CLEAN|GAPS|BLOCKED` parsing.
 
-Dispatch a single `Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>)` with a prompt that inlines: the sprint's feature and task file paths (under `<SHIPYARD_DATA>/spec/`), the verdict-relevant evidence paths gathered so far (Stage 1 test-output captures, Stage 1b spec-review findings, Stage 3 goal-verification results as recorded), the literal SHIPYARD_DATA path, and the Stage 4.5 10-check self-review table (inline it or point the agent at this section). The agent is **READ-ONLY analysis** — no writes, no commits, enforced by a post-return `git status --porcelain` check. It returns: (1) the structured gap list (each gap with a proposed classification — inline-fix / patch task / debug session / out-of-scope IDEA), and (2) the per-check results of the 10-check self-review table.
-
-The shell then acts on the returned gap list using the classification tree below (Stage 4) and drives the Stage 4.5 loop: it computes `stuck_counter` (set-equal on the gap list), advances the cursor, and re-dispatches the agent on the next `gap_analysis` tick when the gap list is still changing. **Fallback.** On dispatch failure, run the Stage 4 + 4.5 analysis inline in the shell as before.
+The shell then acts on the returned gap list using the classification tree below (Stage 4) and drives the Stage 4.5 loop: it computes `stuck_counter` (set-equal on the gap list), advances the cursor, and re-dispatches `dispatching-gap-analysis` on the next `gap_analysis` tick when the gap list is still changing. If the dispatch returns BLOCKED twice or violates read-only, surface that BLOCKED state; do not invent an inline generic-agent fallback.
 
 Additionally detect:
 - **Untested scenarios** — acceptance scenarios without end-to-end tests
@@ -337,7 +332,7 @@ For each gap, classify into one of four destinations — this is a decision tree
 
 ### Stage 4.5: Quality Gate (stage_id: gap_analysis, part 2) (self-review loop)
 
-**The 10-check evaluation itself runs inside the Stage 4 gap-analysis agent** (dispatched above) — the agent applies this table to its findings and returns the per-check results alongside the gap list. The **shell** owns the loop control: it reads the returned results, updates the gap list, computes `stuck_counter`, advances the cursor, and decides whether to re-dispatch (gap list still changing) or proceed to `stage: critic` (gap list stable). On dispatch failure the shell evaluates the table inline.
+**The 10-check evaluation itself runs inside the Stage 4 gap-analysis agent** (dispatched above) — the agent applies this table to its findings and returns the per-check results alongside the gap list. The **shell** owns the loop control: it reads the returned results, updates the gap list, computes `stuck_counter`, advances the cursor, and decides whether to re-dispatch (gap list still changing) or proceed to `stage: critic` (gap list stable). On dispatch failure, surface the wrapper's BLOCKED outcome rather than evaluating the table in a hand-rolled generic subagent.
 
 Before writing the verdict, the self-review re-reads the feature spec and the findings against this table:
 

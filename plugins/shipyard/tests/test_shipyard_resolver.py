@@ -445,7 +445,7 @@ class TestShipyardResolver(unittest.TestCase):
                     pass
 
     def test_shipyard_symlink_resolves_when_env_and_breadcrumb_absent(self):
-        """R-shipyard-link: `<projectRoot>/.shipyard` (created by ship-init via
+        """R-shipyard-link: `<projectRoot>/.shipyard` (created by CLI setup via
         `shipyard-data link-data-dir`) is an env/TMPDIR-independent fallback.
         It must resolve the data dir even when CLAUDE_PLUGIN_DATA is unset AND
         no breadcrumb is reachable — the exact gap that stranded /ship-discuss
@@ -709,7 +709,7 @@ class TestShipyardResolver(unittest.TestCase):
     # The legacy ~/.claude/plugins/data/shipyard/projects probe was dropped:
     # the env var has been stable in Claude Code for several months and the
     # legacy probe was actively harmful (silent backcompat picked up orphans
-    # that should be migrated through /ship-init). Customers with legacy
+    # that should be migrated through CLI onboarding). Customers with legacy
     # data are surfaced through orphan-recovery, not silent fallback.
 
 

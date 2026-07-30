@@ -12,18 +12,12 @@ Read all project state, validate it, auto-fix issues, and present a clear dashbo
 
 ## Context
 
-!`shipyard-context path`
 !`shipyard-context diagnose`
+!`shipyard-context status-dashboard`
 
-!`shipyard-context view config`
-!`shipyard-context view sprint`
-!`shipyard-context view sprint-progress`
-!`shipyard-context view backlog`
-!`shipyard-context view metrics 50`
-!`shipyard-context debug-count`
-!`shipyard-context status-counts`
+**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash is for `shipyard-context` (reads), the onboarding command surfaced by context, and `shipyard-data lock status|release` (skill-lock housekeeping — see Check 6/7) ONLY — no other `shipyard-data` subcommand and no other shell. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA) for the reconcile-log, metrics rollover, and sentinel files this skill maintains. **`/ship-status` consumes pipeline cursor, PROGRESS.md, and SPRINT.md summaries from `shipyard-context status-dashboard`; it never writes them and never parses cursor frontmatter itself** (the PreToolUse hook denies model writes to those; the `shipyard-data`/`shipyard-context` CLIs are their only state interface). HANDOFF.md is retired — a paused pipeline is a cursor with `status: paused`. The two skill-mutex lock files (`.active-session.json`, `.active-execution.json`) are CLI-owned too — this skill never hand-Writes them, only `shipyard-data lock status` (read) / `lock release ... --force` (clear).
 
-**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash is for `shipyard-context` (reads) and `shipyard-data lock status|release` (skill-lock housekeeping — see Check 6/7) ONLY — no other `shipyard-data` subcommand and no other shell. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA) for the reconcile-log, metrics rollover, and sentinel files this skill maintains. **`/ship-status` only READS the pipeline cursors, PROGRESS.md, and SPRINT.md frontmatter — never writes them** (the PreToolUse hook denies model writes to those; the `shipyard-data` CLI is their only writer). HANDOFF.md is retired — a paused pipeline is a cursor with `status: paused`. The two skill-mutex lock files (`.active-session.json`, `.active-execution.json`) are CLI-owned too — this skill never hand-Writes them, only `shipyard-data lock status` (read) / `lock release ... --force` (clear).
+**Onboarding gate.** If the bundled context contains `SHIPYARD_ONBOARDING_REQUIRED=true`, run the exact `SHIPYARD_ONBOARDING_COMMAND` once with Bash, report the CLI output to the user, and STOP. Do not infer setup state by reading or writing Shipyard state files; onboarding decisions are CLI-owned.
 
 **Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
 
@@ -33,11 +27,11 @@ $ARGUMENTS
 
 If arguments specify a section (sprint, backlog, health, spec, diagnose), show only that section in detail.
 If no arguments, show the full dashboard.
-If project not initialized → "Project not initialized. Run /ship-init to get started."
+If onboarding is required → run the CLI command surfaced in `SHIPYARD_ONBOARDING_COMMAND`, report the CLI output, and stop.
 
 **diagnose section** — when invoked as `/ship-status diagnose`, print only the resolver diagnostic block from the context above (SHIPYARD_DATA, PROJECT_ROOT, PROJECT_HASH, env vars, .auto-approve.log tail). This is the self-serve format for filing actionable bug reports about permission prompts or state divergence. Include a one-line interpretation note: if `AUTO_APPROVE_LOG=(does not exist)` the auto-approve hook has never fired for this project; if `CLAUDE_PLUGIN_DATA=(unset)` the resolver is using its discovery probe or legacy fallback.
 
-**Pipeline cursors.** `/ship-status` reads `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR.md` and `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` if present and renders their state in the PIPELINE section of the dashboard (see Step 2). Each cursor records where its pipeline (`ship-execute` or `ship-review`) is in the multi-stage flow, whether it's terminal, and whether stuck detection has fired. Schema details live in `<repo>/plugins/shipyard/skills/ship-execute/references/pipeline-cursor.md` and the matching ship-review reference; this skill only reads them.
+**Pipeline cursors.** `/ship-status` uses the `SHIPYARD_EXECUTE_CURSOR_*` and `SHIPYARD_REVIEW_CURSOR_*` fields from `shipyard-context status-dashboard` and renders their state in the PIPELINE section of the dashboard (see Step 2). Do not Read or parse `EXECUTE-CURSOR.md` / `REVIEW-CURSOR.md` directly; cursor reads and writes are CLI-owned. Each cursor records where its pipeline (`ship-execute` or `ship-review`) is in the multi-stage flow, whether it's terminal, and whether stuck detection has fired. Schema details live in `<repo>/plugins/shipyard/skills/ship-execute/references/pipeline-cursor.md` and the matching ship-review reference.
 
 ---
 
@@ -96,7 +90,7 @@ Skip if not a git repo. Otherwise:
 
 State files use the soft-delete sentinel pattern: overwrite with a "cleared" marker rather than physically deleting. The relevant hooks treat the sentinel as inactive.
 
-- Empty spec files → Edit frontmatter to `obsolete: true`
+- Empty spec files → surface as a repair recommendation; do not hand-Edit frontmatter. Spec frontmatter mutations must go through typed `shipyard-data feature|idea|task|draft ...` commands.
 - Orphan task files (not in any feature's `tasks:` array) → log as warning
 - Epic files with `features:` arrays → remove the array (membership is derived)
 - Stale `<SHIPYARD_DATA>/.loop-state.json` → Write `{"cleared": "<iso>", "events": []}`
@@ -109,7 +103,7 @@ State files use the soft-delete sentinel pattern: overwrite with a "cleared" mar
 
 ### Check 7a: Pipeline Cursor Health
 
-Read `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR.md` and `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md` if either exists. Validate the frontmatter:
+Use the cursor fields emitted by `shipyard-context status-dashboard` (`SHIPYARD_EXECUTE_CURSOR_*`, `SHIPYARD_REVIEW_CURSOR_*`). The CLI parser has already normalized the frontmatter into fields:
 
 - Required fields present: `pipeline`, `sprint`, `stage`, `iteration`, `last_advance_at`, `loop_owner`, `status`, `terminal`, `stuck_counter`, `hard_ceiling`.
 - `terminal` is a boolean; `iteration` and `stuck_counter` are non-negative integers; `hard_ceiling` is 50 by default.

@@ -8,7 +8,7 @@ The cursor records where `/ship-execute` is in its multi-wave pipeline so that:
 
 ## The cursor is CLI-owned (v2.9.0)
 
-**Never Write or Edit the cursor file.** The `auto-approve-data` PreToolUse hook denies any model Write/Edit to `EXECUTE-CURSOR.md`, `REVIEW-CURSOR.md`, `PROGRESS.md`, or `HANDOFF.md`. The single writer is `shipyard-data cursor`, which does in one atomic call what the pre-2.9 protocol asked the model to do in three:
+**Never Read, Write, or Edit the cursor file directly from a skill body.** The `auto-approve-data` PreToolUse hook denies any model Write/Edit to `EXECUTE-CURSOR.md`, `REVIEW-CURSOR.md`, `PROGRESS.md`, or `HANDOFF.md`; reads go through `shipyard-context sprint-execution` at entry or `shipyard-context cursor-state execute` mid-session so the shared CLI parser owns cursor frontmatter shape. The single writer is `shipyard-data cursor`, which does in one atomic call what the pre-2.9 protocol asked the model to do in three:
 
 ```
 shipyard-data cursor advance execute <stage> [k=v ...] [--note "<narrative>"]
@@ -158,22 +158,22 @@ Existing per-wave / per-task / sprint-completion events (`wave_check_passed`, `t
 ```
 1. Acquire locks (existing `acquiring-skill-lock` capability skill).
 
-2. Read <SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR.md (Read tool — reads are fine).
-   - `terminal: true`, `status: escalated` → a recoverable halt, NOT complete:
+2. Use `SHIPYARD_CURSOR_*` fields from `shipyard-context sprint-execution` (or refresh with `shipyard-context cursor-state execute`). Do not Read or parse EXECUTE-CURSOR.md directly.
+   - `SHIPYARD_CURSOR_TERMINAL=true`, `SHIPYARD_CURSOR_STATUS=escalated` → a recoverable halt, NOT complete:
      run `shipyard-data cursor noop execute` (it prints the resume hint, no noop
      emit / no leak alarm), tell the user to fix the cause and
      `shipyard-data cursor resume execute`, exit.
-   - `terminal: true` (any other status) → run `shipyard-data cursor noop execute`,
+   - `SHIPYARD_CURSOR_TERMINAL=true` (any other status) → run `shipyard-data cursor noop execute`,
      echo output, exit.
-   - `status: paused` → WAKEUP-INERT: a bare `/loop` wakeup runs
+   - `SHIPYARD_CURSOR_STATUS=paused` → WAKEUP-INERT: a bare `/loop` wakeup runs
      `shipyard-data cursor noop execute` (emits
      `pipeline_terminal outcome=noop reason=awaiting_user_paused`, prints the
      pause note + resume hint + stop marker) and STOPS — never auto-resumes.
      Resume via `shipyard-data cursor resume execute` ONLY on an explicit
      user resume/continue; then the body note is the resume context and you
-     dispatch to the handler for the `stage:` field.
-   - Exists, non-terminal, in_progress → dispatch to the `stage:` handler.
-   - Does NOT exist → fresh start: the first advance must target an entry
+     dispatch to the handler for `SHIPYARD_CURSOR_STAGE`.
+   - `SHIPYARD_CURSOR_PRESENT=true`, non-terminal, in_progress → dispatch to `SHIPYARD_CURSOR_STAGE`.
+   - `SHIPYARD_CURSOR_PRESENT=false` → fresh start: the first advance must target an entry
      stage (`preflight`, `hotfix`, `single_task`).
 
 3. After the stage handler returns, advance via `shipyard-data cursor advance`

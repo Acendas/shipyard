@@ -104,7 +104,7 @@ test("creates .shipyard symlink for an initialized data dir", () => {
 test("does NOT create a dangling .shipyard when the data dir is absent", () => {
   const t = setup();
   try {
-    // dataDir intentionally not created (project never /ship-init-ed).
+    // dataDir intentionally not created (project never completed onboarding).
     const rc = run({}, { CLAUDE_PLUGIN_DATA: t.pluginData });
     assert.equal(rc, 0);
     assert.equal(existsSync(t.linkPath), false,
@@ -139,7 +139,7 @@ test("does NOT create .shipyard for a data dir that was never initialized", () =
   const t = setup();
   try {
     // Bare dir with only a diagnostic log — exactly what the auto-approve hook
-    // leaves behind in a repo the user never ran /ship-init against.
+    // leaves behind in a repo that never completed onboarding.
     mkdirSync(t.dataDir, { recursive: true });
     writeFileSync(join(t.dataDir, ".auto-approve.log"), "some diagnostics\n");
 

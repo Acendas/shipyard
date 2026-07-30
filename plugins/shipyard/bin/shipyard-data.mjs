@@ -8,7 +8,8 @@
  *
  * Usage:
  *   shipyard-data                              → prints data directory path
- *   shipyard-data init                         → creates the directory tree
+ *   shipyard-data init                         → ensures the data directory tree
+ *   shipyard-data onboarding status|bootstrap  → setup/onboarding state
  *   shipyard-data with-lock <key> -- <cmd>     → fcntl-style locking primitive
  *   shipyard-data archive-sprint <id> [--force]→ atomic sprint rename
  *   shipyard-data init-sprint <id> [--data-dir] → copy canonical templates into sprints/current/
@@ -35,6 +36,15 @@
  *   shipyard-data task set-status <id> <status> → typed task frontmatter
  *                            [--data-dir <path>]   mutation; --data-dir skips
  *                                                   git-based resolution.
+ *   shipyard-data draft obsolete-research       → typed checkpoint
+ *   shipyard-data draft set-sprint-status ...      frontmatter mutation.
+ *   shipyard-data task accept-return <id> ...     → accept a gate-passed
+ *                                                   builder return: anchor
+ *                                                   commit, emit terminal
+ *                                                   return event, mark done.
+ *   shipyard-data task accept-operational <id> ...→ accept a gate-passed
+ *                                                   operational task: emit
+ *                                                   evidence events, mark done.
  *   shipyard-data verify record --key <k>      → record a verification result
  *     --command <literal> --exit <n>              (see bin/verify-ledger.mjs)
  *     --capture <path>
@@ -43,7 +53,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve as pathResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
@@ -52,10 +62,11 @@ import { cursorCmd } from "./cursor-cli.mjs";
 import { parseFrontmatter, parseWaves } from "./terminal-gate.mjs";
 import { specStateCmd } from "./spec-state-cli.mjs";
 import { FEATURE_TRANSITIONS } from "./spec-lifecycle.mjs";
-import { releaseLock, skillLockCmd } from "./skill-lock.mjs";
+import { skillLockCmd } from "./skill-lock.mjs";
 import { scanStubsCmd } from "./scan-stubs.mjs";
 import { verifyCmd } from "./verify-ledger.mjs";
 import { readinessCheckCmd } from "./readiness-check.mjs";
+import { bootstrapOnboarding, ensureInitializedDataDir, renderOnboardingLines } from "./init-data.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -131,65 +142,29 @@ function extractDataDirFlag(args, commandName) {
   return { dataDir: value, rest };
 }
 
-const SUBDIRS = [
-  ["spec", "epics"],
-  ["spec", "features"],
-  ["spec", "tasks"],
-  ["spec", "bugs"],
-  ["spec", "ideas"],
-  ["spec", "references"],
-  ["backlog"],
-  ["sprints", "current"],
-  ["verify"],
-  ["debug", "resolved"],
-  ["memory"],
-  ["releases"],
-  ["templates"],
-];
-
-function ensureTree(dataDir) {
-  for (const parts of SUBDIRS) {
-    mkdirSync(join(dataDir, ...parts), { recursive: true });
-  }
+function init() {
+  const dataDir = ensureInitializedDataDir({ resetLocks: true });
+  process.stdout.write(dataDir + "\n");
 }
 
-function init() {
-  const projectRoot = getProjectRoot();
-  const dataDir = getDataDir({ projectRoot, silent: true });
-  ensureTree(dataDir);
-
-  // Record which project this data belongs to (for debugging/cleanup)
-  writeFileSync(join(dataDir, ".project-root"), projectRoot + "\n");
-
-  // Copy project-files/templates into the data dir's templates/.
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-  const pluginRoot = dirname(__dirname);
-  const templatesSrc = join(pluginRoot, "project-files", "templates");
-  if (existsSync(templatesSrc)) {
-    cpSync(templatesSrc, join(dataDir, "templates"), {
-      recursive: true,
-      force: true,
-    });
+function onboardingCmd(args) {
+  const sub = args[0] ?? "status";
+  if (sub === "status") {
+    const dataDir = ensureInitializedDataDir();
+    process.stdout.write(`SHIPYARD_DATA=${dataDir}\n`);
+    renderOnboardingLines(dataDir, (line) => process.stdout.write(line + "\n"));
+    return;
   }
-
-  // Remove transient state files left from prior sessions (idempotent)
-  for (const f of [".loop-state.json", ".test-output.tmp"]) {
-    rmSync(join(dataDir, f), { force: true });
+  if (sub === "bootstrap") {
+    const { dataDir } = bootstrapOnboarding();
+    process.stdout.write(`SHIPYARD_DATA=${dataDir}\n`);
+    renderOnboardingLines(dataDir, (line) => process.stdout.write(line + "\n"));
+    return;
   }
-  // Remove legacy scripts/ dir if a previous ship-init copied scripts in
-  // (now served from the plugin, not the data dir)
-  rmSync(join(dataDir, "scripts"), { recursive: true, force: true });
-
-  // v3.7.0: both skill-mutex lock files are pre-created as a valid
-  // released-sentinel via skill-lock.mjs (the single writer) rather than
-  // deleted (planning) or left untouched entirely (execution, previously
-  // not touched by init at all — asymmetric). A fresh or re-initialized
-  // project always starts with a well-formed sentinel instead of an
-  // absent file or a leftover pre-v3.7.0 shape.
-  releaseLock(dataDir, "planning", { force: true, bestEffort: true });
-  releaseLock(dataDir, "execution", { force: true, bestEffort: true });
-
-  process.stdout.write(dataDir + "\n");
+  process.stderr.write(
+    `shipyard-data onboarding: unknown subcommand "${sub}". Expected: status | bootstrap\n`,
+  );
+  process.exit(2);
 }
 
 /**
@@ -1121,7 +1096,7 @@ function linkDataDir(opts = {}) {
       `shipyard-data link-data-dir: refusing — ${dataDir} was never initialized\n` +
       `  (no .project-root, config.md, or templates/). A data dir can appear from\n` +
       `  diagnostic logging alone; linking it would plant a .shipyard symlink in a\n` +
-      `  project that never ran /ship-init. Run /ship-init (or shipyard-data init) first.\n`
+      `  project that has not completed CLI setup. Run shipyard-data onboarding bootstrap first.\n`
     );
     process.exit(1);
   }
@@ -1131,7 +1106,7 @@ function linkDataDir(opts = {}) {
 /**
  * Ensure <projectRoot>/.claude/settings.json has worktree.baseRef = "head".
  *
- * Why at execute, not /ship-init: init runs once and drifts; baseRef must hold
+ * Why at execute, not one-time setup: settings drift; baseRef must hold
  * every sprint. A worktree that forks from origin/<default> (Claude Code's
  * "fresh" default) silently skips earlier waves' local commits. Verifying here
  * is self-healing — and a backstop for when our WorktreeCreate hook doesn't
@@ -1543,7 +1518,7 @@ function sprintCheck() {
  * of the `models:` block in config.md frontmatter.
  *
  * The user can flip the think tier between opus and fable at any time
- * (not just at /ship-init) — the next dispatch reads the new value; no
+ * (not just at setup) — the next dispatch reads the new value; no
  * session restart needed. A typed setter (not a model Edit) because
  * config.md frontmatter is machine-read by every dispatch site and
  * nested-YAML hand edits are the frontmatter-welding corruption class.
@@ -1567,7 +1542,7 @@ function configSetModel(tier, value) {
   const dataDir = getDataDir({ silent: true });
   const configPath = join(dataDir, "config.md");
   if (!existsSync(configPath)) {
-    process.stderr.write(`shipyard-data config set-model: no ${configPath} — run /ship-init first\n`);
+    process.stderr.write(`shipyard-data config set-model: no ${configPath} — run shipyard-data onboarding bootstrap first\n`);
     process.exit(1);
   }
   const content = readFileSync(configPath, "utf8");
@@ -1701,6 +1676,139 @@ function taskReturn(args, opts = {}) {
     });
   } catch { /* best-effort */ }
   process.stdout.write(path + "\n");
+}
+
+/**
+ * Accept a builder return after the orchestrator has already run every
+ * independent gate (STATUS parse, sha existence, probe exit/tail, anti-stub
+ * scan). This is intentionally narrower than the whole gate: scan-stubs keeps
+ * its own exit-3 redispatch branch, while the post-pass state changes happen
+ * in one CLI transaction-shaped call.
+ *
+ * Usage:
+ *   shipyard-data task accept-return <task-id> sprint=<id> wave=<n> commit=<sha>
+ *     [--data-dir <path>]
+ */
+function taskAcceptReturn(args, opts = {}) {
+  const taskId = args[0];
+  const kv = {};
+  for (const a of args.slice(1)) {
+    const eq = a.indexOf("=");
+    if (eq <= 0) {
+      process.stderr.write(`shipyard-data task accept-return: unrecognized argument "${a}" — expected k=v\n`);
+      process.exit(2);
+    }
+    kv[a.slice(0, eq)] = a.slice(eq + 1);
+  }
+  const sprint = kv.sprint || "";
+  const wave = kv.wave || "";
+  const sha = kv.commit || kv.commit_sha || "";
+  if (!taskId || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(taskId)) {
+    process.stderr.write(
+      `shipyard-data task accept-return: invalid task id ${JSON.stringify(taskId)} — expected [A-Za-z][A-Za-z0-9_-]{0,63}\n`,
+    );
+    process.exit(2);
+  }
+  if (!sprint) {
+    process.stderr.write("shipyard-data task accept-return: sprint=<id> is required\n");
+    process.exit(2);
+  }
+  if (!wave || !/^[0-9]+$/.test(wave)) {
+    process.stderr.write("shipyard-data task accept-return: wave=<number> is required\n");
+    process.exit(2);
+  }
+  if (!/^[0-9a-fA-F]{7,40}$/.test(sha)) {
+    process.stderr.write("shipyard-data task accept-return: commit=<7-40 hex sha> is required\n");
+    process.exit(2);
+  }
+
+  const dataDir = opts.dataDir || getDataDir({ silent: true });
+  anchorCommit(taskId, sha, { dataDir });
+  logEvent(dataDir, "task_dispatch_returned", {
+    pipeline: "ship-execute",
+    sprint,
+    wave: Number.parseInt(wave, 10),
+    task: taskId,
+    status: "complete",
+    commit_sha: sha,
+  });
+  specStateCmd(dataDir, ["task", "set-status", taskId, "done"]);
+  process.stdout.write(`task ${taskId} accepted complete return ${sha}\n`);
+}
+
+/**
+ * Accept a non-worktree operational task after the orchestrator has verified
+ * its capture file and final verify_history entry. Unlike accept-return, there
+ * is no returned builder commit to anchor; the terminal-gate evidence records
+ * the orchestrator's current HEAD.
+ *
+ * Usage:
+ *   shipyard-data task accept-operational <task-id> sprint=<id> wave=<n>
+ *     capture=<path> [iterations=<n>] [--data-dir <path>]
+ */
+function taskAcceptOperational(args, opts = {}) {
+  const taskId = args[0];
+  const kv = {};
+  for (const a of args.slice(1)) {
+    const eq = a.indexOf("=");
+    if (eq <= 0) {
+      process.stderr.write(`shipyard-data task accept-operational: unrecognized argument "${a}" — expected k=v\n`);
+      process.exit(2);
+    }
+    kv[a.slice(0, eq)] = a.slice(eq + 1);
+  }
+  const sprint = kv.sprint || "";
+  const wave = kv.wave || "";
+  const capture = kv.capture || kv.verify_output || "";
+  if (!taskId || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(taskId)) {
+    process.stderr.write(
+      `shipyard-data task accept-operational: invalid task id ${JSON.stringify(taskId)} — expected [A-Za-z][A-Za-z0-9_-]{0,63}\n`,
+    );
+    process.exit(2);
+  }
+  if (!sprint) {
+    process.stderr.write("shipyard-data task accept-operational: sprint=<id> is required\n");
+    process.exit(2);
+  }
+  if (!wave || !/^[0-9]+$/.test(wave)) {
+    process.stderr.write("shipyard-data task accept-operational: wave=<number> is required\n");
+    process.exit(2);
+  }
+  if (!capture) {
+    process.stderr.write("shipyard-data task accept-operational: capture=<path> is required\n");
+    process.exit(2);
+  }
+  const projectRoot = getProjectRoot();
+  const sha = gitCapture(["rev-parse", "HEAD"], projectRoot);
+  if (!sha || !/^[0-9a-fA-F]{7,40}$/.test(sha)) {
+    process.stderr.write("shipyard-data task accept-operational: cannot resolve current HEAD commit\n");
+    process.exit(1);
+  }
+  const dataDir = opts.dataDir || getDataDir({ silent: true });
+  const waveNumber = Number.parseInt(wave, 10);
+  const iterations = kv.iterations !== undefined ? Number.parseInt(kv.iterations, 10) : undefined;
+  const operationalFields = {
+    pipeline: "ship-execute",
+    sprint,
+    wave: waveNumber,
+    task: taskId,
+    status: "complete",
+    capture,
+    verify_output: capture,
+  };
+  if (Number.isFinite(iterations)) operationalFields.iterations_run = iterations;
+  logEvent(dataDir, "operational_task_completed", operationalFields);
+  logEvent(dataDir, "task_dispatch_returned", {
+    pipeline: "ship-execute",
+    sprint,
+    wave: waveNumber,
+    task: taskId,
+    status: "complete",
+    kind: "operational",
+    commit_sha: sha,
+  });
+  specStateCmd(dataDir, ["task", "set-status", taskId, "done"]);
+  process.stdout.write(`task ${taskId} accepted operational completion at ${sha}\n`);
 }
 
 /**
@@ -2055,6 +2163,9 @@ function main() {
     case "init":
       init();
       break;
+    case "onboarding":
+      onboardingCmd(process.argv.slice(3));
+      break;
     case "with-lock":
       withLock(process.argv.slice(3));
       break;
@@ -2169,6 +2280,11 @@ function main() {
       specStateCmd(getDataDir({ silent: true }), process.argv.slice(2));
       break;
     }
+    case "draft": {
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "draft");
+      specStateCmd(dataDirOverride ?? getDataDir({ silent: true }), ["draft", ...rest]);
+      break;
+    }
     case "task": {
       // `task set-status` is invoked from several builder/dispatch bodies
       // running inside a worktree whose resolver-derived data dir can
@@ -2177,7 +2293,13 @@ function main() {
       // strips the flag from the args passed through to specStateCmd, so
       // that CLI never sees it.
       const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "task");
-      specStateCmd(dataDirOverride ?? getDataDir({ silent: true }), ["task", ...rest]);
+      if (rest[0] === "accept-return") {
+        taskAcceptReturn(rest.slice(1), { dataDir: dataDirOverride });
+      } else if (rest[0] === "accept-operational") {
+        taskAcceptOperational(rest.slice(1), { dataDir: dataDirOverride });
+      } else {
+        specStateCmd(dataDirOverride ?? getDataDir({ silent: true }), ["task", ...rest]);
+      }
       break;
     }
     case "lock": {
@@ -2201,7 +2323,7 @@ function main() {
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-          `Expected: (none) | init | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify> ... [--data-dir <path>] | config <set-model|set> ... | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
+        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set> ... | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
       );
       process.exit(1);
   }

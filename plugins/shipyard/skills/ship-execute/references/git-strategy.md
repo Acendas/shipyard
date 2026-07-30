@@ -12,7 +12,7 @@ Shipyard works on whatever branch the user is already on. It does not create bra
 
 ## Commit Convention
 
-Shipyard reads the project's commit format from `<SHIPYARD_DATA>/config.md` (detected during `/ship-init`).
+Shipyard reads the project's commit format from `<SHIPYARD_DATA>/config.md` (created and updated by CLI onboarding/config).
 All commits must follow the project's convention. The config specifies:
 
 ```yaml
@@ -203,7 +203,7 @@ Git config in `<SHIPYARD_DATA>/config.md`:
 
 ```yaml
 git:
-  main_branch: main              # or master — detected during /ship-init
+  main_branch: main              # or master — configured during onboarding
   commit_format: conventional    # conventional | gitmoji | jira | freeform
   commit_scope: true
   commit_case: lowercase

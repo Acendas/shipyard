@@ -34,12 +34,17 @@
   {
     "name": "has_init_guard",
     "type": "contains",
-    "pattern": "ship-init|not.*initialized|initialize"
+    "pattern": "SHIPYARD_ONBOARDING_REQUIRED|onboarding"
   },
   {
     "name": "has_version_display",
     "type": "contains",
     "pattern": "version|plugin\\.json"
+  },
+  {
+    "name": "help_context_is_bundled",
+    "type": "contains",
+    "pattern": "shipyard-context help-context"
   },
   {
     "name": "uses_shipyard_data_path",

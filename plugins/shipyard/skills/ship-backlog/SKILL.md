@@ -14,13 +14,11 @@ Manage the prioritized backlog. Default sort is by RICE score (Reach x Impact x 
 
 ## Context
 
-!`shipyard-context path`
-
-!`shipyard-context view backlog`
-!`shipyard-context view config`
-!`shipyard-context view metrics`
+!`shipyard-context backlog-context`
 
 **Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash is for `shipyard-context` (reads) and `shipyard-data feature|backlog|idea ...` (state mutations) ONLY — no other shell. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA). Never hand-Edit feature-file frontmatter or BACKLOG.md IDs/`last_groomed` — those are CLI-owned (`feature set`, `feature set-status`, `backlog add|remove|rank|set`). Feature/epic bodies and the BACKLOG.md Overrides section remain Edit-tool surface.
+
+**Onboarding gate.** If the bundled context contains `SHIPYARD_ONBOARDING_REQUIRED=true`, run the exact `SHIPYARD_ONBOARDING_COMMAND` once with Bash, report the CLI output to the user, and STOP. Do not infer setup state by reading or writing Shipyard state files; onboarding decisions are CLI-owned.
 
 **Execution rules (load-bearing):**
 - **Do every read yourself with Read/Grep/Glob. NEVER dispatch a subagent (Agent/Explore/Task) to gather board data.** Data gathered in a subagent never lands in this context, and the board cannot be rendered from data you do not hold. (Incident 2026-07-21: a delegated gather produced a blind AskUserQuestion with no board rendered.)

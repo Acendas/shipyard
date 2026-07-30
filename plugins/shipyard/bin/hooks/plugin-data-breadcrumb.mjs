@@ -64,7 +64,7 @@ export function run(_hookInput, env) {
   // Ensure the env/TMPDIR-independent `<projectRoot>/.shipyard` fallback exists
   // so a later session can resolve the data dir even if the breadcrumb is
   // stranded by a TMPDIR split (the failure this guards against). Never drop a
-  // link into a project that was never `/ship-init`-ed — `ensureDataDirLink`
+  // link into a project that never completed CLI setup — `ensureDataDirLink`
   // now enforces that itself via `dirLooksInitialized` and returns
   // 'uninitialized' without writing.
   //

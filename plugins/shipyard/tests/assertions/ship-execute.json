@@ -143,9 +143,19 @@
     "path": "skills/ship-execute/references/context-management.md"
   },
   {
-    "name": "acquire_locks_names_sprint_flag",
+    "name": "execution_context_bundles_lock_and_sprint",
     "type": "contains",
-    "pattern": "lock acquire execution --skill ship-execute --sprint"
+    "pattern": "shipyard-context sprint-execution"
+  },
+  {
+    "name": "execution_context_reports_sprint_id",
+    "type": "contains",
+    "pattern": "SHIPYARD_SPRINT_ID"
+  },
+  {
+    "name": "execute_avoids_second_acquire_call",
+    "type": "not_contains",
+    "pattern": "Run `shipyard-data lock acquire execution --skill ship-execute|Run shipyard-data lock acquire execution --skill ship-execute"
   },
   {
     "name": "has_preflight_status_check",
@@ -676,7 +686,13 @@
   {
     "name": "cursor_read_at_entry",
     "type": "contains",
-    "pattern": "Read.*EXECUTE-CURSOR\\.md|EXECUTE-CURSOR\\.md.*Read tool|cursor at entry|Read the cursor"
+    "pattern": "SHIPYARD_CURSOR_\\*|shipyard-context cursor-state execute"
+  },
+  {
+    "name": "cursor_not_read_directly",
+    "type": "not_contains",
+    "pattern": "Read `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR\\.md`|Read <SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR\\.md|EXECUTE-CURSOR\\.md.*Read tool",
+    "why": "Cursor reads are now CLI-owned via shipyard-context; skill bodies should not parse cursor frontmatter directly."
   },
   {
     "name": "terminal_marker_text",
@@ -1092,9 +1108,9 @@
   {
     "name": "recovery_handler_anchors_and_emits",
     "type": "contains",
-    "pattern": "anchor-commit <task>.*task_dispatch_returned|anchor-commit.*task_dispatch_returned pipeline=ship-execute",
+    "pattern": "task accept-return.*task_dispatch_returned|task accept-return.*commit=<sha>",
     "dotall": true,
-    "why": "Background recovery must anchor each gate-passed commit AND emit task_dispatch_returned status=complete (the single orchestrator choke point) — background mode was missing both, reopening the v2.8 orphan vector."
+    "why": "Background recovery must accept each gate-passed commit through the bundled CLI choke point, which anchors and emits task_dispatch_returned status=complete before marking the task done."
   },
   {
     "name": "waiting_timeout_taskstop_zombie",
@@ -1193,8 +1209,8 @@
   {
     "name": "uses_lock_acquire_execution",
     "type": "contains",
-    "pattern": "lock acquire (planning|execution)",
-    "why": "v3.7.0 wave 3: Acquire Locks section routes through shipyard-data lock acquire execution instead of the acquiring-skill-lock prose procedure."
+    "pattern": "acquires the execution lock|execution lock",
+    "why": "v3.7.0 wave 3 + CLI-call merge: Acquire Locks routes through the bundled shipyard-context sprint-execution call instead of hand-Read/Write or a second acquire call."
   },
   {
     "name": "uses_lock_release",
@@ -1471,7 +1487,7 @@
     "target": "ref:goal-mode-preflight.md",
     "pattern": "test_commands\\.unit.*test_commands\\.integration.*test_commands\\.e2e.*build_commands\\.full",
     "dotall": true,
-    "why": "Perf plan P3 (issue 4.5): the sprint_verify_defined gate previously checked for test_commands.full, a key that exists in neither the config template nor /ship-init — only the 'or equivalent key' escape kept it from false-failing, making the gate vacuous. It must gate on keys that actually exist."
+    "why": "Perf plan P3 (issue 4.5): the sprint_verify_defined gate previously checked for test_commands.full, a key that exists in neither the config template nor CLI onboarding — only the 'or equivalent key' escape kept it from false-failing, making the gate vacuous. It must gate on keys that actually exist."
   },
   {
     "name": "goal_mode_preflight_no_bare_test_commands_full_key",

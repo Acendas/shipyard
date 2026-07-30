@@ -71,6 +71,46 @@ class TestShipyardDataLockPidLiveness(unittest.TestCase):
             'withLock must read the pid out of the lock file before stealing it')
 
 
+class TestShipyardDataOnboarding(unittest.TestCase):
+    """CLI-owned setup/onboarding surface used by skills."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-onboarding-test-')
+        self.plugin_data = os.path.join(self.tmp, 'plugin-data')
+        self.project_dir = os.path.join(self.tmp, 'project')
+        os.makedirs(self.plugin_data)
+        os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
+        self.env = {
+            'CLAUDE_PROJECT_DIR': self.project_dir,
+            'CLAUDE_PLUGIN_DATA': self.plugin_data,
+        }
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_onboarding_status_ensures_tree_and_reports_missing_config(self):
+        out, err, code = run_cli(['onboarding', 'status'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('SHIPYARD_ONBOARDING_REQUIRED=true', out)
+        self.assertIn('SHIPYARD_ONBOARDING_REASON=missing_config', out)
+        data_dir = next(line.split('=', 1)[1] for line in out.splitlines() if line.startswith('SHIPYARD_DATA='))
+        self.assertTrue(os.path.exists(os.path.join(data_dir, '.project-root')))
+        self.assertTrue(os.path.isdir(os.path.join(data_dir, 'templates')))
+        self.assertFalse(os.path.exists(os.path.join(data_dir, 'config.md')))
+
+    def test_onboarding_bootstrap_creates_config_and_becomes_ready(self):
+        out, err, code = run_cli(['onboarding', 'bootstrap'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertIn('SHIPYARD_ONBOARDING_REQUIRED=false', out)
+        self.assertIn('SHIPYARD_ONBOARDING_REASON=ready', out)
+        data_dir = next(line.split('=', 1)[1] for line in out.splitlines() if line.startswith('SHIPYARD_DATA='))
+        config_path = os.path.join(data_dir, 'config.md')
+        self.assertTrue(os.path.exists(config_path))
+        with open(config_path) as f:
+            self.assertIn('project_name: "project"', f.read())
+
 
 class TestShipyardDataArchiveSprint(unittest.TestCase):
     """Tests for the `archive-sprint <sprint-id>` subcommand.
@@ -477,7 +517,7 @@ class TestShipyardDataLinkDataDir(unittest.TestCase):
         # Actually initialize the data dir. link-data-dir now refuses an
         # uninitialized one: a data dir can be minted as a side effect of
         # diagnostic logging alone, and linking that planted a stray
-        # `.shipyard` into projects that never ran /ship-init. Real usage
+        # `.shipyard` into projects that never completed onboarding. Real usage
         # always inits first, so the fixture should too.
         _, init_err, init_code = run_cli(['init'], env_extra=self.env)
         self.assertEqual(init_code, 0, f'init failed: {init_err}')
@@ -491,7 +531,7 @@ class TestShipyardDataLinkDataDir(unittest.TestCase):
         _hook_lib's log writers mkdir the data dir recursively, so one appears
         merely from editing a file in any git repo with Shipyard installed.
         Linking that planted a stray `.shipyard` symlink into projects the user
-        never ran /ship-init against (observed 2026-07-28). Refuse loudly
+        never completed onboarding against (observed 2026-07-28). Refuse loudly
         rather than silently no-op, so "I ran link-data-dir and got nothing"
         is never a mystery.
         """

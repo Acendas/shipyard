@@ -1,6 +1,6 @@
 /**
- * spec-state-cli — deterministic CLI for feature/backlog/idea state
- * mutations, dispatched from `shipyard-data feature|backlog|idea ...`.
+ * spec-state-cli — deterministic CLI for feature/backlog/idea/task/draft state
+ * mutations, dispatched from `shipyard-data feature|backlog|idea|task|draft ...`.
  *
  * Mirrors the cursor-cli.mjs / sprintSet pattern: skill bodies stop
  * hand-Editing feature-file frontmatter and BACKLOG.md ID/last_groomed
@@ -313,7 +313,7 @@ function backlogPath(dataDir) {
 function parseBacklog(dataDir) {
   const path = backlogPath(dataDir);
   if (!existsSync(path)) {
-    fail(1, `spec-state: no ${path} — run /ship-init first`);
+    fail(1, `spec-state: no ${path} — run shipyard-data onboarding bootstrap first`);
   }
   const content = readFileSync(path, "utf8");
   const fm = parseFm(content);
@@ -1241,7 +1241,7 @@ function configSet(dataDir, args) {
   }
 
   const configPath = join(dataDir, "config.md");
-  if (!existsSync(configPath)) fail(1, `spec-state: no ${configPath} — run /ship-init first`);
+  if (!existsSync(configPath)) fail(1, `spec-state: no ${configPath} — run shipyard-data onboarding bootstrap first`);
   const content = readFileSync(configPath, "utf8");
   const fm = parseFm(content);
   if (!fm) fail(1, "spec-state: config.md has no frontmatter block — refusing");
@@ -1259,6 +1259,51 @@ function configSet(dataDir, args) {
   const loggedKey = parent ? `${parent}.${fmKey}` : fmKey;
   logEvent(dataDir, "config_set", { key: loggedKey });
   process.stdout.write(`config: ${loggedKey} = ${type === "array" ? `[${arrayValue.join(", ")}]` : writtenValue}\n`);
+}
+
+// --- draft/checkpoint state -------------------------------------------------
+
+function draftObsoleteResearch(dataDir, args) {
+  const topicIdx = args.indexOf("--topic");
+  const expectedTopic = topicIdx !== -1 ? args[topicIdx + 1] : null;
+  const path = join(dataDir, "spec", ".research-draft.md");
+  if (!existsSync(path)) fail(4, `spec-state: no ${path}`);
+
+  withNamedLock(dataDir, "research-draft", () => {
+    const content = readFileSync(path, "utf8");
+    const fm = parseFm(content);
+    if (!fm) fail(3, "spec-state: .research-draft.md has no frontmatter block — refusing");
+    if (expectedTopic) {
+      const actualTopic = (getScalar(fm.block, "topic") ?? "").replace(/^["']|["']$/g, "");
+      if (actualTopic !== expectedTopic) {
+        fail(3, `spec-state: .research-draft.md topic is ${JSON.stringify(actualTopic)}, expected ${JSON.stringify(expectedTopic)}`);
+      }
+    }
+    const block = setScalar(fm.block, "obsolete", "true");
+    writeFrontmatteredFile(path, fm, block);
+    logEvent(dataDir, "research_draft_obsoleted", { topic: expectedTopic ?? null });
+    process.stdout.write(".research-draft.md obsolete: true\n");
+  });
+}
+
+function draftSetSprintStatus(dataDir, args) {
+  const status = args[0];
+  const allowed = new Set(["superseded", "cancelled"]);
+  if (!status || !allowed.has(status)) {
+    fail(2, "usage: draft set-sprint-status <superseded|cancelled>");
+  }
+  const path = join(dataDir, "sprints", "current", "SPRINT-DRAFT.md");
+  if (!existsSync(path)) fail(4, `spec-state: no ${path}`);
+
+  withNamedLock(dataDir, "sprint-draft", () => {
+    const content = readFileSync(path, "utf8");
+    const fm = parseFm(content);
+    if (!fm) fail(3, "spec-state: SPRINT-DRAFT.md has no frontmatter block — refusing");
+    const block = setScalar(fm.block, "status", status);
+    writeFrontmatteredFile(path, fm, block);
+    logEvent(dataDir, "sprint_draft_status_set", { status });
+    process.stdout.write(`SPRINT-DRAFT.md status: ${status}\n`);
+  });
 }
 
 // --- dispatch ----------------------------------------------------------------
@@ -1323,8 +1368,17 @@ function dispatch(dataDir, entity, sub, rest) {
       default:
         fail(2, `shipyard-data config: unknown subcommand "${sub ?? ""}" (via spec-state-cli). Expected: set`);
     }
+  } else if (entity === "draft") {
+    switch (sub) {
+      case "obsolete-research":
+        return draftObsoleteResearch(dataDir, rest);
+      case "set-sprint-status":
+        return draftSetSprintStatus(dataDir, rest);
+      default:
+        fail(2, `shipyard-data draft: unknown subcommand "${sub ?? ""}". Expected: obsolete-research|set-sprint-status`);
+    }
   } else {
-    fail(2, `shipyard-data: unknown entity "${entity ?? ""}". Expected: feature|backlog|idea|task|config`);
+    fail(2, `shipyard-data: unknown entity "${entity ?? ""}". Expected: feature|backlog|idea|task|config|draft`);
   }
 }
 

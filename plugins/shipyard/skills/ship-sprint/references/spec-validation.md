@@ -78,7 +78,7 @@ Run the **Knowledge Gap Assessment** — flag tasks in unfamiliar domains, add r
 
 **Auto-generate SME skills for knowledge gaps:** If knowledge gaps cluster around a specific technology that has no existing skill in `.claude/skills/` (e.g., multiple tasks need OAuth patterns but no `/oauth-expert` skill exists), silently dispatch a `general-purpose` subagent in skill-writer mode for that specific technology. The skill is generated without user interaction. Report in the sprint plan output: "Generated /[tech]-expert skill to fill knowledge gap."
 
-The skill-writer prompt is single-use to ship-sprint and ship-init; for ship-sprint, the inline form is. **Model tier (build)** — authoring a skill is implementation labor: read `models.build` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so it inherits the session model. Never hardcode a literal.
+The skill-writer prompt is local to ship-sprint. **Model tier (build)** — authoring a skill is implementation labor: read `models.build` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so it inherits the session model. Never hardcode a literal.
 
 ```
 Agent(subagent_type: "general-purpose", prompt: |

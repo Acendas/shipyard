@@ -234,7 +234,12 @@
   {
     "name": "mutex_acquires_via_cli",
     "type": "contains",
-    "pattern": "shipyard-data lock acquire planning --skill ship-sprint"
+    "pattern": "shipyard-context sprint-planning"
+  },
+  {
+    "name": "mutex_avoids_second_acquire_call",
+    "type": "not_contains",
+    "pattern": "Run `shipyard-data lock acquire planning --skill ship-sprint`|Run shipyard-data lock acquire planning --skill ship-sprint"
   },
   {
     "name": "mutex_has_2hr_staleness",
@@ -629,8 +634,8 @@
   {
     "name": "uses_lock_acquire_planning",
     "type": "contains",
-    "pattern": "lock acquire (planning|execution)",
-    "why": "v3.7.0 wave 3: the Session Mutex Check routes through shipyard-data lock acquire instead of hand-Read/Write."
+    "pattern": "acquires the planning lock|planning lock",
+    "why": "v3.7.0 wave 3 + CLI-call merge: the Session Mutex Check routes through the bundled shipyard-context sprint-planning call instead of hand-Read/Write or a second acquire call."
   },
   {
     "name": "uses_lock_release",

@@ -298,7 +298,7 @@ export function getProjectHash(projectRoot) {
  *      `!` backtick subprocesses where the env var isn't exported). Probed
  *      across all `breadcrumbCandidates()` because the hook and the skill
  *      subprocess can disagree on TMPDIR.
- *   3. `<projectRoot>/.shipyard` symlink (created by ship-init via
+ *   3. `<projectRoot>/.shipyard` symlink (created by the CLI via
  *      `shipyard-data link-data-dir`), validated against the project hash.
  *      Env/TMPDIR-independent — the last resort before failing.
  *
@@ -383,7 +383,7 @@ function readBreadcrumb(path) {
  * Resolve the data dir from the `<projectRoot>/.shipyard` symlink, or null.
  *
  * This is the env/TMPDIR-independent fallback: `.shipyard` is created (and
- * repointed) by `shipyard-data link-data-dir`, which `/ship-init` runs, so an
+ * repointed) by `shipyard-data link-data-dir`, so an
  * established project carries an in-tree pointer straight at its data dir.
  * Locating it needs only the git-based project root — it does NOT depend on
  * CLAUDE_PLUGIN_DATA or the breadcrumb, which is exactly why it survives the
@@ -421,7 +421,7 @@ function readDataDirLink(projectRoot, projectHash) {
 /**
  * Was this data dir created by `shipyard-data init` (vs. minted as a side
  * effect of a bookkeeping command)? `init` writes `.project-root` and copies
- * `templates/`; `/ship-init` additionally writes `config.md`. A dir with none
+ * `templates/`; onboarding additionally writes `config.md`. A dir with none
  * of these is not a real project — the diagnostic-log writers in `_hook_lib`
  * mkdir the data dir recursively, so one appears for any repo whose files get
  * edited while Shipyard is installed.
@@ -448,7 +448,7 @@ export function dirLooksInitialized(dir) {
  *   - the `plugin-data-breadcrumb` SessionStart hook — calls it best-effort so
  *     every session of an initialized project re-establishes the
  *     env/TMPDIR-independent fallback that `readDataDirLink` consumes, instead
- *     of relying on a one-time `/ship-init`. Closes the chicken-and-egg gap
+ *     of relying on one-time setup. Closes the chicken-and-egg gap
  *     where the link only existed after init.
  *
  * Keeping one writer here (next to the reader) avoids the drifting-copies
@@ -474,7 +474,7 @@ export function ensureDataDirLink(projectRoot, dataDir) {
   // the diagnostic-log writers in _hook_lib mkdir it recursively, so simply
   // EDITING a file in any git repo with Shipyard installed mints one. Gating
   // the link on existsSync(dataDir) therefore planted a stray `.shipyard`
-  // symlink in repos the user never ran /ship-init against (observed
+  // symlink in repos that never completed onboarding (observed
   // 2026-07-28). Require a real init marker instead.
   if (!dirLooksInitialized(dataDir)) return { status: "uninitialized", linkPath };
 

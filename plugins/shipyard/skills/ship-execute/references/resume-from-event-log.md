@@ -46,7 +46,7 @@ PROGRESS.md is still the right surface for the user to glance at — *"where are
 
 If the event log is empty (never initialized) OR malformed (cannot be parsed line-by-line as JSON), refuse to resume from event log. Possible causes:
 
-- `/ship-init` never ran or was interrupted before the log was created.
+- CLI onboarding never ran or was interrupted before the log was created.
 - A non-atomic write left the log truncated.
 - The plugin data dir was manually edited.
 

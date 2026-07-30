@@ -259,7 +259,12 @@
   {
     "name": "mutex_acquires_via_cli",
     "type": "contains",
-    "pattern": "shipyard-data lock acquire planning --skill ship-discuss"
+    "pattern": "shipyard-context discuss-context"
+  },
+  {
+    "name": "mutex_avoids_second_acquire_call",
+    "type": "not_contains",
+    "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss"
   },
   {
     "name": "mutex_has_2hr_staleness",
@@ -851,8 +856,8 @@
   {
     "name": "uses_lock_acquire_planning",
     "type": "contains",
-    "pattern": "lock acquire (planning|execution)",
-    "why": "v3.7.0 wave 3: the Session Mutex Check routes through shipyard-data lock acquire instead of hand-Read/Write."
+    "pattern": "acquires the planning lock|planning lock",
+    "why": "v3.7.0 wave 3 + CLI-call merge: the Session Mutex Check routes through the bundled shipyard-context discuss-context call instead of hand-Read/Write or a second acquire call."
   },
   {
     "name": "uses_lock_release",
@@ -1022,9 +1027,9 @@
   {
     "name": "mutex_before_context_load",
     "type": "contains",
-    "pattern": "Absolute first action.{0,160}lock acquire planning",
+    "pattern": "Absolute first context action.{0,180}discuss-context",
     "dotall": true,
-    "why": "/ship-discuss must acquire the planning mutex before loading any context."
+    "why": "/ship-discuss must acquire the planning mutex as part of its bundled startup context before any manual reads."
   },
   {
     "name": "concurrent_execute_discuss_future_work_mode",

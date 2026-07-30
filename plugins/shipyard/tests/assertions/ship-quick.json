@@ -23,12 +23,12 @@
   {
     "name": "has_execution_lock",
     "type": "contains",
-    "pattern": "lock acquire execution|lock release execution"
+    "pattern": "execution lock|lock release execution"
   },
   {
     "name": "has_session_guard_cleanup",
     "type": "contains",
-    "pattern": "lock check planning"
+    "pattern": "planning-session mutex check|SHIPYARD_PLANNING_LOCK_CLEAR"
   },
   {
     "name": "has_scope_escalation_guard",
@@ -88,7 +88,7 @@
   {
     "name": "planning_check_uses_lock_check_cli",
     "type": "contains",
-    "pattern": "shipyard-data lock check planning"
+    "pattern": "shipyard-context quick-task"
   },
   {
     "name": "uses_chore_commit",
@@ -138,7 +138,12 @@
   {
     "name": "execution_lock_acquire_named_skill",
     "type": "contains",
-    "pattern": "shipyard-data lock acquire execution --skill ship-quick"
+    "pattern": "shipyard-context quick-task"
+  },
+  {
+    "name": "quick_avoids_second_lock_check_or_acquire",
+    "type": "not_contains",
+    "pattern": "run `shipyard-data lock (check planning|acquire execution --skill ship-quick)`|run shipyard-data lock (check planning|acquire execution --skill ship-quick)"
   },
   {
     "name": "q_nnn_task_file_path",
@@ -238,14 +243,14 @@
   {
     "name": "uses_lock_check_planning",
     "type": "contains",
-    "pattern": "lock check planning",
-    "why": "v3.7.0 wave 3: the planning-session mutex check is read-only via shipyard-data lock check planning (ship-quick never holds the planning lock itself)."
+    "pattern": "planning lock|planning-session mutex",
+    "why": "v3.7.0 wave 3 + CLI-call merge: the planning-session mutex check is read-only inside the bundled shipyard-context quick-task call."
   },
   {
     "name": "uses_lock_acquire_execution",
     "type": "contains",
-    "pattern": "lock acquire (planning|execution)",
-    "why": "v3.7.0 wave 3: the execution lock check/acquire routes through shipyard-data lock acquire execution."
+    "pattern": "acquires the execution lock|execution lock",
+    "why": "v3.7.0 wave 3 + CLI-call merge: execution lock acquisition routes through the bundled shipyard-context quick-task call."
   },
   {
     "name": "uses_lock_release",

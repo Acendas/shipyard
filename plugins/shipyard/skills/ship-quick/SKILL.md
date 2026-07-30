@@ -12,15 +12,13 @@ Execute a one-off task outside of sprint planning but with Shipyard's guarantees
 
 ## Context
 
-!`shipyard-context path`
-
-!`shipyard-context view config`
-!`shipyard-context view codebase 30`
-!`shipyard-context list quick-tasks`
+!`shipyard-context quick-task`
 
 ## Path Rules
 
-All file ops use the absolute SHIPYARD_DATA prefix from the context block. **No `~`, `$HOME`, or shell variables in `file_path`** — the hooks resolve paths via a shared resolver, and a tilde in `file_path` lands state in the wrong data dir on worktrees. Bash invocation of `shipyard-data` is limited to the skill-mutex `lock` subcommands (see Session Guard Cleanup / Execution Lock Check below) — no other `shipyard-data`/`shipyard-context` shell-out in this skill body; use Read / Grep / Glob for everything else. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA). The `!`-prefixed context block at the top and the `lock` calls are the only sanctioned places to shell out to the plugin CLIs.
+All file ops use the absolute SHIPYARD_DATA prefix from the context block. **No `~`, `$HOME`, or shell variables in `file_path`** — the hooks resolve paths via a shared resolver, and a tilde in `file_path` lands state in the wrong data dir on worktrees. Bash invocation of `shipyard-data` is limited to the onboarding command surfaced by context plus releasing the execution lock at completion; no other `shipyard-data`/`shipyard-context` shell-out in this skill body; use Read / Grep / Glob for everything else. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA). The `!`-prefixed context block at the top is the only sanctioned context shell-out.
+
+**Onboarding gate.** If the bundled context contains `SHIPYARD_ONBOARDING_REQUIRED=true`, run the exact `SHIPYARD_ONBOARDING_COMMAND` once with Bash, report the CLI output to the user, and STOP. Do not infer setup state by reading or writing Shipyard state files; onboarding decisions are CLI-owned.
 
 **Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
 
@@ -30,13 +28,13 @@ $ARGUMENTS
 
 ## Session Guard Cleanup
 
-**First action — planning-session mutex check:** run `shipyard-data lock check planning` (read-only — `/ship-quick` never holds the planning lock itself, it only needs to confirm nothing else is blocking it). Exit 0 → proceed to "Execution Lock Check" below (echo any `state` info only if useful; no action needed for free/released/stale/mine). Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP.
+**First context action — planning-session mutex check + execution lock:** the `shipyard-context quick-task` pre-exec block above checks the planning lock, acquires the execution lock, and returns the quick-task context bundle in one CLI call. If that context contains `SHIPYARD_LOCK_ACQUIRED=false`, echo the `SHIPYARD_LOCK_BLOCKED:` `⛔` block text verbatim as the entire response and STOP. If it contains `SHIPYARD_LOCK_NOTICE:`, echo that stale/corrupt-lock recovery line once, then proceed.
 
 This prevents the failure mode where a discussion is in progress and `/ship-quick` would otherwise trip the active-skill mutex on every Edit. Quick tasks are implementing work — they need a clear runway.
 
 ## Execution Lock Check
 
-**Before starting work**, run `shipyard-data lock acquire execution --skill ship-quick`. Exit 0 → proceed (the CLI handles cleared-sentinel detection and 2h-stale recovery internally — echo any recovery note it prints on stderr). Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP — do not proceed, do not offer an override.
+The execution lock is already held by `shipyard-context quick-task`; do not run a separate lock-acquire call. If the bundled context did not include `SHIPYARD_LOCK_ACQUIRED=true`, stop before writing anything.
 
 **On completion**, run `shipyard-data lock release execution --skill ship-quick` (soft-delete sentinel — CLI-owned, never a hand Write).
 

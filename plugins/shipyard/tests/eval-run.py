@@ -1354,6 +1354,7 @@ DISPATCH_PAIRS = {
     "shipyard-researcher": "dispatching-research-task",
     "shipyard-operational-task": "dispatching-operational-task",
     "shipyard-track-coordinator": "dispatching-track-coordinator",
+    "shipyard-gap-analyst": "dispatching-gap-analysis",
 }
 
 

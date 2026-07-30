@@ -104,7 +104,7 @@ Loop until a **FULL** run exits 0, or `max_iterations` is reached.
 
 A single tier can take up to 13 minutes on a real customer project. Before this feature, every fix-loop iteration re-ran the *entire* verify command — one failure costs 26+ minutes, two failures 39+, almost all of it re-running tests that already passed. `test_commands.rerun_failed` in `config.md` lets iterations 2 through `max_iterations - 1` re-run only the failing subset instead.
 
-**How it's used — config-driven, never inferred.** Shipyard does not parse failure output to build a test-name filter, and it never guesses a runner's flags. `rerun_failed` is a complete, literal, runnable command (populated by `/ship-init` detection or hand-edited by the user) that the loop runs verbatim on a narrowing iteration. Most runners with a native failed-only mode track their own last-failure state on disk (pytest's `.pytest_cache`, jest/vitest's internal cache, RSpec's `.rspec_status`) — which is exactly why running the command *verbatim*, right after the prior iteration wrote that state, is sufficient; no argument substitution is needed or attempted.
+**How it's used — config-driven, never inferred.** Shipyard does not parse failure output to build a test-name filter, and it never guesses a runner's flags. `rerun_failed` is a complete, literal, runnable command (populated by onboarding/config or hand-edited by the user) that the loop runs verbatim on a narrowing iteration. Most runners with a native failed-only mode track their own last-failure state on disk (pytest's `.pytest_cache`, jest/vitest's internal cache, RSpec's `.rspec_status`) — which is exactly why running the command *verbatim*, right after the prior iteration wrote that state, is sufficient; no argument substitution is needed or attempted.
 
 | Runner | `rerun_failed` example |
 |---|---|
@@ -181,7 +181,7 @@ Before flipping the operational task to `done`:
 
    d. **Verify `LAST_LINES:` content matches the tail of the capture file** (sanity check that the subagent didn't fabricate). If divergent → contract violation.
 
-   e. All checks pass → mark task `done`, emit `shipyard-data events emit operational_task_completed pipeline=ship-execute task=<id> status=complete capture=<verify_output_path>`, and emit `shipyard-data events emit task_dispatch_returned pipeline=ship-execute task=<id> status=complete kind=operational commit_sha=<current HEAD sha>`. The second event is the terminal-gate evidence shared with feature tasks; do not skip it just because no builder worktree was involved. Note the `PATCH_TASKS_FILED` count in PROGRESS.md so the user knows new tasks materialized.
+   e. All checks pass → run `shipyard-data task accept-operational <id> sprint=<sprint_id> wave=<wave_number> capture=<verify_output_path> iterations=<iterations_run> --data-dir {{data_dir}}`. This bundled CLI command marks the task `done`, emits `operational_task_completed`, and emits `task_dispatch_returned status=complete kind=operational commit_sha=<current HEAD sha>`. The second event is the terminal-gate evidence shared with feature tasks; do not skip it just because no builder worktree was involved. Note the `PATCH_TASKS_FILED` count in PROGRESS.md so the user knows new tasks materialized.
 
 3. **If `STATUS: BLOCKED`:** render the `REASON:` and the failing capture tail (last ~20 lines) as chat text — a tail read via the Read tool exists only in context and does not count as shown — then AskUserQuestion. Likely options:
    - User fixes manually and re-runs the task

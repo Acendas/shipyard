@@ -76,7 +76,22 @@ class TestViewSubcommand(NamedSubcommandBase):
     def test_view_config_fallback_when_missing(self):
         out, _, rc = run_cli(['view', 'config'], env_extra=self.env, cwd=self.project_dir)
         self.assertEqual(rc, 0)
-        self.assertIn('No project initialized', out)
+        self.assertIn('Project configuration missing', out)
+
+    def test_bundled_context_reports_onboarding_before_work(self):
+        out, err, rc = run_cli(['sprint-planning'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('SHIPYARD_ONBOARDING_REQUIRED=true', out)
+        self.assertIn('SHIPYARD_ONBOARDING_REASON=missing_config', out)
+        self.assertIn('SHIPYARD_ONBOARDING_COMMAND=shipyard-data onboarding bootstrap', out)
+        self.assertNotIn('SHIPYARD_LOCK_ACQUIRED=', out)
+
+    def test_path_auto_ensures_data_tree_without_config(self):
+        data_dir = self.resolve_data_dir()
+        self.assertTrue(os.path.exists(os.path.join(data_dir, '.project-root')))
+        self.assertTrue(os.path.isdir(os.path.join(data_dir, 'templates')))
+        self.assertFalse(os.path.exists(os.path.join(data_dir, 'config.md')))
 
     def test_view_config_reads_file(self):
         self.write_data_file('config.md', 'project: test\nversion: 1\n')
@@ -116,6 +131,503 @@ class TestViewSubcommand(NamedSubcommandBase):
             out, err, rc = run_cli(['view', name], env_extra=self.env, cwd=self.project_dir)
             self.assertEqual(rc, 0, f"{name}: rc={rc} err={err}")
             self.assertTrue(out.strip(), f"{name}: empty output")
+
+
+class TestSprintPlanningContext(NamedSubcommandBase):
+
+    def test_sprint_planning_acquires_lock_and_bundles_context(self):
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        self.write_data_file('backlog/BACKLOG.md', '- F001\n')
+        self.write_data_file('sprints/current/SPRINT.md', 'id: sprint-001\n')
+        self.write_data_file('memory/metrics.md', 'Velocity: 8 pts\n')
+        self.write_data_file('codebase-context.md', 'Stack: Node\n')
+
+        out, err, rc = run_cli(['sprint-planning'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('SHIPYARD_LOCK_ACQUIRED=true', out)
+        self.assertIn('--- config ---', out)
+        self.assertIn('think: opus', out)
+        self.assertIn('--- backlog ---', out)
+        self.assertIn('- F001', out)
+        self.assertIn('--- sprint ---', out)
+        self.assertIn('id: sprint-001', out)
+        self.assertIn('--- metrics ---', out)
+        self.assertIn('Velocity: 8 pts', out)
+        self.assertIn('--- codebase ---', out)
+        self.assertIn('Stack: Node', out)
+
+    def test_sprint_planning_blocked_lock_skips_context_reads(self):
+        data_dir = self.resolve_data_dir()
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        lock_path = os.path.join(data_dir, '.active-session.json')
+        with open(lock_path, 'w') as f:
+            json.dump({
+                'skill': 'ship-discuss',
+                'sprint': None,
+                'wave': None,
+                'started': '2999-01-01T00:00:00.000Z',
+                'session_id': 'other-session',
+                'cleared': None,
+                'depth': 1,
+            }, f)
+
+        out, err, rc = run_cli(['sprint-planning'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_LOCK_ACQUIRED=false', out)
+        self.assertIn('SHIPYARD_LOCK_BLOCKED:', out)
+        self.assertIn('⛔ Another planning session is active.', out)
+        self.assertNotIn('--- config ---', out)
+        self.assertNotIn('think: opus', out)
+
+
+class TestSprintExecutionContext(NamedSubcommandBase):
+
+    def test_sprint_execution_acquires_lock_with_sprint_and_bundles_context(self):
+        self.write_data_file('config.md', 'models:\n  build: sonnet\n')
+        self.write_data_file('sprints/current/SPRINT.md', '---\nid: sprint-042\n---\n# Sprint\n')
+        self.write_data_file('sprints/current/PROGRESS.md', 'current_wave: 2\n')
+        self.write_data_file(
+            'sprints/current/EXECUTE-CURSOR.md',
+            '---\n'
+            'stage: wave_2_dispatch\n'
+            'status: in_progress\n'
+            'terminal: false\n'
+            'sprint: sprint-042\n'
+            'wave_number: 2\n'
+            'iteration: 1\n'
+            '---\n'
+            'resume note\n',
+        )
+        self.write_data_file('codebase-context.md', 'Stack: React\n')
+
+        out, err, rc = run_cli(['sprint-execution'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('SHIPYARD_SPRINT_ID=sprint-042', out)
+        self.assertIn('SHIPYARD_LOCK_ACQUIRED=true', out)
+        self.assertIn('SHIPYARD_CURSOR_PRESENT=true', out)
+        self.assertIn('SHIPYARD_CURSOR_STAGE=wave_2_dispatch', out)
+        self.assertIn('SHIPYARD_CURSOR_STATUS=in_progress', out)
+        self.assertIn('SHIPYARD_CURSOR_TERMINAL=false', out)
+        self.assertIn('SHIPYARD_CURSOR_WAVE_NUMBER=2', out)
+        self.assertIn('SHIPYARD_CURSOR_NOTE:', out)
+        self.assertIn('resume note', out)
+        self.assertIn('--- config ---', out)
+        self.assertIn('build: sonnet', out)
+        self.assertIn('--- sprint ---', out)
+        self.assertIn('id: sprint-042', out)
+        self.assertIn('--- sprint-progress ---', out)
+        self.assertIn('current_wave: 2', out)
+        self.assertIn('--- codebase ---', out)
+        self.assertIn('Stack: React', out)
+
+    def test_sprint_execution_blocked_lock_skips_context_reads(self):
+        data_dir = self.resolve_data_dir()
+        self.write_data_file('config.md', 'models:\n  build: sonnet\n')
+        lock_path = os.path.join(data_dir, '.active-execution.json')
+        with open(lock_path, 'w') as f:
+            json.dump({
+                'skill': 'ship-review',
+                'sprint': 'sprint-041',
+                'wave': None,
+                'started': '2999-01-01T00:00:00.000Z',
+                'session_id': 'other-session',
+                'cleared': None,
+                'depth': 1,
+            }, f)
+
+        out, err, rc = run_cli(['sprint-execution'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_LOCK_ACQUIRED=false', out)
+        self.assertIn('SHIPYARD_LOCK_BLOCKED:', out)
+        self.assertIn('⛔ Another execution lock is active.', out)
+        self.assertNotIn('--- config ---', out)
+        self.assertNotIn('build: sonnet', out)
+
+
+class TestQuickTaskContext(NamedSubcommandBase):
+
+    def test_quick_task_checks_planning_acquires_execution_and_bundles_context(self):
+        self.write_data_file('config.md', 'models:\n  build: sonnet\n')
+        self.write_data_file('codebase-context.md', 'Stack: TypeScript\n')
+        self.write_data_file('spec/tasks/Q-002-existing.md', 'x')
+        self.write_data_file('spec/tasks/Q-001-existing.md', 'x')
+
+        out, err, rc = run_cli(['quick-task'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('SHIPYARD_PLANNING_LOCK_CLEAR=true', out)
+        self.assertIn('SHIPYARD_LOCK_ACQUIRED=true', out)
+        self.assertIn('--- config ---', out)
+        self.assertIn('build: sonnet', out)
+        self.assertIn('--- codebase ---', out)
+        self.assertIn('Stack: TypeScript', out)
+        self.assertIn('--- quick-tasks ---', out)
+        self.assertRegex(out, r'Q-001-existing\.md[\s\S]*Q-002-existing\.md')
+
+    def test_quick_task_planning_block_skips_execution_and_context_reads(self):
+        data_dir = self.resolve_data_dir()
+        self.write_data_file('config.md', 'models:\n  build: sonnet\n')
+        lock_path = os.path.join(data_dir, '.active-session.json')
+        with open(lock_path, 'w') as f:
+            json.dump({
+                'skill': 'ship-sprint',
+                'sprint': None,
+                'wave': None,
+                'started': '2999-01-01T00:00:00.000Z',
+                'session_id': 'other-session',
+                'cleared': None,
+                'depth': 1,
+            }, f)
+
+        out, err, rc = run_cli(['quick-task'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_PLANNING_LOCK_CLEAR=false', out)
+        self.assertIn('SHIPYARD_LOCK_ACQUIRED=false', out)
+        self.assertIn('⛔ Another planning session is active.', out)
+        self.assertNotIn('--- config ---', out)
+        self.assertNotIn('build: sonnet', out)
+
+    def test_quick_task_execution_block_skips_context_reads(self):
+        data_dir = self.resolve_data_dir()
+        self.write_data_file('config.md', 'models:\n  build: sonnet\n')
+        lock_path = os.path.join(data_dir, '.active-execution.json')
+        with open(lock_path, 'w') as f:
+            json.dump({
+                'skill': 'ship-debug',
+                'sprint': None,
+                'wave': None,
+                'started': '2999-01-01T00:00:00.000Z',
+                'session_id': 'other-session',
+                'cleared': None,
+                'depth': 1,
+            }, f)
+
+        out, err, rc = run_cli(['quick-task'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_PLANNING_LOCK_CLEAR=true', out)
+        self.assertIn('SHIPYARD_LOCK_ACQUIRED=false', out)
+        self.assertIn('⛔ Another execution lock is active.', out)
+        self.assertNotIn('--- config ---', out)
+        self.assertNotIn('build: sonnet', out)
+
+
+class TestDebugSessionContext(NamedSubcommandBase):
+
+    def test_debug_session_bundles_path_sessions_and_config(self):
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        self.write_data_file('debug/auth-timeout.md', '# Debug\n')
+
+        out, err, rc = run_cli(['debug-session'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('--- debug-sessions ---', out)
+        self.assertIn('auth-timeout.md', out)
+        self.assertIn('--- config ---', out)
+        self.assertIn('think: opus', out)
+
+
+class TestHelpContext(NamedSubcommandBase):
+
+    def test_help_context_bundles_project_state_and_version(self):
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        self.write_data_file('codebase-context.md', 'Stack: Rails\n')
+        self.write_data_file('spec/features/F001-demo.md', 'x')
+        self.write_data_file('sprints/current/SPRINT.md', 'id: sprint-001\n')
+        self.write_data_file('sprints/current/PROGRESS.md', 'current_wave: 1\n')
+        self.write_data_file('backlog/BACKLOG.md', '- F001\n')
+        env = dict(self.env)
+        env['CLAUDE_PLUGIN_ROOT'] = PLUGIN_ROOT
+
+        out, err, rc = run_cli(['help-context'], env_extra=env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('--- config ---', out)
+        self.assertIn('think: opus', out)
+        self.assertIn('--- codebase ---', out)
+        self.assertIn('Stack: Rails', out)
+        self.assertIn('--- features ---', out)
+        self.assertIn('F001-demo.md', out)
+        self.assertIn('--- sprint ---', out)
+        self.assertIn('id: sprint-001', out)
+        self.assertIn('--- sprint-progress ---', out)
+        self.assertIn('current_wave: 1', out)
+        self.assertIn('--- backlog ---', out)
+        self.assertIn('- F001', out)
+        self.assertIn('--- version ---', out)
+        self.assertIn('Shipyard v', out)
+
+
+class TestSmallCommandContexts(NamedSubcommandBase):
+
+    def test_review_context_bundles_review_inputs(self):
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        self.write_data_file('sprints/current/SPRINT.md', 'id: sprint-001\n')
+        self.write_data_file('sprints/current/PROGRESS.md', 'current_wave: 1\n')
+        self.write_data_file(
+            'sprints/current/REVIEW-CURSOR.md',
+            '---\nstage: tests\nstatus: paused\nterminal: false\nsprint: sprint-001\n---\nawaiting tests\n',
+        )
+        self.write_data_file('memory/metrics.md', 'Velocity: 8 pts\n')
+
+        out, err, rc = run_cli(['review-context'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('SHIPYARD_CURSOR_PRESENT=true', out)
+        self.assertIn('SHIPYARD_CURSOR_PIPELINE=ship-review', out)
+        self.assertIn('SHIPYARD_CURSOR_STAGE=tests', out)
+        self.assertIn('SHIPYARD_CURSOR_STATUS=paused', out)
+        self.assertIn('awaiting tests', out)
+        self.assertIn('--- config ---', out)
+        self.assertIn('think: opus', out)
+        self.assertIn('--- sprint ---', out)
+        self.assertIn('id: sprint-001', out)
+        self.assertIn('--- sprint-progress ---', out)
+        self.assertIn('current_wave: 1', out)
+        self.assertIn('--- metrics ---', out)
+        self.assertIn('Velocity: 8 pts', out)
+
+    def test_backlog_context_bundles_backlog_inputs(self):
+        self.write_data_file('backlog/BACKLOG.md', '- F001\n')
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        self.write_data_file('memory/metrics.md', 'Velocity: 8 pts\n')
+
+        out, err, rc = run_cli(['backlog-context'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('--- backlog ---', out)
+        self.assertIn('- F001', out)
+        self.assertIn('--- config ---', out)
+        self.assertIn('think: opus', out)
+        self.assertIn('--- metrics ---', out)
+        self.assertIn('Velocity: 8 pts', out)
+
+    def test_bug_context_bundles_bug_count_and_sprint(self):
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        self.write_data_file('spec/bugs/B-001.md', 'x')
+        self.write_data_file('sprints/current/SPRINT.md', 'id: sprint-001\n')
+
+        out, err, rc = run_cli(['bug-context'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('Bugs: 1', out)
+        self.assertIn('--- sprint ---', out)
+        self.assertIn('id: sprint-001', out)
+
+    def test_spec_context_bundles_path_and_counts(self):
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        self.write_data_file('spec/epics/E001.md', 'x')
+        self.write_data_file('spec/features/F001.md', 'x')
+        self.write_data_file('spec/tasks/T001.md', 'x')
+        self.write_data_file('spec/bugs/B001.md', 'x')
+        self.write_data_file('spec/ideas/IDEA001.md', 'x')
+        self.write_data_file('spec/references/R001.md', 'x')
+
+        out, err, rc = run_cli(['spec-context'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('Epics: 1', out)
+        self.assertIn('Features: 1', out)
+        self.assertIn('Tasks: 1', out)
+        self.assertIn('Bugs: 1', out)
+        self.assertIn('Ideas: 1', out)
+        self.assertIn('References: 1', out)
+
+
+class TestInitStatusDiscussContexts(NamedSubcommandBase):
+
+    def test_init_context_bundles_data_version_config_and_project_claude(self):
+        self.write_data_file('version.md', '3.19.0\n')
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        with open(os.path.join(self.project_dir, 'CLAUDE.md'), 'w') as f:
+            f.write('# Project Instructions\n')
+
+        out, err, rc = run_cli(['init-context'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('--- data-version ---', out)
+        self.assertIn('3.19.0', out)
+        self.assertIn('--- config ---', out)
+        self.assertIn('think: opus', out)
+        self.assertIn('--- project-claude-md ---', out)
+        self.assertIn('# Project Instructions', out)
+
+    def test_status_dashboard_bundles_dashboard_inputs(self):
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        self.write_data_file('sprints/current/SPRINT.md', 'id: sprint-001\n')
+        self.write_data_file('sprints/current/PROGRESS.md', 'current_wave: 1\n')
+        self.write_data_file('backlog/BACKLOG.md', '- F001\n')
+        self.write_data_file('memory/metrics.md', 'Velocity: 8 pts\n')
+        self.write_data_file('debug/auth-timeout.md', 'x')
+        self.write_data_file('spec/features/F001.md', 'x')
+        self.write_data_file('spec/epics/E001.md', 'x')
+        self.write_data_file('spec/bugs/B001.md', 'x')
+        self.write_data_file('spec/ideas/IDEA001.md', 'x')
+        self.write_data_file(
+            'sprints/current/EXECUTE-CURSOR.md',
+            '---\nstage: wave_1_gate\nstatus: in_progress\nterminal: false\nsprint: sprint-001\n---\n',
+        )
+        self.write_data_file(
+            'sprints/current/REVIEW-CURSOR.md',
+            '---\nstage: demo_user\nstatus: paused\nterminal: false\nsprint: sprint-001\n---\nreview pause\n',
+        )
+
+        out, err, rc = run_cli(['status-dashboard'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('SHIPYARD_EXECUTE_CURSOR_PRESENT=true', out)
+        self.assertIn('SHIPYARD_EXECUTE_CURSOR_STAGE=wave_1_gate', out)
+        self.assertIn('SHIPYARD_REVIEW_CURSOR_PRESENT=true', out)
+        self.assertIn('SHIPYARD_REVIEW_CURSOR_STAGE=demo_user', out)
+        self.assertIn('SHIPYARD_REVIEW_CURSOR_NOTE:', out)
+        self.assertIn('--- config ---', out)
+        self.assertIn('think: opus', out)
+        self.assertIn('--- sprint ---', out)
+        self.assertIn('id: sprint-001', out)
+        self.assertIn('--- sprint-progress ---', out)
+        self.assertIn('current_wave: 1', out)
+        self.assertIn('--- backlog ---', out)
+        self.assertIn('- F001', out)
+        self.assertIn('--- metrics ---', out)
+        self.assertIn('Velocity: 8 pts', out)
+        self.assertIn('Debug sessions: 1 active', out)
+        self.assertIn('Features: 1', out)
+        self.assertIn('Epics: 1', out)
+        self.assertIn('Bugs: 1', out)
+        self.assertIn('Ideas: 1', out)
+
+    def test_cursor_state_reports_absent_and_present_cursor(self):
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        out, err, rc = run_cli(['cursor-state', 'execute'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_CURSOR_PIPELINE=ship-execute', out)
+        self.assertIn('SHIPYARD_CURSOR_PRESENT=false', out)
+
+        self.write_data_file(
+            'sprints/current/EXECUTE-CURSOR.md',
+            '---\n'
+            'stage: wave_1_waiting\n'
+            'status: in_progress\n'
+            'terminal: false\n'
+            'sprint: sprint-001\n'
+            'pending_subagents:\n'
+            '  - task_id: T001\n'
+            '    agent_name: builder-T001\n'
+            '---\n'
+            'waiting for builder\n',
+        )
+        out, err, rc = run_cli(['cursor-state', 'execute'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_CURSOR_PRESENT=true', out)
+        self.assertIn('SHIPYARD_CURSOR_STAGE=wave_1_waiting', out)
+        self.assertIn('SHIPYARD_CURSOR_PENDING_SUBAGENTS=', out)
+        self.assertIn('"task_id":"T001"', out)
+        self.assertIn('waiting for builder', out)
+
+    def test_draft_state_reports_research_and_sprint_frontmatter(self):
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        out, err, rc = run_cli(['draft-state', 'research'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_RESEARCH_DRAFT_PRESENT=false', out)
+
+        self.write_data_file('spec/.research-draft.md', '---\ntopic: billing\nobsolete: false\n---\nbody\n')
+        self.write_data_file('sprints/current/SPRINT-DRAFT.md', '---\nstatus: draft\n---\n# Sprint\n')
+
+        out, err, rc = run_cli(['draft-state', 'research'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_RESEARCH_DRAFT_PRESENT=true', out)
+        self.assertIn('SHIPYARD_RESEARCH_DRAFT_TOPIC=billing', out)
+        self.assertIn('SHIPYARD_RESEARCH_DRAFT_OBSOLETE=false', out)
+
+        out, err, rc = run_cli(['draft-state', 'sprint'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_SPRINT_DRAFT_PRESENT=true', out)
+        self.assertIn('SHIPYARD_SPRINT_DRAFT_STATUS=draft', out)
+
+    def test_discuss_context_acquires_lock_and_bundles_context(self):
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        self.write_data_file('codebase-context.md', 'Stack: Go\n')
+        self.write_data_file('spec/epics/E001.md', 'x')
+        self.write_data_file('spec/features/F001.md', 'x')
+
+        out, err, rc = run_cli(['discuss-context'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DATA=', out)
+        self.assertIn('SHIPYARD_LOCK_ACQUIRED=true', out)
+        self.assertIn('--- config ---', out)
+        self.assertIn('think: opus', out)
+        self.assertIn('--- codebase ---', out)
+        self.assertIn('Stack: Go', out)
+        self.assertIn('--- epics ---', out)
+        self.assertIn('E001.md', out)
+        self.assertIn('--- features ---', out)
+        self.assertIn('F001.md', out)
+
+    def test_discuss_context_blocked_lock_skips_context_reads(self):
+        data_dir = self.resolve_data_dir()
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        lock_path = os.path.join(data_dir, '.active-session.json')
+        with open(lock_path, 'w') as f:
+            json.dump({
+                'skill': 'ship-sprint',
+                'sprint': None,
+                'wave': None,
+                'started': '2999-01-01T00:00:00.000Z',
+                'session_id': 'other-session',
+                'cleared': None,
+                'depth': 1,
+            }, f)
+
+        out, err, rc = run_cli(['discuss-context'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_LOCK_ACQUIRED=false', out)
+        self.assertIn('SHIPYARD_LOCK_BLOCKED:', out)
+        self.assertIn('⛔ Another planning session is active.', out)
+        self.assertNotIn('--- config ---', out)
+        self.assertNotIn('think: opus', out)
+
+    def test_discuss_context_allows_execute_cross_lock_and_includes_sprint(self):
+        data_dir = self.resolve_data_dir()
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        self.write_data_file('codebase-context.md', 'Stack: Go\n')
+        self.write_data_file('sprints/current/SPRINT.md', 'id: sprint-007\n')
+        lock_path = os.path.join(data_dir, '.active-execution.json')
+        with open(lock_path, 'w') as f:
+            json.dump({
+                'skill': 'ship-execute',
+                'sprint': 'sprint-007',
+                'wave': 1,
+                'started': '2999-01-01T00:00:00.000Z',
+                'session_id': 'other-session',
+                'cleared': None,
+                'depth': 1,
+            }, f)
+
+        out, err, rc = run_cli(['discuss-context'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_LOCK_ACQUIRED=true', out)
+        self.assertIn('SHIPYARD_LOCK_CROSS_ALLOWED=ship-discuss+ship-execute', out)
+        self.assertIn('--- sprint ---', out)
+        self.assertIn('id: sprint-007', out)
 
 
 class TestListSubcommand(NamedSubcommandBase):

@@ -28,7 +28,7 @@ After completing a workflow, always end with:
 
 | After completing... | Next Up |
 |---------------------|---------|
-| `/ship-init` | `/ship-discuss` to define features |
+| Setup complete, no features | `/ship-discuss` to define features |
 | `/ship-discuss` (feature approved) | `/ship-sprint` to plan a sprint, or `/ship-discuss` for more features |
 | `/ship-sprint` | `/ship-execute` to start building |
 | `/ship-execute` (sprint done) | `/ship-review` to verify work + retrospective |

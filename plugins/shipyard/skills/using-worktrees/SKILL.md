@@ -42,7 +42,7 @@ Claude Code:
 3. Spawns the subagent with cwd = the worktree path.
 4. Subagent edits / commits / runs tests in the worktree.
 5. Subagent returns; Claude Code captures the cwd correctly (no leakage to parent).
-6. Orchestrator **anchors each returned commit** (`shipyard-data anchor-commit <task> <sha>`), then rebases + ff-merges the worktree branch back onto the working branch. It discovers the branch from git ground truth (`git worktree list` → the `shipyard/wt-*` row), **never** from the Agent return's `worktreeBranch` field — that field is undefined/unreliable (Claude Code #51596), and trusting it is what skipped merge-back and orphaned six commits in the v2.8 incident.
+6. After the orchestrator-side gate passes, orchestrator **accepts each returned commit** (`shipyard-data task accept-return <task> sprint=<id> wave=<n> commit=<sha> --data-dir <data_dir>`), which anchors the commit, records the terminal return event, and marks the task done, then rebases + ff-merges the worktree branch back onto the working branch. It discovers the branch from git ground truth (`git worktree list` → the `shipyard/wt-*` row), **never** from the Agent return's `worktreeBranch` field — that field is undefined/unreliable (Claude Code #51596), and trusting it is what skipped merge-back and orphaned six commits in the v2.8 incident.
 7. Orchestrator runs `shipyard-data verify-wave-integrated` (the pre-teardown gate); only on exit 0 does it remove the worktree (`git worktree remove`) and delete the branch with `git branch -d` (never `-D`).
 
 The orchestrator does **not** need to:
@@ -75,13 +75,13 @@ Set in the project's `.claude/settings.json`:
 { "worktree": { "baseRef": "head" } }
 ```
 
-**Verified at execute, not just at init.** `/ship-execute` Step 0 runs `shipyard-data ensure-worktree-baseref`, which sets this idempotently every sprint (atomic JSON merge — never a model hand-edit). Don't rely on `/ship-init` having set it once: it drifts, and a missing setting is silently wrong. The setting is also the backstop for when the `WorktreeCreate` hook doesn't fire — native worktree creation then still bases on local HEAD instead of `fresh` (= `origin/<default>`), which would skip Wave N-1's commits.
+**Verified at execute, not just at setup.** `/ship-execute` Step 0 runs `shipyard-data ensure-worktree-baseref`, which sets this idempotently every sprint (atomic JSON merge — never a model hand-edit). Don't rely on setup having set it once: it drifts, and a missing setting is silently wrong. The setting is also the backstop for when the `WorktreeCreate` hook doesn't fire — native worktree creation then still bases on local HEAD instead of `fresh` (= `origin/<default>`), which would skip Wave N-1's commits.
 
 ## Cleanup at Wave Boundaries
 
 After all subagents in a wave return:
 
-1. **Anchor every returned commit first.** `shipyard-data anchor-commit <task> <sha>` for each `COMPLETE` return pins a `shipyard/keep-<task>` ref to the commit. From here the commit survives rebase, teardown, and worktree-name collisions — the insurance half of the integration gate.
+1. **Accept every gate-passed return first.** `shipyard-data task accept-return <task> sprint=<id> wave=<n> commit=<sha> --data-dir <data_dir>` for each `COMPLETE` return pins a `shipyard/keep-<task>` ref to the commit and records terminal evidence. From here the commit survives rebase, teardown, and worktree-name collisions — the insurance half of the integration gate. Use bare `shipyard-data anchor-commit` only for salvage paths where a branch tip must be preserved but the task did not pass the gate and must not be marked done.
 2. **Rebase each task branch sequentially onto the working branch**, in task-ID order (deterministic, replayable history even though tasks ran in parallel). Discover the branches from `git worktree list` (the `shipyard/wt-*` rows), never from `worktreeBranch`.
    ```
    for branch in shipyard/wt-T-042 shipyard/wt-T-043 ...; do

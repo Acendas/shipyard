@@ -13,9 +13,11 @@ You are facilitating a feature discovery conversation. This is fluid — not a q
 
 ## Context
 
-Context is loaded only after the planning mutex is acquired. Do not add `!` backtick context commands above the mutex; they execute before the model can take the lock.
+!`shipyard-context discuss-context`
 
-**Paths.** After the mutex is acquired, run the context commands listed in "Load Context" and use the absolute SHIPYARD_DATA prefix from `shipyard-context path`. No `~`, `$HOME`, or shell variables in `file_path`. No bash command substitution for shipyard-data or shipyard-context — use Read / Grep / Glob after context is loaded. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
+**Paths.** Use the absolute SHIPYARD_DATA prefix from the bundled context block. No `~`, `$HOME`, or shell variables in `file_path`. No bash command substitution for shipyard-data or shipyard-context — use Read / Grep / Glob after context is loaded. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
+
+**Onboarding gate.** If the bundled context contains `SHIPYARD_ONBOARDING_REQUIRED=true`, run the exact `SHIPYARD_ONBOARDING_COMMAND` once with Bash, report the CLI output to the user, and STOP. Do not infer setup state by reading or writing Shipyard state files; onboarding decisions are CLI-owned.
 
 **Quiet by default.** This is a conversation, so the interruption *rounds* carry real discussion — but between them, work quietly. Only three things reach the chat outside a user-input round: a one-line transition marker per phase, a compact ASCII diagram/status block, and a one-line banner when launching or receiving the background deep-dive (`→ Deep-dive back: 3 findings, 1 data-model risk`). Research findings, viability reads, impact maps, and diagrams are rendered in full ONLY when they feed an imminent AskUserQuestion (render-before-ask) — otherwise they collapse to a one-line result and fold into the eventual gate summary. Reading the dossier puts it in YOUR context; that is not a reason to re-emit it as prose unless a decision rides on it now. **No running commentary** ("Now I'll research…", "Let me run the viability gate…", explaining a no-input phase). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
 
@@ -29,29 +31,18 @@ $ARGUMENTS
 
 ## Session Mutex Check
 
-**Absolute first action — before reading any context, before mode detection, before anything.** Run `shipyard-data lock acquire planning --skill ship-discuss`. Exit 0 → proceed to "Detect Mode" below. Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP — do not continue with any other instructions, do not load any context, do not call any other tools. If the CLI printed a stale/corrupt-lock recovery line on stderr, echo it, then proceed (see the `acquiring-skill-lock` capability skill for the full contract — locks are CLI-owned as of v3.7.0, never Read or Write either lock file by hand).
+**Absolute first context action — before mode detection, before any manual reads.** The `shipyard-context discuss-context` pre-exec block above acquires the planning lock and returns the discussion context bundle in one CLI call. If that context contains `SHIPYARD_LOCK_ACQUIRED=false`, echo the `SHIPYARD_LOCK_BLOCKED:` `⛔` block text verbatim as the entire response and STOP — do not continue with any other instructions, do not call any other tools. If it contains `SHIPYARD_LOCK_NOTICE:`, echo that stale/corrupt-lock recovery line once, then proceed (see the `acquiring-skill-lock` capability skill for the full contract — locks are CLI-owned as of v3.7.0, never Read or Write either lock file by hand).
 
-**Concurrent execution safety.** The lock CLI allows exactly one cross-lock pair: `ship-discuss` may run while `ship-execute` holds the execution lock. This exception is for **future/backlog work** only. If the acquire stdout includes `cross_lock_allowed: "ship-discuss+ship-execute"`, continue in **future-work mode**:
-- Load the active sprint summary (`shipyard-context view sprint 80`) and treat every feature/task referenced by `<SHIPYARD_DATA>/sprints/current/SPRINT.md` as read-only.
+**Concurrent execution safety.** The lock CLI allows exactly one cross-lock pair: `ship-discuss` may run while `ship-execute` holds the execution lock. This exception is for **future/backlog work** only. If the bundled context includes `SHIPYARD_LOCK_CROSS_ALLOWED=ship-discuss+ship-execute`, continue in **future-work mode**:
+- The active sprint summary is already included in the bundled context; treat every feature/task referenced by `<SHIPYARD_DATA>/sprints/current/SPRINT.md` as read-only.
+- Keep that list as the active-sprint read-only set for the whole invocation.
 - Safe: create new IDEAs, discuss new features, write future feature specs, graduate an idea into a new feature, and add future approved features to BACKLOG.md. `/ship-execute` has already snapshotted its active sprint; backlog additions do not enter the running sprint.
 - Unsafe: editing active-sprint feature specs, active-sprint task files, SPRINT.md, PROGRESS.md, cursors, task statuses, or acceptance/user-flow probes for features in the running sprint. If the user asks for one, refuse the edit and offer to capture a follow-up IDEA or bug for the next sprint.
 - EPIC/refine flows that would cascade into an active-sprint feature must skip those files and surface them as deferred follow-ups. Never silently mutate a feature that `/ship-execute` may be reading or verifying.
 
 ## Load Context
 
-After the lock is acquired, run these context reads exactly once before mode detection:
-
-```bash
-shipyard-context path
-shipyard-context view config
-shipyard-context view codebase
-shipyard-context list epics
-shipyard-context list features
-```
-
-Use the returned SHIPYARD_DATA path literally in all file operations.
-
-If the lock acquire reported `cross_lock_allowed: "ship-discuss+ship-execute"`, also run `shipyard-context view sprint 80` before mode detection and keep its feature/task IDs as the active-sprint read-only set for the whole invocation.
+The `shipyard-context discuss-context` block is the only startup context call. It returns SHIPYARD_DATA, config, codebase context, epics, features, and, when concurrent execution is allowed, the active sprint summary. Use the returned SHIPYARD_DATA path literally in all file operations. Do not rerun those context commands manually before mode detection.
 
 ## Detect Mode
 
@@ -151,10 +142,10 @@ If you lose context mid-discussion (e.g., after auto-compaction):
 
 0. **Call `TaskList()` first.** If the phase-checklist tasks from NEW mode Phase 0 are present, the last `in_progress` (or first non-`completed`) task names the phase to resume — use it as the structured position anchor, then confirm against the file evidence below before resuming (the tasks are a mirror, not authority; if tasks and files disagree, the files win).
 
-1. Use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md`. If it exists, parse its frontmatter — if `obsolete: true` is set, treat it as absent (skip to step 2). Otherwise:
+1. Run `shipyard-context draft-state research`. If `SHIPYARD_RESEARCH_DRAFT_PRESENT=false` or `SHIPYARD_RESEARCH_DRAFT_OBSOLETE=true`, treat the draft as absent (skip to step 2). Otherwise use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md` for the narrative body only:
    - If found and `topic:` matches → the design deep-dive ran (the dossier carries `## Research Findings`, `## Constitution Gaps`, `## Diagrams`, `## Viability Pre-Assessment`, `## Impact Analysis`, `## Simplification Candidates`) and the research/challenge phases completed. Read it for findings and resume from Phase 2 (Viability Gate) — later phases consume their dossier sections rather than re-dispatching.
    - If found but its `topic:` doesn't match the current discussion topic → topic-mismatch fork. The user just typed `/ship-discuss [new topic]`, but stale research exists for `[old topic]`. The default behavior MUST favor the user's most recent intent (the new topic) — abandoning a fresh request to resume stale research is the wrong-by-default semantics that surfaced as HIGH-risk in the v2.4.0 audit (user picks "keep" thinking it means "keep my new topic", silently discards the new request). Before the ask, render a two-line summary of the stale draft as chat text — its `topic:`, `created:` date, and which dossier sections it carries — so the user sees what "the old discussion" actually contains. The draft exists only in a Read result until re-emitted; option labels alone cannot carry it. Use `AskUserQuestion` with options labeled by the topic they refer to, NOT by abstract verbs like "keep" or "discard":
-     - **"Continue with the new topic '[new topic]' (recommended)"** → use Edit to set `obsolete: true` in the draft's frontmatter (preserving the old research as a soft-deleted record), proceed fresh into Phase 1.5 (Research) for the current topic. This is the default and should be presented first.
+     - **"Continue with the new topic '[new topic]' (recommended)"** → run `shipyard-data draft obsolete-research --topic "<old topic>"` (preserving the old research as a soft-deleted record), proceed fresh into Phase 1.5 (Research) for the current topic. This is the default and should be presented first.
      - **"Resume the old discussion on '[old topic]' instead"** → switch to the old topic. Read `topic:` from `.research-draft.md`, load its research findings, and resume from Phase 2 (Viability Gate) for that topic. Inform the user: "Resuming discussion on [old topic]. To discuss [new topic], run /ship-discuss [new topic] in a new session." Only choose this if the user explicitly picks it — never default to it.
      - **"Resume the old topic AND archive the old research before starting the new one"** (when the user wants both) → first finalize the old discussion to Phase 6 in a quick wrap-up pass, then start fresh on the new topic.
 
@@ -384,7 +375,7 @@ Plugin root: ${CLAUDE_PLUGIN_ROOT}
    utilities / patterns could replace hand-rolled equivalents.
 
 # Return contract
-Write the dossier to <SHIPYARD_DATA>/spec/.research-draft.md with frontmatter
+Create the dossier checkpoint at <SHIPYARD_DATA>/spec/.research-draft.md with the frontmatter below. This is the initial narrative artifact creation step; subsequent state changes to this file's frontmatter, such as `obsolete: true`, go through `shipyard-data draft ...` only.
 `topic:` + `created:` and these sections (extend the existing checkpoint file;
 do not invent a new file):
   ## Research Findings         (HIGH/MEDIUM/LOW confidence, prescriptive "Use X")
@@ -423,7 +414,7 @@ The single `AskUserQuestion` carries **up to 4 questions**:
 - **Up to 3 themed challenge questions** — group the resolvable findings into ≤3 themes (e.g. security, data model, failure modes); each question's recommended default option is **"Apply all recommendations"** for that theme, so the trusting user resolves a whole theme with one pick. For each item inside a theme: what I found → why it matters → what I recommend.
 - **The 4th question is the Phase 2 viability-echo confirmation** (see Phase 2 — mandatory, never dropped): "I'm reading this as one feature, scoped to [scope], with these acceptance themes: [themes]. Does this match your intent?"
 
-**Kill the old per-group serial gating.** Do NOT resolve challenge themes one AskUserQuestion at a time and do NOT block "until each group is resolved" before showing the next — present everything and bulk-resolve in the one call. (If more than 3 challenge themes genuinely exist, a second call is the sanctioned overflow, but aim for one.) Write research findings and challenge resolutions to `<SHIPYARD_DATA>/spec/.research-draft.md` (frontmatter `topic:` + `created:`; body sections `## Research Findings` and `## Challenge Resolutions`). This file is absorbed into the feature file's Technical Notes in Phase 3 and then deleted.
+**Kill the old per-group serial gating.** Do NOT resolve challenge themes one AskUserQuestion at a time and do NOT block "until each group is resolved" before showing the next — present everything and bulk-resolve in the one call. (If more than 3 challenge themes genuinely exist, a second call is the sanctioned overflow, but aim for one.) Create/update the dossier body in `<SHIPYARD_DATA>/spec/.research-draft.md` (initial frontmatter `topic:` + `created:` only; later state flags use `shipyard-data draft ...`; body sections `## Research Findings` and `## Challenge Resolutions`). This file is absorbed into the feature file's Technical Notes in Phase 3 and then deleted.
 
 ### Phase 2: Viability Gate
 
@@ -454,7 +445,7 @@ Evaluate each feature against the 5 gates AND echo the verdicts to the user. The
 
 When SPLIT fires (or BUILDABLE/SCOPED fails on size grounds), follow the **`splitting-stories` playbook** with `level: feature`, the draft text, the AC list, and `domain_hints` inferred from the discussion. The skill returns split candidates with cited patterns and `acceptance_hint`s. Render each split candidate as chat text first — child title, one-line scope, and its `acceptance_hint` — then ask. The candidates are a capability-skill return the user hasn't seen, and option labels cannot hold them. "This looks like [N] stories, not one — split it? (split as suggested / pick which children to keep / capture as-is and refine later)". Reject any candidate that fails the skill's horizontal-slice check before presenting (the skill flags these in `horizontal_rejections` — re-prompt the skill if it returned any).
 
-If viability kills the feature, use the Edit tool to set `obsolete: true` in `<SHIPYARD_DATA>/spec/.research-draft.md`'s frontmatter (soft-delete sentinel — recovery logic filters it out; it stays as a soft-deleted record).
+If viability kills the feature, run `shipyard-data draft obsolete-research --topic "<current topic>"` to set `<SHIPYARD_DATA>/spec/.research-draft.md`'s `obsolete: true` frontmatter sentinel (soft-delete sentinel — recovery logic filters it out; it stays as a soft-deleted record).
 
 If a feature fails a gate, AskUserQuestion — don't block. Frame positively: "This feature needs X to be buildable" not "This feature fails because X is missing."
 Example: "I can't write testable acceptance criteria for this yet — the scope is too broad. Can we narrow it to something specific? (narrow it / capture as-is and refine later)"
@@ -467,7 +458,7 @@ The user can override: "Just capture it as proposed, we'll refine later."
 
 For each well-defined feature: generate the next FNNN ID, determine the epic (existing, new, or empty — see reference for the decision tree), and write `<SHIPYARD_DATA>/spec/features/FNNN-[slug].md` with full required frontmatter (id, title, type, epic, status, story_points, complexity, token_estimate, all RICE fields, feasibility, dependencies, references, external_refs, children, tasks, created, updated).
 
-**External linking:** If the user mentioned an external issue key during discussion (e.g., "this is JIRA-123" or "relates to GH-456"), add it to `external_refs` in the feature frontmatter. Don't ask — if they said it, link it. Body sections: user story, Why This Matters, **acceptance criteria in Given/When/Then format** (happy path + at least one edge case), optional Interface / Data Model / Configuration / Flows / Error Handling sections (include only if discussed), Technical Notes (absorbed from `.research-draft.md`), Decision Log. **Hard limit: 200 lines per file** — split into sub-features (F001a/b) or extract to `<SHIPYARD_DATA>/spec/references/FNNN-<slug>.md` if larger. Fill every RICE component field; `rice_score` is the derived cached score `(reach × impact × confidence) / effort` and must match those components. Mark `.research-draft.md` `obsolete: true` only after Phase 3 finishes (it is the recovery checkpoint until then).
+**External linking:** If the user mentioned an external issue key during discussion (e.g., "this is JIRA-123" or "relates to GH-456"), add it to `external_refs` in the feature frontmatter. Don't ask — if they said it, link it. Body sections: user story, Why This Matters, **acceptance criteria in Given/When/Then format** (happy path + at least one edge case), optional Interface / Data Model / Configuration / Flows / Error Handling sections (include only if discussed), Technical Notes (absorbed from `.research-draft.md`), Decision Log. **Hard limit: 200 lines per file** — split into sub-features (F001a/b) or extract to `<SHIPYARD_DATA>/spec/references/FNNN-<slug>.md` if larger. Fill every RICE component field; `rice_score` is the derived cached score `(reach × impact × confidence) / effort` and must match those components. Mark `.research-draft.md` obsolete via `shipyard-data draft obsolete-research --topic "<current topic>"` only after Phase 3 finishes (it is the recovery checkpoint until then).
 
 **Diagram persistence:** Every diagram shown during Phase 1.5 — C4, sequence, state machine, ER, deployment, data-flow, or user-journey — is converted to Mermaid and written to the feature's `## Flows` section (an ER diagram may live under `## Data Model` instead when the schema is the feature's primary artifact). Diagrams shown in conversation are ephemeral — this is the only chance to persist them. The canonical diagram-type → Mermaid-syntax mapping is the single source of truth in `references/phase-3-write-spec.md`; keep this list in lock-step with it. See that reference for format rules.
 
@@ -639,7 +630,7 @@ Run these steps in order. The active-skill mutex stays active until the **very l
 2. **Append to BACKLOG.md** — run `shipyard-data backlog add <IDs>` (one call, all approved IDs together).
 3. **Mark graduated ideas** — for IDEA-sourced features, run `shipyard-data idea set-status IDEA-NNN graduated --to FNNN`. This `shipyard-data` Bash call runs fine inside the guarded window — the active-skill mutex only blocks accidental Edits to source files, not CLI state mutations — and doing it here keeps the lifecycle change inside the mutex window.
 4. **Constitution amendment prompt** — if `.research-draft.md` has `## Constitution Gaps`, render the candidate rules as chat text and ask whether to add them to project rules. Keep this before draft cleanup so the gap evidence is still present.
-5. **Mark `.research-draft.md` obsolete** if it still exists with the current topic (`obsolete: true`).
+5. **Mark `.research-draft.md` obsolete** if it still exists with the current topic: run `shipyard-data draft obsolete-research --topic "<current topic>"`.
 6. **Print the Next Up block** (see below).
 7. **Last action — after everything above has flushed:** run `shipyard-data lock release planning --skill ship-discuss` (soft-delete sentinel — CLI-owned, never a hand Write). After this step, do **not** continue with any tool calls — the discussion is done. If the user wants to build the feature, they will run `/ship-sprint` in a new session.
 

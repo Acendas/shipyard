@@ -47,12 +47,12 @@ This is the critical step. Based on the discussion, identify changes that need t
 | Change type | What happens |
 |---|---|
 | **Scope change** | Update feature's acceptance criteria, re-estimate RICE/points |
-| **New dependency** | Add to feature's `dependencies:` array (bidirectional) |
-| **Priority shift** | Update RICE fields, note in decision log |
+| **New dependency** | Run `shipyard-data feature add-dep <FID> <DEP_FID>` (bidirectional) |
+| **Priority shift** | Update RICE fields via `shipyard-data feature set <FID> rice_reach=... rice_impact=... rice_confidence=... rice_effort=...`, note in decision log |
 | **Acceptance criteria change** | Edit feature file, add decision log entry: "Updated due to epic E00N discussion: [reason]" |
-| **Feature removed from epic** | Set `epic: ""` in feature frontmatter, note in decision log |
-| **Feature added to epic** | Set `epic: E00N` in feature frontmatter |
-| **Feature invalidated** | Set `status: cancelled` in feature frontmatter, note reason in decision log |
+| **Feature removed from epic** | Run `shipyard-data feature set <FID> epic=""`, note in decision log |
+| **Feature added to epic** | Run `shipyard-data feature set <FID> epic=E00N` |
+| **Feature invalidated** | Run `shipyard-data feature set-status <FID> rejected` or `deferred` per the decision, note reason in decision log |
 | **New feature identified** | Run NEW mode inline to create it, assign to this epic |
 
 **Sprint impact check:** For each modified feature, check if it's in an active sprint. If yes, flag:

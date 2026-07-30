@@ -4,7 +4,7 @@ This is the full protocol for Phase 3 in `/ship-discuss`. The SKILL body summari
 
 ## Research draft absorption
 
-Use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md`. If it exists and is not marked `obsolete: true`, absorb its content into the feature file's `## Technical Notes` and `## Decision Log` sections. **Do not mark it obsolete yet** — it serves as a recovery checkpoint until Phase 3 is fully complete (feature file written with acceptance criteria, estimates, and epic assignment). Use Edit to set `obsolete: true` in `.research-draft.md`'s frontmatter only after Phase 3 finishes.
+Run `shipyard-context draft-state research` first. If `SHIPYARD_RESEARCH_DRAFT_PRESENT=true` and `SHIPYARD_RESEARCH_DRAFT_OBSOLETE=false`, use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md` for the narrative body and absorb its content into the feature file's `## Technical Notes` and `## Decision Log` sections. **Do not mark it obsolete yet** — it serves as a recovery checkpoint until Phase 3 is fully complete (feature file written with acceptance criteria, estimates, and epic assignment). After Phase 3 finishes, mark it obsolete only via `shipyard-data draft obsolete-research --topic "<current topic>"`; do not hand-Edit its frontmatter.
 
 ## Per feature
 

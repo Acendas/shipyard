@@ -5,6 +5,11 @@
     "pattern": "shipyard-context diagnose"
   },
   {
+    "name": "status_dashboard_context_is_bundled",
+    "type": "contains",
+    "pattern": "shipyard-context status-dashboard"
+  },
+  {
     "name": "has_diagnose_section",
     "type": "contains",
     "pattern": "diagnose section|/ship-status diagnose"
@@ -151,12 +156,18 @@
   {
     "name": "renders_review_cursor",
     "type": "contains",
-    "pattern": "REVIEW-CURSOR\\.md"
+    "pattern": "SHIPYARD_REVIEW_CURSOR_\\*|SHIPYARD_REVIEW_CURSOR"
   },
   {
     "name": "renders_execute_cursor",
     "type": "contains",
-    "pattern": "EXECUTE-CURSOR\\.md"
+    "pattern": "SHIPYARD_EXECUTE_CURSOR_\\*|SHIPYARD_EXECUTE_CURSOR"
+  },
+  {
+    "name": "status_does_not_read_cursors_directly",
+    "type": "not_contains",
+    "pattern": "Read `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR\\.md`|Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md`|EXECUTE-CURSOR\\.md.*REVIEW-CURSOR\\.md.*Validate the frontmatter",
+    "why": "ship-status consumes cursor state from shipyard-context status-dashboard instead of parsing cursor files itself."
   },
   {
     "name": "renders_pipeline_stage",

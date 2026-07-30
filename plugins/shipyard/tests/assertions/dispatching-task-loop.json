@@ -157,14 +157,21 @@
     "pattern": "ONLY if this task touches the database"
   },
   {
-    "name": "anchors_commit_on_return",
+    "name": "accepts_return_via_bundled_cli",
     "type": "contains",
-    "pattern": "anchor-commit"
+    "pattern": "shipyard-data task accept-return"
   },
   {
     "name": "emits_real_sha_return",
     "type": "contains",
     "pattern": "task_dispatch_returned[\\s\\S]*commit_sha=|commit_sha=<sha>"
+  },
+  {
+    "name": "complete_path_avoids_separate_anchor_emit_status_sequence",
+    "type": "not_contains",
+    "pattern": "anchor-commit <task_id> <sha>[\\s\\S]*events emit task_dispatch_returned[\\s\\S]*task set-status",
+    "dotall": true,
+    "why": "The accepted complete return is one CLI operation now; the orchestrator still runs gates first, but no longer hand-rolls anchor + event + done as separate commands."
   },
   {
     "name": "no_phantom_task_loop_completed",
@@ -284,8 +291,8 @@
   {
     "name": "orchestrator_calls_pass_data_dir",
     "type": "contains",
-    "pattern": "anchor-commit.*--data-dir \\{\\{data_dir\\}\\}",
-    "why": "The orchestrator already holds the literal data dir it dispatched in the brief; anchor-commit and events emit calls it makes itself should use it rather than re-resolving."
+    "pattern": "task accept-return.*--data-dir \\{\\{data_dir\\}\\}",
+    "why": "The orchestrator already holds the literal data dir it dispatched in the brief; the bundled accept-return path should use it rather than re-resolving."
   },
   {
     "name": "builder_allocates_idea_id_via_cli",

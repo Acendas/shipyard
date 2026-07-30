@@ -12,12 +12,11 @@ Systematic debugging that doesn't lose progress when context compacts or session
 
 ## Context
 
-!`shipyard-context path`
+!`shipyard-context debug-session`
 
-!`shipyard-context list debug-sessions`
-!`shipyard-context view config 5`
+**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash invocation of `shipyard-data` is limited to the onboarding command surfaced by context plus the `lock check`/`lock acquire`/`lock release` subcommands (see Step 4's mutex checks), and `shipyard-context` reads — no other shell-out; use Read / Grep / Glob for everything else. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
 
-**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash invocation of `shipyard-data` is limited to the `lock check`/`lock acquire`/`lock release` subcommands (see Step 4's mutex checks) and `shipyard-context` reads — no other shell-out; use Read / Grep / Glob for everything else. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
+**Onboarding gate.** If the bundled context contains `SHIPYARD_ONBOARDING_REQUIRED=true`, run the exact `SHIPYARD_ONBOARDING_COMMAND` once with Bash, report the CLI output to the user, and STOP. Do not infer setup state by reading or writing Shipyard state files; onboarding decisions are CLI-owned.
 
 **Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
 

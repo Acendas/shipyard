@@ -1,0 +1,46 @@
+[
+  {
+    "name": "dispatches_registered_agent",
+    "type": "contains",
+    "pattern": "subagent_type: \"shipyard:shipyard-gap-analyst\""
+  },
+  {
+    "name": "no_general_purpose",
+    "type": "not_contains",
+    "pattern": "general-purpose"
+  },
+  {
+    "name": "has_status_clean",
+    "type": "contains",
+    "target": "agent:shipyard-gap-analyst",
+    "pattern": "STATUS: CLEAN"
+  },
+  {
+    "name": "has_status_gaps",
+    "type": "contains",
+    "target": "agent:shipyard-gap-analyst",
+    "pattern": "STATUS: GAPS"
+  },
+  {
+    "name": "has_status_blocked",
+    "type": "contains",
+    "target": "agent:shipyard-gap-analyst",
+    "pattern": "STATUS: BLOCKED"
+  },
+  {
+    "name": "has_read_only_section",
+    "type": "contains",
+    "target": "agent:shipyard-gap-analyst",
+    "pattern": "READ-ONLY"
+  },
+  {
+    "name": "has_silent_return_gate",
+    "type": "contains",
+    "pattern": "silent_return"
+  },
+  {
+    "name": "has_porcelain_check",
+    "type": "contains",
+    "pattern": "git status --porcelain"
+  }
+]

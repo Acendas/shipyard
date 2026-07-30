@@ -141,6 +141,11 @@
     "pattern": "Bash\\(shipyard-logcap:"
   },
   {
+    "name": "debug_context_is_bundled",
+    "type": "contains",
+    "pattern": "shipyard-context debug-session"
+  },
+  {
     "name": "debug_evidence_references_captures",
     "type": "contains",
     "pattern": "capture: <debug-slug|capture name"

@@ -382,6 +382,113 @@ test("task-return: writes JSON record; refuses COMPLETE with failing probe", () 
   }
 });
 
+test("task accept-return: anchors commit, emits return event, and marks task done", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    mkdirSync(join(p.dataDir, "spec", "tasks"), { recursive: true });
+    writeFileSync(
+      join(p.dataDir, "spec", "tasks", "T001-build-thing.md"),
+      `---\nid: T001\nfeature: F001\nstatus: in-progress\n---\n\n# Build thing\n`,
+    );
+    const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: p.repo, encoding: "utf8" }).trim();
+    const r = p.run(
+      ["task", "accept-return", "T001", "sprint=sprint-001", "wave=1", `commit=${sha}`, "--data-dir", p.dataDir],
+      { expectFail: false },
+    );
+    assert.equal(r.code, 0);
+    execFileSync("git", ["cat-file", "-e", `shipyard/keep-T001^{commit}`], { cwd: p.repo });
+
+    const task = readFileSync(join(p.dataDir, "spec", "tasks", "T001-build-thing.md"), "utf8");
+    assert.match(task, /^status: done$/m);
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(events, /"type":"task_commit_anchored"/);
+    assert.match(events, /"type":"task_dispatch_returned"/);
+    assert.match(events, /"task":"T001"/);
+    assert.match(events, /"commit_sha":/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("task accept-operational: emits evidence events and marks task done", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    mkdirSync(join(p.dataDir, "spec", "tasks"), { recursive: true });
+    writeFileSync(
+      join(p.dataDir, "spec", "tasks", "T002-operational.md"),
+      `---\nid: T002\nfeature: F001\nstatus: in-progress\n---\n\n# Fix operational task\n`,
+    );
+    mkdirSync(join(p.dataDir, "captures"), { recursive: true });
+    const capture = join(p.dataDir, "captures", "T002.txt");
+    writeFileSync(capture, "all green\n");
+    const r = p.run(
+      [
+        "task",
+        "accept-operational",
+        "T002",
+        "sprint=sprint-001",
+        "wave=1",
+        `capture=${capture}`,
+        "iterations=2",
+        "--data-dir",
+        p.dataDir,
+      ],
+      { expectFail: false },
+    );
+    assert.equal(r.code, 0);
+
+    const task = readFileSync(join(p.dataDir, "spec", "tasks", "T002-operational.md"), "utf8");
+    assert.match(task, /^status: done$/m);
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(events, /"type":"operational_task_completed"/);
+    assert.match(events, /"capture":/);
+    assert.match(events, /"iterations_run":2/);
+    assert.match(events, /"type":"task_dispatch_returned"/);
+    assert.match(events, /"kind":"operational"/);
+    assert.match(events, /"commit_sha":/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("draft commands mutate checkpoint frontmatter through CLI", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    mkdirSync(join(p.dataDir, "spec"), { recursive: true });
+    writeFileSync(
+      join(p.dataDir, "spec", ".research-draft.md"),
+      `---\ntopic: checkout rewrite\nobsolete: false\n---\n\n## Research Findings\n`,
+    );
+    writeFileSync(
+      join(p.dataDir, "sprints", "current", "SPRINT-DRAFT.md"),
+      `---\nid: sprint-001\nstatus: draft\n---\n\n# Draft\n`,
+    );
+
+    const research = p.run(
+      ["draft", "obsolete-research", "--topic", "checkout rewrite", "--data-dir", p.dataDir],
+      { expectFail: false },
+    );
+    assert.equal(research.code, 0);
+    const researchDraft = readFileSync(join(p.dataDir, "spec", ".research-draft.md"), "utf8");
+    assert.match(researchDraft, /^obsolete: true$/m);
+    assert.match(researchDraft, /## Research Findings/);
+
+    const sprint = p.run(
+      ["draft", "set-sprint-status", "superseded", "--data-dir", p.dataDir],
+      { expectFail: false },
+    );
+    assert.equal(sprint.code, 0);
+    const sprintDraft = readFileSync(join(p.dataDir, "sprints", "current", "SPRINT-DRAFT.md"), "utf8");
+    assert.match(sprintDraft, /^status: superseded$/m);
+    assert.match(sprintDraft, /# Draft/);
+  } finally {
+    p.cleanup();
+  }
+});
+
 test("task-return: verify-wave-integrated reads the JSON returns (Check B)", () => {
   const p = makeProject();
   try {

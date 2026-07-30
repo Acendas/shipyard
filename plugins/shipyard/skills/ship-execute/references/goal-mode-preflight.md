@@ -17,7 +17,7 @@ Run each gate in order. The first failure emits `sprint_goal_preflight_failed` v
 | `sprint_verify_defined` | `config.md` has at least one of `test_commands.unit`, `test_commands.integration`, `test_commands.e2e`, or `build_commands.full` set | Without one, sprint-complete invariant 2 (sprint-boundary probe) is undefined | Edit `<SHIPYARD_DATA>/config.md` to set at least one of `test_commands.unit`/`.integration`/`.e2e` or `build_commands.full` |
 | `working_branch_correct` | Current branch equals SPRINT.md `branch:` (existing Pre-spawn Branch Check, lifted earlier) | Catches the worktree-branch-leak case before any subagent spawns | `git checkout <sprint-working-branch>` |
 | `no_active_discussion_lock` | `.active-session.json` not held by a live different session (existing `acquiring-skill-lock` check) | Discussion-in-flight conflicts with execution | Wait for the other session to release, or force-clear if known-dead |
-| `event_log_initialized` | `<SHIPYARD_DATA>/.shipyard-events.jsonl` exists | Required for /goal observability and resume-from-event-log | Run `/ship-init --repair` or emit any event to bootstrap |
+| `event_log_initialized` | `<SHIPYARD_DATA>/.shipyard-events.jsonl` exists | Required for /goal observability and resume-from-event-log | Run `shipyard-data onboarding bootstrap` or emit any event to bootstrap |
 
 ## Halt protocol
 
@@ -66,7 +66,7 @@ Spec ambiguities are intentional placeholders — "this AC needs clarification b
 
 The sprint-boundary verify-probe is broader than wave-probes — it's the full-suite or integration check. Without it, sprint-complete invariant 2 has nothing to test, so invariant 2 is undefined and the predicate is undermined.
 
-Read `<SHIPYARD_DATA>/config.md` and check that at least one of `test_commands.unit`, `test_commands.integration`, `test_commands.e2e`, or `build_commands.full` is a non-empty string — these are the keys the template and `/ship-init` actually create (there is no `test_commands.full` key anywhere in the shipped surface; gating on it made this check unfailable and vacuous). The check is structural — content of the command doesn't matter, just that at least one of the four exists.
+Read `<SHIPYARD_DATA>/config.md` and check that at least one of `test_commands.unit`, `test_commands.integration`, `test_commands.e2e`, or `build_commands.full` is a non-empty string — these are the keys the template and CLI onboarding create (there is no `test_commands.full` key anywhere in the shipped surface; gating on it made this check unfailable and vacuous). The check is structural — content of the command doesn't matter, just that at least one of the four exists.
 
 ### `working_branch_correct`
 

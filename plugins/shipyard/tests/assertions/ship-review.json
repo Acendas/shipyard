@@ -137,6 +137,17 @@
     "pattern": "[Gg]ap [Aa]nalysis|[Ss]imple.*[Cc]omplex"
   },
   {
+    "name": "gap_analysis_uses_registered_agent_wrapper",
+    "type": "contains",
+    "pattern": "dispatching-gap-analysis"
+  },
+  {
+    "name": "gap_analysis_no_general_purpose_dispatch",
+    "type": "not_contains",
+    "pattern": "Agent\\(subagent_type:\\s*\"general-purpose\".*gap",
+    "dotall": true
+  },
+  {
     "name": "has_quality_gate",
     "type": "contains",
     "pattern": "Quality Gate|self-review"
@@ -330,7 +341,13 @@
   {
     "name": "cursor_read_at_entry",
     "type": "contains",
-    "pattern": "Read.*REVIEW-CURSOR\\.md|REVIEW-CURSOR\\.md.*Read tool|cursor at entry|Read the cursor"
+    "pattern": "SHIPYARD_CURSOR_\\*|shipyard-context cursor-state review"
+  },
+  {
+    "name": "cursor_not_read_directly",
+    "type": "not_contains",
+    "pattern": "Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md`|Read <SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md|REVIEW-CURSOR\\.md.*Read tool",
+    "why": "Cursor reads are now CLI-owned via shipyard-context; skill bodies should not parse cursor frontmatter directly."
   },
   {
     "name": "terminal_marker_text",

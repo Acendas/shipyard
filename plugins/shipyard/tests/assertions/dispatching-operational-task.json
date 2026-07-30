@@ -108,6 +108,19 @@
     "pattern": "operational_iteration"
   },
   {
+    "name": "accepts_operational_completion_via_bundled_cli",
+    "type": "contains",
+    "pattern": "shipyard-data task accept-operational",
+    "why": "Once the operational gate passes, task status plus both evidence events should be recorded by one CLI command instead of a hand-rolled status/event/event sequence."
+  },
+  {
+    "name": "operational_completion_avoids_handrolled_status_and_events",
+    "type": "not_contains",
+    "pattern": "mark task `done`[\\s\\S]*events emit operational_task_completed[\\s\\S]*events emit task_dispatch_returned",
+    "dotall": true,
+    "why": "The complete path should not regress to separate model-selected state mutations after the gate passes."
+  },
+  {
     "name": "documents_escalation_code_enum",
     "type": "contains",
     "pattern": "ESCALATION_CODE.*verify_flaky",

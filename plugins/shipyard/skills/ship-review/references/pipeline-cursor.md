@@ -8,7 +8,7 @@ The cursor records where `/ship-review` is in its multi-stage pipeline so that:
 
 ## The cursor is CLI-owned (v2.9.0)
 
-**Never Write or Edit the cursor file.** The `auto-approve-data` PreToolUse hook denies model Writes/Edits to `REVIEW-CURSOR.md` (and `EXECUTE-CURSOR.md`, `PROGRESS.md`, `HANDOFF.md`). The single writer is:
+**Never Read, Write, or Edit the cursor file directly from a skill body.** The `auto-approve-data` PreToolUse hook denies model Writes/Edits to `REVIEW-CURSOR.md` (and `EXECUTE-CURSOR.md`, `PROGRESS.md`, `HANDOFF.md`); reads go through `shipyard-context review-context` at entry or `shipyard-context cursor-state review` mid-session so the shared CLI parser owns cursor frontmatter shape. The single writer is:
 
 ```
 shipyard-data cursor advance review <stage> [k=v ...] [--note "<narrative>"]
@@ -142,18 +142,18 @@ Use these names verbatim — they're consumed by `/ship-status`, `shipyard-conte
 ## Cursor read at entry (skill body recipe)
 
 ```
-1. Read <SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR.md (Read tool — reads are fine).
-   - Exists with `terminal: true` → run `shipyard-data cursor noop review`, echo output, exit. (On a `status: escalated` terminal the CLI prints the resume hint instead of a noop — the sprint is NOT complete; after the cause is fixed, `cursor resume review` re-opens it.)
-   - Exists with `status: paused` → **wakeup-inert.** A pause-before-ask stage is
+1. Use `SHIPYARD_CURSOR_*` fields from `shipyard-context review-context` (or refresh with `shipyard-context cursor-state review`). Do not Read or parse REVIEW-CURSOR.md directly.
+   - `SHIPYARD_CURSOR_PRESENT=true`, `SHIPYARD_CURSOR_TERMINAL=true` → run `shipyard-data cursor noop review`, echo output, exit. (On a `status: escalated` terminal the CLI prints the resume hint instead of a noop — the sprint is NOT complete; after the cause is fixed, `cursor resume review` re-opens it.)
+   - `SHIPYARD_CURSOR_PRESENT=true`, `SHIPYARD_CURSOR_STATUS=paused` → **wakeup-inert.** A pause-before-ask stage is
      awaiting a user answer; a `/loop` wakeup cannot answer it. Run
      `shipyard-data cursor noop review` (emits `pipeline_terminal outcome=noop
      reason=awaiting_user_paused`, prints the pause note + resume hint + stop
      marker; a repeat wakeup trips the ⛔ leak alarm pointing at resume), echo,
      exit. Resume (`shipyard-data cursor resume review`, then dispatch to the
-     `stage:` handler) only on explicit user re-engagement — never a wakeup's.
-   - Exists, non-terminal (and not paused) → dispatch to the `stage:` handler (tick events are CLI-emitted).
-   - Does NOT exist and current/ has a live sprint → fresh start: first advance targets `preflight`.
-   - Does NOT exist and no live sprint → the no-op path above.
+     `SHIPYARD_CURSOR_STAGE` handler) only on explicit user re-engagement — never a wakeup's.
+   - `SHIPYARD_CURSOR_PRESENT=true`, non-terminal (and not paused) → dispatch to `SHIPYARD_CURSOR_STAGE` (tick events are CLI-emitted).
+   - `SHIPYARD_CURSOR_PRESENT=false` and current/ has a live sprint → fresh start: first advance targets `preflight`.
+   - `SHIPYARD_CURSOR_PRESENT=false` and no live sprint → the no-op path above.
 
 2. After the stage handler returns, advance via `shipyard-data cursor advance`
    (or `pause` / `escalate`). Echo the CLI's marker output as the final lines.

@@ -35,7 +35,7 @@ A feature file is the anchor: user story, BDD scenarios, planning metadata, and 
 - Detailed flow diagrams → `FNNN-flows.md`
 - Protocol specs → `FNNN-protocol.md`
 
-When absorbing an external doc (via `/ship-spec absorb` or during `ship-init`), the slug is derived from the source filename and may be arbitrary (e.g., `FNNN-payment-orchestration.md`). Both canonical names and absorb-derived slugs are valid — the canonical names above are for manually extracted sections only.
+When absorbing an external doc (via `/ship-spec absorb` or CLI onboarding), the slug is derived from the source filename and may be arbitrary (e.g., `FNNN-payment-orchestration.md`). Both canonical names and absorb-derived slugs are valid — the canonical names above are for manually extracted sections only.
 
 **Reference file frontmatter** — every file in `$(shipyard-data)/spec/references/` must have:
 ```yaml

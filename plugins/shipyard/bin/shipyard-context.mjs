@@ -45,7 +45,10 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import { breadcrumbCandidates, getDataDir, getProjectHash, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
-import { evaluateExecuteTerminal, evaluateReviewTerminal } from "./terminal-gate.mjs";
+import { evaluateExecuteTerminal, evaluateReviewTerminal, parseFrontmatter } from "./terminal-gate.mjs";
+import { acquireLock, checkLock, resolveSessionIdentity } from "./skill-lock.mjs";
+import { readCursor } from "./cursor-cli.mjs";
+import { ensureInitializedDataDir, renderOnboardingLines } from "./init-data.mjs";
 
 /**
  * Validate a user-supplied relative path and join it to base. Returns the
@@ -179,7 +182,7 @@ function globMatch(base, pattern) {
 //
 // These map short, single-token names to a (path, default-lines, fallback)
 // tuple so skills can write `!`shipyard-context view config`` instead of
-// `!`shipyard-context head config.md 50 "No project initialized — ..."``.
+// raw file reads with argv-embedded fallback strings.
 // Adding an entry is the correct way to introduce a new pre-exec source.
 // Fallback strings live here so they never travel through argv; change them
 // here and every skill picks up the new text.
@@ -188,7 +191,7 @@ const VIEW_REGISTRY = {
   config: {
     path: ["config.md"],
     lines: 50,
-    fallback: "No project initialized — run /ship-init",
+    fallback: "Project configuration missing — run shipyard-data onboarding bootstrap",
   },
   codebase: {
     path: ["codebase-context.md"],
@@ -218,9 +221,8 @@ const VIEW_REGISTRY = {
     fallback: "No metrics captured yet",
   },
   "data-version": {
-    // Internal Shipyard data-dir version marker — used by /ship-init to detect
-    // a pre-existing data dir. Keep the NO_VERSION sentinel stable; ship-init
-    // treats its absence as "fresh install".
+    // Internal Shipyard data-dir version marker. Keep the NO_VERSION sentinel
+    // stable; older setup flows used its absence as "fresh install".
     path: ["version.md"],
     lines: 5,
     fallback: "NO_VERSION",
@@ -273,6 +275,171 @@ const COUNT_REGISTRY = {
 const SKILL_SLUG_RE = /^ship-[a-z0-9][a-z0-9-]{0,63}$/;
 const REF_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
+function renderViewSection(dataDir, out, name, linesOverride = null) {
+  const entry = VIEW_REGISTRY[name];
+  if (!entry) throw new Error(`internal: unknown view section ${name}`);
+  const lines = linesOverride ?? entry.lines;
+  out(`--- ${name} ---`);
+  const target = safeJoin(dataDir, join(...entry.path));
+  if (target === null) {
+    out(entry.fallback);
+    return;
+  }
+  const result = readHead(target, lines);
+  out(result ?? entry.fallback);
+}
+
+function readViewText(dataDir, name, linesOverride = null) {
+  const entry = VIEW_REGISTRY[name];
+  if (!entry) throw new Error(`internal: unknown view ${name}`);
+  const lines = linesOverride ?? entry.lines;
+  const target = safeJoin(dataDir, join(...entry.path));
+  if (target === null) return entry.fallback;
+  return readHead(target, lines) ?? entry.fallback;
+}
+
+function renderListSection(dataDir, out, name, limitOverride = null) {
+  const entry = LIST_REGISTRY[name];
+  if (!entry) throw new Error(`internal: unknown list section ${name}`);
+  out(`--- ${name} ---`);
+  if (entry.kind === "dir") {
+    const limit = limitOverride ?? entry.limit;
+    const target = safeJoin(dataDir, join(...entry.path));
+    if (target === null) {
+      out(entry.fallback);
+      return;
+    }
+    const entries = listDir(target, limit);
+    out(entries && entries.length ? entries.join("\n") : entry.fallback);
+    return;
+  }
+  if (entry.kind === "glob") {
+    const limit = limitOverride ?? entry.limit;
+    const entries = globMatch(dataDir, entry.pattern).slice(0, limit);
+    out(entries.length ? entries.join("\n") : entry.fallback);
+    return;
+  }
+  if (entry.kind === "glob-sort") {
+    const entries = globMatch(dataDir, entry.pattern).sort();
+    out(entries.length ? entries.join("\n") : entry.fallback);
+    return;
+  }
+  throw new Error(`internal: unknown list kind ${entry.kind}`);
+}
+
+function versionText() {
+  const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+  if (!pluginRoot) return "Shipyard (version unknown)";
+  const manifestPath = join(pluginRoot, ".claude-plugin", "plugin.json");
+  try {
+    const raw = readFileSync(manifestPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const v = parsed && typeof parsed.version === "string" ? parsed.version : null;
+    return v ? `Shipyard v${v}` : "Shipyard (version unknown)";
+  } catch {
+    return "Shipyard (version unknown)";
+  }
+}
+
+function activeDebugCount(dataDir) {
+  const debugDir = join(dataDir, "debug");
+  let count = 0;
+  try {
+    for (const entry of readdirSync(debugDir)) {
+      if (entry.endsWith(".md") && entry !== "resolved") count++;
+    }
+  } catch {
+    // Missing debug dir means zero active sessions.
+  }
+  return count;
+}
+
+function cursorAlias(raw) {
+  if (raw === "execute" || raw === "ship-execute") return "ship-execute";
+  if (raw === "review" || raw === "ship-review") return "ship-review";
+  return null;
+}
+
+function renderCursorState(dataDir, out, rawPipeline, prefix = "SHIPYARD_CURSOR") {
+  const pipeline = cursorAlias(rawPipeline);
+  if (!pipeline) {
+    out(`${prefix}_ERROR=unknown-pipeline`);
+    return;
+  }
+  const cursor = readCursor(dataDir, pipeline);
+  const file = pipeline === "ship-execute" ? "EXECUTE-CURSOR.md" : "REVIEW-CURSOR.md";
+  out(`${prefix}_PIPELINE=${pipeline}`);
+  out(`${prefix}_FILE=${file}`);
+  if (!cursor) {
+    out(`${prefix}_PRESENT=false`);
+    return;
+  }
+  out(`${prefix}_PRESENT=true`);
+  out(`${prefix}_PATH=${cursor.path}`);
+  out(`${prefix}_STAGE=${cursor.fm.stage ?? ""}`);
+  out(`${prefix}_STATUS=${cursor.fm.status ?? ""}`);
+  out(`${prefix}_TERMINAL=${cursor.fm.terminal === true ? "true" : "false"}`);
+  if (cursor.fm.sprint !== undefined) out(`${prefix}_SPRINT=${cursor.fm.sprint}`);
+  if (cursor.fm.wave_number !== undefined) out(`${prefix}_WAVE_NUMBER=${cursor.fm.wave_number}`);
+  if (cursor.fm.iteration !== undefined) out(`${prefix}_ITERATION=${cursor.fm.iteration}`);
+  if (cursor.fm.loop_owner !== undefined) out(`${prefix}_LOOP_OWNER=${cursor.fm.loop_owner}`);
+  if (cursor.fm.auto_loop_attempted !== undefined) out(`${prefix}_AUTO_LOOP_ATTEMPTED=${cursor.fm.auto_loop_attempted}`);
+  if (cursor.fm.stuck_counter !== undefined) out(`${prefix}_STUCK_COUNTER=${cursor.fm.stuck_counter}`);
+  if (cursor.pending.length) out(`${prefix}_PENDING_SUBAGENTS=${JSON.stringify(cursor.pending)}`);
+  if (cursor.body) {
+    out(`${prefix}_NOTE:`);
+    for (const line of cursor.body.split("\n")) out(line);
+  }
+}
+
+function renderDraftState(dataDir, out, kind) {
+  const entry = kind === "research"
+    ? { prefix: "SHIPYARD_RESEARCH_DRAFT", path: join("spec", ".research-draft.md") }
+    : kind === "sprint"
+      ? { prefix: "SHIPYARD_SPRINT_DRAFT", path: join("sprints", "current", "SPRINT-DRAFT.md") }
+      : null;
+  if (!entry) {
+    out("SHIPYARD_DRAFT_ERROR=unknown-kind");
+    return;
+  }
+  const target = safeJoin(dataDir, entry.path);
+  out(`${entry.prefix}_PATH=${target ?? ""}`);
+  if (!target || !existsSync(target)) {
+    out(`${entry.prefix}_PRESENT=false`);
+    return;
+  }
+  const raw = readHead(target, 80);
+  const fm = raw ? parseFrontmatter(raw) : {};
+  out(`${entry.prefix}_PRESENT=true`);
+  if (fm.topic !== undefined) out(`${entry.prefix}_TOPIC=${fm.topic}`);
+  if (fm.status !== undefined) out(`${entry.prefix}_STATUS=${fm.status}`);
+  if (fm.obsolete !== undefined) out(`${entry.prefix}_OBSOLETE=${fm.obsolete === true ? "true" : "false"}`);
+}
+
+function renderProjectClaudeSection(out, lines = 50) {
+  out("--- project-claude-md ---");
+  let projectRoot;
+  try {
+    projectRoot = getProjectRoot();
+  } catch {
+    out("No CLAUDE.md");
+    return;
+  }
+  const claudeMd = join(projectRoot, "CLAUDE.md");
+  if (!existsSync(claudeMd)) {
+    out("No CLAUDE.md");
+    return;
+  }
+  const result = readHead(claudeMd, lines);
+  out(result ?? "No CLAUDE.md");
+}
+
+function renderSkillStartup(dataDir, out) {
+  out(`SHIPYARD_DATA=${dataDir}`);
+  const status = renderOnboardingLines(dataDir, out);
+  return status.required;
+}
+
 function main() {
   const cmd = process.argv[2] ?? "help";
   const args = process.argv.slice(3);
@@ -297,6 +464,9 @@ function main() {
     process.stderr.write("ERROR: Could not resolve Shipyard data directory\n");
     process.exit(1);
   }
+  if (cmd !== "diagnose") {
+    sd = ensureInitializedDataDir({ dataDir: sd });
+  }
 
   const out = (s) => process.stdout.write(s + "\n");
   const die = (msg) => { process.stderr.write(msg + "\n"); process.exit(1); };
@@ -304,6 +474,229 @@ function main() {
   switch (cmd) {
     case "path": {
       out(`SHIPYARD_DATA=${sd}`);
+      break;
+    }
+    case "sprint-planning": {
+      if (renderSkillStartup(sd, out)) break;
+      const { sessionId, unverified } = resolveSessionIdentity([]);
+      const lock = acquireLock(sd, "planning", {
+        skill: "ship-sprint",
+        sessionId,
+        unverified,
+      });
+
+      if (!lock.ok) {
+        out("SHIPYARD_LOCK_ACQUIRED=false");
+        out("SHIPYARD_LOCK_BLOCKED:");
+        for (const line of (lock.message || "Planning lock blocked").trimEnd().split("\n")) {
+          out(line);
+        }
+        break;
+      }
+
+      out("SHIPYARD_LOCK_ACQUIRED=true");
+      out(`SHIPYARD_LOCK_DEPTH=${lock.json.depth ?? 1}`);
+      if (lock.message) {
+        out("SHIPYARD_LOCK_NOTICE:");
+        for (const line of lock.message.trimEnd().split("\n")) out(line);
+      }
+      renderViewSection(sd, out, "config");
+      renderViewSection(sd, out, "backlog");
+      renderViewSection(sd, out, "sprint");
+      renderViewSection(sd, out, "metrics");
+      renderViewSection(sd, out, "codebase", 30);
+      break;
+    }
+    case "sprint-execution": {
+      if (renderSkillStartup(sd, out)) break;
+      const sprintText = readViewText(sd, "sprint", 80);
+      const sprintFm = parseFrontmatter(sprintText);
+      const sprintId = sprintFm.id || null;
+      const { sessionId, unverified } = resolveSessionIdentity([]);
+      const lock = acquireLock(sd, "execution", {
+        skill: "ship-execute",
+        sprint: sprintId,
+        sessionId,
+        unverified,
+      });
+
+      out(`SHIPYARD_SPRINT_ID=${sprintId ?? "(unknown)"}`);
+      if (!lock.ok) {
+        out("SHIPYARD_LOCK_ACQUIRED=false");
+        out("SHIPYARD_LOCK_BLOCKED:");
+        for (const line of (lock.message || "Execution lock blocked").trimEnd().split("\n")) {
+          out(line);
+        }
+        break;
+      }
+
+      out("SHIPYARD_LOCK_ACQUIRED=true");
+      out(`SHIPYARD_LOCK_DEPTH=${lock.json.depth ?? 1}`);
+      if (lock.json.cross_lock_allowed) out(`SHIPYARD_LOCK_CROSS_ALLOWED=${lock.json.cross_lock_allowed}`);
+      if (lock.message) {
+        out("SHIPYARD_LOCK_NOTICE:");
+        for (const line of lock.message.trimEnd().split("\n")) out(line);
+      }
+      renderViewSection(sd, out, "config");
+      renderCursorState(sd, out, "execute");
+      out("--- sprint ---");
+      out(sprintText);
+      renderViewSection(sd, out, "sprint-progress");
+      renderViewSection(sd, out, "codebase");
+      break;
+    }
+    case "quick-task": {
+      if (renderSkillStartup(sd, out)) break;
+      const { sessionId, unverified } = resolveSessionIdentity([]);
+      const planning = checkLock(sd, "planning", { sessionId, unverified });
+
+      if (!planning.ok) {
+        out("SHIPYARD_PLANNING_LOCK_CLEAR=false");
+        out("SHIPYARD_LOCK_ACQUIRED=false");
+        out("SHIPYARD_LOCK_BLOCKED:");
+        for (const line of (planning.message || "Planning lock blocked").trimEnd().split("\n")) out(line);
+        break;
+      }
+
+      out("SHIPYARD_PLANNING_LOCK_CLEAR=true");
+      out(`SHIPYARD_PLANNING_LOCK_STATE=${planning.json.state ?? "unknown"}`);
+      const lock = acquireLock(sd, "execution", {
+        skill: "ship-quick",
+        sessionId,
+        unverified,
+      });
+      if (!lock.ok) {
+        out("SHIPYARD_LOCK_ACQUIRED=false");
+        out("SHIPYARD_LOCK_BLOCKED:");
+        for (const line of (lock.message || "Execution lock blocked").trimEnd().split("\n")) out(line);
+        break;
+      }
+
+      out("SHIPYARD_LOCK_ACQUIRED=true");
+      out(`SHIPYARD_LOCK_DEPTH=${lock.json.depth ?? 1}`);
+      if (lock.message) {
+        out("SHIPYARD_LOCK_NOTICE:");
+        for (const line of lock.message.trimEnd().split("\n")) out(line);
+      }
+      renderViewSection(sd, out, "config");
+      renderViewSection(sd, out, "codebase", 30);
+      renderListSection(sd, out, "quick-tasks");
+      break;
+    }
+    case "debug-session": {
+      if (renderSkillStartup(sd, out)) break;
+      renderListSection(sd, out, "debug-sessions");
+      renderViewSection(sd, out, "config", 5);
+      break;
+    }
+    case "help-context": {
+      if (renderSkillStartup(sd, out)) break;
+      renderViewSection(sd, out, "config");
+      renderViewSection(sd, out, "codebase", 30);
+      renderListSection(sd, out, "features", 20);
+      renderViewSection(sd, out, "sprint");
+      renderViewSection(sd, out, "sprint-progress", 20);
+      renderViewSection(sd, out, "backlog", 30);
+      out("--- version ---");
+      out(versionText());
+      break;
+    }
+    case "review-context": {
+      if (renderSkillStartup(sd, out)) break;
+      renderViewSection(sd, out, "config");
+      renderCursorState(sd, out, "review");
+      renderViewSection(sd, out, "sprint", 80);
+      renderViewSection(sd, out, "sprint-progress");
+      renderViewSection(sd, out, "metrics", 50);
+      break;
+    }
+    case "backlog-context": {
+      if (renderSkillStartup(sd, out)) break;
+      renderViewSection(sd, out, "backlog");
+      renderViewSection(sd, out, "config");
+      renderViewSection(sd, out, "metrics");
+      break;
+    }
+    case "bug-context": {
+      if (renderSkillStartup(sd, out)) break;
+      out(`Bugs: ${countDir(join(sd, "spec", "bugs"))}`);
+      renderViewSection(sd, out, "sprint", 10);
+      break;
+    }
+    case "spec-context": {
+      const c = (...p) => countDir(join(sd, ...p));
+      if (renderSkillStartup(sd, out)) break;
+      out(
+        `Epics: ${c("spec", "epics")} | Features: ${c("spec", "features")} | ` +
+          `Tasks: ${c("spec", "tasks")} | Bugs: ${c("spec", "bugs")} | ` +
+          `Ideas: ${c("spec", "ideas")} | References: ${c("spec", "references")}`,
+      );
+      break;
+    }
+    case "init-context": {
+      if (renderSkillStartup(sd, out)) break;
+      renderViewSection(sd, out, "data-version");
+      renderViewSection(sd, out, "config");
+      renderProjectClaudeSection(out);
+      break;
+    }
+    case "status-dashboard": {
+      const c = (...p) => countDir(join(sd, ...p));
+      if (renderSkillStartup(sd, out)) break;
+      renderViewSection(sd, out, "config");
+      renderCursorState(sd, out, "execute", "SHIPYARD_EXECUTE_CURSOR");
+      renderCursorState(sd, out, "review", "SHIPYARD_REVIEW_CURSOR");
+      renderViewSection(sd, out, "sprint");
+      renderViewSection(sd, out, "sprint-progress");
+      renderViewSection(sd, out, "backlog");
+      renderViewSection(sd, out, "metrics", 50);
+      out(`Debug sessions: ${activeDebugCount(sd)} active`);
+      out(
+        `Features: ${c("spec", "features")} | Epics: ${c("spec", "epics")} | ` +
+          `Bugs: ${c("spec", "bugs")} | Ideas: ${c("spec", "ideas")}`,
+      );
+      break;
+    }
+    case "cursor-state": {
+      if (renderSkillStartup(sd, out)) break;
+      renderCursorState(sd, out, process.argv[3] ?? "");
+      break;
+    }
+    case "draft-state": {
+      if (renderSkillStartup(sd, out)) break;
+      renderDraftState(sd, out, process.argv[3] ?? "");
+      break;
+    }
+    case "discuss-context": {
+      if (renderSkillStartup(sd, out)) break;
+      const { sessionId, unverified } = resolveSessionIdentity([]);
+      const lock = acquireLock(sd, "planning", {
+        skill: "ship-discuss",
+        sessionId,
+        unverified,
+      });
+
+      if (!lock.ok) {
+        out("SHIPYARD_LOCK_ACQUIRED=false");
+        out("SHIPYARD_LOCK_BLOCKED:");
+        for (const line of (lock.message || "Planning lock blocked").trimEnd().split("\n")) out(line);
+        break;
+      }
+
+      out("SHIPYARD_LOCK_ACQUIRED=true");
+      out(`SHIPYARD_LOCK_DEPTH=${lock.json.depth ?? 1}`);
+      if (lock.json.cross_lock_allowed) out(`SHIPYARD_LOCK_CROSS_ALLOWED=${lock.json.cross_lock_allowed}`);
+      if (lock.message) {
+        out("SHIPYARD_LOCK_NOTICE:");
+        for (const line of lock.message.trimEnd().split("\n")) out(line);
+      }
+      renderViewSection(sd, out, "config");
+      renderViewSection(sd, out, "codebase");
+      renderListSection(sd, out, "epics");
+      renderListSection(sd, out, "features");
+      if (lock.json.cross_lock_allowed === "ship-discuss+ship-execute") {
+        renderViewSection(sd, out, "sprint", 80);
+      }
       break;
     }
     // Removed in platform-independence refactor (Phase 2):
@@ -462,14 +855,7 @@ function main() {
       break;
     }
     case "debug-count": {
-      const debugDir = join(sd, "debug");
-      let count = 0;
-      try {
-        for (const entry of readdirSync(debugDir)) {
-          if (entry.endsWith(".md") && entry !== "resolved") count++;
-        }
-      } catch { /* ignore */ }
-      out(`Debug sessions: ${count} active`);
+      out(`Debug sessions: ${activeDebugCount(sd)} active`);
       break;
     }
     case "view": {
@@ -551,17 +937,7 @@ function main() {
       break;
     }
     case "version": {
-      const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
-      if (!pluginRoot) { out("Shipyard (version unknown)"); return; }
-      const manifestPath = join(pluginRoot, ".claude-plugin", "plugin.json");
-      try {
-        const raw = readFileSync(manifestPath, "utf8");
-        const parsed = JSON.parse(raw);
-        const v = parsed && typeof parsed.version === "string" ? parsed.version : null;
-        out(v ? `Shipyard v${v}` : "Shipyard (version unknown)");
-      } catch {
-        out("Shipyard (version unknown)");
-      }
+      out(versionText());
       break;
     }
     case "project-claude-md": {
