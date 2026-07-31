@@ -33,6 +33,7 @@ import {
   getProjectRoot,
   getProjectHash,
   breadcrumbCandidates,
+  configTagForPluginsDir,
 } from "../bin/shipyard-resolver.mjs";
 
 function setup() {
@@ -97,6 +98,37 @@ test("creates .shipyard symlink for an initialized data dir", () => {
         `breadcrumb at ${p} should hold the plugin-data path`);
     }
   } finally {
+    t.cleanup();
+  }
+});
+
+test("writes install-tagged breadcrumbs and removes the legacy breadcrumb", () => {
+  const t = setup();
+  let taggedCandidates = [];
+  try {
+    const configPluginsDir = join(t.root, ".claude-work", "plugins");
+    const pluginData = join(configPluginsDir, "data", "shipyard-acendas");
+    const dataDir = join(pluginData, "projects", t.hash);
+    markInitialized(dataDir);
+    for (const p of breadcrumbCandidates(t.hash, { legacy: true })) {
+      writeFileSync(p, "stale-personal-install", { encoding: "utf8", mode: 0o600 });
+    }
+
+    const rc = run({}, { CLAUDE_PLUGIN_DATA: pluginData });
+    assert.equal(rc, 0);
+
+    const tag = configTagForPluginsDir(configPluginsDir);
+    taggedCandidates = breadcrumbCandidates(t.hash, { configTag: tag });
+    for (const p of taggedCandidates) {
+      assert.equal(readFileSync(p, "utf8").trim(), pluginData);
+    }
+    for (const p of breadcrumbCandidates(t.hash, { legacy: true })) {
+      assert.equal(existsSync(p), false, `legacy breadcrumb should be removed: ${p}`);
+    }
+  } finally {
+    for (const p of taggedCandidates) {
+      try { rmSync(p); } catch { /* ignore */ }
+    }
     t.cleanup();
   }
 });

@@ -37,7 +37,7 @@ Compute from source files (read SPRINT.md for task IDs, then read each task file
 1. Read `started_at`, `completed_at`, `total_paused_minutes` from SPRINT.md frontmatter
 2. If both timestamps present:
    - `active_minutes` = elapsed - paused
-   - If `active_minutes > 0`: compute `pts_per_hour`, append to metrics.md
+   - If `active_minutes > 0`: compute `pts_per_hour`; Retro Step 4 records it through `shipyard-data metrics record-retro`
    - If `active_minutes <= 0`: warn about incomplete timing data
 3. If timestamps missing: omit throughput
 
@@ -90,8 +90,8 @@ Update RETRO-DATA.md: `step: action_items_created`, `ideas_created: [IDEA-<id>, 
 
 ### Retro Step 4: Update Metrics
 
-1. **Update metrics** — Read `<SHIPYARD_DATA>/memory/metrics.md`, then use Write to overwrite with the previous content plus appended new entries: velocity, carry-over rate, bug rate, estimate accuracy, anti-pattern flags
-2. **Quarterly rollover** — if metrics.md exceeds 300 lines, archive older data to `metrics-[quarter].md`
+1. **Update metrics** — Metrics are CLI-owned: `memory/metrics.json` is authoritative and `memory/metrics.md` is generated. Do not Write/Edit either file. Run `shipyard-data metrics record-retro sprint=<sprint-NNN> carry_over="<summary>" bug_rate="<summary>" estimate_accuracy="<summary>" flags="<csv_or_none>"` and include `throughput=<pts_per_hour>` only when throughput was computable. `archive-sprint` records delivered velocity exactly once before rotating `current/`.
+2. **Bounded retention** — the CLI keeps only the last 10 detailed sprint records and cumulative all-time count/total/min/max/average; do not create quarterly metrics archives by hand.
 3. **Save to memory** — key retro insights that persist across sessions
 
 ### Anti-Pattern Detection

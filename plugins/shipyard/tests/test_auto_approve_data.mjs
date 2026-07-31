@@ -300,6 +300,32 @@ for (const base of CLI_OWNED) {
   });
 }
 
+for (const base of ["metrics.json", "metrics.md"]) {
+  test(`cli-owned deny: Write to ${base} is DENIED with a metrics CLI hint`, async () => {
+    await withTempDir(async (sd) => {
+      mkdirSyncFs(join(sd, "memory"), { recursive: true });
+      const { stdout, code } = await runWithEnv(
+        {
+          tool_name: "Write",
+          tool_input: {
+            file_path: join(sd, "memory", base),
+            content: "anything",
+          },
+        },
+        { SHIPYARD_DATA: sd },
+      );
+      assert.equal(code, 0);
+      const resp = JSON.parse(stdout);
+      assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+      assert.match(
+        resp.hookSpecificOutput.permissionDecisionReason,
+        /shipyard-data metrics/,
+        "deny reason must point the model at the metrics CLI",
+      );
+    });
+  });
+}
+
 test("cli-owned deny: Edit to a cursor file is DENIED (not just Write)", async () => {
   await withTempDir(async (sd) => {
     mkdirSyncFs(join(sd, "sprints", "current"), { recursive: true });

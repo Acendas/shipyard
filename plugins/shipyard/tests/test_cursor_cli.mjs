@@ -932,7 +932,14 @@ test("config set-model: flips think tier opus <-> fable atomically, preserves th
     p.run(["config", "set-model", "build", "inherit"], { expectFail: false });
     cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
     assert.match(cfg, /^  build: ""$/m);
+    p.run(["config", "set-model", "think", "claude-opus-4-8"], { expectFail: false });
+    cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(cfg, /^  think: claude-opus-4-8\s*# comment kept$/m);
+    p.run(["config", "set-model", "build", "claude-sonnet-5"], { expectFail: false });
+    cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(cfg, /^  build: claude-sonnet-5$/m);
     assert.equal(p.run(["config", "set-model", "think", "gpt5"]).code, 2);
+    assert.equal(p.run(["config", "set-model", "think", "anthropic.claude-opus-5"]).code, 2);
     assert.equal(p.run(["config", "set-model", "reviewer", "opus"]).code, 2);
     const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
     assert.match(events, /config_model_set/);

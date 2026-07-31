@@ -12,6 +12,7 @@
  *   shipyard-data onboarding status|bootstrap  → setup/onboarding state
  *   shipyard-data with-lock <key> -- <cmd>     → fcntl-style locking primitive
  *   shipyard-data archive-sprint <id> [--force]→ atomic sprint rename
+ *   shipyard-data metrics record-retro ...      → CLI-owned metrics update
  *   shipyard-data init-sprint <id> [--data-dir] → copy canonical templates into sprints/current/
  *   shipyard-data events emit <type> [k=v ...] → structured event log append
  *                             [--data-dir <path>]
@@ -339,6 +340,11 @@ function archiveSprint(sprintId, opts = {}) {
 
   mkdirSync(sprintsDir, { recursive: true });
 
+  // Velocity is a cross-sprint input for `/ship-sprint` capacity planning.
+  // Do this in the archive command, not in review/sprint prose, so every
+  // successful archive path leaves the next sprint with the prior velocity.
+  const velocityResult = recordSprintVelocity(dataDir, currentDir, sprintId);
+
   // Atomic single-syscall archive. Same-filesystem rename guarantees all
   // current/ contents land in the archive dir in one step — no partial
   // state on crash, no copy/delete race.
@@ -368,7 +374,361 @@ function archiveSprint(sprintId, opts = {}) {
     /* best-effort — the sprint archive above already succeeded */
   }
 
+  if (velocityResult.recorded) {
+    try {
+      logEvent(dataDir, "sprint_velocity_recorded", {
+        sprint: sprintId,
+        velocity: String(velocityResult.velocity),
+        features: velocityResult.features.join(","),
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
+
   process.stdout.write(archiveDir + "\n");
+}
+
+function recordSprintVelocity(dataDir, currentDir, sprintId) {
+  const sprintPath = join(currentDir, "SPRINT.md");
+  if (!existsSync(sprintPath)) {
+    return { recorded: false, velocity: 0, features: [], reason: "missing_sprint" };
+  }
+
+  const sprintContent = readFileSync(sprintPath, "utf8");
+  const sprintFm = parseFrontmatter(sprintContent);
+  if (String(sprintFm.status || "").trim().toLowerCase() !== "completed") {
+    return { recorded: false, velocity: 0, features: [], reason: "not_completed" };
+  }
+  const featureIds = parseSprintFeatureIds(sprintFm.features);
+  if (featureIds.length === 0) {
+    return { recorded: false, velocity: 0, features: [], reason: "no_features" };
+  }
+
+  const delivered = [];
+  for (const id of featureIds) {
+    const featurePath = findFeatureFile(dataDir, id);
+    if (!featurePath) continue;
+    let featureFm;
+    try {
+      featureFm = parseFrontmatter(readFileSync(featurePath, "utf8"));
+    } catch {
+      continue;
+    }
+    const status = String(featureFm.status || "").trim().toLowerCase();
+    if (!["done", "released", "completed"].includes(status)) continue;
+    const points = Number.parseInt(String(featureFm.story_points || "0"), 10);
+    if (!Number.isFinite(points) || points < 0) continue;
+    delivered.push({ id, points });
+  }
+
+  const velocity = delivered.reduce((sum, f) => sum + f.points, 0);
+  if (delivered.length === 0) {
+    return { recorded: false, velocity, features: [], reason: "no_delivered_features" };
+  }
+  const state = loadMetricsState(dataDir);
+  const existingRecent = state.velocity.recent.find((r) => r.sprint === sprintId);
+  const alreadyRecorded = !!existingRecent;
+  const record = {
+    sprint: sprintId,
+    points: velocity,
+    features: delivered.map((f) => ({ id: f.id, points: f.points })),
+    recorded_at: new Date().toISOString(),
+  };
+  updateMetricAggregate(state.velocity, velocity, existingRecent?.points);
+  state.velocity.recent = state.velocity.recent.filter((r) => r.sprint !== sprintId);
+  state.velocity.recent.push(record);
+  state.velocity.recent = sortSprintRecords(state.velocity.recent).slice(-10);
+  writeMetricsState(dataDir, state);
+  return {
+    recorded: !alreadyRecorded,
+    velocity,
+    features: delivered.map((f) => f.id),
+    reason: alreadyRecorded ? "already_recorded_updated" : "recorded",
+  };
+}
+
+function parseSprintFeatureIds(value) {
+  if (!value) return [];
+  return [...String(value).matchAll(/\bF\d+\b/g)].map((m) => m[0]);
+}
+
+function emptyMetricsState() {
+  return {
+    schema_version: 1,
+    velocity: { all_time: { count: 0, total: 0, min: null, max: null, average: null }, recent: [] },
+    throughput: { all_time: { count: 0, total: 0, min: null, max: null, average: null }, recent: [] },
+    retro: { recent: [] },
+  };
+}
+
+function normalizeMetricsState(raw) {
+  const state = emptyMetricsState();
+  if (!raw || typeof raw !== "object") return state;
+  for (const key of ["velocity", "throughput"]) {
+    const src = raw[key] && typeof raw[key] === "object" ? raw[key] : {};
+    const all = src.all_time && typeof src.all_time === "object" ? src.all_time : src;
+    state[key].all_time.count = Number.isFinite(Number(all.count)) ? Number(all.count) : 0;
+    state[key].all_time.total = Number.isFinite(Number(all.total)) ? Number(all.total) : 0;
+    state[key].all_time.min = all.min === null || all.min === undefined ? null : Number(all.min);
+    state[key].all_time.max = all.max === null || all.max === undefined ? null : Number(all.max);
+    state[key].all_time.average = all.average === null || all.average === undefined ? null : Number(all.average);
+    state[key].recent = Array.isArray(src.recent) ? src.recent : [];
+  }
+  state.retro.recent = Array.isArray(raw.retro?.recent) ? raw.retro.recent : [];
+  return state;
+}
+
+function loadMetricsState(dataDir) {
+  const jsonPath = join(dataDir, "memory", "metrics.json");
+  if (existsSync(jsonPath)) {
+    try {
+      return normalizeMetricsState(JSON.parse(readFileSync(jsonPath, "utf8")));
+    } catch {
+      return emptyMetricsState();
+    }
+  }
+  return loadLegacyMetricsState(dataDir);
+}
+
+function loadLegacyMetricsState(dataDir) {
+  const state = emptyMetricsState();
+  const metricsPath = join(dataDir, "memory", "metrics.md");
+  if (!existsSync(metricsPath)) return state;
+  let content = "";
+  try {
+    content = readFileSync(metricsPath, "utf8");
+  } catch {
+    return state;
+  }
+  for (const line of content.split(/\r?\n/)) {
+    const velocity = line.match(/\bVelocity:\s*(\d+)\s*pts\b/i);
+    const sprint = line.match(/\b(sprint-\d{3,})\b/i);
+    if (velocity && sprint) {
+      state.velocity.recent.push({
+        sprint: sprint[1].toLowerCase(),
+        points: Number.parseInt(velocity[1], 10),
+        features: parseFeatureSummary(line),
+        recorded_at: null,
+      });
+    }
+    const throughput = line.match(/\bThroughput:\s*([0-9]+(?:\.[0-9]+)?)\s*pts\/hr\b/i);
+    if (throughput && sprint) {
+      state.throughput.recent.push({
+        sprint: sprint[1].toLowerCase(),
+        points_per_hour: Number(throughput[1]),
+        recorded_at: null,
+      });
+    }
+  }
+  state.velocity.recent = dedupeSprintRecords(sortSprintRecords(state.velocity.recent));
+  state.throughput.recent = dedupeSprintRecords(sortSprintRecords(state.throughput.recent));
+  recomputeAggregateFromRecent(state.velocity, "points");
+  recomputeAggregateFromRecent(state.throughput, "points_per_hour");
+  state.velocity.recent = state.velocity.recent.slice(-10);
+  state.throughput.recent = state.throughput.recent.slice(-10);
+  return state;
+}
+
+function parseFeatureSummary(line) {
+  const m = line.match(/\bfeatures=([^#\n]+)/);
+  if (!m) return [];
+  return m[1].split(",").map((part) => {
+    const [id, points] = part.trim().split(":");
+    return { id, points: Number.parseInt(points, 10) || 0 };
+  }).filter((f) => /^F\d+$/.test(f.id));
+}
+
+function sortSprintRecords(records) {
+  return [...records].sort((a, b) => sprintSortKey(a.sprint) - sprintSortKey(b.sprint));
+}
+
+function sprintSortKey(sprint) {
+  const n = String(sprint || "").match(/sprint-(\d+)/i)?.[1];
+  return n ? Number.parseInt(n, 10) : 0;
+}
+
+function dedupeSprintRecords(records) {
+  const bySprint = new Map();
+  for (const record of records) bySprint.set(record.sprint, record);
+  return [...bySprint.values()];
+}
+
+function recomputeAggregateFromRecent(bucket, valueKey) {
+  const values = bucket.recent
+    .map((r) => Number(r[valueKey]))
+    .filter((n) => Number.isFinite(n));
+  bucket.all_time.count = values.length;
+  bucket.all_time.total = roundMetric(values.reduce((sum, n) => sum + n, 0));
+  bucket.all_time.min = values.length ? roundMetric(Math.min(...values)) : null;
+  bucket.all_time.max = values.length ? roundMetric(Math.max(...values)) : null;
+  bucket.all_time.average = values.length ? roundMetric(bucket.all_time.total / values.length) : null;
+}
+
+function updateMetricAggregate(bucket, value, replacingValue = undefined) {
+  const n = roundMetric(Number(value));
+  if (!Number.isFinite(n)) return;
+  const all = bucket.all_time;
+  if (Number.isFinite(Number(replacingValue))) {
+    const previous = Number(replacingValue);
+    all.total = roundMetric(all.total - previous + n);
+    all.average = all.count > 0 ? roundMetric(all.total / all.count) : null;
+    if (all.min === null || n < all.min) all.min = n;
+    if (all.max === null || n > all.max) all.max = n;
+    return;
+  }
+  all.count += 1;
+  all.total = roundMetric(all.total + n);
+  all.min = all.min === null ? n : Math.min(all.min, n);
+  all.max = all.max === null ? n : Math.max(all.max, n);
+  all.average = roundMetric(all.total / all.count);
+}
+
+function roundMetric(n) {
+  return Math.round(n * 100) / 100;
+}
+
+function writeMetricsState(dataDir, state) {
+  const metricsDir = join(dataDir, "memory");
+  mkdirSync(metricsDir, { recursive: true });
+  const normalized = normalizeMetricsState(state);
+  normalized.velocity.recent = sortSprintRecords(normalized.velocity.recent).slice(-10);
+  normalized.throughput.recent = sortSprintRecords(normalized.throughput.recent).slice(-10);
+  normalized.retro.recent = sortSprintRecords(normalized.retro.recent).slice(-10);
+
+  const jsonPath = join(metricsDir, "metrics.json");
+  const jsonTmp = jsonPath + ".tmp";
+  writeFileSync(jsonTmp, JSON.stringify(normalized, null, 2) + "\n", "utf8");
+  renameSync(jsonTmp, jsonPath);
+
+  const mdPath = join(metricsDir, "metrics.md");
+  const mdTmp = mdPath + ".tmp";
+  writeFileSync(mdTmp, renderMetricsMarkdown(normalized), "utf8");
+  renameSync(mdTmp, mdPath);
+}
+
+function renderMetricsMarkdown(state) {
+  const lines = [
+    "# Metrics",
+    "",
+    "Generated by `shipyard-data metrics` and `shipyard-data archive-sprint`. Do not edit by hand.",
+    "",
+    "## Summary",
+  ];
+  const velocityAll = state.velocity.all_time;
+  const throughputAll = state.throughput.all_time;
+  if (velocityAll.count > 0) {
+    lines.push(`Velocity average: ${velocityAll.average} pts/sprint`);
+    lines.push(`Velocity range: ${velocityAll.min}-${velocityAll.max} pts/sprint`);
+    lines.push(`Velocity total: ${velocityAll.total} pts across ${velocityAll.count} sprint${velocityAll.count === 1 ? "" : "s"}`);
+    lines.push(`Velocity records retained: ${state.velocity.recent.length} sprint${state.velocity.recent.length === 1 ? "" : "s"}`);
+  } else {
+    lines.push("Velocity: no completed sprints recorded");
+  }
+  if (throughputAll.count > 0) {
+    lines.push(`Throughput average: ${throughputAll.average} pts/hr`);
+    lines.push(`Throughput range: ${throughputAll.min}-${throughputAll.max} pts/hr`);
+  }
+  lines.push("", "## Recent Sprint Velocity");
+  if (state.velocity.recent.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const r of sortSprintRecords(state.velocity.recent).slice().reverse()) {
+      const features = Array.isArray(r.features) && r.features.length
+        ? `; features=${r.features.map((f) => `${f.id}:${f.points}`).join(",")}`
+        : "";
+      lines.push(`Velocity: ${r.points} pts  # ${r.sprint}${features}`);
+    }
+  }
+  lines.push("", "## Recent Throughput");
+  if (state.throughput.recent.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const r of sortSprintRecords(state.throughput.recent).slice().reverse()) {
+      lines.push(`Throughput: ${r.points_per_hour} pts/hr  # ${r.sprint}`);
+    }
+  }
+  if (state.retro.recent.length > 0) {
+    lines.push("", "## Recent Retro Metrics");
+    for (const r of sortSprintRecords(state.retro.recent).slice().reverse()) {
+      const parts = [];
+      for (const key of ["carry_over", "bug_rate", "estimate_accuracy", "flags"]) {
+        if (r[key]) parts.push(`${key}=${r[key]}`);
+      }
+      lines.push(`- ${r.sprint}: ${parts.length ? parts.join("; ") : "recorded"}`);
+    }
+  }
+  return lines.join("\n") + "\n";
+}
+
+function parseKvArgs(args, commandName) {
+  const kv = {};
+  for (const arg of args) {
+    const idx = arg.indexOf("=");
+    if (idx <= 0) {
+      process.stderr.write(`shipyard-data ${commandName}: expected k=v argument, got ${JSON.stringify(arg)}\n`);
+      process.exit(2);
+    }
+    kv[arg.slice(0, idx)] = arg.slice(idx + 1);
+  }
+  return kv;
+}
+
+function metricsCmd(args, opts = {}) {
+  const sub = args[0];
+  const dataDir = opts.dataDir ?? getDataDir({ silent: true });
+  if (sub === "record-retro") {
+    const kv = parseKvArgs(args.slice(1), "metrics record-retro");
+    const sprint = kv.sprint;
+    if (!/^sprint-\d{3,}$/.test(String(sprint || ""))) {
+      process.stderr.write("shipyard-data metrics record-retro: sprint=<sprint-NNN> is required\n");
+      process.exit(2);
+    }
+    const state = loadMetricsState(dataDir);
+    const throughput = kv.throughput === undefined || kv.throughput === ""
+      ? null
+      : Number(kv.throughput);
+    if (throughput !== null) {
+      if (!Number.isFinite(throughput) || throughput < 0) {
+        process.stderr.write("shipyard-data metrics record-retro: throughput must be a non-negative number\n");
+        process.exit(2);
+      }
+      const existingRecent = state.throughput.recent.find((r) => r.sprint === sprint);
+      updateMetricAggregate(state.throughput, throughput, existingRecent?.points_per_hour);
+      state.throughput.recent = state.throughput.recent.filter((r) => r.sprint !== sprint);
+      state.throughput.recent.push({
+        sprint,
+        points_per_hour: roundMetric(throughput),
+        recorded_at: new Date().toISOString(),
+      });
+    }
+    const retro = {
+      sprint,
+      carry_over: kv.carry_over || "",
+      bug_rate: kv.bug_rate || "",
+      estimate_accuracy: kv.estimate_accuracy || "",
+      flags: kv.flags || "",
+      recorded_at: new Date().toISOString(),
+    };
+    state.retro.recent = state.retro.recent.filter((r) => r.sprint !== sprint);
+    state.retro.recent.push(retro);
+    writeMetricsState(dataDir, state);
+    try {
+      logEvent(dataDir, "sprint_retro_metrics_recorded", { sprint });
+    } catch { /* best-effort */ }
+    process.stdout.write(`metrics recorded for ${sprint}\n`);
+    return;
+  }
+  if (sub === "regenerate") {
+    writeMetricsState(dataDir, loadMetricsState(dataDir));
+    process.stdout.write(join(dataDir, "memory", "metrics.md") + "\n");
+    return;
+  }
+  process.stderr.write(
+    `shipyard-data metrics: unknown or missing subcommand ${JSON.stringify(sub)}. ` +
+      `Expected: record-retro | regenerate\n`,
+  );
+  process.exit(2);
 }
 
 /**
@@ -1526,15 +1886,21 @@ function sprintCheck() {
  *   shipyard-data config set-model think fable
  *   shipyard-data config set-model think opus
  *   shipyard-data config set-model build sonnet
+ *   shipyard-data config set-model think claude-opus-4-8
  *   shipyard-data config set-model think inherit   ("" — omit model:, inherit session)
  */
 const MODEL_TIERS = new Set(["think", "build", "orchestrate"]);
 const MODEL_VALUES = new Set(["fable", "opus", "sonnet", "haiku", "inherit"]);
+const CLAUDE_MODEL_ID_RE = /^claude-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function isAllowedModelValue(value) {
+  return MODEL_VALUES.has(value) || CLAUDE_MODEL_ID_RE.test(value);
+}
 
 function configSetModel(tier, value) {
-  if (!MODEL_TIERS.has(tier) || !MODEL_VALUES.has(value)) {
+  if (!MODEL_TIERS.has(tier) || !isAllowedModelValue(value)) {
     process.stderr.write(
-      "shipyard-data config set-model: usage: config set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit>\n",
+      "shipyard-data config set-model: usage: config set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*>\n",
     );
     process.exit(2);
   }
@@ -1844,6 +2210,24 @@ function findTaskFile(dataDir, id) {
     (name) => name === `${id}.md` || name.startsWith(`${id}-`),
   );
   return hit ? join(tasksDir, hit) : null;
+}
+
+/**
+ * Find the feature file for an id under `spec/features/`, or null. Feature
+ * files follow the same `<id>-<slug>.md` convention as tasks.
+ */
+function findFeatureFile(dataDir, id) {
+  const featuresDir = join(dataDir, "spec", "features");
+  let entries;
+  try {
+    entries = readdirSync(featuresDir);
+  } catch {
+    return null;
+  }
+  const hit = entries.find(
+    (name) => name === `${id}.md` || name.startsWith(`${id}-`),
+  );
+  return hit ? join(featuresDir, hit) : null;
 }
 
 /**
@@ -2178,6 +2562,11 @@ function main() {
       archiveSprint(sprintId, { force });
       break;
     }
+    case "metrics": {
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "metrics");
+      metricsCmd(rest, { dataDir: dataDirOverride });
+      break;
+    }
     case "init-sprint": {
       const initSprintArgs = process.argv.slice(3);
       const ddIdx = initSprintArgs.indexOf("--data-dir");
@@ -2259,7 +2648,7 @@ function main() {
         specStateCmd(getDataDir({ silent: true }), ["config", "set", ...rest.slice(1)]);
       } else {
         process.stderr.write(
-          `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit> | set <key> <value>\n`,
+          `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*> | set <key> <value>\n`,
         );
         process.exit(2);
       }
@@ -2323,7 +2712,7 @@ function main() {
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set> ... | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
+        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | metrics <record-retro|regenerate> ... [--data-dir <path>] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set> ... | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
       );
       process.exit(1);
   }

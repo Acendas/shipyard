@@ -24,17 +24,20 @@
  * POSIX `/tmp` candidate as well closes the gap. The resolver reads from the
  * same candidate list (single source of truth in shipyard-resolver.mjs).
  *
- * Breadcrumb name: shipyard-<projectHash>.plugindata
+ * Breadcrumb name: shipyard-<projectHash>-<installTag>.plugindata for
+ * marketplace installs, falling back to the legacy untagged name for dev paths.
  * Content: the raw CLAUDE_PLUGIN_DATA path (no newline, no JSON)
  */
 
-import { writeFileSync } from "node:fs";
+import { unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   getProjectRoot,
   getProjectHash,
   breadcrumbCandidates,
+  configPluginsDirFromPluginData,
   ensureDataDirLink,
+  legacyBreadcrumbName,
 } from "../shipyard-resolver.mjs";
 
 export function run(_hookInput, env) {
@@ -53,11 +56,22 @@ export function run(_hookInput, env) {
   // TMPDIR the reading subprocess resolves. Each write is independent and
   // best-effort — one failing (e.g. a permission-denied /tmp) must not stop
   // the others or block session start.
-  for (const breadcrumb of breadcrumbCandidates(hash)) {
+  const configPluginsDir = configPluginsDirFromPluginData(pluginData);
+  for (const breadcrumb of breadcrumbCandidates(hash, { configPluginsDir })) {
     try {
       writeFileSync(breadcrumb, pluginData, { encoding: "utf8", mode: 0o600 });
     } catch {
       // Non-fatal — other candidates / resolver probes still apply.
+    }
+  }
+  if (configPluginsDir) {
+    for (const breadcrumb of breadcrumbCandidates(hash, { legacy: true })) {
+      if (!breadcrumb.endsWith(legacyBreadcrumbName(hash))) continue;
+      try {
+        unlinkSync(breadcrumb);
+      } catch {
+        // Non-fatal — stale legacy breadcrumbs are ignored by tagged installs.
+      }
     }
   }
 

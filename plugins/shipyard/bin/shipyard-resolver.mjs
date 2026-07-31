@@ -30,8 +30,120 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const IS_WINDOWS = process.platform === "win32";
+
+function pathPartsForInstallPath(sourcePath) {
+  const sepChar = sourcePath.includes("\\") ? "\\" : "/";
+  return { sepChar, parts: sourcePath.split(/[\\/]+/) };
+}
+
+function joinInstallParts(parts, endInclusive, sepChar) {
+  if (parts[0] === "") return sepChar + parts.slice(1, endInclusive + 1).join(sepChar);
+  return parts.slice(0, endInclusive + 1).join(sepChar);
+}
+
+function joinInstallPath(base, sepChar, ...parts) {
+  return [base.replace(/[\\/]+$/, ""), ...parts].join(sepChar);
+}
+
+/**
+ * Derive the current plugin install identity from a resolver file path.
+ *
+ * Real marketplace installs live under:
+ *   <configRoot>/plugins/cache/<marketplace>/<plugin>/<version>/bin/shipyard-resolver.mjs
+ *
+ * Dev/linked installs do not have the `plugins/cache` segment pair and return
+ * null, preserving the existing breadcrumb/link fallback behavior.
+ */
+export function deriveInstallInfoFromResolverPath(sourcePath) {
+  const { sepChar, parts } = pathPartsForInstallPath(sourcePath);
+  let cacheIdx = -1;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (parts[i] === "plugins" && parts[i + 1] === "cache") cacheIdx = i;
+  }
+  if (cacheIdx < 0) return null;
+  const marketplace = parts[cacheIdx + 2];
+  const plugin = parts[cacheIdx + 3];
+  if (!marketplace || !plugin) return null;
+  return {
+    configPluginsDir: joinInstallParts(parts, cacheIdx, sepChar),
+    marketplace,
+    plugin,
+    sepChar,
+  };
+}
+
+function resolverPathFromUrl(sourceUrl) {
+  try {
+    return realpathSync(fileURLToPath(sourceUrl));
+  } catch {
+    try {
+      return fileURLToPath(sourceUrl);
+    } catch {
+      return "";
+    }
+  }
+}
+
+export function deriveDataRootFromResolverPath(sourcePath, opts = {}) {
+  const info = deriveInstallInfoFromResolverPath(sourcePath);
+  if (!info) return null;
+  const candidate = joinInstallPath(
+    info.configPluginsDir,
+    info.sepChar,
+    "data",
+    `${info.plugin}-${info.marketplace}`,
+  );
+  if (opts.requireExists === false || existsSync(candidate)) return candidate;
+  return null;
+}
+
+export function deriveDataRootFromSelf(sourceUrl = import.meta.url) {
+  const sourcePath = resolverPathFromUrl(sourceUrl);
+  if (!sourcePath) return null;
+  return deriveDataRootFromResolverPath(sourcePath);
+}
+
+export function configTagForPluginsDir(configPluginsDir) {
+  if (!configPluginsDir) return null;
+  return createHash("sha256")
+    .update(configPluginsDir + "\n", "utf8")
+    .digest("hex")
+    .slice(0, 12);
+}
+
+export function configPluginsDirFromPluginData(pluginData) {
+  if (!pluginData) return null;
+  const { sepChar, parts } = pathPartsForInstallPath(resolve(pluginData));
+  let pluginsIdx = -1;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    if (parts[i] === "plugins") {
+      pluginsIdx = i;
+      break;
+    }
+  }
+  if (pluginsIdx < 0) return null;
+  return joinInstallParts(parts, pluginsIdx, sepChar);
+}
+
+function configPluginsDirFromSelf(sourceUrl = import.meta.url) {
+  const sourcePath = resolverPathFromUrl(sourceUrl);
+  if (!sourcePath) return null;
+  return deriveInstallInfoFromResolverPath(sourcePath)?.configPluginsDir ?? null;
+}
+
+function currentBreadcrumbTag(opts = {}) {
+  if (opts.legacy) return null;
+  if (Object.prototype.hasOwnProperty.call(opts, "configTag")) return opts.configTag || null;
+  if (opts.configPluginsDir) return configTagForPluginsDir(opts.configPluginsDir);
+  const selfDir = configPluginsDirFromSelf();
+  if (selfDir) return configTagForPluginsDir(selfDir);
+  const envDir = configPluginsDirFromPluginData(process.env.CLAUDE_PLUGIN_DATA);
+  if (envDir) return configTagForPluginsDir(envDir);
+  return null;
+}
 
 /**
  * Run a git command and return stdout, or null on failure.
@@ -294,11 +406,12 @@ export function getProjectHash(projectRoot) {
  *
  * Discovery order:
  *   1. CLAUDE_PLUGIN_DATA env var (Claude Code's official surface).
- *   2. Tmpdir breadcrumb written by the SessionStart hook (bridges skill
+ *   2. Install-scoped data root derived from this resolver's own cache path.
+ *   3. Tmpdir breadcrumb written by the SessionStart hook (bridges skill
  *      `!` backtick subprocesses where the env var isn't exported). Probed
  *      across all `breadcrumbCandidates()` because the hook and the skill
  *      subprocess can disagree on TMPDIR.
- *   3. `<projectRoot>/.shipyard` symlink (created by the CLI via
+ *   4. `<projectRoot>/.shipyard` symlink (created by the CLI via
  *      `shipyard-data link-data-dir`), validated against the project hash.
  *      Env/TMPDIR-independent — the last resort before failing.
  *
@@ -340,8 +453,19 @@ export class ShipyardResolverError extends Error {
  * Windows there is no `/tmp` and no observed TMPDIR split, so the list is
  * just `tmpdir()`.
  */
-export function breadcrumbCandidates(projectHash) {
-  const name = `shipyard-${projectHash}.plugindata`;
+export function breadcrumbName(projectHash, opts = {}) {
+  const tag = currentBreadcrumbTag(opts);
+  return tag
+    ? `shipyard-${projectHash}-${tag}.plugindata`
+    : `shipyard-${projectHash}.plugindata`;
+}
+
+export function legacyBreadcrumbName(projectHash) {
+  return `shipyard-${projectHash}.plugindata`;
+}
+
+export function breadcrumbCandidates(projectHash, opts = {}) {
+  const name = breadcrumbName(projectHash, opts);
   const dirs = [tmpdir()];
   if (!IS_WINDOWS) dirs.push("/tmp");
   const seen = new Set();
@@ -411,6 +535,9 @@ function readDataDirLink(projectRoot, projectHash) {
     // which keeps the check cross-platform (Windows junctions included).
     if (basename(target) !== projectHash) return null;
     if (basename(dirname(target)) !== "projects") return null;
+    const thisInstall = configPluginsDirFromSelf();
+    const targetInstall = configPluginsDirFromPluginData(dirname(dirname(target)));
+    if (thisInstall && targetInstall && thisInstall !== targetInstall) return null;
     return target;
   } catch {
     // Missing, dangling, or unreadable — caller falls through.
@@ -568,14 +695,21 @@ export function getDataDir(opts = {}) {
   //    official surface and the only path we trust by default.
   let pluginData = process.env.CLAUDE_PLUGIN_DATA;
 
-  // 2. Read breadcrumb written by SessionStart hook.
+  // 2. If env is absent, derive the plugin data root from this resolver's own
+  //    installed cache path. This is install-scoped, unlike the historical
+  //    breadcrumb and .shipyard fallbacks, and prevents personal/work installs
+  //    from racing over the same project hash.
+  if (!pluginData) pluginData = deriveDataRootFromSelf();
+
+  // 3. Read breadcrumb written by SessionStart hook.
   //    Claude Code exports CLAUDE_PLUGIN_DATA to hook subprocesses but NOT
   //    consistently to skill `!` backtick subprocesses (varies by version).
   //    The plugin-data-breadcrumb SessionStart hook writes the value to
-  //    shipyard-<hash>.plugindata in each candidate tmp dir so that
+  //    an install-tagged shipyard-<hash>-<tag>.plugindata in each candidate tmp dir so that
   //    backtick-spawned resolver calls can find it even when the hook and the
   //    skill subprocess disagree on TMPDIR. Per-project (keyed by project
-  //    hash); survives skill invocations within a session; mode 0600.
+  //    hash) and per-install (keyed by config-root tag); survives skill
+  //    invocations within a session; mode 0600.
   const candidates = breadcrumbCandidates(projectHash);
   if (!pluginData) {
     for (const candidate of candidates) {
@@ -587,7 +721,7 @@ export function getDataDir(opts = {}) {
     }
   }
 
-  // 3. `<projectRoot>/.shipyard` symlink fallback. Env/TMPDIR-independent —
+  // 4. `<projectRoot>/.shipyard` symlink fallback. Env/TMPDIR-independent —
   //    needs only the git-based project root, so it survives the case where a
   //    valid breadcrumb was stranded in a tmp dir the reader can't see. The
   //    target is already the full data dir (`…/projects/<hash>`), validated by
@@ -597,7 +731,7 @@ export function getDataDir(opts = {}) {
     if (viaLink) return viaLink;
   }
 
-  // 4. Fail loud if nothing resolved.
+  // 5. Fail loud if nothing resolved.
   if (!pluginData) {
     const cwdInDataDir =
       projectRoot.includes(`${sep}plugins${sep}data${sep}`) ||

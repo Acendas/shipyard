@@ -1275,7 +1275,7 @@ def check_no_hardcoded_dispatch_model(result):
     Scope: every .md under skills/. Allowed forms near Agent dispatches:
     `model: <models.build value>` style placeholders, `models.think` /
     `models.build` config references. Banned: a bare model name literal
-    as the model value.
+    or first-party `claude-*` model ID as the model value.
 
     Also scans AGENTS_DIR (registered agent files). Unlike skills — whose
     frontmatter `model:` is the shell's own legit static tier — a registered
@@ -1286,7 +1286,8 @@ def check_no_hardcoded_dispatch_model(result):
     scanning here, unlike the skill-body scan above.
     """
     LITERAL = re.compile(
-        r'model:\s*["\']?(fable|opus|sonnet|haiku)\b', re.IGNORECASE
+        r'model:\s*["\']?((?:fable|opus|sonnet|haiku)\b|claude-[a-z0-9]+(?:-[a-z0-9]+)*)',
+        re.IGNORECASE,
     )
     for skill_dir in sorted(SKILLS_DIR.iterdir()):
         if not skill_dir.is_dir():
@@ -1302,11 +1303,17 @@ def check_no_hardcoded_dispatch_model(result):
             hits = []
             for m in LITERAL.finditer(content):
                 # Ignore mentions inside the config-docs context, e.g.
-                # "recommended: sonnet" or "fable|opus|sonnet|haiku" lists —
+                # "recommended: sonnet", "claude-* examples", or
+                # "fable|opus|sonnet|haiku" lists —
                 # only flag when it reads as an actual Agent model argument.
                 line_start = content.rfind("\n", 0, m.start()) + 1
                 line = content[line_start:content.find("\n", m.start())]
-                if "recommended" in line.lower() or "|" in line.split("model:")[-1][:30]:
+                post_model = line.split("model:")[-1][:80]
+                if (
+                    "recommended" in line.lower()
+                    or "|" in post_model
+                    or "for example" in line.lower()
+                ):
                     continue
                 hits.append(line.strip()[:80])
             if hits:
@@ -1328,7 +1335,12 @@ def check_no_hardcoded_dispatch_model(result):
         for m in LITERAL.finditer(content):
             line_start = content.rfind("\n", 0, m.start()) + 1
             line = content[line_start:content.find("\n", m.start())]
-            if "recommended" in line.lower() or "|" in line.split("model:")[-1][:30]:
+            post_model = line.split("model:")[-1][:80]
+            if (
+                "recommended" in line.lower()
+                or "|" in post_model
+                or "for example" in line.lower()
+            ):
                 continue
             hits.append(line.strip()[:80])
         if hits:

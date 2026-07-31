@@ -147,6 +147,24 @@ class TestShipyardDataArchiveSprint(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def write_completed_sprint_features(self):
+        with open(os.path.join(self.current, 'SPRINT.md'), 'w') as f:
+            f.write(
+                '---\n'
+                'id: sprint-042\n'
+                'status: completed\n'
+                'features: "F001,F002,F003"\n'
+                '---\n'
+            )
+        features_dir = os.path.join(self.data_dir, 'spec', 'features')
+        os.makedirs(features_dir, exist_ok=True)
+        with open(os.path.join(features_dir, 'F001-alpha.md'), 'w') as f:
+            f.write('---\nid: F001\nstatus: done\nstory_points: 5\n---\n')
+        with open(os.path.join(features_dir, 'F002-beta.md'), 'w') as f:
+            f.write('---\nid: F002\nstatus: released\nstory_points: 8\n---\n')
+        with open(os.path.join(features_dir, 'F003-gamma.md'), 'w') as f:
+            f.write('---\nid: F003\nstatus: approved\nstory_points: 13\n---\n')
+
     def test_archive_moves_current_to_sprint_id(self):
         """Happy path: current/ contents land in sprints/sprint-NNN/."""
         out, err, code = run_cli(
@@ -231,6 +249,146 @@ class TestShipyardDataArchiveSprint(unittest.TestCase):
         # Same device + same inode → rename, not copy
         self.assertEqual(current_stat.st_dev, archive_stat.st_dev)
         self.assertEqual(current_stat.st_ino, archive_stat.st_ino)
+
+    def test_archive_records_velocity_for_next_sprint_capacity(self):
+        """Archive is the deterministic handoff that seeds next-sprint velocity."""
+        self.write_completed_sprint_features()
+        out, err, code = run_cli(
+            ['archive-sprint', 'sprint-042'], env_extra=self.env
+        )
+        self.assertEqual(code, 0, f'archive failed: {err}')
+        self.assertTrue(out.strip().endswith(os.path.join('sprints', 'sprint-042')))
+        metrics_path = os.path.join(self.data_dir, 'memory', 'metrics.md')
+        with open(metrics_path) as f:
+            metrics = f.read()
+        self.assertIn('Velocity: 13 pts  # sprint-042', metrics)
+        self.assertIn('features=F001:5,F002:8', metrics)
+        self.assertNotIn('F003:13', metrics)
+        with open(os.path.join(self.data_dir, 'memory', 'metrics.json')) as f:
+            metrics_json = json.load(f)
+        self.assertEqual(metrics_json['velocity']['all_time']['count'], 1)
+        self.assertEqual(metrics_json['velocity']['all_time']['total'], 13)
+        self.assertEqual(metrics_json['velocity']['all_time']['min'], 13)
+        self.assertEqual(metrics_json['velocity']['all_time']['max'], 13)
+        self.assertEqual(metrics_json['velocity']['recent'][0]['sprint'], 'sprint-042')
+
+    def test_archive_does_not_duplicate_existing_velocity_metric(self):
+        """A recovery archive should not append a second velocity line."""
+        self.write_completed_sprint_features()
+        metrics_dir = os.path.join(self.data_dir, 'memory')
+        os.makedirs(metrics_dir, exist_ok=True)
+        metrics_path = os.path.join(metrics_dir, 'metrics.md')
+        with open(metrics_path, 'w') as f:
+            f.write('Velocity: 13 pts  # sprint-042; features=F001:5,F002:8\n')
+
+        _, err, code = run_cli(
+            ['archive-sprint', 'sprint-042'], env_extra=self.env
+        )
+        self.assertEqual(code, 0, f'archive failed: {err}')
+        with open(metrics_path) as f:
+            metrics = f.read()
+        self.assertEqual(metrics.count('Velocity: 13 pts'), 1)
+        with open(os.path.join(self.data_dir, 'memory', 'metrics.json')) as f:
+            metrics_json = json.load(f)
+        self.assertEqual(metrics_json['velocity']['all_time']['count'], 1)
+
+    def test_archive_cancelled_sprint_does_not_record_zero_velocity(self):
+        """Cancelled sprints should not poison future capacity with 0 pts."""
+        self.write_completed_sprint_features()
+        with open(os.path.join(self.current, 'SPRINT.md'), 'w') as f:
+            f.write(
+                '---\n'
+                'id: sprint-042\n'
+                'status: cancelled\n'
+                'features: "F001,F002"\n'
+                '---\n'
+            )
+        _, err, code = run_cli(
+            ['archive-sprint', 'sprint-042'], env_extra=self.env
+        )
+        self.assertEqual(code, 0, f'archive failed: {err}')
+        metrics_path = os.path.join(self.data_dir, 'memory', 'metrics.md')
+        self.assertFalse(os.path.exists(metrics_path))
+
+    def test_archive_bounds_recent_velocity_but_keeps_all_time_summary(self):
+        """metrics.json keeps all-time stats while retaining only 10 sprint samples."""
+        features_dir = os.path.join(self.data_dir, 'spec', 'features')
+        os.makedirs(features_dir, exist_ok=True)
+        for n in range(1, 12):
+            sprint_id = f'sprint-{n:03d}'
+            fid = f'F{n:03d}'
+            with open(os.path.join(self.current, 'SPRINT.md'), 'w') as f:
+                f.write(
+                    '---\n'
+                    f'id: {sprint_id}\n'
+                    'status: completed\n'
+                    f'features: "{fid}"\n'
+                    '---\n'
+                )
+            with open(os.path.join(self.current, 'PROGRESS.md'), 'w') as f:
+                f.write('done\n')
+            with open(os.path.join(features_dir, f'{fid}-feature.md'), 'w') as f:
+                f.write(
+                    '---\n'
+                    f'id: {fid}\n'
+                    'status: done\n'
+                    f'story_points: {n}\n'
+                    '---\n'
+                )
+            _, err, code = run_cli(
+                ['archive-sprint', sprint_id], env_extra=self.env
+            )
+            self.assertEqual(code, 0, f'archive {sprint_id} failed: {err}')
+
+        with open(os.path.join(self.data_dir, 'memory', 'metrics.json')) as f:
+            metrics_json = json.load(f)
+        self.assertEqual(metrics_json['velocity']['all_time']['count'], 11)
+        self.assertEqual(metrics_json['velocity']['all_time']['total'], 66)
+        self.assertEqual(metrics_json['velocity']['all_time']['min'], 1)
+        self.assertEqual(metrics_json['velocity']['all_time']['max'], 11)
+        self.assertEqual(len(metrics_json['velocity']['recent']), 10)
+        self.assertEqual(metrics_json['velocity']['recent'][0]['sprint'], 'sprint-002')
+        with open(os.path.join(self.data_dir, 'memory', 'metrics.md')) as f:
+            metrics = f.read()
+        self.assertNotIn('Velocity: 1 pts  # sprint-001', metrics)
+        self.assertIn('Velocity total: 66 pts across 11 sprints', metrics)
+
+    def test_metrics_record_retro_updates_json_and_generated_markdown(self):
+        _, err, code = run_cli([
+            'metrics', 'record-retro',
+            'sprint=sprint-042',
+            'throughput=4.25',
+            'carry_over=1 task',
+            'bug_rate=0',
+            'estimate_accuracy=90%',
+            'flags=none',
+        ], env_extra=self.env)
+        self.assertEqual(code, 0, f'metrics record-retro failed: {err}')
+        with open(os.path.join(self.data_dir, 'memory', 'metrics.json')) as f:
+            metrics_json = json.load(f)
+        self.assertEqual(metrics_json['throughput']['all_time']['average'], 4.25)
+        self.assertEqual(metrics_json['retro']['recent'][0]['carry_over'], '1 task')
+        with open(os.path.join(self.data_dir, 'memory', 'metrics.md')) as f:
+            metrics = f.read()
+        self.assertIn('Throughput: 4.25 pts/hr  # sprint-042', metrics)
+        self.assertIn('Generated by `shipyard-data metrics`', metrics)
+
+    def test_metrics_regenerate_migrates_legacy_lines_before_bounding_recent(self):
+        metrics_dir = os.path.join(self.data_dir, 'memory')
+        os.makedirs(metrics_dir, exist_ok=True)
+        metrics_path = os.path.join(metrics_dir, 'metrics.md')
+        with open(metrics_path, 'w') as f:
+            for n in range(1, 12):
+                f.write(f'Velocity: {n} pts  # sprint-{n:03d}; features=F{n:03d}:{n}\n')
+
+        _, err, code = run_cli(['metrics', 'regenerate'], env_extra=self.env)
+        self.assertEqual(code, 0, f'metrics regenerate failed: {err}')
+        with open(os.path.join(metrics_dir, 'metrics.json')) as f:
+            metrics_json = json.load(f)
+        self.assertEqual(metrics_json['velocity']['all_time']['count'], 11)
+        self.assertEqual(metrics_json['velocity']['all_time']['total'], 66)
+        self.assertEqual(len(metrics_json['velocity']['recent']), 10)
+        self.assertEqual(metrics_json['velocity']['recent'][0]['sprint'], 'sprint-002')
 
 
 

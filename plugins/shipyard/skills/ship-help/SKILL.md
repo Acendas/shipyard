@@ -39,7 +39,8 @@ Reference the right `/ship-*` command. Explain what it does and what to expect.
 ### Mode 3: Action → Do It
 User asks you to do something (move a feature, update a status, reorder backlog). DO IT — but route the mutation through the right layer, not a blind Edit:
 
-- **State mutations go through `shipyard-data`, never a hand-Edit.** Feature status/fields → `shipyard-data feature set-status <FID> <status>` / `feature set <FID> k=v`. Backlog membership/order → `shipyard-data backlog add|remove|rank|set`. Idea graduation → `shipyard-data idea set-status <IDEA-NNN> graduated --to <FID>` (or `rejected`). Task status → `shipyard-data task set-status <TID> <status>`.
+- **State mutations go through `shipyard-data`, never a hand-Edit.** Feature status/fields → `shipyard-data feature set-status <FID> <status>` / `feature set <FID> k=v`. Backlog membership/order → `shipyard-data backlog add|remove|rank|set`. Idea graduation → `shipyard-data idea set-status <IDEA-NNN> graduated --to <FID>` (or `rejected`). Task status → `shipyard-data task set-status <TID> <status>`. Model tier changes → `shipyard-data config set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*>`.
+- **Natural-language model changes are Action mode.** If the user says "set build model to Opus", "use claude-opus-4-8 for thinking", "make builders inherit my session model", or similar, resolve the tier (`build`, `think`, or `orchestrate`) and model value, run `shipyard-data config set-model ...`, then confirm the exact tier/value changed. If the tier or model is ambiguous, ask one short clarification before running the CLI.
 - **NEVER hand-Edit feature-file or BACKLOG.md frontmatter, the pipeline cursors, or the skill-mutex lock files** — all four are CLI-owned; the auto-approve PreToolUse hook denies a model Write/Edit to any of them outright, so an Edit attempt there fails, not just violates convention.
 - **Body prose stays Edit-tool surface** — feature/epic body sections, decision logs, and free-text notes are not CLI-owned; Edit them directly as always.
 - **Anything the CLI doesn't cover** (e.g. sprint planning, running a wave, filing a bug) is out of scope for a direct Edit here — route the user to the owning skill (`/ship-sprint`, `/ship-execute`, `/ship-bug`, …) instead of improvising a workaround.
@@ -198,17 +199,17 @@ Shipyard dispatches work across three model tiers, config-driven via `config.md`
 | Tier | Default | Used for |
 |------|---------|----------|
 | `think` | Opus | Deep reasoning — critics, spec review, sprint analysts, decomposition deep-dives, escalation consults |
-| `build` | Sonnet (fixed) | High-volume labor — builder task loops, operational runs, research sweeps, fixers, simplifiers |
+| `build` | Sonnet | High-volume labor — builder task loops, operational runs, research sweeps, fixers, simplifiers |
 | `orchestrate` | Opus | The user-session shell tier itself (set via skill frontmatter, not runtime-configurable) |
 
-Two ways to change the `think` tier:
+Model overrides:
 
 | Scope | How |
 |-------|-----|
-| One discussion only | `/ship-discuss --think fable\|opus\|sonnet` — applies to that invocation's dispatches only, nothing persisted |
-| Every project dispatch, going forward | `shipyard-data config set-model think fable\|opus` — writes `config.md`, the next dispatch anywhere picks it up |
+| One discussion only | `/ship-discuss --think <fable\|opus\|sonnet\|haiku\|claude-*>` — applies to that invocation's think-tier dispatches only, nothing persisted |
+| Every project dispatch, going forward | Ask `/ship-help` to set the model, for example `/ship-help set build model to claude-opus-4-8` or `/ship-help make thinking inherit my session model`; it runs `shipyard-data config set-model ...` and the next dispatch anywhere picks it up |
 
-Fable availability depends on the user's Claude plan — a dispatch to an unavailable model errors at spawn time and falls back to the configured `think` value with a one-line notice. `build` is never asked about or overridden per-run; it stays Sonnet. Either tier can also be set to `inherit` (omit `model:`, the dispatch inherits the session's own model) via `shipyard-data config set-model <tier> inherit`.
+Fable and version-specific Claude IDs depend on the user's Claude plan and model lifecycle — a dispatch to an unavailable model errors at spawn time and falls back where the invoking skill documents a fallback. Either tier can be set to `inherit` (omit `model:`, the dispatch inherits the session's own model).
 
 ## Rules
 - Always use AskUserQuestion when the request is ambiguous

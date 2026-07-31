@@ -4,7 +4,7 @@ description: "Discover features from idea to full spec."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, TaskCreate, TaskUpdate, TaskList, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 model: opus
 effort: medium
-argument-hint: "[topic | feature ID | issue key | --idea <description>] [--think <fable|opus|sonnet>]"
+argument-hint: "[topic | feature ID | issue key | --idea <description>] [--think <model>]"
 ---
 
 # Shipyard: Feature Discussion
@@ -27,7 +27,7 @@ You are facilitating a feature discovery conversation. This is fluid — not a q
 
 $ARGUMENTS
 
-**`--think <model>` override (this invocation only).** If `$ARGUMENTS` contains `--think <value>`, validate `<value>` against `{fable, opus, sonnet}`. Valid → strip `--think <value>` from the arguments before mode detection and remember it as `think_override` for the rest of this session; every think-tier dispatch below (the design deep-dive, the critic) passes `model: <think_override>` instead of reading `models.think` from config.md. Invalid value (anything else) → print one line ("`--think <value>` isn't a recognized model — ignoring, using the configured think tier") and fall back to `models.think` as normal; do not block on it or ask a follow-up question. No config.md mutation — this never persists past the current invocation. On first dispatch that actually uses the override, emit `shipyard-data events emit think_override_used model=<think_override>` (once per session, not once per dispatch).
+**`--think <model>` override (this invocation only).** If `$ARGUMENTS` contains `--think <value>`, validate `<value>` as either one of `{fable, opus, sonnet, haiku}` or a first-party Claude model ID matching `claude-*` (for example `claude-opus-4-8` or `claude-sonnet-5`). Valid → strip `--think <value>` from the arguments before mode detection and remember it as `think_override` for the rest of this session; every think-tier dispatch below (the design deep-dive, the critic) passes `model: <think_override>` instead of reading `models.think` from config.md. Invalid value (anything else) → print one line ("`--think <value>` isn't a recognized model — ignoring, using the configured think tier") and fall back to `models.think` as normal; do not block on it or ask a follow-up question. No config.md mutation — this never persists past the current invocation. On first dispatch that actually uses the override, emit `shipyard-data events emit think_override_used model=<think_override>` (once per session, not once per dispatch).
 
 ## Session Mutex Check
 

@@ -102,6 +102,11 @@
     "pattern": "config set-model"
   },
   {
+    "name": "model_changes_are_action_mode",
+    "type": "contains",
+    "pattern": "Natural-language model changes are Action mode|set build model to claude-opus-4-8"
+  },
+  {
     "name": "mode3_routes_state_through_cli",
     "type": "contains",
     "pattern": "shipyard-data feature set-status|shipyard-data backlog|CLI-owned"

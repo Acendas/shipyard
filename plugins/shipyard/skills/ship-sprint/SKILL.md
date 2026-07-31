@@ -15,7 +15,7 @@ Plan a new sprint by pulling features from the backlog and decomposing into wave
 
 !`shipyard-context sprint-planning`
 
-**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Shipyard binaries you may invoke from Bash: `shipyard-data archive-sprint <id>`, `shipyard-data init-sprint <id>` (Step 12), `shipyard-data draft set-sprint-status ...`, `shipyard-data sprint set <key> <value>` and `shipyard-data sprint check` (Step 12). **Never `cd` into the data directory before running `shipyard-data` commands** — they resolve the data directory internally via git and env vars; `cd`-ing into a non-git directory breaks the resolver. Just run the command bare from the project root. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files.** SPRINT.md and PROGRESS.md are created by the `init-sprint` CLI (template-canonical); **SPRINT.md frontmatter is thereafter mutated only via `shipyard-data sprint set`, never a hand Edit** (hand-editing frontmatter is the corruption class that welds keys together). **PROGRESS.md and the pipeline cursors are CLI/render-owned — the model never writes them** (a PreToolUse hook denies such writes). Use the Write tool (auto-approved for SHIPYARD_DATA) for arbitrary *narrative* artifacts (feature files, task files, SPRINT-DRAFT.md); the SPRINT.md *body* (Goal, `### Wave N`, Critical Path, Risks, Swap Log) stays a model Edit on the CLI-created file. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
+**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Shipyard binaries you may invoke from Bash: `shipyard-data archive-sprint <id>`, `shipyard-data metrics ...`, `shipyard-data init-sprint <id>` (Step 12), `shipyard-data draft set-sprint-status ...`, `shipyard-data sprint set <key> <value>` and `shipyard-data sprint check` (Step 12). **Never `cd` into the data directory before running `shipyard-data` commands** — they resolve the data directory internally via git and env vars; `cd`-ing into a non-git directory breaks the resolver. Just run the command bare from the project root. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files.** SPRINT.md and PROGRESS.md are created by the `init-sprint` CLI (template-canonical); **SPRINT.md frontmatter is thereafter mutated only via `shipyard-data sprint set`, never a hand Edit** (hand-editing frontmatter is the corruption class that welds keys together). **PROGRESS.md and the pipeline cursors are CLI/render-owned — the model never writes them** (a PreToolUse hook denies such writes). Metrics are CLI-owned: `memory/metrics.json` is authoritative and `memory/metrics.md` is generated; never Write/Edit either metrics file by hand. Use the Write tool (auto-approved for SHIPYARD_DATA) for arbitrary *narrative* artifacts (feature files, task files, SPRINT-DRAFT.md); the SPRINT.md *body* (Goal, `### Wave N`, Critical Path, Risks, Swap Log) stays a model Edit on the CLI-created file. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
 
 **Onboarding gate.** If the bundled context contains `SHIPYARD_ONBOARDING_REQUIRED=true`, run the exact `SHIPYARD_ONBOARDING_COMMAND` once with Bash, report the CLI output to the user, and STOP. Do not infer setup state by reading or writing Shipyard state files; onboarding decisions are CLI-owned.
 
@@ -55,10 +55,9 @@ $ARGUMENTS
   ```
 
   Handle cleanup transparently:
-  1. If velocity not recorded → record it now (sum story_points from done features, write to metrics.md)
-  2. Archive by running `shipyard-data archive-sprint sprint-NNN` from Bash (substitute the real sprint ID). This atomically renames `<SHIPYARD_DATA>/sprints/current/` → `<SHIPYARD_DATA>/sprints/sprint-NNN/` and recreates an empty `current/`. Do NOT synthesize raw `cp`/`mv`/`mkdir` commands against the plugin data dir — they're not portable and not atomic. The `shipyard-data archive-sprint` invocation works because this skill has `Bash(shipyard-data:*)` in its allowlist.
-  3. Report: "Archived sprint [ID]. Velocity: [N] pts recorded."
-  4. Then proceed to PLAN mode
+  1. Archive by running `shipyard-data archive-sprint sprint-NNN` from Bash (substitute the real sprint ID). This atomically records velocity from delivered features, renames `<SHIPYARD_DATA>/sprints/current/` → `<SHIPYARD_DATA>/sprints/sprint-NNN/`, and recreates an empty `current/`. Do NOT synthesize raw `cp`/`mv`/`mkdir` commands against the plugin data dir — they're not portable and not atomic. The `shipyard-data archive-sprint` invocation works because this skill has `Bash(shipyard-data:*)` in its allowlist.
+  2. Report: "Archived sprint [ID]. Velocity recorded for the next sprint."
+  3. Then proceed to PLAN mode
 
 - Otherwise → PLAN mode
 
@@ -123,9 +122,9 @@ Create all 20 in one batch (subjects prefixed with a plan slug, e.g. `[sprint-pl
 
 ### Step 1: Determine Capacity
 
-Use the Read tool on `<SHIPYARD_DATA>/memory/metrics.md` (also loaded in context above). Look for `Velocity: N pts` lines from prior sprints. If multiple sprints exist, average the last 3 for a rolling velocity.
+Use the Read tool on `<SHIPYARD_DATA>/memory/metrics.json` when it exists; otherwise read `<SHIPYARD_DATA>/memory/metrics.md` as the legacy fallback. For capacity, prefer the last 3 entries in `velocity.recent[].points` from metrics.json. Legacy fallback: look for `Velocity: N pts` lines from prior sprints and average the last 3.
 
-Also scan metrics.md for `Throughput:` lines (format: `Throughput: X.X pts/hr (N pts in M.M hrs active)  # Sprint NNN`). Extract the float value before `pts/hr` from each line. Average the last 3 values (or all available if fewer than 3 exist) → `avg_throughput`. If no `Throughput:` lines exist, `avg_throughput` is null.
+For projections, prefer the last 3 entries in `throughput.recent[].points_per_hour` from metrics.json. Legacy fallback: scan metrics.md for `Throughput:` lines (format: `Throughput: X.X pts/hr (N pts in M.M hrs active)  # Sprint NNN`). Extract the float value before `pts/hr` from each line. Average the last 3 values (or all available if fewer than 3 exist) → `avg_throughput`. If no throughput data exists, `avg_throughput` is null.
 
 **Decide-and-inform when velocity data exists** (evidence converges, two-way door — capacity is re-litigated at feature selection and by the >10% overage rule, so it's never a one-way commit). State one line and proceed — do NOT ask:
 
@@ -178,7 +177,7 @@ Output the feature list as formatted text:
 **Projection display rules:**
 
 **Time projection:**
-- Read `avg_throughput` from metrics.md (average pts/hr from last 3 sprints)
+- Read `avg_throughput` from metrics.json when present, falling back to metrics.md (average pts/hr from last 3 sprints)
 - If available: `Time: ~M.M hrs (X.X pts/hr avg, last N sprints)` — computed as `selected_pts / avg_throughput`
 - If not available (first sprint): `Time: unknown (will appear after first sprint completes)`
 

@@ -64,10 +64,10 @@ worktree_warm:
                          # here — copying/symlinking them causes false-green tests (probe-confirmed).
 models:
   # Model tier per work class. Values are Agent-tool model names
-  # (fable | opus | sonnet | haiku); empty string = omit the model
-  # override and inherit the session model.
-  think: opus                 # deep reasoning: critics, spec review, sprint analysts, decomposition deep-dives, escalation consults. Flip anytime: `shipyard-data config set-model think fable|opus` — the next dispatch picks it up.
-  build: sonnet               # labor: builder task loops, operational runs, research sweeps, fixers, simplifiers. Fixed default — high-volume work stays fast and economical.
+  # (fable | opus | sonnet | haiku) or first-party Claude IDs (`claude-*`);
+  # empty string = omit the model override and inherit the session model.
+  think: opus                 # deep reasoning: critics, spec review, sprint analysts, decomposition deep-dives, escalation consults. Flip anytime: `shipyard-data config set-model think <model>` — the next dispatch picks it up.
+  build: sonnet               # labor: builder task loops, operational runs, research sweeps, fixers, simplifiers. Flip anytime with `shipyard-data config set-model build <model>`; high-volume work defaults fast and economical.
   orchestrate: sonnet         # ship-execute shell tier. Set by the skill's frontmatter model: — this value is informational (must match it). Editing here does NOT change the shell; edit skills/ship-execute/SKILL.md frontmatter.
 escalation:
   enabled: true               # allow orchestrators to dispatch a models.think consult when stuck
