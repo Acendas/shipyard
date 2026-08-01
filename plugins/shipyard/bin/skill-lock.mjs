@@ -105,14 +105,25 @@ function isAllowedConcurrentPair(requestedKind, requestedSkill, otherKind, other
 
 /**
  * Resolve the caller's session identity. `--session <id>` (if present in
- * argv) wins over `CLAUDE_SESSION_ID`. Both absent => unverified.
+ * argv) wins over the environment. Both absent => unverified.
+ *
+ * Environment: Claude Code exports the session id as `CLAUDE_CODE_SESSION_ID`
+ * to Bash tool subprocesses (verified 2026-07-31). The original code read
+ * `CLAUDE_SESSION_ID`, a name Claude Code never sets, so EVERY skill acquired
+ * its lock `unverified` (`session_id: null`) — which disabled the whole
+ * same-session "mine" recovery path in `classify()`. The visible symptom was
+ * that a skill which abruptly exited (error/halt) left a lock the SAME session
+ * could no longer re-acquire (it was mis-read as held-by-a-stranger), forcing
+ * the user to run `/ship-status` until the 2-hour stale threshold. We read the
+ * real `CLAUDE_CODE_SESSION_ID` first and keep `CLAUDE_SESSION_ID` as a
+ * backward-compatible fallback.
  */
 export function resolveSessionIdentity(args) {
   const idx = args.indexOf("--session");
   if (idx !== -1 && args[idx + 1]) {
     return { sessionId: args[idx + 1], unverified: false };
   }
-  const envId = process.env.CLAUDE_SESSION_ID || "";
+  const envId = process.env.CLAUDE_CODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
   if (envId) return { sessionId: envId, unverified: false };
   return { sessionId: null, unverified: true };
 }
@@ -360,6 +371,49 @@ export function releaseLock(dataDir, kind, opts = {}) {
     }
   }
   return run();
+}
+
+/**
+ * Release every lock that the ending session still holds — the "on exit,
+ * release" cleanup the model-driven skills cannot guarantee for themselves.
+ *
+ * A skill acquires its lock at start and is supposed to release it at its
+ * finalize step, but a skill that aborts on an error or a gate halt never
+ * reaches that step. The `SessionEnd` hook calls this with the ending
+ * session's id so the lock does not linger until the 2-hour stale threshold
+ * (or a manual `/ship-status`). Matching is by recorded `session_id`: only a
+ * lock this exact session owns is released — a concurrent session's lock
+ * (e.g. the allowed ship-discuss + ship-execute pair) is never touched.
+ * Age is irrelevant here — we release our own lock even past the stale
+ * threshold. A lock with no recorded session (`session_id` null, i.e. it was
+ * acquired unverified) is left alone; it cannot be attributed to this session
+ * and the stale path still reclaims it. Best-effort and never throws — a
+ * SessionEnd hook must not fail the shutdown.
+ */
+export function reapSessionLocks(dataDir, sessionId) {
+  const released = [];
+  if (!sessionId) return { released };
+  for (const kind of ["planning", "execution"]) {
+    try {
+      const read = readLockFile(dataDir, kind);
+      if (!read.exists || read.corrupt || isReleased(read.obj)) continue;
+      if (read.obj.session_id && read.obj.session_id === sessionId) {
+        // bestEffort suppresses releaseLock's own skill_lock_released event so
+        // the single skill_lock_reaped line below is the one record of this.
+        releaseLock(dataDir, kind, { sessionId, unverified: false, force: true, bestEffort: true });
+        logEvent(dataDir, "skill_lock_reaped", {
+          kind,
+          skill: read.obj.skill ?? null,
+          session_id: sessionId,
+          reason: "session_end",
+        });
+        released.push({ kind, skill: read.obj.skill ?? null });
+      }
+    } catch {
+      // best-effort per lock — one failure must not skip the other kind
+    }
+  }
+  return { released };
 }
 
 /**

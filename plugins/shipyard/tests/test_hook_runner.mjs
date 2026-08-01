@@ -148,3 +148,51 @@ test("hook-runner: handles empty stdin gracefully for hooks that need input", ()
     assert.equal(result.stdout, "");
   });
 });
+
+// ---- lock-reap (SessionEnd) ----
+
+function seedPlanningLock(dataDir, sessionId) {
+  writeFileSync(
+    join(dataDir, ".active-session.json"),
+    JSON.stringify({
+      skill: "ship-discuss",
+      sprint: null,
+      wave: null,
+      started: new Date().toISOString(),
+      session_id: sessionId,
+      cleared: null,
+      depth: 1,
+    }),
+  );
+}
+
+test("hook-runner: lock-reap releases the ending session's held lock", () => {
+  withTempProject(({ pluginData }) => {
+    seedPlanningLock(pluginData, "sessA");
+    const result = runHook("lock-reap", { session_id: "sessA", reason: "clear" }, { SHIPYARD_DATA: pluginData });
+    assert.equal(result.code, 0);
+    const lock = JSON.parse(readFileSync(join(pluginData, ".active-session.json"), "utf8"));
+    assert.equal(lock.skill, null, "the ending session's lock is released");
+    assert.ok(lock.cleared, "release writes the cleared sentinel");
+  });
+});
+
+test("hook-runner: lock-reap leaves a different session's lock held", () => {
+  withTempProject(({ pluginData }) => {
+    seedPlanningLock(pluginData, "sessA");
+    const result = runHook("lock-reap", { session_id: "sessB", reason: "logout" }, { SHIPYARD_DATA: pluginData });
+    assert.equal(result.code, 0);
+    const lock = JSON.parse(readFileSync(join(pluginData, ".active-session.json"), "utf8"));
+    assert.equal(lock.skill, "ship-discuss", "a concurrent session's lock is untouched");
+  });
+});
+
+test("hook-runner: lock-reap is a silent no-op with no session_id", () => {
+  withTempProject(({ pluginData }) => {
+    seedPlanningLock(pluginData, "sessA");
+    const result = runHook("lock-reap", { reason: "other" }, { SHIPYARD_DATA: pluginData });
+    assert.equal(result.code, 0);
+    const lock = JSON.parse(readFileSync(join(pluginData, ".active-session.json"), "utf8"));
+    assert.equal(lock.skill, "ship-discuss");
+  });
+});

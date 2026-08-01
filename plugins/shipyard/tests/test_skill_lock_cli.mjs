@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLI = join(PLUGIN_ROOT, "bin", "shipyard-data.mjs");
+const { reapSessionLocks } = await import(join(PLUGIN_ROOT, "bin", "skill-lock.mjs"));
 
 function makeProject() {
   const root = mkdtempSync(join(tmpdir(), "skill-lock-cli-test-"));
@@ -30,6 +31,11 @@ function makeProject() {
   const env = { ...process.env, CLAUDE_PLUGIN_DATA: data };
   delete env.SHIPYARD_DATA;
   delete env.CLAUDE_SESSION_ID;
+  // The test runner itself runs inside a Claude Code session, so its env carries
+  // CLAUDE_CODE_SESSION_ID. Drop it too, otherwise the no-`--session` fixtures
+  // (meant to exercise the unverified path) would silently inherit it and become
+  // verified. Tests that want a verified identity pass `--session` explicitly.
+  delete env.CLAUDE_CODE_SESSION_ID;
   const run = (args, envOverride = {}) => {
     const result = spawnSync("node", [CLI, ...args], { cwd: repo, env: { ...env, ...envOverride }, encoding: "utf8" });
     return { code: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
@@ -417,6 +423,98 @@ test("status: read-only, reports both locks in one JSON line", () => {
     assert.equal(json.planning.state, "held");
     assert.equal(json.planning.skill, "ship-discuss");
     assert.equal(json.execution.state, "released");
+  } finally {
+    p.cleanup();
+  }
+});
+
+// --- CLAUDE_CODE_SESSION_ID resolution (the abrupt-exit re-entry bug) --------
+
+test("CLAUDE_CODE_SESSION_ID makes a same-session re-acquire 'mine', not blocked", () => {
+  // Regression for the reported bug: the resolver read CLAUDE_SESSION_ID (a var
+  // Claude Code never sets) instead of CLAUDE_CODE_SESSION_ID, so every lock was
+  // acquired unverified and a session that abruptly exited could not re-acquire
+  // its own lock — it looked held-by-a-stranger until the 2h stale threshold.
+  const p = makeProject();
+  try {
+    const envA = { CLAUDE_CODE_SESSION_ID: "sess-real" };
+    const first = p.run(["lock", "acquire", "planning", "--skill", "ship-discuss"], envA);
+    assert.equal(first.code, 0);
+    assert.equal(readLock(p, "planning").session_id, "sess-real");
+
+    // Simulate the skill abruptly exiting (no release), then the SAME session
+    // re-running a planning skill. It must re-acquire as reentry, not block.
+    const second = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint"], envA);
+    assert.equal(second.code, 0, second.stderr);
+    assert.equal(stdoutJson(second).reentry, true);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("a different session is still correctly blocked (identity is real, not ignored)", () => {
+  const p = makeProject();
+  try {
+    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss"], { CLAUDE_CODE_SESSION_ID: "sess-A" });
+    const other = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint"], { CLAUDE_CODE_SESSION_ID: "sess-B" });
+    assert.equal(other.code, 3);
+  } finally {
+    p.cleanup();
+  }
+});
+
+// --- reapSessionLocks (SessionEnd hook cleanup) ------------------------------
+
+test("reapSessionLocks releases the ending session's own locks", () => {
+  const p = makeProject();
+  try {
+    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sessA"]);
+
+    const { released } = reapSessionLocks(p.dataDir, "sessA");
+    assert.equal(released.length, 2);
+    assert.equal(readLock(p, "planning").skill, null);
+    assert.equal(readLock(p, "execution").skill, null);
+    assert.match(readEvents(p), /skill_lock_reaped/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("reapSessionLocks never touches a concurrent session's lock", () => {
+  const p = makeProject();
+  try {
+    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    // A different session ends; sessA's lock must survive.
+    const { released } = reapSessionLocks(p.dataDir, "sessB");
+    assert.equal(released.length, 0);
+    assert.equal(readLock(p, "planning").skill, "ship-discuss");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("reapSessionLocks is a no-op when the ending session id is absent", () => {
+  const p = makeProject();
+  try {
+    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    const { released } = reapSessionLocks(p.dataDir, null);
+    assert.equal(released.length, 0);
+    assert.equal(readLock(p, "planning").skill, "ship-discuss");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("reapSessionLocks leaves an unverified (null-session) lock alone", () => {
+  const p = makeProject();
+  try {
+    // No --session, no CLAUDE_CODE_SESSION_ID -> session_id stored as null.
+    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss"]);
+    assert.equal(readLock(p, "planning").session_id, null);
+    const { released } = reapSessionLocks(p.dataDir, "sess-whatever");
+    assert.equal(released.length, 0);
+    assert.equal(readLock(p, "planning").skill, "ship-discuss");
   } finally {
     p.cleanup();
   }
