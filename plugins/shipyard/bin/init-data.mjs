@@ -1,4 +1,13 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getDataDir, getProjectRoot } from "./shipyard-resolver.mjs";
@@ -28,6 +37,50 @@ function escapeYamlDoubleQuoted(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+/**
+ * Concurrency-safe, idempotent template sync.
+ *
+ * `ensureInitializedDataDir` runs on the hot path of nearly every Shipyard CLI
+ * invocation, so several processes (an active `ship-execute` run driving hooks
+ * plus a concurrently invoked skill) routinely refresh `templates/` at the same
+ * time. Node's `cpSync(..., { force: true })` copies each file as
+ * stat → `unlinkSync(dest)` → copy; when a sibling process replaces a template
+ * between the stat and the unlink, the unlink throws `ENOENT` and crashes the
+ * whole command. This sync avoids that: it stats first and only writes files
+ * that are missing or changed (steady state = zero writes, no race window), and
+ * when it does write it uses `copyFileSync`, which overwrites the destination in
+ * a single syscall with no separate `unlink` step.
+ */
+function syncTemplatesDir(src, dest) {
+  mkdirSync(dest, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const srcPath = join(src, entry.name);
+    const destPath = join(dest, entry.name);
+    if (entry.isDirectory()) {
+      syncTemplatesDir(srcPath, destPath);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    let needsCopy = true;
+    try {
+      const srcStat = statSync(srcPath);
+      const destStat = statSync(destPath);
+      needsCopy = destStat.size !== srcStat.size || destStat.mtimeMs < srcStat.mtimeMs;
+    } catch {
+      needsCopy = true;
+    }
+    if (!needsCopy) continue;
+    try {
+      copyFileSync(srcPath, destPath);
+    } catch (err) {
+      // A sibling process copying the same template can briefly race us; the
+      // destination still ends up with the canonical content, so tolerate the
+      // transient failure rather than crashing the caller.
+      if (err && err.code !== "ENOENT" && err.code !== "EEXIST") throw err;
+    }
+  }
+}
+
 export function ensureInitializedDataDir(opts = {}) {
   const projectRoot = opts.projectRoot ?? getProjectRoot();
   const dataDir = opts.dataDir ?? getDataDir({ projectRoot, silent: true });
@@ -40,10 +93,7 @@ export function ensureInitializedDataDir(opts = {}) {
 
   const templatesSrc = join(pluginRoot(), "project-files", "templates");
   if (existsSync(templatesSrc)) {
-    cpSync(templatesSrc, join(dataDir, "templates"), {
-      recursive: true,
-      force: true,
-    });
+    syncTemplatesDir(templatesSrc, join(dataDir, "templates"));
   }
 
   for (const f of [".loop-state.json", ".test-output.tmp"]) {
