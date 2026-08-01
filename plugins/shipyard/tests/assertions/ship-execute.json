@@ -1611,6 +1611,12 @@
     "why": "v3.17.0: root cause of the late interrupt — nothing authored the field and only goal-mode checked for it, so it surfaced after the sprint had already built."
   },
   {
+    "name": "user_flow_probe_preflight_is_cli_gate",
+    "type": "contains",
+    "pattern": "feature check-probes",
+    "why": "v3.22.2: the pre-flight probe gate runs the same `shipyard-data feature check-probes` verb as discuss Finalize and sprint Check 24 instead of re-deriving it by reading each frontmatter in-model, so all three stages agree by construction (single readUserFlowProbe source of truth)."
+  },
+  {
     "name": "full_build_remediation_before_ask",
     "type": "contains",
     "pattern": "run the documented remediation before interrupting",
