@@ -684,6 +684,12 @@
     "why": "v3.17.0: a feature admitted to a sprint without a user-flow probe builds for hours before ship-execute Step 5.3 blocks on it."
   },
   {
+    "name": "probe_gate_is_cli_not_eyeball",
+    "type": "contains",
+    "pattern": "feature check-probes",
+    "why": "v3.22.2: Check 24 is now a hard CLI gate (`shipyard-data feature check-probes`) whose non-zero exit halts planning, not a model-eyeball checklist row that passed features through (sprint-034 F120/F121 slipped past the self-review and surfaced only at execute pre-flight)."
+  },
+  {
     "name": "deep_dive_draft_first_handoff",
     "type": "contains",
     "pattern": "draft task specs.{0,260}before writing final task files",

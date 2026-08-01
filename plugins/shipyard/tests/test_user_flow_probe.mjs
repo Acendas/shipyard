@@ -187,6 +187,79 @@ test("refuses when no probe is authored at all", () => {
   assert.match(r.stderr, /ship-discuss/);
 });
 
+// --- feature check-probes ----------------------------------------------------
+
+/** Write several feature files into a throwaway data dir. `features` maps FID → frontmatter+body. */
+function multiFixture(features) {
+  const dir = mkdtempSync(join(tmpdir(), "ufp-check-"));
+  mkdirSync(join(dir, "spec", "features"), { recursive: true });
+  for (const [fid, body] of Object.entries(features)) {
+    writeFileSync(join(dir, "spec", "features", `${fid}-x.md`), body);
+  }
+  return dir;
+}
+
+const withProbe = (fid, kind) => `---\nid: ${fid}\nuser_flow_probe:\n  kind: ${kind}\n  command: ./x.sh\n  steps: |\n    1. Do it.\n---\n# ${fid}\n`;
+const noProbe = (fid) => `---\nid: ${fid}\nstatus: proposed\n---\n# ${fid}\n`;
+
+test("check-probes passes when every feature carries a valid probe", () => {
+  const d = multiFixture({
+    F001: withProbe("F001", "auto"),
+    F002: withProbe("F002", "assisted"),
+    F003: `---\nid: F003\ndemo_probe: |\n  ./legacy.sh\n---\n# F003\n`, // legacy scalar counts
+    F004: `---\nid: F004\nuser_flow_probe: skip-with-reason\nuser_flow_probe_skip_reason: "hardware only"\n---\n# F004\n`,
+  });
+  const r = runCli(d, ["feature", "check-probes", "F001", "F002", "F003", "F004"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /all 4 feature\(s\) covered/);
+});
+
+test("check-probes exits 3 and names every feature missing a probe", () => {
+  const d = multiFixture({
+    F001: withProbe("F001", "auto"),
+    F002: noProbe("F002"),
+    F003: noProbe("F003"),
+  });
+  const r = runCli(d, ["feature", "check-probes", "F001", "F002", "F003"]);
+  assert.equal(r.code, 3);
+  // Both offenders named in the summary; the covered one is not.
+  assert.match(r.stderr, /F002/);
+  assert.match(r.stderr, /F003/);
+  assert.doesNotMatch(r.stderr, /lack a valid user_flow_probe:.*F001/);
+  assert.match(r.stdout, /F002: MISSING/);
+});
+
+test("check-probes rejects skip-with-reason that has no reason populated", () => {
+  const d = multiFixture({
+    F001: `---\nid: F001\nuser_flow_probe: skip-with-reason\n---\n# F001\n`,
+  });
+  const r = runCli(d, ["feature", "check-probes", "F001"]);
+  assert.equal(r.code, 3);
+  assert.match(r.stdout, /F001: SKIP-NO-REASON/);
+});
+
+test("check-probes rejects a mapping with an invalid kind", () => {
+  const d = multiFixture({
+    F001: `---\nid: F001\nuser_flow_probe:\n  kind: someday\n  command: ./x.sh\n---\n# F001\n`,
+  });
+  const r = runCli(d, ["feature", "check-probes", "F001"]);
+  assert.equal(r.code, 3);
+  assert.match(r.stdout, /F001: BAD-KIND/);
+});
+
+test("check-probes flags a legacy demo_probe as OK but notes the rename", () => {
+  const d = multiFixture({ F001: `---\nid: F001\ndemo_probe: |\n  ./x.sh\n---\n# F001\n` });
+  const r = runCli(d, ["feature", "check-probes", "F001"]);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /F001: OK kind=auto \(legacy demo_probe/);
+});
+
+test("check-probes requires at least one feature id", () => {
+  const d = multiFixture({ F001: withProbe("F001", "auto") });
+  const r = runCli(d, ["feature", "check-probes"]);
+  assert.equal(r.code, 2);
+});
+
 // --- readiness-check ---------------------------------------------------------
 
 function makeRepo() {

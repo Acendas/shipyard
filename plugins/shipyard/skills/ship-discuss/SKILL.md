@@ -626,6 +626,7 @@ Render the full summary as text first (all sections above — this is the render
 
 Run these steps in order. The active-skill mutex stays active until the **very last** step so that any accidental Edit to a source file during Finalize still gets blocked. Do not reorder to "optimize" the cleanup.
 
+0. **Gate — every approved feature has a `user_flow_probe`.** Run `shipyard-data feature check-probes <all approved IDs>` before any status flip. Non-zero exit names features missing a probe: author each one now (shape + `kind` decision table in `references/phase-3-write-spec.md`), render it as chat text, and re-run until it exits 0. Do NOT proceed to step 1 with a feature still missing its probe — this is the enforcement that makes "authored at spec time" true instead of aspirational. Full protocol: `references/phase-finalize.md` step 0.
 1. **Update feature statuses** — run `shipyard-data feature set-status FNNN approved` for each approved feature.
 2. **Append to BACKLOG.md** — run `shipyard-data backlog add <IDs>` (one call, all approved IDs together).
 3. **Mark graduated ideas** — for IDEA-sourced features, run `shipyard-data idea set-status IDEA-NNN graduated --to FNNN`. This `shipyard-data` Bash call runs fine inside the guarded window — the active-skill mutex only blocks accidental Edits to source files, not CLI state mutations — and doing it here keeps the lifecycle change inside the mutex window.

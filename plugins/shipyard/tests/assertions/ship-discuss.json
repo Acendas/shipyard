@@ -1025,6 +1025,12 @@
     "why": "v3.17.0: nothing authored this field before — the template claimed /ship-discuss did, but it had zero references, which is why it was reliably discovered missing after the sprint had built."
   },
   {
+    "name": "finalize_gates_user_flow_probe_via_cli",
+    "type": "contains",
+    "pattern": "feature check-probes",
+    "why": "v3.22.2: Finalize runs `shipyard-data feature check-probes` before flipping any feature to approved, so a feature can no longer finalize without a user_flow_probe. Before this the authoring instruction was prose-only and the model skipped it (sprint-034 F120/F121 reached a sprint with no probe)."
+  },
+  {
     "name": "mutex_before_context_load",
     "type": "contains",
     "pattern": "Absolute first context action.{0,180}discuss-context",

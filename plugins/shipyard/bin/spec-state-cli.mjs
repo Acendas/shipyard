@@ -809,6 +809,87 @@ function featureRecordProof(dataDir, args) {
   });
 }
 
+/**
+ * `feature check-probes <FID> [<FID> ...]`
+ *
+ * Deterministic, read-only gate: every named feature must carry a valid
+ * `user_flow_probe:` (any kind, or a `skip-with-reason` whose reason is
+ * populated; a legacy scalar `demo_probe:` counts). Exits 0 when all pass, 3
+ * when any feature lacks one — printing one `<FID>: <verdict>` line per feature
+ * so the caller can name the offenders.
+ *
+ * This is the enforcement half of the v3.17.0 authoring contract. Before it,
+ * "every feature has a user_flow_probe" was checked only by prose (ship-discuss
+ * Finalize) and a model self-review checklist row (ship-sprint Step 9.5), so
+ * features reached a sprint with no probe and the gap surfaced only at execute
+ * pre-flight / sprint-complete invariant 8 — the most expensive place. Both
+ * ship-discuss Finalize and ship-sprint planning now call this instead of
+ * eyeballing the field, matching the workspace rule that pipeline gates read
+ * data artifacts rather than trust model self-review.
+ */
+function featureCheckProbes(dataDir, args) {
+  const fids = args.filter((a) => !a.startsWith("--"));
+  if (fids.length === 0) fail(2, "usage: feature check-probes <FID> [<FID> ...]");
+  for (const fid of fids) {
+    if (!FID_RE.test(fid)) fail(2, `spec-state: invalid feature id "${fid}" — expected F### (e.g. F004)`);
+  }
+
+  const failures = [];
+  for (const fid of fids) {
+    const path = resolveFeatureFile(dataDir, fid, { optional: true });
+    if (!path) {
+      failures.push(fid);
+      process.stdout.write(`${fid}: MISSING-FILE — no feature file found\n`);
+      continue;
+    }
+    const fm = parseFm(readFileSync(path, "utf8"));
+    if (!fm) {
+      failures.push(fid);
+      process.stdout.write(`${fid}: NO-FRONTMATTER — cannot read user_flow_probe\n`);
+      continue;
+    }
+    const probe = readUserFlowProbe(fm.block);
+    const legacyNote = probe.legacy ? " (legacy demo_probe: — rename to user_flow_probe:)" : "";
+
+    if (probe.shape === "absent") {
+      failures.push(fid);
+      process.stdout.write(`${fid}: MISSING — no user_flow_probe; author one via /ship-discuss ${fid}\n`);
+    } else if (probe.shape === "skip") {
+      const reason = (
+        getScalar(fm.block, "user_flow_probe_skip_reason") ||
+        getScalar(fm.block, "demo_probe_skip_reason") ||
+        ""
+      ).trim();
+      if (!reason) {
+        failures.push(fid);
+        process.stdout.write(
+          `${fid}: SKIP-NO-REASON — skip-with-reason requires a populated user_flow_probe_skip_reason\n`,
+        );
+      } else {
+        process.stdout.write(`${fid}: OK skip-with-reason${legacyNote}\n`);
+      }
+    } else if (probe.shape === "scalar") {
+      process.stdout.write(`${fid}: OK kind=auto${legacyNote}\n`);
+    } else if (USER_FLOW_PROBE_KINDS.includes(probe.kind)) {
+      process.stdout.write(`${fid}: OK kind=${probe.kind}${legacyNote}\n`);
+    } else {
+      failures.push(fid);
+      process.stdout.write(
+        `${fid}: BAD-KIND — user_flow_probe kind "${probe.kind ?? "(unset)"}" is not one of ${USER_FLOW_PROBE_KINDS.join("|")}\n`,
+      );
+    }
+  }
+
+  if (failures.length > 0) {
+    fail(
+      3,
+      `spec-state: ${failures.length} feature(s) lack a valid user_flow_probe: ${failures.join(", ")}. ` +
+        `Author one at spec time (/ship-discuss <FID>) — a probe written after the sprint builds is a rubber stamp.`,
+    );
+  }
+  process.stdout.write(`user_flow_probe: all ${fids.length} feature(s) covered\n`);
+}
+
 // --- backlog commands --------------------------------------------------------
 
 function backlogAdd(dataDir, args) {
@@ -1329,8 +1410,10 @@ function dispatch(dataDir, entity, sub, rest) {
         return featureSetTasks(dataDir, rest);
       case "record-proof":
         return featureRecordProof(dataDir, rest);
+      case "check-probes":
+        return featureCheckProbes(dataDir, rest);
       default:
-        fail(2, `shipyard-data feature: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof`);
+        fail(2, `shipyard-data feature: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes`);
     }
   } else if (entity === "backlog") {
     switch (sub) {
