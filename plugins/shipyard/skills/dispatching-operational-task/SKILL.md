@@ -133,12 +133,15 @@ as a path in the brief for runner-specific recipes.
 
 **Model tier (build).** Read `models.build` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal.
 
+**Effort tier (operational/operational_fix).** Read `agent_effort.operational` and `agent_effort.operational_fix` from config.md. For the first command-running pass, pass `effort: <agent_effort.operational>` (default `low`). For redispatch/fix iterations after a failed command, pass `effort: <agent_effort.operational_fix>` (default `medium`). If the selected value is empty/absent, OMIT `effort:` so the subagent inherits the runtime default.
+
 Dispatch:
 
 ```
 Agent(
   subagent_type: "shipyard:shipyard-operational-task",
   model: <models.build value, or omit>,
+  effort: <agent_effort.operational for first pass, agent_effort.operational_fix for failure-fix iteration; omit if empty>,
   prompt: "
     Task ID:                {{task_id}}
     Task file:               {{task_file_path}}

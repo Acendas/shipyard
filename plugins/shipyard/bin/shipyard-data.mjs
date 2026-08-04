@@ -51,6 +51,10 @@
  *     --capture <path>
  *   shipyard-data verify check --key <k>       → exit 0 = fresh (reusable),
  *     --command <literal> [--ttl-hours <n>]       exit 3 = stale (re-run it)
+ *   shipyard-data review plan <findings.json>  → deterministic review finding
+ *     [--out <path>]                              batches and validation waves
+ *   shipyard-data queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale>
+ *                                                → durable flat-worker queue
  */
 
 import { execFileSync } from "node:child_process";
@@ -68,6 +72,8 @@ import { scanStubsCmd } from "./scan-stubs.mjs";
 import { verifyCmd } from "./verify-ledger.mjs";
 import { readinessCheckCmd } from "./readiness-check.mjs";
 import { bootstrapOnboarding, ensureInitializedDataDir, renderOnboardingLines } from "./init-data.mjs";
+import { reviewPlanCmd } from "./review-plan.mjs";
+import { queueCmd } from "./worker-queue.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -894,9 +900,9 @@ function initSprint(sprintId, opts = {}) {
  * subcommand physically removes them after `--max-age-days` (default 30).
  *
  * Scope: scans <SHIPYARD_DATA>/spec/ recursively for `.md` files only. Does
- * NOT scan JSON sentinel files (`.active-session.json`, `.compaction-count`,
- * `.loop-state.json`) because those are overwritten in place by the next
- * skill invocation and never accumulate (validator C6).
+ * NOT scan JSON sentinel files (`.active-session.json`, `.compaction-count`)
+ * because those are overwritten in place by the next skill invocation and
+ * never accumulate (validator C6).
  *
  * Frontmatter parsing: a minimal regex scan for `^obsolete: true$` and
  * `^status: (graduated|superseded|cancelled)$` inside the leading `---` /
@@ -1740,7 +1746,7 @@ function verifyWaveIntegrated() {
  * mutation on sprints/current/SPRINT.md.
  *
  * Why a CLI, not a model Edit: SPRINT.md frontmatter is machine-parsed
- * (terminal-gate reads `status:` and `features:`; the loop-leak guard keys
+ * (terminal-gate reads `status:` and `features:`; the stale-cycle guard keys
  * off `status: completed`), and model Edits on frontmatter are the
  * corruption class that welded YAML keys together in the perl-glue
  * incident. The wave/body narrative stays model-authored — this command
@@ -1892,9 +1898,78 @@ function sprintCheck() {
 const MODEL_TIERS = new Set(["think", "build", "orchestrate"]);
 const MODEL_VALUES = new Set(["fable", "opus", "sonnet", "haiku", "inherit"]);
 const CLAUDE_MODEL_ID_RE = /^claude-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const ORCHESTRATION_SKILL_NAMES = ["ship-execute", "ship-review", "ship-sprint", "ship-discuss"];
+const AGENT_EFFORT_TIERS = new Set(["build", "build_trivial", "fixer", "operational", "operational_fix", "think", "coordinator", "simplifier"]);
+const AGENT_EFFORT_VALUES = new Set(["low", "medium", "high", "inherit"]);
 
 function isAllowedModelValue(value) {
   return MODEL_VALUES.has(value) || CLAUDE_MODEL_ID_RE.test(value);
+}
+
+function setFrontmatterNestedValue(block, blockName, key, written) {
+  const blockRe = new RegExp(`^${blockName}:\\s*$`, "m");
+  if (blockRe.test(block)) {
+    const lines = block.split("\n");
+    const start = lines.findIndex((l) => new RegExp(`^${blockName}:\\s*$`).test(l));
+    let done = false;
+    for (let i = start + 1; i < lines.length; i++) {
+      if (/^\S/.test(lines[i])) break;
+      const m = lines[i].match(new RegExp(`^(\\s+${key}:)\\s*\\S*(\\s*#.*)?$`));
+      if (m) {
+        lines[i] = `${m[1]} ${written}${m[2] ?? ""}`;
+        done = true;
+        break;
+      }
+    }
+    if (!done) {
+      lines.splice(start + 1, 0, `  ${key}: ${written}`);
+    }
+    return lines.join("\n");
+  }
+  return block.replace(/\s*$/, "") + `\n${blockName}:\n  ${key}: ${written}`;
+}
+
+function pluginRoot() {
+  return dirname(dirname(fileURLToPath(import.meta.url)));
+}
+
+function setSkillFrontmatterModel(skillPath, value) {
+  const content = readFileSync(skillPath, "utf8");
+  const fmMatch = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
+  if (!fmMatch) {
+    throw new Error(`missing frontmatter in ${skillPath}`);
+  }
+  const [, open, block, close] = fmMatch;
+  let nextBlock;
+  if (value === "inherit") {
+    nextBlock = block.replace(/^model:[^\n]*(\r?\n)?/m, "");
+  } else if (/^model:[^\n]*$/m.test(block)) {
+    nextBlock = block.replace(/^model:[^\n]*$/m, `model: ${value}`);
+  } else {
+    const lines = block.split("\n");
+    const allowedIdx = lines.findIndex((line) => /^allowed-tools:/.test(line));
+    lines.splice(allowedIdx === -1 ? 2 : allowedIdx + 1, 0, `model: ${value}`);
+    nextBlock = lines.join("\n");
+  }
+  if (nextBlock === block) return false;
+  const next = open + nextBlock + close + content.slice(fmMatch[0].length);
+  const tmp = skillPath + ".tmp";
+  writeFileSync(tmp, next, "utf8");
+  renameSync(tmp, skillPath);
+  return true;
+}
+
+function syncOrchestrateModel(value) {
+  const root = pluginRoot();
+  const changed = [];
+  for (const name of ORCHESTRATION_SKILL_NAMES) {
+    const skillPath = join(root, "skills", name, "SKILL.md");
+    if (!existsSync(skillPath)) {
+      throw new Error(`missing orchestration skill: ${skillPath}`);
+    }
+    if (setSkillFrontmatterModel(skillPath, value)) changed.push(name);
+  }
+  return changed;
 }
 
 function configSetModel(tier, value) {
@@ -1918,38 +1993,57 @@ function configSetModel(tier, value) {
     process.exit(1);
   }
   let [, open, block, close] = fmMatch;
-  const tierLineRe = new RegExp(`^(\\s+${tier}:)[^\\n#]*(#.*)?$`, "m");
-  const modelsBlockRe = /^models:\s*$/m;
-  if (modelsBlockRe.test(block)) {
-    // Replace the tier line INSIDE the models: block only (scan the
-    // indented run following `models:`), preserving any trailing comment.
-    const lines = block.split("\n");
-    const start = lines.findIndex((l) => /^models:\s*$/.test(l));
-    let done = false;
-    for (let i = start + 1; i < lines.length; i++) {
-      if (/^\S/.test(lines[i])) break; // left the models: block
-      const m = lines[i].match(new RegExp(`^(\\s+${tier}:)\\s*\\S*(\\s*#.*)?$`));
-      if (m) {
-        lines[i] = `${m[1]} ${written}${m[2] ?? ""}`;
-        done = true;
-        break;
-      }
+  block = setFrontmatterNestedValue(block, "models", tier, written);
+  const newContent = open + block + close + content.slice(fmMatch[0].length);
+  const tmp = configPath + ".tmp";
+  writeFileSync(tmp, newContent, "utf8");
+  renameSync(tmp, configPath);
+  let synced = [];
+  if (tier === "orchestrate") {
+    try {
+      synced = syncOrchestrateModel(value);
+    } catch (err) {
+      process.stderr.write(`shipyard-data config set-model: config updated, but failed to sync orchestration skill frontmatter: ${err.message}\n`);
+      process.exit(3);
     }
-    if (!done) {
-      lines.splice(start + 1, 0, `  ${tier}: ${written}`);
-    }
-    block = lines.join("\n");
-  } else {
-    block = block.replace(/\s*$/, "") + `\nmodels:\n  ${tier}: ${written}`;
   }
+  try {
+    logEvent(dataDir, "config_model_set", { tier, value, synced_skills: synced.join(",") });
+  } catch { /* best-effort */ }
+  const syncNote = tier === "orchestrate" ? ` synced=${synced.length}` : "";
+  process.stdout.write(`models.${tier}: ${written}${syncNote}\n`);
+}
+
+function configSetEffort(tier, value) {
+  if (!AGENT_EFFORT_TIERS.has(tier) || !AGENT_EFFORT_VALUES.has(value)) {
+    process.stderr.write(
+      "shipyard-data config set-effort: usage: config set-effort <build|build_trivial|fixer|operational|operational_fix|think|coordinator|simplifier> <low|medium|high|inherit>\n",
+    );
+    process.exit(2);
+  }
+  const written = value === "inherit" ? '""' : value;
+  const dataDir = getDataDir({ silent: true });
+  const configPath = join(dataDir, "config.md");
+  if (!existsSync(configPath)) {
+    process.stderr.write(`shipyard-data config set-effort: no ${configPath} — run shipyard-data onboarding bootstrap first\n`);
+    process.exit(1);
+  }
+  const content = readFileSync(configPath, "utf8");
+  const fmMatch = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
+  if (!fmMatch) {
+    process.stderr.write("shipyard-data config set-effort: config.md has no frontmatter block — refusing\n");
+    process.exit(1);
+  }
+  let [, open, block, close] = fmMatch;
+  block = setFrontmatterNestedValue(block, "agent_effort", tier, written);
   const newContent = open + block + close + content.slice(fmMatch[0].length);
   const tmp = configPath + ".tmp";
   writeFileSync(tmp, newContent, "utf8");
   renameSync(tmp, configPath);
   try {
-    logEvent(dataDir, "config_model_set", { tier, value });
+    logEvent(dataDir, "config_agent_effort_set", { tier, value });
   } catch { /* best-effort */ }
-  process.stdout.write(`models.${tier}: ${written}\n`);
+  process.stdout.write(`agent_effort.${tier}: ${written}\n`);
 }
 
 /**
@@ -2640,6 +2734,8 @@ function main() {
       const rest = process.argv.slice(3);
       if (rest[0] === "set-model") {
         configSetModel(rest[1], rest[2]);
+      } else if (rest[0] === "set-effort") {
+        configSetEffort(rest[1], rest[2]);
       } else if (rest[0] === "set") {
         // Generic allowlisted config.md fields outside the `models:` block
         // (currently just product-spec-path) route through spec-state-cli's
@@ -2648,7 +2744,7 @@ function main() {
         specStateCmd(getDataDir({ silent: true }), ["config", "set", ...rest.slice(1)]);
       } else {
         process.stderr.write(
-          `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*> | set <key> <value>\n`,
+          `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*> | set-effort <build|build_trivial|fixer|operational|operational_fix|think|coordinator|simplifier> <low|medium|high|inherit> | set <key> <value>\n`,
         );
         process.exit(2);
       }
@@ -2704,6 +2800,15 @@ function main() {
       verifyCmd(getDataDir({ silent: true }), process.argv.slice(3));
       break;
     }
+    case "review": {
+      reviewPlanCmd(process.argv.slice(3));
+      break;
+    }
+    case "queue": {
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "queue");
+      queueCmd(dataDirOverride ?? getDataDir({ silent: true }), rest);
+      break;
+    }
     case "readiness-check": {
       readinessCheckCmd(getProjectRoot(), getDataDir({ silent: true }), process.argv.slice(3));
       break;
@@ -2712,7 +2817,7 @@ function main() {
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | metrics <record-retro|regenerate> ... [--data-dir <path>] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set> ... | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
+        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | metrics <record-retro|regenerate> ... [--data-dir <path>] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set> ... | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
       );
       process.exit(1);
   }

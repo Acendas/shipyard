@@ -190,7 +190,7 @@ function globMatch(base, pattern) {
 const VIEW_REGISTRY = {
   config: {
     path: ["config.md"],
-    lines: 50,
+    lines: 100,
     fallback: "Project configuration missing — run shipyard-data onboarding bootstrap",
   },
   codebase: {
@@ -382,8 +382,6 @@ function renderCursorState(dataDir, out, rawPipeline, prefix = "SHIPYARD_CURSOR"
   if (cursor.fm.sprint !== undefined) out(`${prefix}_SPRINT=${cursor.fm.sprint}`);
   if (cursor.fm.wave_number !== undefined) out(`${prefix}_WAVE_NUMBER=${cursor.fm.wave_number}`);
   if (cursor.fm.iteration !== undefined) out(`${prefix}_ITERATION=${cursor.fm.iteration}`);
-  if (cursor.fm.loop_owner !== undefined) out(`${prefix}_LOOP_OWNER=${cursor.fm.loop_owner}`);
-  if (cursor.fm.auto_loop_attempted !== undefined) out(`${prefix}_AUTO_LOOP_ATTEMPTED=${cursor.fm.auto_loop_attempted}`);
   if (cursor.fm.stuck_counter !== undefined) out(`${prefix}_STUCK_COUNTER=${cursor.fm.stuck_counter}`);
   if (cursor.pending.length) out(`${prefix}_PENDING_SUBAGENTS=${JSON.stringify(cursor.pending)}`);
   if (cursor.body) {

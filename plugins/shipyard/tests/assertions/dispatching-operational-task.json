@@ -191,5 +191,12 @@
     "pattern": "no argument substitution",
     "target": "agent:shipyard-operational-task",
     "why": "P2 constraint (config-driven, never inferred): the agent must run rerun_failed verbatim rather than parsing capture output to build a test-name filter — Shipyard cannot know the runner's failure-report format, and guessing one would be exactly the kind of inference this feature is designed to avoid."
+  },
+  {
+    "name": "operational_dispatch_sets_effort_tiers",
+    "type": "contains",
+    "pattern": "agent_effort\\.operational.*agent_effort\\.operational_fix",
+    "dotall": true,
+    "why": "Command runners should default low effort, while failure-fix iterations should have a configurable medium-effort tier."
   }
 ]

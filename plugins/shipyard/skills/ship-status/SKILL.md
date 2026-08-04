@@ -93,7 +93,7 @@ State files use the soft-delete sentinel pattern: overwrite with a "cleared" mar
 - Empty spec files → surface as a repair recommendation; do not hand-Edit frontmatter. Spec frontmatter mutations must go through typed `shipyard-data feature|idea|task|draft ...` commands.
 - Orphan task files (not in any feature's `tasks:` array) → log as warning
 - Epic files with `features:` arrays → remove the array (membership is derived)
-- Stale `<SHIPYARD_DATA>/.loop-state.json` → Write `{"cleared": "<iso>", "events": []}`
+- Stale autonomous-driver state from older plugin versions → surface as dead state only; do not preserve or restart it. Command skills are driven by their CLI cursor state and `/goal`, not a legacy loop state file.
 - Stale `<SHIPYARD_DATA>/.compaction-count` file (legacy) → harmless dead state from an older plugin version; ignore it (no longer written or read). Do not shell out to `rm` — `/ship-status` never invokes generic shell commands against the data dir (see Paths rule above); `shipyard-data lock ...` is the one sanctioned exception.
 - **Skill-mutex locks** — run `shipyard-data lock status` to read both `.active-session.json` (planning) and `.active-execution.json` (execution) in one call; never Read/parse the raw JSON by hand and never hand-Write either file (both are CLI-owned — see Paths rule above). The CLI's own 2-hour stale threshold applies to both locks uniformly (the old 24h-for-planning / 2h-for-execution split is gone — one constant, defined once in `bin/skill-lock.mjs`). `lock status` reports each lock's `state` as one of `free | released | stale | mine | held`. Render:
   - **`state: "stale"`** (either kind) → run `shipyard-data lock release <planning|execution> --force` automatically, no AskUserQuestion — matches the old auto-clear-when-stale behavior for planning, and extends the same auto-clear to a stale execution lock (previously execution never auto-cleared even when stale).
@@ -105,13 +105,13 @@ State files use the soft-delete sentinel pattern: overwrite with a "cleared" mar
 
 Use the cursor fields emitted by `shipyard-context status-dashboard` (`SHIPYARD_EXECUTE_CURSOR_*`, `SHIPYARD_REVIEW_CURSOR_*`). The CLI parser has already normalized the frontmatter into fields:
 
-- Required fields present: `pipeline`, `sprint`, `stage`, `iteration`, `last_advance_at`, `loop_owner`, `status`, `terminal`, `stuck_counter`, `hard_ceiling`.
+- Required fields present: `pipeline`, `sprint`, `stage`, `iteration`, `last_advance_at`, `status`, `terminal`, `stuck_counter`, `hard_ceiling`.
 - `terminal` is a boolean; `iteration` and `stuck_counter` are non-negative integers; `hard_ceiling` is 50 by default.
 - `last_advance_at` is an ISO 8601 timestamp.
 
 Detection rules:
 
-- **Stale cursor** — `last_advance_at` older than 2 hours and `terminal: false` and `status: in_progress`: surface a warning in the STATE section. Do NOT auto-clear; the user may be debugging or paused. If `loop_owner: "/loop"` and stale: flag it in the PIPELINE section. (`/ship-status` only reads and surfaces state — it never emits events; the pipeline itself emits `pipeline_stuck`.)
+- **Stale cursor** — `last_advance_at` older than 2 hours and `terminal: false` and `status: in_progress`: surface a warning in the STATE section. Do NOT auto-clear; the user may be debugging or paused. (`/ship-status` only reads and surfaces state — it never emits events; the pipeline itself emits `pipeline_stuck`.)
 - **Terminal stale** — `terminal: true` cursors left in `current/` after sprint archival should not exist (archive rotates `current/` to `sprint-NNN/`). If a `terminal: true` cursor sits in `current/` AND SPRINT.md is missing or `status: completed`, this is reconciliation drift; surface a warning.
 - **Corrupted frontmatter** — refuse to render PIPELINE section; surface "PIPELINE cursor unreadable, run /ship-status --repair" warning.
 
@@ -152,10 +152,10 @@ Detection rules:
   Time: ~[N]hrs elapsed | ~[M]hrs remaining (at [X] pts/hr)
 
  PIPELINE (per-tick cursor state)
-  Execute: stage=<stage_id> wave=<N>/<M> iter=<I> loop_owner=<owner> terminal=<bool> last=<ISO>
+  Execute: stage=<stage_id> wave=<N>/<M> iter=<I> status=<status> terminal=<bool> last=<ISO>
     next: <next_action one-liner from cursor body>
     ⚠ stuck_counter=<N> (since <ISO>) — pipeline_stuck has fired   [only if applicable]
-  Review:  stage=<stage_id> iter=<I> loop_owner=<owner> terminal=<bool> last=<ISO>
+  Review:  stage=<stage_id> iter=<I> status=<status> terminal=<bool> last=<ISO>
     next: <next_action one-liner from cursor body>
     ⚠ stuck_counter=<N> — review pipeline_stuck has fired   [only if applicable]
   (omit either line if its cursor file doesn't exist; render "PIPELINE: no active cursors" if both absent)
@@ -193,7 +193,7 @@ Detection rules:
 ## Next Action Priority
 
 Determine the single most important action:
-1. **PIPELINE-TERMINAL** — EXECUTE-CURSOR or REVIEW-CURSOR has `terminal: true` AND `current/` not yet archived → "Pipeline complete; /loop should stop. Run /ship-review (or /ship-discuss) for the next cycle."
+1. **PIPELINE-TERMINAL** — EXECUTE-CURSOR or REVIEW-CURSOR has `terminal: true` AND `current/` not yet archived → "Pipeline complete; /goal should stop. Run /ship-review (or /ship-discuss) for the next cycle."
 2. **PIPELINE-STUCK** — A cursor has `stuck_counter >= 5` or pipeline_stuck event in last 24h → "Stage [X] of [pipeline] hasn't progressed in [N] ticks. Inspect: /ship-status diagnose."
 3. **PIPELINE-IN-FLIGHT** — A cursor exists with `terminal: false` and `last_advance_at` < 30 min ago → "Pipeline [pipeline] is mid-tick at [stage]. Next: [next_action]."
 4. **RESUME** — EXECUTE-CURSOR.md has `status: paused` → "Run /ship-execute to resume from [stage] ([cursor note])"

@@ -12,14 +12,15 @@
  * state files — EXECUTE-CURSOR.md, REVIEW-CURSOR.md, PROGRESS.md,
  * HANDOFF.md — is DENIED outright with a pointer to
  * `shipyard-data cursor advance|pause|escalate|noop`. The CLI is the only
- * writer; it runs the same terminal-evidence gate and loop-leak guard
+ * writer; it runs the same terminal-evidence gate and stale-cycle guard
  * in-process (bin/cursor-cli.mjs), appends the pipeline event, and
  * rewrites the cursor atomically — so the event log and the cursor can no
  * longer disagree, and the v2.6.0 hook-era gates (evaluateTerminalGate /
- * evaluateLoopLeakGuard, still exported by terminal-gate.mjs) execute on
+ * evaluateLoopLeakGuard, still exported by terminal-gate.mjs for
+ * compatibility) execute on
  * every advance instead of only on writes the model happened to route
  * through Write/Edit. This supersedes — and is strictly stronger than —
- * the v2.6.0 terminal-cursor gate and the v2.8.2 loop-leak guard that
+ * the v2.6.0 terminal-cursor gate and stale-cycle guard that
  * previously ran here; both incidents (confedit 2026-05-19 inline bypass,
  * afm-app leaked-wakeup phantom start) are blocked at this layer because
  * the model cannot author cursor state at all.
@@ -27,7 +28,7 @@
  * CLI-owned frontmatter keys (gap-closer). shipyard-data has typed atomic
  * mutators for feature/task/idea/backlog/config frontmatter (`feature set`,
  * `feature set-status`, `task set-status`, `task append-verify`,
- * `idea set-status`, `backlog set`, `config set`/`set-model`, ...) —
+ * `idea set-status`, `backlog set`, `config set`/`set-model`/`set-effort`, ...) —
  * docs/shipyard-dev.md repeatedly calls hand-editing that frontmatter "the
  * perl-glue corruption class" (welded/duplicated keys), but nothing
  * enforced it: a live customer's entire auto-approve log showed 236 allow /
@@ -45,7 +46,7 @@
  * silently and lets the default permission evaluator decide.
  */
 
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve as pathResolve } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -115,13 +116,13 @@ const FRONTMATTER_KEY_COMMANDS = Object.freeze({
   product_spec_path: "shipyard-data config set product-spec-path <path>",
   models:
     "shipyard-data config set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*>",
+  agent_effort:
+    "shipyard-data config set-effort <build|build_trivial|fixer|operational|operational_fix|think|coordinator|simplifier> <low|medium|high|inherit>",
 });
 
-// Bounded leading whitespace (0/2/4 spaces) so a key line nested one level
-// under an owned block (e.g. a hand-written `models:` block's `think:`
-// line would need its own entry to trip — not attempted here, see the
-// docstring) still matches, while text mid-sentence inside body prose
-// ("...Related tasks: T001...") never does, since it isn't at line start.
+// Bounded leading whitespace (0/2/4 spaces) catches owned top-level keys while
+// avoiding body prose ("...Related tasks: T001..."). Nested config block edits
+// are handled separately by reading config.md and checking the enclosing block.
 const FRONTMATTER_KEY_RES = new Map(
   Object.keys(FRONTMATTER_KEY_COMMANDS).map((key) => [
     key,
@@ -136,17 +137,55 @@ function findOwnedFrontmatterKey(text) {
   return null;
 }
 
+function editPairs(toolName, toolInput) {
+  if (toolName === "MultiEdit" && Array.isArray(toolInput.edits)) {
+    return toolInput.edits.map((e) => ({
+      oldString: e?.old_string || "",
+      newString: e?.new_string || "",
+    }));
+  }
+  return [{
+    oldString: toolInput.old_string || "",
+    newString: toolInput.new_string || "",
+  }];
+}
+
 // Concatenate every old_string/new_string pair the tool call would write,
 // across all edits for MultiEdit. Scanning both sides catches a key being
 // introduced (new_string) or a key line being touched at all (old_string) —
 // either shape means the model is hand-authoring that field.
 function editedText(toolName, toolInput) {
-  if (toolName === "MultiEdit" && Array.isArray(toolInput.edits)) {
-    return toolInput.edits
-      .map((e) => `${e?.old_string || ""}\n${e?.new_string || ""}`)
-      .join("\n");
+  return editPairs(toolName, toolInput)
+    .map((e) => `${e.oldString}\n${e.newString}`)
+    .join("\n");
+}
+
+function enclosingTopLevelBlock(content, index) {
+  const prefix = content.slice(0, index);
+  let found = null;
+  const re = /^([A-Za-z_][A-Za-z0-9_]*):\s*$/gm;
+  for (let m; (m = re.exec(prefix)) !== null;) found = m[1];
+  return found;
+}
+
+function findOwnedConfigNestedKey(filePath, toolName, toolInput, shipyardData) {
+  if (filePath !== join(shipyardData, "config.md")) return null;
+  let content;
+  try {
+    content = readFileSync(filePath, "utf8");
+  } catch {
+    return null;
   }
-  return `${toolInput.old_string || ""}\n${toolInput.new_string || ""}`;
+  for (const { oldString, newString } of editPairs(toolName, toolInput)) {
+    if (!oldString || oldString === newString) continue;
+    let index = content.indexOf(oldString);
+    while (index !== -1) {
+      const block = enclosingTopLevelBlock(content, index);
+      if (block === "models" || block === "agent_effort") return block;
+      index = content.indexOf(oldString, index + Math.max(1, oldString.length));
+    }
+  }
+  return null;
 }
 
 function isFrontmatterOwnedPath(filePath, shipyardData) {
@@ -251,7 +290,7 @@ export async function run(hookInput, _env) {
   if (dataDirContains(filePath, shipyardData)) {
     // Deterministic-state deny (v2.9.0). These files have exactly one
     // writer — the shipyard-data CLI (which runs the terminal-evidence
-    // gate + loop-leak guard in-process on every advance). A model
+    // gate + stale-cycle guard in-process on every advance). A model
     // Write/Edit here is either an outdated skill body or an improvising
     // model routing around the pipeline; both get the same answer.
     const base = basename(filePath);
@@ -319,7 +358,9 @@ export async function run(hookInput, _env) {
       (toolName === "Edit" || toolName === "MultiEdit") &&
       isFrontmatterOwnedPath(filePath, shipyardData)
     ) {
-      const hitKey = findOwnedFrontmatterKey(editedText(toolName, toolInput));
+      const hitKey =
+        findOwnedFrontmatterKey(editedText(toolName, toolInput)) ||
+        findOwnedConfigNestedKey(filePath, toolName, toolInput, shipyardData);
       if (hitKey) {
         logBreadcrumb(shipyardData, LOG_NAME, "deny", [
           toolName,

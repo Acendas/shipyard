@@ -72,6 +72,7 @@ test("stage graph: self-loops only where declared", () => {
 });
 
 test("stage graph: review skip-flag routes from preflight", () => {
+  assert.ok(validateTransition("ship-review", "preflight", "review_scan").ok);
   assert.ok(validateTransition("ship-review", "preflight", "code_review_iter_1").ok);
   assert.ok(validateTransition("ship-review", "preflight", "tests").ok, "--skip-code-review");
   assert.ok(validateTransition("ship-review", "preflight", "retro_step_1").ok, "--retro-only");
@@ -79,6 +80,17 @@ test("stage graph: review skip-flag routes from preflight", () => {
   assert.ok(validateTransition("ship-review", "retro_decision", "retro_step_1").ok);
   assert.ok(validateTransition("ship-review", "retro_decision", "release_step_1").ok);
   assert.ok(validateTransition("ship-review", "process_approved", "release_step_1").ok, "--skip-retro");
+});
+
+test("stage graph: review batched scan and fix wave routes", () => {
+  assert.ok(validateTransition("ship-review", "review_scan", "review_plan").ok);
+  assert.ok(validateTransition("ship-review", "review_plan", "review_fix_wave_1").ok);
+  assert.ok(validateTransition("ship-review", "review_plan", "review_validation").ok, "clean scanners skip fix waves");
+  assert.ok(validateTransition("ship-review", "review_fix_wave_1", "review_fix_wave_2").ok);
+  assert.ok(validateTransition("ship-review", "review_fix_wave_2", "review_validation").ok);
+  assert.ok(validateTransition("ship-review", "review_validation", "simplify").ok);
+  assert.ok(validateTransition("ship-review", "review_validation", "review_scan").ok, "failed validation re-scans before redispatch");
+  assert.ok(!validateTransition("ship-review", "review_scan", "review_fix_wave_1").ok);
 });
 
 // --- CLI integration fixture --------------------------------------------
@@ -194,8 +206,7 @@ test("cursor CLI: terminal advance with complete evidence succeeds; stop marker 
     const r = p.run(["cursor", "advance", "execute", "terminal_handoff_to_review", "reason=sprint_complete"], { expectFail: false });
     const lines = r.stdout.trim().split("\n");
     const last = lines[lines.length - 1];
-    assert.match(last, /\/loop should stop\./, "stop marker must be the FINAL line (v2.8.2 handoff-seam rule)");
-    assert.ok(!r.stdout.includes("no loop is driving"), "F6's no-loop marker never appears on a terminal path");
+    assert.match(last, /\/goal should stop\./, "stop marker must be the FINAL line");
     const nextUpIdx = lines.findIndex((l) => /NEXT UP: \/ship-review/.test(l));
     assert.ok(nextUpIdx >= 0 && nextUpIdx < lines.length - 1, "NEXT-UP hint prints BEFORE the stop marker");
     const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
@@ -225,13 +236,13 @@ test("cursor CLI: advance on an already-terminal cursor is refused", () => {
   }
 });
 
-test("cursor CLI: loop-leak guard — non-terminal advance against completed sprint exits 3", () => {
+test("cursor CLI: stale-cycle guard — non-terminal advance against completed sprint exits 3", () => {
   const p = makeProject();
   try {
     seedSprint(p, { status: "completed" });
     const r = p.run(["cursor", "advance", "execute", "preflight"]);
     assert.equal(r.code, 3);
-    assert.match(r.stderr, /loop-leak guard/);
+    assert.match(r.stderr, /stale-cycle guard/);
   } finally {
     p.cleanup();
   }
@@ -244,7 +255,7 @@ test("cursor CLI: escalate bypasses evidence gate, emits outcome=escalated, stop
     p.run(["cursor", "advance", "execute", "preflight"]);
     const r = p.run(["cursor", "escalate", "execute", "reason=hard_ceiling_stage_preflight"], { expectFail: false });
     const lines = r.stdout.trim().split("\n");
-    assert.match(lines[lines.length - 1], /\/loop should stop\./);
+    assert.match(lines[lines.length - 1], /\/goal should stop\./);
     const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
     assert.match(cursor, /status: escalated/);
     assert.match(cursor, /terminal: true/);
@@ -262,7 +273,7 @@ test("cursor CLI: pause keeps stage, sets paused, removes HANDOFF.md, note becom
     p.run(["cursor", "advance", "execute", "preflight"]);
     writeFileSync(join(p.dataDir, "sprints", "current", "HANDOFF.md"), "legacy");
     const r = p.run(["cursor", "pause", "execute", "--note", "resume at preflight, waiting on creds"], { expectFail: false });
-    assert.match(r.stdout, /\/loop should stop\./);
+    assert.match(r.stdout, /\/goal should stop\./);
     const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
     assert.match(cursor, /status: paused/);
     assert.match(cursor, /stage: preflight/);
@@ -298,18 +309,18 @@ test("cursor CLI: pending_subagents JSON round-trips and carries forward", () =>
   }
 });
 
-test("cursor CLI: noop emits terminal event first; repeat noop detects the leak", () => {
+test("cursor CLI: noop emits terminal event first; repeat noop is detected", () => {
   const p = makeProject();
   try {
     // No sprint at all — the archived case.
     const r1 = p.run(["cursor", "noop", "review", "sprint=sprint-001"], { expectFail: false });
-    assert.match(r1.stdout, /\/loop should stop\./);
+    assert.match(r1.stdout, /\/goal should stop\./);
     const r2 = p.run(["cursor", "noop", "review", "sprint=sprint-001"], { expectFail: false });
-    assert.match(r2.stdout, /⛔ LOOP LEAK/);
+    assert.match(r2.stdout, /⛔ REPEATED NOOP/);
     const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
     const noops = events.split("\n").filter((l) => l.includes('"outcome":"noop"')).length;
     assert.equal(noops, 2, "every noop is emitted — a silent no-op is the v2.8.2 invisibility bug");
-    assert.match(events, /pipeline_loop_leak_detected/);
+    assert.match(events, /pipeline_repeated_noop_detected/);
   } finally {
     p.cleanup();
   }
@@ -510,10 +521,10 @@ test("cursor set: field-only update — no transition, no tick event", () => {
     seedSprint(p);
     p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
     const before = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8").split("\n").length;
-    const r = p.run(["cursor", "set", "execute", "auto_loop_attempted=true"], { expectFail: false });
+    const r = p.run(["cursor", "set", "execute", "next_action=continue"], { expectFail: false });
     assert.equal(r.code, 0);
     const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
-    assert.match(cursor, /auto_loop_attempted: true/);
+    assert.match(cursor, /next_action: continue/);
     assert.match(cursor, /stage: preflight/, "stage unchanged");
     const after = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8").split("\n").length;
     assert.equal(after, before, "field set emits no pipeline events");
@@ -544,137 +555,6 @@ test("cursor resume: escalated cursor becomes in_progress at the same stage; adv
   }
 });
 
-test("cursor bootstrap-check: eligible sets sentinel; second call ineligible", () => {
-  const p = makeProject();
-  try {
-    seedSprint(p);
-    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
-    const r1 = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
-    assert.equal(r1.eligible, true);
-    assert.equal(r1.rearm, false, "first-time eligibility is not a rearm");
-    const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
-    assert.match(cursor, /auto_loop_attempted: true/, "sentinel set as side effect");
-    const r2 = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
-    assert.equal(r2.eligible, false);
-    assert.equal(r2.rearm, false);
-    assert.match(r2.reason, /auto_loop_attempted/);
-  } finally {
-    p.cleanup();
-  }
-});
-
-test("cursor bootstrap-check: dead sprint is never eligible", () => {
-  const p = makeProject();
-  try {
-    seedSprint(p);
-    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
-    p.run(["sprint", "set", "status", "completed"], { expectFail: false });
-    const r = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
-    assert.equal(r.eligible, false);
-    assert.equal(r.rearm, false);
-    assert.match(r.reason, /completed|dead/);
-  } finally {
-    p.cleanup();
-  }
-});
-
-// --- F3: bootstrap-check re-arms a dead /loop instead of refusing forever -
-
-function backdateAllEvents(p, msAgo) {
-  const eventsPath = join(p.dataDir, ".shipyard-events.jsonl");
-  const stale = new Date(Date.now() - msAgo).toISOString();
-  const backdated =
-    readFileSync(eventsPath, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => {
-        const ev = JSON.parse(line);
-        ev.ts = stale;
-        return JSON.stringify(ev);
-      })
-      .join("\n") + "\n";
-  writeFileSync(eventsPath, backdated);
-}
-
-test("F3: rearm — a dead /loop (auto_loop_attempted set, no recent tick) re-arms instead of refusing forever", () => {
-  const p = makeProject();
-  try {
-    seedSprint(p);
-    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
-    const r1 = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
-    assert.equal(r1.eligible, true);
-    assert.equal(r1.rearm, false);
-
-    // Simulate a /loop that died a while ago: every tick in the log is now
-    // well outside the 5-minute liveness window.
-    backdateAllEvents(p, 30 * 60 * 1000);
-
-    const r2 = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
-    assert.equal(r2.eligible, true, "a dead loop re-arms rather than refusing forever");
-    assert.equal(r2.rearm, true);
-    assert.match(r2.reason, /silent|dead/i);
-
-    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
-    assert.match(events, /"pipeline_loop_bootstrap_fallback"/, "the CLI emits the fallback event itself");
-    assert.match(events, /"reason":"loop_silent"/);
-    assert.match(events, /"method":"cli"/, "distinguishable from the model's method=cron cron-fallback path");
-
-    // The CLI re-arm must NOT be mistaken for an armed cron by the
-    // cron-cleanup reminder — that reminder is scoped to method=cron.
-    const pause = p.run(["cursor", "pause", "execute", "--note", "x"], { expectFail: false });
-    assert.ok(
-      !pause.stdout.includes("CronList"),
-      "a CLI-side rearm (no cron created) must not trigger the cron-cleanup reminder",
-    );
-  } finally {
-    p.cleanup();
-  }
-});
-
-test("F3: rearm — a dead sprint (status: completed) never re-arms, even with a stale loop signal", () => {
-  const p = makeProject();
-  try {
-    seedSprint(p);
-    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
-    p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }); // sets auto_loop_attempted
-    p.run(["sprint", "set", "status", "completed"], { expectFail: false });
-    backdateAllEvents(p, 30 * 60 * 1000);
-    const r = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
-    assert.equal(r.eligible, false);
-    assert.equal(r.rearm, false, "a dead sprint must never re-arm, no matter how stale the loop signal is");
-    assert.match(r.reason, /completed|dead/);
-    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
-    assert.ok(!events.includes("pipeline_loop_bootstrap_fallback"), "no fallback event for a dead sprint");
-  } finally {
-    p.cleanup();
-  }
-});
-
-test("F3: rearm is false on every other non-eligible precondition (no cursor, paused, terminal)", () => {
-  const p = makeProject();
-  try {
-    const noCursor = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
-    assert.equal(noCursor.eligible, false);
-    assert.equal(noCursor.rearm, false);
-
-    seedSprint(p);
-    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
-
-    p.run(["cursor", "pause", "execute", "--note", "x"], { expectFail: false });
-    const paused = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
-    assert.equal(paused.eligible, false);
-    assert.equal(paused.rearm, false);
-    p.run(["cursor", "resume", "execute"], { expectFail: false });
-
-    p.run(["cursor", "escalate", "execute", "reason=x"], { expectFail: false });
-    const escalated = JSON.parse(p.run(["cursor", "bootstrap-check", "execute"], { expectFail: false }).stdout);
-    assert.equal(escalated.eligible, false);
-    assert.equal(escalated.rearm, false);
-  } finally {
-    p.cleanup();
-  }
-});
-
 // --- F4: cursor `sprint` backfills from SPRINT.md's own id ---------------
 
 test("F4: sprint id backfills from SPRINT.md when the advance carries none, and is persisted", () => {
@@ -695,7 +575,7 @@ test("F4: sprint id is never fabricated when SPRINT.md is absent or unreadable",
   const p = makeProject();
   try {
     // No SPRINT.md at all — use `hotfix`, the one entry stage exempt from
-    // the loop-leak guard's sprint-presence requirement.
+    // the stale-cycle guard's sprint-presence requirement.
     p.run(["cursor", "advance", "execute", "hotfix"], { expectFail: false });
     let cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
     assert.ok(!/^sprint: /m.test(cursor), "no sprint field fabricated when SPRINT.md is absent");
@@ -772,54 +652,13 @@ test("F5: a wave_N_waiting self-loop still carries pending_subagents forward unc
   }
 });
 
-// --- F6: mid-sprint exit marker when no loop is driving -------------------
-
-test("F6: non-terminal advance prints the explicit no-loop marker when nothing looks like it's driving", () => {
+test("non-terminal advance prints the goal continuation marker", () => {
   const p = makeProject();
   try {
     seedSprint(p);
-    // Explicit loop_owner=user persists forward across advances, keeping
-    // the heuristic out of it — no evidence anything is chaining this.
-    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
     const r = p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
-    assert.equal(
-      r.stdout.trim().split("\n").pop(),
-      "▶ TICK COMPLETE — no loop is driving this sprint. Re-run /shipyard:ship-execute to continue.",
-    );
-  } finally {
-    p.cleanup();
-  }
-});
-
-test("F6: non-terminal advance prints the ordinary continuation marker when a /loop tick landed here recently", () => {
-  const p = makeProject();
-  try {
-    seedSprint(p);
-    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=/loop"], { expectFail: false });
-    const r = p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
-    const last = r.stdout.trim().split("\n").pop();
-    assert.ok(!last.includes("no loop is driving"), "loop is live — ordinary marker only");
-    assert.match(last, /\/loop continues\./);
-  } finally {
-    p.cleanup();
-  }
-});
-
-test("F6: the no-loop marker never appears on pause / escalate / noop paths", () => {
-  const p = makeProject();
-  try {
-    seedSprint(p);
-    p.run(["cursor", "advance", "execute", "preflight", "loop_owner=user"], { expectFail: false });
-
-    const pause = p.run(["cursor", "pause", "execute", "--note", "x"], { expectFail: false });
-    assert.ok(!pause.stdout.includes("no loop is driving"));
-
-    p.run(["cursor", "resume", "execute"], { expectFail: false });
-    const esc = p.run(["cursor", "escalate", "execute", "reason=x"], { expectFail: false });
-    assert.ok(!esc.stdout.includes("no loop is driving"));
-
-    const noop = p.run(["cursor", "noop", "execute"], { expectFail: false });
-    assert.ok(!noop.stdout.includes("no loop is driving"));
+    assert.match(r.stdout.trim().split("\n").pop(), /\/goal continues\./);
   } finally {
     p.cleanup();
   }
@@ -948,6 +787,30 @@ test("config set-model: flips think tier opus <-> fable atomically, preserves th
   }
 });
 
+test("config set-model: orchestrate syncs command skill frontmatter and accepts versioned Claude IDs", () => {
+  const p = makeProject();
+  const skillNames = ["ship-execute", "ship-review", "ship-sprint", "ship-discuss"];
+  const skillPaths = skillNames.map((name) => join(PLUGIN_ROOT, "skills", name, "SKILL.md"));
+  const originals = new Map(skillPaths.map((path) => [path, readFileSync(path, "utf8")]));
+  try {
+    writeFileSync(
+      join(p.dataDir, "config.md"),
+      `---\nconfig_version: 4\nproject_name: "x"\nmodels:\n  think: opus\n  build: sonnet\n  orchestrate: opus\n---\n\n# Project Configuration\n`,
+    );
+
+    const r = p.run(["config", "set-model", "orchestrate", "claude-opus-4-8"], { expectFail: false });
+    assert.match(r.stdout, /models\.orchestrate: claude-opus-4-8 synced=4/);
+    const cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(cfg, /^  orchestrate: claude-opus-4-8$/m);
+    for (const path of skillPaths) {
+      assert.match(readFileSync(path, "utf8"), /^model: claude-opus-4-8$/m, `${path} synced`);
+    }
+  } finally {
+    for (const [path, content] of originals) writeFileSync(path, content, "utf8");
+    p.cleanup();
+  }
+});
+
 test("config set-model: pre-v4 config (no models block) gets one appended", () => {
   const p = makeProject();
   try {
@@ -965,9 +828,53 @@ test("config set-model: pre-v4 config (no models block) gets one appended", () =
   }
 });
 
-// --- v3.4.0 loop-lifecycle hardening --------------------------------------
+test("config set-effort: updates agent effort tiers atomically and validates values", () => {
+  const p = makeProject();
+  try {
+    writeFileSync(
+      join(p.dataDir, "config.md"),
+      `---\nconfig_version: 4\nproject_name: "x"\nagent_effort:\n  build: medium  # comment kept\n  fixer: medium\nexecution:\n  max_parallel_agents: 4\n---\n\n# Project Configuration\n`,
+    );
+    let r = p.run(["config", "set-effort", "build", "low"], { expectFail: false });
+    assert.match(r.stdout, /agent_effort\.build: low/);
+    let cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(cfg, /^  build: low\s*# comment kept$/m, "value flipped, trailing comment preserved");
+    assert.match(cfg, /^  fixer: medium$/m, "sibling keys untouched");
+    assert.match(cfg, /max_parallel_agents: 4/, "other blocks untouched");
 
-test("noop on a PAUSED cursor: wakeup-inert with leak accounting, resume hint, no auto-resume", () => {
+    p.run(["config", "set-effort", "think", "inherit"], { expectFail: false });
+    cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    assert.match(cfg, /^  think: ""$/m, "missing effort tier inserted");
+
+    assert.equal(p.run(["config", "set-effort", "build", "ultra"]).code, 2);
+    assert.equal(p.run(["config", "set-effort", "runner", "low"]).code, 2);
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(events, /config_agent_effort_set/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("config set-effort: pre-v4 config gets agent_effort block appended", () => {
+  const p = makeProject();
+  try {
+    writeFileSync(
+      join(p.dataDir, "config.md"),
+      `---\nconfig_version: 3\nproject_name: "x"\n---\n\n# Project Configuration\n`,
+    );
+    p.run(["config", "set-effort", "fixer", "medium"], { expectFail: false });
+    const cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
+    const fmEnd = cfg.indexOf("---", 4);
+    assert.ok(cfg.indexOf("agent_effort:") < fmEnd, "agent_effort block added inside frontmatter");
+    assert.match(cfg, /^  fixer: medium$/m);
+  } finally {
+    p.cleanup();
+  }
+});
+
+// --- goal lifecycle hardening ---------------------------------------------
+
+test("noop on a PAUSED cursor: goal-inert with accounting, resume hint, no auto-resume", () => {
   const p = makeProject();
   try {
     seedSprint(p);
@@ -977,14 +884,14 @@ test("noop on a PAUSED cursor: wakeup-inert with leak accounting, resume hint, n
     assert.match(r1.stdout, /PAUSED at stage preflight/);
     assert.match(r1.stdout, /NOT complete/);
     assert.match(r1.stdout, /cursor resume execute/);
-    assert.match(r1.stdout.trim().split("\n").pop(), /\/loop should stop\./, "stop marker last");
-    // Second wakeup against the same paused sprint → leak alarm pointing at resume
+    assert.match(r1.stdout.trim().split("\n").pop(), /\/goal should stop\./, "stop marker last");
+    // Second noop against the same paused sprint → repeated-noop warning pointing at resume
     const r2 = p.run(["cursor", "noop", "execute"], { expectFail: false });
-    assert.match(r2.stdout, /⛔ LOOP LEAK/);
+    assert.match(r2.stdout, /⛔ REPEATED NOOP/);
     assert.match(r2.stdout, /cursor resume execute/);
     const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
-    assert.match(events, /awaiting_user_paused/, "paused wakeups are event-accounted (v2.8.2 lesson: silent no-ops hide leaks)");
-    assert.match(events, /pipeline_loop_leak_detected/);
+    assert.match(events, /awaiting_user_paused/, "paused noops are event-accounted");
+    assert.match(events, /pipeline_repeated_noop_detected/);
   } finally {
     p.cleanup();
   }
@@ -998,7 +905,7 @@ test("noop on an ESCALATED cursor: accounted + repeat detection (no more invisib
     p.run(["cursor", "escalate", "execute", "reason=gate_failure"], { expectFail: false });
     p.run(["cursor", "noop", "execute"], { expectFail: false });
     const r2 = p.run(["cursor", "noop", "execute"], { expectFail: false });
-    assert.match(r2.stdout, /⛔ LOOP LEAK/);
+    assert.match(r2.stdout, /⛔ REPEATED NOOP/);
     assert.match(r2.stdout, /ESCALATED|escalated/);
     const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
     assert.match(events, /awaiting_user_escalated/);
@@ -1016,7 +923,7 @@ test("archive-terminal seam: terminal advance with NO cursor emits + markers, wr
     rmSync(join(p.dataDir, "sprints", "current", "SPRINT.md"), { force: true });
     const r = p.run(["cursor", "advance", "review", "terminal", "sprint=sprint-001", "reason=cycle_complete"], { expectFail: false });
     assert.match(r.stdout, /no cursor written/);
-    assert.match(r.stdout.trim().split("\n").pop(), /\/loop should stop\./);
+    assert.match(r.stdout.trim().split("\n").pop(), /\/goal should stop\./);
     assert.ok(!existsSync(join(p.dataDir, "sprints", "current", "REVIEW-CURSOR.md")), "no stale terminal cursor planted for the next sprint");
     const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
     assert.match(events, /"outcome":"success"/);
@@ -1025,7 +932,7 @@ test("archive-terminal seam: terminal advance with NO cursor emits + markers, wr
   }
 });
 
-test("wave_waiting tick marker carries a pacing hint for the /loop driver", () => {
+test("wave_waiting tick marker carries a bounded goal re-entry hint", () => {
   const p = makeProject();
   try {
     seedSprint(p);
@@ -1033,10 +940,10 @@ test("wave_waiting tick marker carries a pacing hint for the /loop driver", () =
       p.run(["cursor", "advance", "execute", s], { expectFail: false });
     }
     const r = p.run(["cursor", "advance", "execute", "wave_1_waiting"], { expectFail: false });
-    assert.match(r.stdout, /suggest next wakeup in 300s/);
+    assert.match(r.stdout, /Background workers are running/);
     // Non-waiting stages carry no hint
     const r2 = p.run(["cursor", "advance", "execute", "wave_1_recovery"], { expectFail: false });
-    assert.ok(!r2.stdout.includes("suggest next wakeup"));
+    assert.ok(!r2.stdout.includes("Background workers are running"));
   } finally {
     p.cleanup();
   }
@@ -1050,21 +957,6 @@ test("cursor set refuses the status lifecycle field (no silent un-pause backdoor
     const r = p.run(["cursor", "set", "execute", "status=in_progress"]);
     assert.equal(r.code, 2);
     assert.match(r.stderr, /lifecycle field/);
-  } finally {
-    p.cleanup();
-  }
-});
-
-test("cron-cleanup reminder prints from the EVENT LOG on terminal paths (survives compaction)", () => {
-  const p = makeProject();
-  try {
-    seedSprint(p);
-    p.run(["events", "emit", "pipeline_loop_bootstrap_fallback", "pipeline=ship-execute", "method=cron"]);
-    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
-    const r = p.run(["cursor", "pause", "execute", "--note", "x"], { expectFail: false });
-    assert.match(r.stdout, /CronList and CronDelete/);
-    const lines = r.stdout.trim().split("\n");
-    assert.match(lines[lines.length - 1], /\/loop should stop\./, "reminder prints BEFORE the stop marker");
   } finally {
     p.cleanup();
   }

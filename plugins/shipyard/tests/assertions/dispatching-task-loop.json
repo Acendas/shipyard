@@ -350,5 +350,12 @@
     "type": "contains",
     "pattern": "name: \"builder-<task_id>\"",
     "why": "Background builders need deterministic names so timeout recovery can TaskStop the exact presumed-dead subagent."
+  },
+  {
+    "name": "builder_dispatch_sets_effort_tier",
+    "type": "contains",
+    "pattern": "agent_effort\\.build_trivial.*agent_effort\\.build",
+    "dotall": true,
+    "why": "Builder agents must get explicit effort tiers: low for effort:S tasks, medium by default for normal build work."
   }
 ]

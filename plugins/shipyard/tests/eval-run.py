@@ -934,9 +934,8 @@ def check_capability_invocation(result):
     Scope: every SKILL.md (command AND capability skills) plus every
     references/*.md under skills/ — the shell and subagents both read these, and
     the reference files were the largest untouched surface in the 2026-07-24
-    sweep. Naturally excluded: `Skill(skill: "loop", ...)` (loop is
-    model-invocable, not a capability skill), `shipyard:shipyard-<agent>`
-    registered-agent dispatch, and `/shipyard:ship-*` slash paths — none match a
+    sweep. Naturally excluded: `shipyard:shipyard-<agent>`
+    registered-agent dispatch and `/shipyard:ship-*` slash paths — neither matches a
     capability-skill name. Descriptive passive prose ("X is invoked by …") is
     intentionally NOT flagged: the verb must be imperative and immediately govern
     the capability-skill name (verb [the|this|a fresh]? [**]`<cap>`).
@@ -1354,6 +1353,82 @@ def check_no_hardcoded_dispatch_model(result):
             result.ok(f"dispatch-model:{rel}")
 
 
+def check_no_hardcoded_dispatch_effort(result):
+    """No Agent dispatch site may hardcode an effort literal.
+
+    Spawned-agent effort is project config (`config.md` `agent_effort:` block):
+    skills read the relevant `agent_effort.<tier>` value and pass
+    `effort: <value>` only when non-empty, omitting the field otherwise so the
+    subagent inherits the runtime default. A literal like `effort: low` inside a
+    dispatch body bypasses that config and makes high-volume work impossible to
+    tune without editing skill prose.
+
+    Scope mirrors `check_no_hardcoded_dispatch_model`: skill frontmatter is
+    stripped before scanning because command skills legitimately set their own
+    orchestration `effort: low`; registered agents have no legitimate static
+    effort literal.
+    """
+    LITERAL = re.compile(r'effort:\s*["\']?(low|medium|high)\b', re.IGNORECASE)
+
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        for md_file in skill_dir.rglob("*.md"):
+            content = read_file(md_file)
+            rel = md_file.relative_to(PROJECT_ROOT)
+            fm = re.match(r'^---\r?\n[\s\S]*?\r?\n---', content)
+            if fm:
+                content = content[fm.end():]
+            hits = []
+            for m in LITERAL.finditer(content):
+                line_start = content.rfind("\n", 0, m.start()) + 1
+                line = content[line_start:content.find("\n", m.start())]
+                post_effort = line.split("effort:")[-1][:80]
+                if (
+                    "default" in line.lower()
+                    or "|" in post_effort
+                    or "values are" in line.lower()
+                    or "for example" in line.lower()
+                ):
+                    continue
+                hits.append(line.strip()[:80])
+            if hits:
+                result.fail(
+                    f"dispatch-effort:{rel}",
+                    "hardcoded effort literal at a dispatch site "
+                    f"({'; '.join(hits[:3])}) — read agent_effort.<tier> "
+                    "from config.md and omit effort: when the value is empty",
+                )
+            else:
+                result.ok(f"dispatch-effort:{rel}")
+
+    for agent_file in sorted(AGENTS_DIR.glob("shipyard-*.md")):
+        content = read_file(agent_file)
+        rel = agent_file.relative_to(PROJECT_ROOT)
+        hits = []
+        for m in LITERAL.finditer(content):
+            line_start = content.rfind("\n", 0, m.start()) + 1
+            line = content[line_start:content.find("\n", m.start())]
+            post_effort = line.split("effort:")[-1][:80]
+            if (
+                "default" in line.lower()
+                or "|" in post_effort
+                or "values are" in line.lower()
+                or "for example" in line.lower()
+            ):
+                continue
+            hits.append(line.strip()[:80])
+        if hits:
+            result.fail(
+                f"dispatch-effort:{rel}",
+                "hardcoded effort literal in a registered agent "
+                f"({'; '.join(hits[:3])}) — agents have no legit static effort; "
+                "omit effort: entirely and let the dispatching skill pass it per-call",
+            )
+        else:
+            result.ok(f"dispatch-effort:{rel}")
+
+
 # ─── Check 9: dispatch contract pairs (agent ⟷ wrapper skill) ───
 
 # Single-source map of agent → the capability skill that dispatches it.
@@ -1458,6 +1533,30 @@ def check_dispatch_contract_pairs(result):
                         "the split should have removed this role's hand-rolled dispatch")
         else:
             result.ok(f"dispatch_pair:{agent_name}:no_general_purpose_in_wrapper")
+
+
+def check_readme_registered_agents(result):
+    """README registered-agent list matches the actual agents directory."""
+    readme = read_file(PROJECT_ROOT.parent.parent / "README.md")
+    agent_names = sorted(p.stem for p in AGENTS_DIR.glob("shipyard-*.md"))
+    count = len(agent_names)
+
+    if re.search(rf"Shipyard ships {count} registered agents\b", readme):
+        result.ok("readme:registered_agent_count")
+    else:
+        result.fail(
+            "readme:registered_agent_count",
+            f"README must state the current registered-agent count ({count})",
+        )
+
+    missing = [name for name in agent_names if name not in readme]
+    if missing:
+        result.fail(
+            "readme:registered_agent_names",
+            f"README omits registered agent(s): {', '.join(missing)}",
+        )
+    else:
+        result.ok("readme:registered_agent_names", f"{count} agents documented")
 
 
 def check_cross_skill_consistency(result):
@@ -1628,7 +1727,9 @@ def main():
     check_quiet_by_default(result)
     check_capability_invocation(result)
     check_no_hardcoded_dispatch_model(result)
+    check_no_hardcoded_dispatch_effort(result)
     check_dispatch_contract_pairs(result)
+    check_readme_registered_agents(result)
     check_cross_skill_consistency(result)
     check_node_tests(result)
 

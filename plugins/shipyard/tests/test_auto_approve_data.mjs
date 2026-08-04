@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, mkdirSync, symlinkSync, existsSync, readFileSync, realpathSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, symlinkSync, existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -264,10 +264,10 @@ test("auto-approve: breadcrumb log written on pass (file outside data dir)", asy
 //
 // Cursor files, PROGRESS.md and HANDOFF.md have a single deterministic
 // writer: the shipyard-data CLI (which runs the terminal-evidence gate and
-// loop-leak guard in-process — see test_cursor_cli.mjs). The hook's job is
+// stale-cycle guard in-process — see test_cursor_cli.mjs). The hook's job is
 // now simply to DENY any model Write/Edit to these basenames inside the
 // data dir, with a hint pointing at the CLI. These tests replace the
-// v2.6.0 gate-wiring and v2.8.2 loop-leak hook tests — that logic moved
+// v2.6.0 gate-wiring and v2.8.2 stale-cycle hook tests — that logic moved
 // into `shipyard-data cursor advance`.
 
 import { mkdirSync as mkdirSyncFs } from "node:fs";
@@ -615,6 +615,68 @@ test("frontmatter-key deny: `models:` block edit in config.md is DENIED, hint na
     const resp = JSON.parse(stdout);
     assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
     assert.match(resp.hookSpecificOutput.permissionDecisionReason, /config set-model/);
+  });
+});
+
+test("frontmatter-key deny: nested `models:` tier edit in config.md is DENIED", async () => {
+  await withTempDir(async (sd) => {
+    const target = join(sd, "config.md");
+    writeFileSync(target, "---\nmodels:\n  think: opus\n  build: sonnet\n---\n");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "Edit",
+        tool_input: {
+          file_path: target,
+          old_string: "  think: opus",
+          new_string: "  think: fable",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /config set-model/);
+  });
+});
+
+test("frontmatter-key deny: `agent_effort:` block edit in config.md is DENIED, hint names config set-effort", async () => {
+  await withTempDir(async (sd) => {
+    const target = join(sd, "config.md");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "Edit",
+        tool_input: {
+          file_path: target,
+          old_string: "agent_effort:\n  build: medium",
+          new_string: "agent_effort:\n  build: low",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /config set-effort/);
+  });
+});
+
+test("frontmatter-key deny: nested `agent_effort:` tier edit in config.md is DENIED", async () => {
+  await withTempDir(async (sd) => {
+    const target = join(sd, "config.md");
+    writeFileSync(target, "---\nagent_effort:\n  build: medium\n  think: high\n---\n");
+    const { stdout } = await runWithEnv(
+      {
+        tool_name: "Edit",
+        tool_input: {
+          file_path: target,
+          old_string: "  build: medium",
+          new_string: "  build: low",
+        },
+      },
+      { SHIPYARD_DATA: sd },
+    );
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /config set-effort/);
   });
 });
 

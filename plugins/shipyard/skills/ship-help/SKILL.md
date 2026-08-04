@@ -39,8 +39,8 @@ Reference the right `/ship-*` command. Explain what it does and what to expect.
 ### Mode 3: Action → Do It
 User asks you to do something (move a feature, update a status, reorder backlog). DO IT — but route the mutation through the right layer, not a blind Edit:
 
-- **State mutations go through `shipyard-data`, never a hand-Edit.** Feature status/fields → `shipyard-data feature set-status <FID> <status>` / `feature set <FID> k=v`. Backlog membership/order → `shipyard-data backlog add|remove|rank|set`. Idea graduation → `shipyard-data idea set-status <IDEA-NNN> graduated --to <FID>` (or `rejected`). Task status → `shipyard-data task set-status <TID> <status>`. Model tier changes → `shipyard-data config set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*>`.
-- **Natural-language model changes are Action mode.** If the user says "set build model to Opus", "use claude-opus-4-8 for thinking", "make builders inherit my session model", or similar, resolve the tier (`build`, `think`, or `orchestrate`) and model value, run `shipyard-data config set-model ...`, then confirm the exact tier/value changed. If the tier or model is ambiguous, ask one short clarification before running the CLI.
+- **State mutations go through `shipyard-data`, never a hand-Edit.** Feature status/fields → `shipyard-data feature set-status <FID> <status>` / `feature set <FID> k=v`. Backlog membership/order → `shipyard-data backlog add|remove|rank|set`. Idea graduation → `shipyard-data idea set-status <IDEA-NNN> graduated --to <FID>` (or `rejected`). Task status → `shipyard-data task set-status <TID> <status>`. Model tier changes → `shipyard-data config set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*>`. Spawned-agent effort changes → `shipyard-data config set-effort <build|build_trivial|fixer|operational|operational_fix|think|coordinator|simplifier> <low|medium|high|inherit>`.
+- **Natural-language model/effort changes are Action mode.** If the user says "set build model to Opus", "use claude-opus-4-8 for thinking", "make builders inherit my session model", or similar, resolve the tier (`build`, `think`, or `orchestrate`) and model value, run `shipyard-data config set-model ...`, then confirm the exact tier/value changed. If the user says "make builders low effort", "use medium effort for fixers", or similar, resolve the effort tier and value, run `shipyard-data config set-effort ...`, then confirm it. If the tier or value is ambiguous, ask one short clarification before running the CLI.
 - **NEVER hand-Edit feature-file or BACKLOG.md frontmatter, the pipeline cursors, or the skill-mutex lock files** — all four are CLI-owned; the auto-approve PreToolUse hook denies a model Write/Edit to any of them outright, so an Edit attempt there fails, not just violates convention.
 - **Body prose stays Edit-tool surface** — feature/epic body sections, decision logs, and free-text notes are not CLI-owned; Edit them directly as always.
 - **Anything the CLI doesn't cover** (e.g. sprint planning, running a wave, filing a bug) is out of scope for a direct Edit here — route the user to the owning skill (`/ship-sprint`, `/ship-execute`, `/ship-bug`, …) instead of improvising a workaround.
@@ -192,7 +192,7 @@ Configure standing gates by editing `config.md quality_gates.standing`.
 - `probe` / `tool` gates → dispatched as operational tasks
 - `manual` gates → collected as checklist for Stage 5 approval
 
-### Model & thinking tier
+### Model & Effort Tiers
 
 Shipyard dispatches work across three model tiers, config-driven via `config.md`'s `models:` block:
 
@@ -200,7 +200,7 @@ Shipyard dispatches work across three model tiers, config-driven via `config.md`
 |------|---------|----------|
 | `think` | Opus | Deep reasoning — critics, spec review, sprint analysts, decomposition deep-dives, escalation consults |
 | `build` | Sonnet | High-volume labor — builder task loops, operational runs, research sweeps, fixers, simplifiers |
-| `orchestrate` | Opus | The user-session shell tier itself (set via skill frontmatter, not runtime-configurable) |
+| `orchestrate` | Opus | The user-command orchestration shell tier for `/ship-execute`, `/ship-review`, `/ship-sprint`, and `/ship-discuss`; `config set-model orchestrate <model>` syncs their skill frontmatter |
 
 Model overrides:
 
@@ -210,6 +210,19 @@ Model overrides:
 | Every project dispatch, going forward | Ask `/ship-help` to set the model, for example `/ship-help set build model to claude-opus-4-8` or `/ship-help make thinking inherit my session model`; it runs `shipyard-data config set-model ...` and the next dispatch anywhere picks it up |
 
 Fable and version-specific Claude IDs depend on the user's Claude plan and model lifecycle — a dispatch to an unavailable model errors at spawn time and falls back where the invoking skill documents a fallback. Either tier can be set to `inherit` (omit `model:`, the dispatch inherits the session's own model).
+
+Spawned-agent effort is configured separately in `config.md`'s `agent_effort:` block:
+
+| Effort tier | Default | Used for |
+|-------------|---------|----------|
+| `coordinator` | Low | Flat routing/orchestration helpers |
+| `operational` | Low | Build, test, lint, and probe command runners |
+| `simplifier` | Low | Known-diff cleanup passes |
+| `build_trivial` | Low | Task-loop effort:S builders |
+| `build` | Medium | Normal implementation builders and research/spike labor |
+| `fixer` | Medium | Review fix batches and command-failure fix work |
+| `operational_fix` | Medium | Command-failure diagnosis/fix agents |
+| `think` | High | Critics, spec review, gap analysis, sprint analysts, escalation consults |
 
 ## Rules
 - Always use AskUserQuestion when the request is ambiguous

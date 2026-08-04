@@ -3,7 +3,7 @@ name: ship-sprint
 description: "Plan a new sprint or cancel an active one."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, TaskCreate, TaskUpdate, TaskList, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 model: opus
-effort: medium
+effort: low
 argument-hint: "[--cancel]"
 ---
 
@@ -23,7 +23,7 @@ Plan a new sprint by pulling features from the backlog and decomposing into wave
 
 **Quiet by default.** Between user-input gates, work quietly — run analysis, dispatch analysts, and write draft files without narrating each step. Only three things reach the chat outside a gate: a one-line transition marker per boundary (step), the compact projection/wave-timeline blocks, and a one-line banner when launching or receiving background analysis. Feature lists, wave breakdowns, and quality-gate results are rendered in full ONLY at a gate (render-before-ask — e.g. Step 2 selection, Step 11 plan approval) — between gates, analysis collapses to a one-line result. **No running commentary** ("Now I'll…", "Let me…", explaining a no-input step). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
 
-**Capability-skill playbooks.** Where a step says *"follow the `X` playbook"* or "dispatch `X`", X is a capability skill — **Read** `${CLAUDE_PLUGIN_ROOT}/skills/<X>/SKILL.md` and execute it inline; never hand it to the `Skill` tool (capability skills are `disable-model-invocation: true`, so `Skill` refuses them). The only skill loaded via the `Skill` tool is `loop`.
+**Capability-skill playbooks.** Where a step says *"follow the `X` playbook"* or "dispatch `X`", X is a capability skill — **Read** `${CLAUDE_PLUGIN_ROOT}/skills/<X>/SKILL.md` and execute it inline; never hand it to the `Skill` tool (capability skills are `disable-model-invocation: true`, so `Skill` refuses them). There is no legacy loop skill fallback; command skills are driven by their CLI state and `/goal` where autonomous re-entry is needed.
 
 ## Input
 
@@ -244,7 +244,9 @@ Steps 4-7 (task decomposition via the 5-stage protocol, dependency graph, bottle
 
 **Model tier (think)** — read `models.think` from `<SHIPYARD_DATA>/config.md` (the context block above already carries config, or Read it). If non-empty, pass `model: <value>` on the `Agent(...)` call; if empty or absent, OMIT `model:` so the agent inherits the session model. Never hardcode a literal.
 
-**Dispatch** a single `Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>)` with a prompt that inlines:
+**Effort tier (think)** — read `agent_effort.think` from config.md; default `high`. If non-empty, pass `effort: <value>` on the `Agent(...)` call; if empty or absent, OMIT `effort:`.
+
+**Dispatch** a single `Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, effort: <agent_effort.think — omit if empty>)` with a prompt that inlines:
 
 - The selected features (their file paths under `<SHIPYARD_DATA>/spec/features/`, plus any Step 3 analyst reports / Step 3.7 decisions already gathered).
 - Capacity (the story-point budget from Step 1).

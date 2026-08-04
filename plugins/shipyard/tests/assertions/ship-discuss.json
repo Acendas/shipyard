@@ -1061,5 +1061,11 @@
     "pattern": "4\\. \\*\\*Constitution amendment prompt[\\s\\S]*6\\. \\*\\*Print the Next Up block[\\s\\S]*7\\. \\*\\*Last action",
     "dotall": true,
     "why": "Phase 6 finalize ordering keeps constitution updates and Next Up inside the mutex, with lock release last."
+  },
+  {
+    "name": "discuss_deep_dive_sets_think_effort",
+    "type": "contains",
+    "pattern": "agent_effort\\.think",
+    "why": "Discuss deep-dive and critic subagents should use the configurable think-effort tier."
   }
 ]

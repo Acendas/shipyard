@@ -19,7 +19,7 @@ Why this exists: the orchestrating session runs a mid-tier model tuned for stage
 3. **Uncovered blocked task** — a `BLOCKED` return whose `escalation_code` has no matching entry in the deviation rules / blocked-handling table.
 4. **Critic deadlock** — review Stages 4.6/4.7 produce contradictory verdicts that a second pass does not reconcile.
 5. **Recovery-path ambiguity** — the situation matches more than one documented recovery path, or matches one only partially, and picking between them (or adapting one to fit) requires judgment the shell isn't positioned to exercise. Since ship-execute now runs on Sonnet with a zero-thinking doctrine, this is the structural admission that "which documented path applies here" is itself sometimes a judgment call, not a lookup.
-6. **Uninterpreted gate failure** — any CLI call exits 3 with a reason string that names a condition but no covered remediation exists for it in the skill body or references (distinct from trigger 2, which is specifically the integration gate; this covers any other gate — terminal-evidence, loop-leak, task-state CLI refusals, etc.).
+6. **Uninterpreted gate failure** — any CLI call exits 3 with a reason string that names a condition but no covered remediation exists for it in the skill body or references (distinct from trigger 2, which is specifically the integration gate; this covers any other gate — terminal-evidence, stale-cycle, task-state CLI refusals, etc.).
 7. **Deviation classification** — a discrepancy between expected and actual state (a task's diff doesn't match its spec, a probe passes but the implementation looks wrong, a wave's evidence is technically complete but suspicious) needs a bug-vs-structural-deviation call: is this a defect to fix, or a legitimate divergence from the plan that the Deviation Rules should log and proceed past? The shell does not make this call itself.
 
 If the situation matches a documented recovery path, follow that path — do not escalate. If it needs the *user* (scope change, destructive action, product decision), use AskUserQuestion — escalation is for reasoning gaps, not authority gaps.
@@ -40,7 +40,7 @@ Read from `<SHIPYARD_DATA>/config.md`:
    shipyard-data events emit escalation_consult_dispatched pipeline=<ship-execute|ship-review> sprint=<id> trigger=<repeated_fix_failure|integration_gate|uncovered_blocked|critic_deadlock|recovery_path_ambiguity|uninterpreted_gate_failure|deviation_classification> subject=<task-or-stage-id>
    ```
 
-2. **Dispatch the consult** — `Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>)` with this prompt template, fully substituted (no placeholders left):
+2. **Dispatch the consult** — read `agent_effort.think` from config.md (default `high`; omit `effort:` if empty/absent), then call `Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, effort: <agent_effort.think — omit if empty>)` with this prompt template, fully substituted (no placeholders left):
 
    ```
    You are a one-shot escalation consultant for a stuck Shipyard pipeline. You are
@@ -76,7 +76,7 @@ Read from `<SHIPYARD_DATA>/config.md`:
    shipyard-data events emit escalation_consult_returned pipeline=<p> sprint=<id> subject=<id> confidence=<high|medium|low>
    ```
 
-4. **Execute the recommendation** through normal Shipyard paths (redispatch via `dispatching-task-loop`, patch task creation, `cursor escalate`, AskUserQuestion — whatever it names). Do not treat the consult as authority to bypass gates: if the recommendation conflicts with a structural gate (terminal evidence, integration gate, loop-leak guard), the gate wins and the conflict itself goes to the user. When surfacing that conflict, render the consult's RECOMMENDATION and the gate's refusal reason side by side as chat text before the ask.
+4. **Execute the recommendation** through normal Shipyard paths (redispatch via `dispatching-task-loop`, patch task creation, `cursor escalate`, AskUserQuestion — whatever it names). Do not treat the consult as authority to bypass gates: if the recommendation conflicts with a structural gate (terminal evidence, integration gate, stale-cycle guard), the gate wins and the conflict itself goes to the user. When surfacing that conflict, render the consult's RECOMMENDATION and the gate's refusal reason side by side as chat text before the ask.
 
 5. **Low confidence or second failure** — if the consult returns `CONFIDENCE: low`, or its recommendation also fails, stop consuming consults: render the DIAGNOSIS, RECOMMENDATION, and FALLBACK verbatim as chat text (the consult return exists only in this context; question/option strings don't count as rendering), then AskUserQuestion.
 

@@ -99,6 +99,19 @@ class TestViewSubcommand(NamedSubcommandBase):
         self.assertEqual(rc, 0)
         self.assertIn('project: test', out)
 
+    def test_view_config_includes_generated_model_and_effort_blocks(self):
+        template = os.path.join(PLUGIN_ROOT, 'project-files', 'templates', 'config.md')
+        with open(template) as f:
+            self.write_data_file('config.md', f.read())
+
+        out, _, rc = run_cli(['view', 'config'], env_extra=self.env, cwd=self.project_dir)
+
+        self.assertEqual(rc, 0)
+        self.assertIn('models:', out)
+        self.assertIn('orchestrate: opus', out)
+        self.assertIn('agent_effort:', out)
+        self.assertIn('operational_fix: medium', out)
+
     def test_view_backlog_fallback(self):
         out, _, _ = run_cli(['view', 'backlog'], env_extra=self.env, cwd=self.project_dir)
         self.assertIn('No backlog yet', out)

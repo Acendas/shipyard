@@ -11,6 +11,7 @@ Spawned via `Agent(subagent_type: "general-purpose", prompt: <template below>)`.
 - Fill in the "Review findings to challenge" section from the current Stage 3 + Stage 4 outputs.
 - Set `Stakes:` to `standard` for low-complexity features or `high` for features touching auth, payments, or data integrity.
 - **Model tier (think):** read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-review` context block already carries config, or Read it). If non-empty, pass `model: <value>` on the `Agent(...)` call; if empty or absent, OMIT `model:` so the critic inherits the session model. Never hardcode a literal.
+- **Effort tier (think):** read `agent_effort.think` from config.md (default `high`). If non-empty, pass `effort: <value>` on the `Agent(...)` call; if empty or absent, OMIT `effort:`.
 
 ## The prompt
 

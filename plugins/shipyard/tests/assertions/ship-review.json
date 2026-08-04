@@ -51,6 +51,21 @@
     "dotall": true
   },
   {
+    "name": "has_goal_contract",
+    "type": "contains",
+    "pattern": "Goal driver contract"
+  },
+  {
+    "name": "has_flat_worker_contract",
+    "type": "contains",
+    "pattern": "Flat-worker contract"
+  },
+  {
+    "name": "review_uses_worker_queue",
+    "type": "contains",
+    "pattern": "shipyard-data queue (enqueue|claim|requeue-stale)"
+  },
+  {
     "name": "no_legacy_reviewer",
     "type": "not_contains",
     "pattern": "shipyard-reviewer\\b"
@@ -59,11 +74,6 @@
     "name": "has_visual_verification",
     "type": "contains",
     "pattern": "[Ss]creenshot|[Vv]isual"
-  },
-  {
-    "name": "has_goal_check",
-    "type": "contains",
-    "pattern": "achieve the goal|feature actually works"
   },
   {
     "name": "checks_working_branch",
@@ -357,12 +367,12 @@
   {
     "name": "terminal_marker_loop_should_stop",
     "type": "contains",
-    "pattern": "/loop should stop"
+    "pattern": "/goal should stop"
   },
   {
     "name": "tick_marker_loop_continues",
     "type": "contains",
-    "pattern": "TICK COMPLETE.*[Ll]oop continues|/loop continues"
+    "pattern": "TICK COMPLETE.*[Ll]oop continues|/goal continues"
   },
   {
     "name": "emits_pipeline_terminal_event",
@@ -405,6 +415,36 @@
     "pattern": "code_review_iter"
   },
   {
+    "name": "stage_id_review_scan",
+    "type": "contains",
+    "pattern": "review_scan"
+  },
+  {
+    "name": "stage_id_review_plan",
+    "type": "contains",
+    "pattern": "review_plan"
+  },
+  {
+    "name": "stage_id_review_fix_wave",
+    "type": "contains",
+    "pattern": "review_fix_wave"
+  },
+  {
+    "name": "stage_id_review_validation",
+    "type": "contains",
+    "pattern": "review_validation"
+  },
+  {
+    "name": "review_uses_deterministic_fix_planner",
+    "type": "contains",
+    "pattern": "shipyard-data review plan"
+  },
+  {
+    "name": "review_batches_findings_before_fixes",
+    "type": "contains",
+    "pattern": "REVIEW-FIX-PLAN\\.json|fix batches|validation_ladder"
+  },
+  {
     "name": "stage_id_terminal",
     "type": "contains",
     "pattern": "stage.*terminal|terminal stage"
@@ -415,14 +455,9 @@
     "pattern": "sprint_already_archived|already complete and archived|already archived"
   },
   {
-    "name": "loop_owner_field",
-    "type": "contains",
-    "pattern": "loop_owner"
-  },
-  {
     "name": "direct_vs_loop_invocation_documented",
     "type": "contains",
-    "pattern": "Direct invocation vs|/loop driver|single-tick"
+    "pattern": "Direct invocation vs|/goal driver|single-tick"
   },
   {
     "name": "no_stage_zero_three_iter_cap_authoritative",
@@ -440,50 +475,14 @@
     "pattern": "ScheduleWakeup.*REVIEW-CURSOR|ScheduleWakeup.*ship-review"
   },
   {
-    "name": "direct_invocation_budget_bumped_to_10_min",
+    "name": "direct_invocation_runs_bounded_goal_tick",
     "type": "contains",
-    "pattern": "~10 minutes? per invocation|~10 minutes? wall-clock|10-minute wall-clock budget"
+    "pattern": "goal tick runs the same stage handler|run exactly one handler"
   },
   {
     "name": "direct_invocation_budget_no_longer_3_min",
     "type": "not_contains",
     "pattern": "~3 minutes? per invocation|~3-minute wall-clock budget|approximately 3 minutes"
-  },
-  {
-    "name": "documents_auto_loop_bootstrap",
-    "type": "contains",
-    "pattern": "Auto-loop bootstrap"
-  },
-  {
-    "name": "auto_loop_uses_skill_loop_invocation",
-    "type": "contains",
-    "pattern": "Skill\\(skill: \"loop\""
-  },
-  {
-    "name": "bootstrap_check_owns_sentinel",
-    "type": "contains",
-    "pattern": "cursor bootstrap-check review",
-    "why": "v3.1.0: eligibility + sentinel-setting moved into the CLI (the old same-stage sentinel advance was an illegal transition on non-self-looping stages)"
-  },
-  {
-    "name": "auto_loop_emits_bootstrap_event",
-    "type": "contains",
-    "pattern": "pipeline_loop_bootstrap pipeline=ship-review"
-  },
-  {
-    "name": "auto_loop_skill_invocation_targets_ship_review",
-    "type": "contains",
-    "pattern": "Skill\\(skill: \"loop\", args: \"/shipyard:ship-review\"\\)"
-  },
-  {
-    "name": "auto_loop_has_cron_fallback",
-    "type": "contains",
-    "pattern": "CronCreate.*shipyard:ship-review|pipeline_loop_bootstrap_fallback pipeline=ship-review"
-  },
-  {
-    "name": "auto_loop_skips_in_retro_only_mode",
-    "type": "contains",
-    "pattern": "not .--retro-only"
   },
   {
     "name": "wakeup_leak_protection_noop_terminal_sweep_documented",
@@ -518,33 +517,9 @@
     "why": "v2.9.0: the CLI prints the stop marker; the skill echoes it"
   },
   {
-    "name": "wakeup_leak_protection_references_v2_2_0_lesson",
+    "name": "noop_repeated_detection_documented",
     "type": "contains",
-    "pattern": "original .?/loop.? wakeup-leak|original /loop bug"
-  },
-  {
-    "name": "bootstrap_runs_after_noop_terminal_sweep",
-    "type": "contains",
-    "pattern": "Auto-loop bootstrap\\.",
-    "why": "bootstrap block still exists and runs in the entry flow; ordering is enforced by bootstrap-check refusing dead sprints itself"
-  },
-  {
-    "name": "bootstrap_liveness_is_cli_owned",
-    "type": "contains",
-    "pattern": "sprint liveness",
-    "why": "v3.1.0: the liveness re-check runs inside cursor bootstrap-check (never bootstraps a completed/absent sprint)"
-  },
-  {
-    "name": "bootstrap_refuses_dead_sprint",
-    "type": "contains",
-    "pattern": "dead sprint",
-    "why": "the skill still names the dead-sprint refusal; enforcement is CLI-side"
-  },
-  {
-    "name": "bootstrap_dead_sprint_routes_to_noop",
-    "type": "contains",
-    "pattern": "no-op sweep should already have exited|reason.*sprint_dead",
-    "why": "a dead sprint at bootstrap time routes through the no-op sweep / bootstrap-check refusal instead of a bespoke emit"
+    "pattern": "pipeline_repeated_noop_detected|REPEATED NOOP"
   },
   {
     "name": "has_quality_gate_stage",
@@ -598,29 +573,24 @@
   {
     "name": "loop_leak_detection_repeat_noop",
     "type": "contains",
-    "pattern": "pipeline_loop_leak_detected"
+    "pattern": "pipeline_repeated_noop_detected"
   },
   {
     "name": "loop_leak_hard_marker",
     "type": "contains",
-    "pattern": "LOOP LEAK"
+    "pattern": "REPEATED NOOP"
   },
   {
     "name": "loop_leak_detection_is_cli_owned",
     "type": "contains",
-    "pattern": "repeat-leak|pipeline_loop_leak_detected",
+    "pattern": "repeat-leak|pipeline_repeated_noop_detected",
     "why": "v2.9.0: repeat-leak detection runs inside `cursor noop`"
   },
   {
     "name": "loop_leak_event_in_vocabulary",
     "type": "contains",
     "target": "ref:pipeline-cursor.md",
-    "pattern": "pipeline_loop_leak_detected"
-  },
-  {
-    "name": "cron_fallback_cleanup_at_terminal",
-    "type": "contains",
-    "pattern": "CronDelete"
+    "pattern": "pipeline_repeated_noop_detected"
   },
   {
     "name": "gap_analysis_deepdive_reads_models_think",
@@ -686,10 +656,10 @@
     "why": "v3.4.0: release_step_1 pauses before AskUserQuestion"
   },
   {
-    "name": "paused_wakeup_inert_entry",
+    "name": "paused_goal_inert_entry",
     "type": "contains",
-    "pattern": "paused is wakeup-inert",
-    "why": "v3.4.0: a wakeup on a paused cursor no-ops (awaiting_user_paused), never resumes"
+    "pattern": "paused is goal-inert",
+    "why": "a goal tick on a paused cursor no-ops (awaiting_user_paused), never resumes"
   },
   {
     "name": "paused_noop_reason_awaiting_user",
@@ -747,22 +717,11 @@
     "why": "v3.4.0: plugin-issue detection is a plain-text report, not a blocking question"
   },
   {
-    "name": "loop_owner_window_five_minutes",
-    "type": "contains",
-    "pattern": "5 minutes \\(v3.4.0|within the last \\*\\*5 minutes\\*\\*",
-    "why": "v3.4.0: loop_owner recency window tightened from 30 to 5 minutes"
-  },
-  {
-    "name": "loop_owner_window_not_thirty_minutes",
-    "type": "not_contains",
-    "pattern": "within the last 30 minutes",
-    "why": "v3.4.0: the 30-minute loop_owner window is retired"
-  },
-  {
     "name": "archive_then_terminal_advance_order",
     "type": "contains",
     "target": "ref:pipeline-cursor.md",
-    "pattern": "run `archive-sprint`, then `cursor advance review terminal",
+    "pattern": "archive-sprint.*terminal advance|terminal advance.*archive-sprint",
+    "dotall": true,
     "why": "v3.4.0: the no-cursor terminal advance handles the archive seam; run archive then terminal advance"
   },
   {
@@ -1028,5 +987,17 @@
     "type": "contains",
     "pattern": "agentic delivery signals",
     "why": "The retro should inspect build/test reruns, ledger reuse, review iterations, salvage/timeouts and plugin issue candidates."
+  },
+  {
+    "name": "review_fix_workers_set_fixer_effort",
+    "type": "contains",
+    "pattern": "agent_effort\\.fixer",
+    "why": "Flat review fix workers should use the configurable fixer effort tier instead of inheriting orchestration effort."
+  },
+  {
+    "name": "review_critic_sets_think_effort",
+    "type": "contains",
+    "pattern": "agent_effort\\.think",
+    "why": "Critic/reasoning subagents should keep the high-effort tier unless project config overrides it."
   }
 ]

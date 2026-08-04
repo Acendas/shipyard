@@ -2,7 +2,7 @@
 name: ship-quick
 description: "Land a single self-contained change with quality bar."
 allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, LSP, AskUserQuestion]
-effort: medium
+effort: low
 argument-hint: "[task description]"
 ---
 

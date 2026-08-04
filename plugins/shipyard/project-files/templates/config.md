@@ -68,7 +68,19 @@ models:
   # empty string = omit the model override and inherit the session model.
   think: opus                 # deep reasoning: critics, spec review, sprint analysts, decomposition deep-dives, escalation consults. Flip anytime: `shipyard-data config set-model think <model>` — the next dispatch picks it up.
   build: sonnet               # labor: builder task loops, operational runs, research sweeps, fixers, simplifiers. Flip anytime with `shipyard-data config set-model build <model>`; high-volume work defaults fast and economical.
-  orchestrate: sonnet         # ship-execute shell tier. Set by the skill's frontmatter model: — this value is informational (must match it). Editing here does NOT change the shell; edit skills/ship-execute/SKILL.md frontmatter.
+  orchestrate: opus           # user-command orchestration shell tier for ship-execute/review/sprint/discuss. Flip anytime with `shipyard-data config set-model orchestrate <model>`; the CLI syncs the command skill frontmatter. Versioned Claude IDs such as `claude-opus-4-8` are accepted.
+agent_effort:
+  # Effort tier per spawned-agent work class. Values are low | medium | high;
+  # empty string = omit the effort override and inherit runtime/session default.
+  # Flip anytime: `shipyard-data config set-effort <tier> <low|medium|high|inherit>`.
+  build: medium               # normal implementation builders and research/spike labor
+  build_trivial: low          # task-loop effort:S builders
+  fixer: medium               # review fix batches and failure-fix work
+  operational: low            # build/test/lint command runners
+  operational_fix: medium     # command-failure diagnosis/fix agents
+  think: high                 # critics, spec review, gap analysis, sprint analysts, escalation consults
+  coordinator: low            # flat orchestration helpers that route already-planned work
+  simplifier: low             # cleanup/simplification passes over known diffs
 escalation:
   enabled: true               # allow orchestrators to dispatch a models.think consult when stuck
   max_consults_per_sprint: 6  # hard cap on escalation consults per sprint

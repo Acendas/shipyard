@@ -1,34 +1,92 @@
-# Scanner Dispatch — How the multi-agent code review fires
+# Scanner Dispatch — How the batched review wave fires
 
-This reference holds the detail for Stage 0 (Code Review Loop) and Stage 0.5 (Simplification) of the review pipeline. SKILL.md keeps the one-paragraph "what runs" summary; the mechanics of dispatch, fix iteration, scope guards, and out-of-scope routing live here.
+This reference holds the detail for Stage 0 (scanner wave, deterministic fix planning, fix waves, validation ladder) and Stage 0.5 (Simplification) of the review pipeline. SKILL.md keeps the stage handler summary; the mechanics of dispatch, fix batching, scope guards, and out-of-scope routing live here.
 
-## Stage 0 — Code Review Loop (mechanics)
+## Stage 0a-0d — Batched Review Mechanics
 
-The orchestration logic (one fresh-context code-review subagent over seven concern domains — security, bugs, silent-failures, patterns, tests, observability, data — with optional parallel-split for high-stakes diffs) lives in `references/code-review-orchestration.md`. Read that at the start of Stage 0.
+The default review path is no longer "scanner → one fix → full tests → scanner" repeated. It is:
 
-Per iteration (data-driven; **no fixed cap** — convergence is by clean-scanner signal, with stuck-detection at 5 unchanged ticks and an absolute `hard_ceiling: 50`, per SKILL.md Stage 0):
+1. read-only scanner wave
+2. deterministic `shipyard-data review plan`
+3. parallel fix batches by wave
+4. validation ladder
 
-1. **Checkpoint.** `git tag pre-code-review-$(date +%s)` — rollback point for failed fix iterations.
-2. **Orchestrate.** Follow `code-review-orchestration.md` end-to-end. Iteration 1 uses `git diff $(git merge-base HEAD <main_branch>)...HEAD`; iteration 2+ uses the cumulative delta `git diff <pre-code-review-tag>..HEAD`. Phase 5 writes `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md` with VERDICT / COUNTS / ---ACTIONABLE--- sections.
-3. **Evaluate.** Emit the per-iteration `code_review_iteration` event (must_fix / should_fix counts) — PROGRESS.md is a render-only artifact regenerated from the event log by the cursor CLI renderer; never write it directly. Zero must-fix + zero should-fix → clean pass, proceed to Stage 1. Only consider items → acceptable, proceed to Stage 1. Must-fix or should-fix → continue.
-4. **Diminishing returns** (iteration 2+). Read the previous iteration's counts from the event log (`code_review_iteration` events). If unchanged or increased, keep the loop running and let the cursor's stuck-detection machinery account for it; do not ask the user at iteration 2. At `stuck_counter >= 5`, surface the non-blocking warning from SKILL.md and continue. AskUserQuestion is reserved for hard ceiling, true BLOCKED state, or a severe/risky exception where fixing would require a product decision, destructive migration, credential/security-policy choice, large dependency/platform change, or accepting a known defect.
-5. **Fix.** Follow the **`dispatching-task-loop` playbook** with a synthetic continuation task that points at the CODE-REVIEW.md findings. Pass:
-   - `task_id`: a synthetic ID like `CR-FIX-iter-N`
-   - `task_file_path`: `<SHIPYARD_DATA>/sprints/current/CODE-REVIEW.md` (the findings doc serves as the spec — the capability skill's prompt instructs the subagent to skip everything above `---ACTIONABLE---` and fix all M/S items below)
-   - `working_branch`: the sprint working branch
-   - `worktree_path`: null (works directly on the working branch — no isolation; this is a fix-up pass on already-merged code)
-   - `acceptance_probe`: `git log -1 --format='%s' | grep -q '^refactor: address code review'` (probe verifies a refactor commit landed)
-   - `continuation_note`: *"Fix all M and S items in CODE-REVIEW.md below the ---ACTIONABLE--- separator. Follow TDD. Commit: `refactor: address code review (iteration N)`."*
-   - `data_dir`: literal SHIPYARD_DATA path
+### Scanner Wave
 
-   The capability skill's structured-return + sha verification handle the "verify a new commit exists" check that previously lived inline. If it returns `STATUS: BLOCKED` (no fixes possible), `git reset --hard` to the most recent `pre-code-review-*` tag and flag the iteration as failed (don't count toward the cap).
-6. **Repeat** from step 2.
+Run all read-only review scanners before dispatching any fixer. The code-review scanner still follows `references/code-review-orchestration.md` and may split high-stakes concerns into parallel dispatches:
 
-**Exit:** clean pass → Stage 1. Hard ceiling (50 iterations) reached with remaining must-fix → use Write to create `<SHIPYARD_DATA>/spec/bugs/B-CR-[slug].md` per finding so they surface in the next sprint, then render the residual findings as chat text (one line per B-CR bug written — writing the bug files does not count as showing them) and AskUserQuestion whether to proceed to demo. (The 5-tick stuck warning surfaces intervention well before the ceiling.) After exit, delete checkpoint tags: `git tag --list 'pre-code-review-*' | xargs -I {} git tag -d {}`.
+- security
+- bugs / silent-failures / data
+- patterns / tests
+- spec compliance
+- quality-gate gaps
+- user-flow/demo probe risk
+- build/config drift
 
-**Out-of-scope findings in Stage 0 code review.** If any scanner surfaces a concrete defect that is real but *outside the sprint's diff scope* (e.g., while reviewing the auth feature's diff, the silent-failures scanner flagged a swallowed exception in a helper that wasn't touched by the sprint), capture it as an IDEA — not a `B-CR-*` bug. The B-CR bugs are for in-scope code-review findings that need fixing before this sprint ships; out-of-scope findings are for the next sprint's planning to consider. See Stage 4's "Capture Out-of-Scope Gaps as IDEAs" section for the full protocol — it applies to Stage 0 findings too, with `found_during: code-review-stage-0` in the frontmatter instead of `surface-gap-stage-4`. Hard cap: 5 per stage (enforced separately from Stage 4's cap — Stage 0 and Stage 4 have independent budgets).
+Normalize all scanner returns into `<SHIPYARD_DATA>/sprints/current/REVIEW-FINDINGS.json`:
 
-Each iteration's trajectory is captured by the `code_review_iteration` event (iteration, must_fix, should_fix). Cursor CLI rendering updates the Code Review table in PROGRESS.md from those events — do not write the table by hand.
+```json
+{
+  "findings": [
+    {
+      "id": "R001",
+      "title": "Session expiry path can silently fail",
+      "severity": "high",
+      "files": ["src/auth/session.ts", "tests/auth/session.test.ts"],
+      "required_validation": ["npm test -- auth"],
+      "confidence": 92,
+      "source": "silent-failures"
+    }
+  ]
+}
+```
+
+Do not include low-confidence preferences as actionable findings. If a scanner reports a concrete defect outside the sprint diff scope, capture it as an IDEA using the Stage 4 out-of-scope protocol with `found_during: code-review-stage-0`; do not put it into the current review fix plan.
+
+### Deterministic Fix Plan
+
+Run:
+
+```bash
+shipyard-data review plan <SHIPYARD_DATA>/sprints/current/REVIEW-FINDINGS.json --out <SHIPYARD_DATA>/sprints/current/REVIEW-FIX-PLAN.json
+```
+
+The command:
+
+- filters non-actionable low/advisory findings
+- merges findings that touch the same files or require the same validation
+- emits stable `review-fix-N` batch ids
+- assigns non-conflicting batches to waves
+- produces a validation ladder with per-batch probes, wave-boundary probes, and final build/test placeholders
+
+The plan is the grouping authority. Do not split a batch into per-finding work and do not merge batches by hand after the CLI writes the plan.
+
+### Fix Waves
+
+For each wave, dispatch all listed batches in parallel through `dispatching-task-loop`. Each batch is a synthetic continuation task. Pass:
+
+- `task_id`: the batch id, e.g. `review-fix-1`
+- `task_file_path`: a small model-authored task artifact or the JSON plan path plus the batch id
+- `working_branch`: the sprint working branch
+- `worktree_path`: null unless the installed dispatch path supports isolated review-fix worktrees
+- `acceptance_probe`: the batch's `required_probes` joined with `&&`; if empty, require a commit SHA plus targeted reviewer evidence
+- `continuation_note`: *"Fix every finding in batch review-fix-N. Stay inside the batch file scope. Run the listed per-batch probes before returning. Commit once: `refactor: address review batch review-fix-N`."*
+- `data_dir`: literal SHIPYARD_DATA path
+
+Accept only structured, gate-passed returns. If a batch touches files outside its `files` scope, reject the return and redispatch or escalate if the expanded scope is severe/risky.
+
+### Validation Ladder
+
+Do not run full build/test after every batch. Validation order is:
+
+1. Per-batch probes inside each fixer return.
+2. Each unique command in `validation_ladder.wave_boundary` once after all waves merge.
+3. Full build/test once in `review_validation`, guarded by `shipyard-data verify check` and recorded by `shipyard-data verify record`.
+4. Re-scan only after failed validation, blocked fixer state, or out-of-scope file touch.
+
+### Legacy Code Review Loop
+
+Older cursors may still resume at `code_review_iter_N`. **Goal-mode default (legacy):** keep dispatching the fixer against residual findings without user interruption until scanners come back clean; do not ask the user at iteration 2. For that legacy route, run the previous code-review loop semantics: `dispatching-code-review`, `CODE-REVIEW.md`, `dispatching-task-loop` fixer, `code_review_iteration` events, and `code_review_escalated` at the hard ceiling. Fresh review starts do not use this route.
 
 ## Stage 0.5 — Code Simplification (mechanics)
 
@@ -40,9 +98,9 @@ After the code review loop exits clean, run a simplification pass on the sprint'
    ```bash
    git diff --name-only $(git merge-base HEAD <main_branch>)...HEAD
    ```
-2. Spawn the simplifier agent. **Model tier (build)** — simplification is implementation labor: read `models.build` from `<SHIPYARD_DATA>/config.md` (the `/ship-review` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so it inherits the session model. Never hardcode a literal.
+2. Spawn the simplifier agent. **Model tier (build)** — simplification is implementation labor: read `models.build` from `<SHIPYARD_DATA>/config.md` (the `/ship-review` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so it inherits the session model. Never hardcode a literal. **Effort tier (simplifier)** — read `agent_effort.simplifier` from config.md (default `low`); if non-empty pass `effort: <value>`, if empty/absent OMIT `effort:`.
    ```
-   Agent(subagent_type: "general-purpose", prompt: |
+   Agent(subagent_type: "general-purpose", model: <models.build — omit if empty>, effort: <agent_effort.simplifier — omit if empty>, prompt: |
      You are a code simplifier. Review and simplify the following files that were changed in this sprint.
      Focus on: reducing unnecessary complexity, eliminating redundant code,
      improving naming, consolidating related logic, and applying project

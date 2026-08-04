@@ -419,9 +419,9 @@ function classify(proposedContent) {
 }
 
 /**
- * Loop-leak guard (v2.8.2). Structural backstop against a leaked `/loop`
- * wakeup firing `/ship-execute` (or `/ship-review`) AFTER the sprint has
- * already completed and (possibly) been archived.
+ * Stale-cycle guard. Structural backstop against any driver re-entering
+ * `/ship-execute` (or `/ship-review`) AFTER the sprint has already completed
+ * and (possibly) been archived.
  *
  * The model-side no-op terminal sweep is supposed to catch this and exit,
  * but a misreading leaked wakeup can instead treat the absent cursor as a
@@ -442,7 +442,7 @@ function classify(proposedContent) {
  *     (review legitimately runs ON a `status: completed` sprint, so only the
  *     archived/absent case is a leak).
  *
- * Returns `{ allowed: false, kind: "loop_leak", reasons: [...] }` on deny;
+ * Returns `{ allowed: false, kind: "stale_cycle", reasons: [...] }` on deny;
  * `{ allowed: true, reasons: [] }` otherwise. Fail-open on unparseable
  * content / unknown pipeline, consistent with the hook's permissive design.
  */
@@ -465,8 +465,8 @@ export function evaluateLoopLeakGuard({ dataDir, proposedContent, cursorBasename
 
   // Sprint-bypass modes (`--hotfix`, `--task`) legitimately run without a
   // normal sprint pipeline — `--hotfix` branches from main and may have no
-  // (or a completed) SPRINT.md. Their stages are never produced by a leaked
-  // no-arg /loop wakeup (which fresh-starts at `preflight`), so exempt them.
+  // (or a completed) SPRINT.md. Their stages are never produced by a no-arg
+  // goal re-entry that fresh-starts at `preflight`, so exempt them.
   const stage = (fm.stage || "").trim();
   if (/^(hotfix|single_task|terminal_hotfix|terminal_single_task)\b/.test(stage)) {
     return { allowed: true, reasons: [] };
@@ -480,9 +480,9 @@ export function evaluateLoopLeakGuard({ dataDir, proposedContent, cursorBasename
   const archived = !present;
   const completed = present && status === "completed";
 
-  const leak =
+  const stale =
     pipeline === "ship-execute" ? archived || completed : archived;
-  if (!leak) {
+  if (!stale) {
     return { allowed: true, reasons: [] };
   }
 
@@ -491,10 +491,10 @@ export function evaluateLoopLeakGuard({ dataDir, proposedContent, cursorBasename
     : "the sprint in sprints/current/ is already status: completed";
   return {
     allowed: false,
-    kind: "loop_leak",
+    kind: "stale_cycle",
     reasons: [
-      `loop-leak guard: ${where}, but this is a non-terminal ${pipeline} cursor write claiming active work — the signature of a leaked /loop wakeup firing after the cycle already completed`,
-      `There is no sprint to run ${pipeline} against. Emit the no-op terminal event and stop the /loop (cancel it / do not schedule another wakeup) instead of starting phantom work.`,
+      `stale-cycle guard: ${where}, but this is a non-terminal ${pipeline} cursor write claiming active work after the cycle already completed`,
+      `There is no sprint to run ${pipeline} against. Emit the no-op terminal event and stop /goal instead of starting phantom work.`,
     ],
   };
 }

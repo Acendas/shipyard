@@ -702,5 +702,11 @@
     "pattern": "feature set-tasks.{0,180}after every referenced task file exists",
     "dotall": true,
     "why": "Feature task arrays are CLI-owned and must only point at existing task files owned by the feature."
+  },
+  {
+    "name": "sprint_deep_dive_sets_think_effort",
+    "type": "contains",
+    "pattern": "agent_effort\\.think",
+    "why": "Sprint planning deep-dive/analyst agents should use the configurable think-effort tier."
   }
 ]

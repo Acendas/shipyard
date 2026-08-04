@@ -24,6 +24,8 @@ Read and follow this playbook once per track, from the command-skill wave-dispat
 - `sibling_track_names` — the deterministic names (`track-<other_track_id>`) of this wave's OTHER track coordinators, for the coordinator's Interface Change broadcast. Omit or pass an empty list for a wave with only one track.
 - `working_branch`, `base_ref`, `data_dir`, `sprint_id`, `wave_number` — same meaning as in `dispatching-task-loop`
 - `build_model` — the resolved `models.build` value, or the literal instruction to omit, resolved by the caller exactly as `dispatching-task-loop`'s own "Model tier (build)" step does. Resolve this once here; the coordinator only relays it — it has no `Bash` to read `config.md` itself, and neither does any builder it dispatches.
+- `coordinator_effort` — the resolved `agent_effort.coordinator` value (default `low`), or the literal instruction to omit.
+- `build_effort` / `build_trivial_effort` — the resolved `agent_effort.build` and `agent_effort.build_trivial` values, or the literal instruction to omit. The coordinator relays the selected builder effort per task; it has no `Bash` to read `config.md` itself.
 
 **Plugin-relative paths are resolved here, not in the agent.** Resolve `data_impl_guide`/`quality_standards_digest` per task, and `build_model`, to literal values before composing the brief below.
 
@@ -38,6 +40,7 @@ Agent(
   subagent_type: "shipyard:shipyard-track-coordinator",
   name: "track-{{track_id}}",
   model: <build_model value, or omit>,
+  effort: <coordinator_effort value, or omit>,
   isolation: "worktree",
   run_in_background: true,
   prompt: "
@@ -51,6 +54,9 @@ Agent(
     Sprint ID:             {{sprint_id}}
     Wave number:           {{wave_number}}
     Build model:           {{build_model, or 'omit — inherit session model'}}
+    Coordinator effort:    {{coordinator_effort, or 'omit — inherit runtime default'}}
+    Build effort:          {{build_effort, or 'omit — inherit runtime default'}}
+    Trivial build effort:  {{build_trivial_effort, or 'omit — inherit runtime default'}}
   "
 )
 ```

@@ -69,7 +69,7 @@
     "name": "gates_beat_consults",
     "type": "contains",
     "pattern": "the gate wins",
-    "why": "a consult recommendation must never become authority to bypass terminal/integration/loop-leak gates"
+    "why": "a consult recommendation must never become authority to bypass terminal/integration/goal-leak gates"
   },
   {
     "name": "documented_recovery_paths_first",

@@ -126,5 +126,11 @@
     "type": "contains",
     "pattern": "does not count as rendered",
     "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+  },
+  {
+    "name": "documents_effort_setter",
+    "type": "contains",
+    "pattern": "config set-effort",
+    "why": "Spawned-agent effort tiers must be user-configurable through the CLI, not hand-edited in config frontmatter."
   }
 ]

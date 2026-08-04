@@ -3,7 +3,7 @@ name: ship-discuss
 description: "Discover features from idea to full spec."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, TaskCreate, TaskUpdate, TaskList, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 model: opus
-effort: medium
+effort: low
 argument-hint: "[topic | feature ID | issue key | --idea <description>] [--think <model>]"
 ---
 
@@ -21,7 +21,7 @@ You are facilitating a feature discovery conversation. This is fluid — not a q
 
 **Quiet by default.** This is a conversation, so the interruption *rounds* carry real discussion — but between them, work quietly. Only three things reach the chat outside a user-input round: a one-line transition marker per phase, a compact ASCII diagram/status block, and a one-line banner when launching or receiving the background deep-dive (`→ Deep-dive back: 3 findings, 1 data-model risk`). Research findings, viability reads, impact maps, and diagrams are rendered in full ONLY when they feed an imminent AskUserQuestion (render-before-ask) — otherwise they collapse to a one-line result and fold into the eventual gate summary. Reading the dossier puts it in YOUR context; that is not a reason to re-emit it as prose unless a decision rides on it now. **No running commentary** ("Now I'll research…", "Let me run the viability gate…", explaining a no-input phase). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
 
-**Capability-skill playbooks.** Where a step says *"follow the `X` playbook"* or "dispatch `X`", X is a capability skill — **Read** `${CLAUDE_PLUGIN_ROOT}/skills/<X>/SKILL.md` and execute it inline; never hand it to the `Skill` tool (capability skills are `disable-model-invocation: true`, so `Skill` refuses them). The only skill loaded via the `Skill` tool is `loop`.
+**Capability-skill playbooks.** Where a step says *"follow the `X` playbook"* or "dispatch `X`", X is a capability skill — **Read** `${CLAUDE_PLUGIN_ROOT}/skills/<X>/SKILL.md` and execute it inline; never hand it to the `Skill` tool (capability skills are `disable-model-invocation: true`, so `Skill` refuses them). There is no legacy loop-skill fallback.
 
 ## Input
 
@@ -333,8 +333,10 @@ When the agent returns, **lead with its one-line summary** ("→ Deep-dive back:
 
 **Model tier (think).** If a `--think` override is active for this invocation, pass `model: <think_override>` on the Agent call — do not read config.md for this dispatch. Otherwise, read `models.think` from config.md (the `/ship-discuss` context block already carries config, or Read `<SHIPYARD_DATA>/config.md`): if the value is non-empty, pass `model: <value>` on the Agent call; if empty or absent, OMIT the `model:` field so the subagent inherits the session model. Never hardcode a model literal. **Spawn-failure fallback:** if the dispatch errors at spawn because the requested model is unavailable, print one line ("`<model>` unavailable — falling back to `models.think`") and re-dispatch using the config value instead (this applies whether the unavailable model came from `--think` or from config.md itself).
 
+**Effort tier (think).** Read `agent_effort.think` from config.md; default `high`. If the value is non-empty, pass `effort: <value>` on the Agent call; if empty or absent, OMIT `effort:` so the subagent inherits the runtime default.
+
 ```
-Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, prompt: |
+Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, effort: <agent_effort.think — omit if empty>, prompt: |
 
 You are the design deep-dive for a Shipyard feature discussion. Perform the
 analytical bulk of the discovery pipeline and write a structured design

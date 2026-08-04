@@ -37,12 +37,15 @@ need to know exactly what it does; do not re-inline it here.
 
 **Model tier (build).** Read `models.build` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal.
 
+**Effort tier (build).** Read `agent_effort.build` from config.md; default `medium`. If the value is non-empty, pass `effort: <value>` in the Agent call; if empty or absent, OMIT `effort:` so the subagent inherits the runtime default.
+
 Dispatch:
 
 ```
 Agent(
   subagent_type: "shipyard:shipyard-researcher",
   model: <models.build value, or omit>,
+  effort: <agent_effort.build value, or omit>,
   prompt: "
     Task ID:         {{task_id}}
     Task file:       {{task_file_path}}

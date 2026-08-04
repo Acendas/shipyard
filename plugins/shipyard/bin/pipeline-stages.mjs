@@ -59,6 +59,10 @@ const STAGE_PATTERNS = {
   ],
   "ship-review": [
     { re: /^preflight$/, key: "preflight" },
+    { re: /^review_scan$/, key: "review_scan" },
+    { re: /^review_plan$/, key: "review_plan" },
+    { re: /^review_fix_wave_(?<iter>\d+)$/, key: "review_fix_wave" },
+    { re: /^review_validation$/, key: "review_validation" },
     { re: /^code_review_iter_(?<iter>\d+)$/, key: "code_review_iter" },
     { re: /^simplify$/, key: "simplify" },
     { re: /^tests$/, key: "tests" },
@@ -130,7 +134,11 @@ const GRAPH = {
   "ship-review": {
     // preflight → code review, straight to tests (--skip-code-review),
     // or retro (--retro-only). process_approved asks whether to run retro.
-    preflight: { entry: true, next: ["code_review_iter", "tests", "retro_step"] },
+    preflight: { entry: true, next: ["review_scan", "code_review_iter", "tests", "retro_step"] },
+    review_scan: { next: ["review_plan"] },
+    review_plan: { next: ["review_fix_wave", "review_validation"] },
+    review_fix_wave: { selfLoop: true, next: ["review_validation"] },
+    review_validation: { next: ["simplify", "review_scan"] },
     code_review_iter: { selfLoop: true, next: ["simplify"] },
     simplify: { next: ["tests"] },
     tests: { selfLoop: true, next: ["spec_review"] },

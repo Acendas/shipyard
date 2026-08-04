@@ -36,12 +36,17 @@ the value is non-empty, pass `model: <value>` in the Agent call; if empty or
 absent, OMIT the `model:` field entirely so the subagent inherits the session
 model. Never hardcode a model literal.
 
+**Effort tier (think).** Read `agent_effort.think` from config.md; default
+`high`. If the value is non-empty, pass `effort: <value>` in the Agent call; if
+empty or absent, OMIT `effort:` so the subagent inherits the runtime default.
+
 Dispatch:
 
 ```
 Agent(
   subagent_type: "shipyard:shipyard-gap-analyst",
   model: <models.think value, or omit>,
+  effort: <agent_effort.think value, or omit>,
   prompt: "
     Scope:              {{scope}}
     Target IDs:          {{target_ids}}

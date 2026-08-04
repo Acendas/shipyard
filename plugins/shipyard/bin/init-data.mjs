@@ -96,7 +96,7 @@ export function ensureInitializedDataDir(opts = {}) {
     syncTemplatesDir(templatesSrc, join(dataDir, "templates"));
   }
 
-  for (const f of [".loop-state.json", ".test-output.tmp"]) {
+  for (const f of [".test-output.tmp"]) {
     rmSync(join(dataDir, f), { force: true });
   }
   rmSync(join(dataDir, "scripts"), { recursive: true, force: true });

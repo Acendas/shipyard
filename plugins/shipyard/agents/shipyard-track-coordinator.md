@@ -52,6 +52,7 @@ Maintain a running **TRACK NOTES** block, starting `(none yet)`. Then, for each 
          subagent_type: "shipyard:shipyard-disciplined-builder",
          name: "builder-<TASK_ID>",
          model: <the build-model value from your brief, or omit if your brief says to omit>,
+         effort: <trivial-build-effort for effort:S tasks, else build-effort; omit if your brief says to omit>,
          isolation: "worktree",
          run_in_background: false,
          prompt: <the brief you composed in step 1>

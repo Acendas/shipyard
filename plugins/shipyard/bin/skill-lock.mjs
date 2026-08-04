@@ -19,11 +19,10 @@
  * "execution", {force:true, bestEffort:true})` from here instead of
  * hand-writing JSON).
  *
- * NOTE: bootstrap-check / loop_owner (the /loop auto-bootstrap eligibility
- * heuristic in cursor-cli.mjs) are a SEPARATE concern living on the
+ * NOTE: goal-driven cursor re-entry is a SEPARATE concern living on the
  * pipeline cursor, not on these lock files — no interaction between the
- * two mechanisms. Don't conflate "is a /loop wakeup eligible to auto-start
- * a pipeline" with "is a skill-mutex lock held."
+ * two mechanisms. Don't conflate "should a goal tick continue a pipeline"
+ * with "is a skill-mutex lock held."
  *
  * Lock shape (a held lock):
  *   {

@@ -78,10 +78,10 @@ Run the **Knowledge Gap Assessment** — flag tasks in unfamiliar domains, add r
 
 **Auto-generate SME skills for knowledge gaps:** If knowledge gaps cluster around a specific technology that has no existing skill in `.claude/skills/` (e.g., multiple tasks need OAuth patterns but no `/oauth-expert` skill exists), silently dispatch a `general-purpose` subagent in skill-writer mode for that specific technology. The skill is generated without user interaction. Report in the sprint plan output: "Generated /[tech]-expert skill to fill knowledge gap."
 
-The skill-writer prompt is local to ship-sprint. **Model tier (build)** — authoring a skill is implementation labor: read `models.build` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so it inherits the session model. Never hardcode a literal.
+The skill-writer prompt is local to ship-sprint. **Model tier (build)** — authoring a skill is implementation labor: read `models.build` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so it inherits the session model. Never hardcode a literal. **Effort tier (build)** — read `agent_effort.build` from config.md (default `medium`); if non-empty pass `effort: <value>`, if empty/absent OMIT `effort:`.
 
 ```
-Agent(subagent_type: "general-purpose", prompt: |
+Agent(subagent_type: "general-purpose", model: <models.build — omit if empty>, effort: <agent_effort.build — omit if empty>, prompt: |
   You are generating a project-specific SME (Subject Matter Expert) skill for
   the technology: <TECH>. Read the codebase to learn how it's actually used in
   this project, then write a SKILL.md to .claude/skills/<TECH>-expert/ that
@@ -140,10 +140,10 @@ After the self-review quality gate passes, spawn the critic agent to challenge t
 
 **Spawn the critic:** dispatch a `general-purpose` subagent with the inline critic prompt below. The critic role is reused across ship-review, ship-sprint, and ship-discuss with mode-specific framing; per the granularity criterion in S-1, the prompt stays inline (different inputs, different evaluation criteria — one combined critic capability skill would be a junk drawer).
 
-Substitute the literal SHIPYARD_DATA path before spawning. **Model tier (think):** read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so the critic inherits the session model. Never hardcode a literal.
+Substitute the literal SHIPYARD_DATA path before spawning. **Model tier (think):** read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so the critic inherits the session model. Never hardcode a literal. **Effort tier (think):** read `agent_effort.think` from config.md (default `high`); if non-empty pass `effort: <value>`, if empty/absent OMIT `effort:`.
 
 ```
-Agent(subagent_type: "general-purpose", prompt: |
+Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, effort: <agent_effort.think — omit if empty>, prompt: |
 
 You are an adversarial critic of a sprint plan. Your job is to find what
 the plan misses: blind spots, optimistic estimates, wave-conflict risks,

@@ -37,6 +37,8 @@ The reviewer methodology (all seven concern definitions, confidence threshold, t
 
 **Model tier (think).** Read `models.think` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal. Applies to every dispatch, including each subagent of the parallel-split variant below.
 
+**Effort tier (think).** Read `agent_effort.think` from config.md; default `high`. If the value is non-empty, pass `effort: <value>` in the Agent call; if empty or absent, OMIT `effort:` so the subagent inherits the runtime default. Applies to every dispatch, including each subagent of the parallel-split variant below.
+
 **Plugin-relative paths are resolved here, not in the agent.** `${CLAUDE_PLUGIN_ROOT}` is not verified to expand inside a registered agent's body — resolve the data-implementation guide path (when the `data` concern is gated in) and `quality_standards_path` (always) to literal paths before including them in the brief.
 
 Dispatch:
@@ -45,6 +47,7 @@ Dispatch:
 Agent(
   subagent_type: "shipyard:shipyard-code-reviewer",
   model: <models.think value, or omit>,
+  effort: <agent_effort.think value, or omit>,
   prompt: "
     Scope:              {{scope}}
     Target IDs:          {{target_ids}}

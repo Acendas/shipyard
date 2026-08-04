@@ -35,6 +35,8 @@ The reviewer methodology (AC classification, the Iron Law, the read-only contrac
 
 **Model tier (think).** Read `models.think` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal.
 
+**Effort tier (think).** Read `agent_effort.think` from config.md; default `high`. If the value is non-empty, pass `effort: <value>` in the Agent call; if empty or absent, OMIT `effort:` so the subagent inherits the runtime default.
+
 **Plugin-relative paths are resolved here, not in the agent.** `${CLAUDE_PLUGIN_ROOT}` is not verified to expand inside a registered agent's body — resolve any plugin-relative reference path (e.g. the data-implementation guide) to a literal path before including it in the brief.
 
 Dispatch:
@@ -43,6 +45,7 @@ Dispatch:
 Agent(
   subagent_type: "shipyard:shipyard-spec-reviewer",
   model: <models.think value, or omit>,
+  effort: <agent_effort.think value, or omit>,
   prompt: "
     Scope:        {{scope}}                  (task | wave | feature | sprint)
     Target IDs:   {{target_ids}}

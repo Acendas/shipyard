@@ -1,5 +1,12 @@
 # Track Mode Protocol
 
+**Status: experimental fallback path.** Flat top-level queue orchestration is
+the default Shipyard execution model. Use this protocol only when the user
+explicitly requests `--mode track` or a sprint declares `execution_mode: track`,
+and only after accepting the nested-Agent platform risk documented here. If
+any Agent ownership/completion behavior is ambiguous, main falls back to flat
+queued workers; do not continue with nested dispatch.
+
 Track Mode dispatches a **wave-scoped track coordinator** per feature track. Each coordinator sequentially dispatches **nested per-task builders** — one `Agent(isolation: "worktree")` call per task, using `shipyard-disciplined-builder` **unchanged**: one worktree, one branch, one commit, one `task-return`. This supersedes the old Agent-Teams-based "Team Mode" (shared task list + mailbox); `team` is the alias that still selects this shape (see the vocabulary table in `ship-execute/SKILL.md` Step 2).
 
 ```
@@ -89,6 +96,7 @@ Agent(subagent_type: "shipyard:shipyard-track-coordinator",
       isolation: "worktree",
       run_in_background: true,
       model: <models.build value, or omit>,
+      effort: <agent_effort.coordinator value, or omit>,
       prompt: <coordinator brief above>)
 ```
 
@@ -104,6 +112,7 @@ Agent(subagent_type: "shipyard:shipyard-disciplined-builder",
       isolation: "worktree",
       run_in_background: false,
       model: <models.build value, or omit>,
+      effort: <agent_effort.build_trivial for effort:S, else agent_effort.build; omit if empty>,
       prompt: <task brief — task_id, working_branch, base_ref, data_dir,
                task_file_path, feature_file_path, acceptance_probe,
                sprint_id, wave_number, plus the running TRACK NOTES block>)
@@ -117,7 +126,9 @@ Deterministic naming (`builder-<TASK_ID>`) applies here too, for the same reason
 
 ## Within-Track Autonomy
 
-- A nested builder MAY spawn its own subagents to parallelize sub-work within the one task it owns, as long as it stays responsible for that task's single commit and structured return.
+- A nested builder MUST NOT spawn its own subagents. Shipyard allows at most
+  one nesting layer in this experimental mode: main → coordinator → builder.
+  The default production path is still zero nesting: main → worker.
 - **Never cross tracks.** A coordinator must not dispatch, edit, or claim another track's task — track boundaries are main's concurrency control, not a suggestion.
 - Dependency ordering and the wave boundary are always authoritative over a coordinator's own sequencing: a coordinator does not dispatch a same-track task ahead of a dependency it hasn't seen complete, and a coordinator does not attempt to run past the wave it was spawned for (see "wave-scoped, not sprint-persistent" above — there is no next-wave hand-off to wait for; the coordinator simply finishes).
 

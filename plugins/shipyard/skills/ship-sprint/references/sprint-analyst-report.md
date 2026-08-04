@@ -14,10 +14,12 @@ The analyst role is single-use to ship-sprint, so the prompt template is inline 
 
 **Model tier (think)** — analysts do reasoning/investigation work: read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it). If non-empty, pass `model: <value>` on each parallel `Agent(...)` call; if empty or absent, OMIT `model:` so the analyst inherits the session model. Never hardcode a literal.
 
+**Effort tier (think)** — read `agent_effort.think` from config.md; default `high`. If non-empty, pass `effort: <value>` on each parallel `Agent(...)` call; if empty or absent, OMIT `effort:`.
+
 ## Prompt template
 
 ```
-Agent(subagent_type: "general-purpose", prompt: |
+Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, effort: <agent_effort.think — omit if empty>, prompt: |
   You are a sprint analyst. Investigate one feature in depth and return a
   structured SPRINT ANALYST REPORT covering: architecture impact, files to
   modify, patterns to follow, reuse opportunities, strategy (clean addition /

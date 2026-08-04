@@ -24,6 +24,8 @@ The subagent emits a `task_loop_iteration` event per iteration (`shipyard-data e
 
 Read and follow this playbook from a command skill (`ship-execute`, `ship-quick`, `ship-bug`, hotfix path) per task. Not for `kind: research` (read and follow `dispatching-research-task` instead) or `kind: operational` (read and follow `dispatching-operational-task` instead) — those have different deliverables.
 
+**Queue-mode note.** When `/ship-execute` is running the flat worker queue, this file is a source for builder discipline, return fields, and gate rules only. The queued leaf worker is already the spawned Agent; do not call this wrapper from inside that worker and do not spawn another builder Agent from a worker.
+
 **Inputs the orchestrator must supply:**
 
 - `task_id` — e.g., `T-042`
@@ -48,6 +50,8 @@ The builder methodology (environment rules, worktree self-check, kind refusal, I
 
 **Model tier (build).** Read `models.build` from config.md — the invoking command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If the value is non-empty, pass `model: <value>` in the Agent call; if empty or absent, OMIT the `model:` field entirely so the subagent inherits the session model. Never hardcode a model literal. This applies to BOTH dispatch modes below — the sync `Agent(...)` call and the `Agent(run_in_background: true, ...)` call carry the same `model:` rule.
 
+**Effort tier (build/build_trivial).** Read `agent_effort.build` and `agent_effort.build_trivial` from config.md. If the task file declares `effort: S`, pass `effort: <agent_effort.build_trivial>` (default `low`); otherwise pass `effort: <agent_effort.build>` (default `medium`). If the selected value is empty/absent, OMIT `effort:` so the subagent inherits the runtime default. This applies to BOTH dispatch modes.
+
 **Plugin-relative paths are resolved here, not in the agent.** `${CLAUDE_PLUGIN_ROOT}` is not verified to expand inside a registered agent's body — resolve `data_impl_guide` and `quality_standards_digest` (each only when gated in) to literal paths before including them in the brief.
 
 Dispatch:
@@ -56,6 +60,7 @@ Dispatch:
 Agent(
   subagent_type: "shipyard:shipyard-disciplined-builder",
   model: <models.build value, or omit>,
+  effort: <agent_effort.build_trivial for effort:S, else agent_effort.build; omit if empty>,
   isolation: "worktree",
   run_in_background: <true for wave dispatch, false for --task/--hotfix>,
   prompt: "
@@ -110,19 +115,19 @@ After the Agent call returns, parse the reply. Ignore `TRACK_NOTES_FOR_NEXT_TASK
 When this playbook is followed with `dispatch_mode: background`, the dispatch shape changes from synchronous to asynchronous:
 
 **Sync mode (default, today's behavior):**
-1. Orchestrator calls `Agent(subagent_type: "shipyard:shipyard-disciplined-builder", prompt: <brief>)`.
+1. Orchestrator calls `Agent(subagent_type: "shipyard:shipyard-disciplined-builder", model: <models.build — omit if empty>, effort: <agent_effort.build_trivial for effort:S, else agent_effort.build; omit if empty>, prompt: <brief>)`.
 2. Agent blocks the orchestrator's iteration until the subagent returns.
 3. Orchestrator reads the Agent's return value, parses the structured contract inline, runs the gate (sha exists via `git cat-file -e` + `PROBE_EXIT: 0` + non-empty `PROBE_OUTPUT_TAIL` + anti-stub-scan on the diff), advances. The orchestrator does NOT re-run the probe — pre-merge, the worktree's environment isn't reconstructable in the orchestrator context; the probe's authoritative signal is the exit code the subagent captured, which the CLI already refused to record as COMPLETE if non-zero.
 
 **Background mode (v2.5.0+):**
-1. Orchestrator calls `Agent(subagent_type: "shipyard:shipyard-disciplined-builder", run_in_background: true, name: "builder-<task_id>", prompt: <brief>)`. Returns immediately with a task handle.
+1. Orchestrator calls `Agent(subagent_type: "shipyard:shipyard-disciplined-builder", model: <models.build — omit if empty>, effort: <agent_effort.build_trivial for effort:S, else agent_effort.build; omit if empty>, run_in_background: true, name: "builder-<task_id>", prompt: <brief>)`. Returns immediately with a task handle.
 2. Orchestrator writes the cursor with `stage: wave_<N>_waiting` and adds `task_id`, `agent_name: "builder-<task_id>"`, and the returned `agent_handle` to the `pending_subagents` list. Arms a Monitor on the event log for `subagent_completed` events. Exits.
 3. The subagent runs through its internal cycle in the background. At the end:
    - Persists the structured return via `shipyard-data task-return ... --data-dir {{data_dir}}`, which writes `{{data_dir}}/sprints/current/.subagent-returns/{{task_id}}.json` (Cycle step 8). The subagent MUST pass `--data-dir {{data_dir}}` from the brief rather than letting the CLI re-resolve — its own worktree can hash to a different project data dir than the one the orchestrator is watching, which is exactly the gap that stalls `wave_<N>_waiting` on a completed task the orchestrator never sees.
    - Emits `subagent_completed` event with task / status / commit_sha / probe_exit_code / capture_file fields, `capture_file` pointing at the `.json` (Cycle step 9).
    - Returns the inline structured response (Cycle step 10) — for sync-mode parity, but no orchestrator iteration reads it in background mode.
-4. The Monitor armed by step 2 wakes /loop the moment the event lands in the log.
-5. On the next /loop iteration, the orchestrator (ship-execute under `stage: wave_<N>_waiting`) sees the event, reads the `.json` capture file referenced in `capture_file=`, parses the structured contract from there, and runs the SAME orchestrator-side gate (sha exists via `git cat-file -e` + `probe_exit_code === 0` in the `.json` + non-empty output tail + anti-stub-scan). Removes `task_id` from `pending_subagents`. When `pending_subagents` is empty for the wave, advances cursor to `wave_<N>_boundary`.
+4. The Monitor armed by step 2 wakes /goal the moment the event lands in the log.
+5. On the next /goal iteration, the orchestrator (ship-execute under `stage: wave_<N>_waiting`) sees the event, reads the `.json` capture file referenced in `capture_file=`, parses the structured contract from there, and runs the SAME orchestrator-side gate (sha exists via `git cat-file -e` + `probe_exit_code === 0` in the `.json` + non-empty output tail + anti-stub-scan). Removes `task_id` from `pending_subagents`. When `pending_subagents` is empty for the wave, advances cursor to `wave_<N>_boundary`.
 
 **Key invariants preserved across both modes:**
 - The structured-return contract is identical (STATUS / COMMIT / PROBE_EXIT / PROBE_OUTPUT_TAIL).

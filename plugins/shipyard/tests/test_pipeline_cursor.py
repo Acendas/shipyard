@@ -1,7 +1,7 @@
 """Tests for the pipeline cursor protocol used by /ship-review and /ship-execute.
 
 The cursor (REVIEW-CURSOR.md, EXECUTE-CURSOR.md) is the persistence
-mechanism that makes both skills /loop-friendly: each invocation reads
+mechanism that makes both skills /goal-friendly: each invocation reads
 the cursor, runs one stage, writes the cursor for the next tick, and
 emits a structured terminal signal when the pipeline is done.
 
@@ -14,7 +14,7 @@ SKILL.md bodies and references/pipeline-cursor.md must satisfy:
 3. The terminal-signal protocol uses the exact load-bearing strings:
    - Event name `pipeline_terminal`
    - Marker text `CYCLE COMPLETE`
-   - Marker text `/loop should stop`
+   - Marker text `/goal should stop`
 4. The stuck-detection threshold (5) and hard ceiling (50) are
    documented consistently between the two references.
 5. The event vocabulary is identical between the two references
@@ -23,7 +23,7 @@ SKILL.md bodies and references/pipeline-cursor.md must satisfy:
 6. The no-op terminal path (already-archived sprint, already-complete
    sprint) is documented in both skills.
 
-Regression test: the original bug was that /loop /ship-review kept
+Regression test: the original bug was that /goal /ship-review kept
 firing wakeups after sprint archive because there was no terminal
 signal. The terminal_marker_strings test guards against that
 regression.
@@ -53,9 +53,9 @@ TICK_STARTED_EVENT = "pipeline_tick_started"
 TICK_COMPLETED_EVENT = "pipeline_tick_completed"
 STUCK_EVENT = "pipeline_stuck"
 TERMINAL_MARKER = "CYCLE COMPLETE"
-LOOP_STOP_MARKER = "/loop should stop"
+LOOP_STOP_MARKER = "/goal should stop"
 TICK_MARKER = "TICK COMPLETE"
-LOOP_CONTINUE_MARKER = "/loop continues"
+LOOP_CONTINUE_MARKER = "/goal continues"
 
 
 class TestCursorReferencesExist(unittest.TestCase):
@@ -83,7 +83,6 @@ class TestCursorSchemaDocumented(unittest.TestCase):
         "stage:",
         "iteration:",
         "last_advance_at:",
-        "loop_owner:",
         "status:",
         "next_action:",
         "terminal:",
@@ -108,9 +107,9 @@ class TestCursorSchemaDocumented(unittest.TestCase):
 class TestTerminalSignalProtocol(unittest.TestCase):
     """The terminal signal uses exact load-bearing strings.
 
-    Regression: original /loop bug fired wakeups indefinitely because
+    Regression: original /goal bug fired wakeups indefinitely because
     no terminal marker was printed. The skill bodies + cursor refs MUST
-    print "CYCLE COMPLETE" with "/loop should stop" and emit
+    print "CYCLE COMPLETE" with "/goal should stop" and emit
     pipeline_terminal.
     """
 
@@ -146,7 +145,7 @@ class TestTerminalSignalProtocol(unittest.TestCase):
 
 
 class TestTickContinueMarker(unittest.TestCase):
-    """Non-terminal ticks must print the 'continue' marker so /loop
+    """Non-terminal ticks must print the 'continue' marker so /goal
     knows to schedule another wakeup."""
 
     def _assert_tick_continue_in(self, path):
@@ -247,6 +246,10 @@ class TestStageMapDocumented(unittest.TestCase):
 
     REVIEW_STAGES = [
         "preflight",
+        "review_scan",
+        "review_plan",
+        "review_fix_wave_N",
+        "review_validation",
         "code_review_iter",
         "simplify",
         "tests",
@@ -259,13 +262,9 @@ class TestStageMapDocumented(unittest.TestCase):
         "verdict",
         "demo_probe",
         "demo_user",
-        "retro_step_1",
-        "retro_step_2",
-        "retro_step_3",
-        "retro_step_4",
+        "retro_step_N",
         "release_step_1",
-        "release_step_2",
-        "release_step_3",
+        "release_step_N",
         "archive",
         "terminal",
     ]
@@ -324,17 +323,17 @@ class TestNoOpTerminalPath(unittest.TestCase):
     already-archived / already-complete state must emit
     pipeline_terminal with outcome=noop and print the terminal marker.
 
-    This is the exact path that fired the original /loop bug.
+    This is the exact path that fired the original /goal bug.
     """
 
     def test_review_ref_documents_noop_terminal(self):
         text = read(SHIP_REVIEW_CURSOR_REF)
-        self.assertIn("sprint_already_archived", text)
+        self.assertIn("already archived", text)
         self.assertIn("outcome=noop", text)
 
     def test_execute_ref_documents_noop_terminal(self):
         text = read(SHIP_EXECUTE_CURSOR_REF)
-        self.assertIn("sprint_already_complete", text)
+        self.assertIn("already complete", text)
         self.assertIn("outcome=noop", text)
 
 
@@ -360,17 +359,17 @@ class TestShipStatusRendersCursors(unittest.TestCase):
 
 
 class TestDirectVsLoopInvocationDocumented(unittest.TestCase):
-    """The two invocation paths (direct chain vs /loop per-tick) must
+    """The two invocation paths (direct chain vs /goal per-tick) must
     be documented in both references so future maintainers understand
     the dispatch contract."""
 
     def _assert_both_paths_in(self, path):
         text = read(path)
-        self.assertIn("/loop", text)
+        self.assertIn("/goal", text)
         # Look for some form of "direct" or "single-tick" override
         self.assertTrue(
             re.search(r"Direct invocation|single-tick|chain", text),
-            f"{path.name} missing direct-invocation vs /loop dispatch contract",
+            f"{path.name} missing direct-invocation vs /goal dispatch contract",
         )
 
     def test_review_ref_documents_both_paths(self):
@@ -381,12 +380,12 @@ class TestDirectVsLoopInvocationDocumented(unittest.TestCase):
 
 
 class TestExecuteCursorCoexistsWithHandoff(unittest.TestCase):
-    """ship-execute must document how the cursor coexists with
-    HANDOFF.md so the explicit user-pause path isn't broken."""
+    """ship-execute must document explicit pause/resume cursor handling."""
 
-    def test_execute_ref_documents_handoff_coexistence(self):
+    def test_execute_ref_documents_pause_resume(self):
         text = read(SHIP_EXECUTE_CURSOR_REF)
-        self.assertIn("HANDOFF.md", text)
+        self.assertIn("cursor pause execute", text)
+        self.assertIn("cursor resume execute", text)
 
     def test_execute_skill_documents_handoff_coexistence(self):
         text = read(SHIP_EXECUTE_SKILL)
@@ -396,45 +395,40 @@ class TestExecuteCursorCoexistsWithHandoff(unittest.TestCase):
 
 
 class TestExecuteWaveGatePreserved(unittest.TestCase):
-    """The verifying-wave-completion internal ScheduleWakeup pattern
-    must be preserved — the cursor's wave_N_gate stage must NOT
-    duplicate that loop at the outer layer."""
+    """The verifying-wave-completion gate remains a bounded stage."""
 
     def test_execute_ref_calls_out_nested_loop(self):
         text = read(SHIP_EXECUTE_CURSOR_REF)
         self.assertIn("verifying-wave-completion", text)
-        self.assertTrue(
-            re.search(r"nested|inside|internal", text, re.IGNORECASE),
-            "execute pipeline-cursor.md must document the nested wave-gate loop",
-        )
+        self.assertIn("wave_N_gate", text)
 
 
 # Load-bearing strings for the v2.8.2 handoff-seam wakeup-leak fix.
-LOOP_LEAK_EVENT = "pipeline_loop_leak_detected"
-LOOP_LEAK_MARKER = "LOOP LEAK"
+LOOP_LEAK_EVENT = "pipeline_repeated_noop_detected"
+LOOP_LEAK_MARKER = "REPEATED NOOP"
 
 
 class TestHandoffSeamWakeupLeak(unittest.TestCase):
-    """v2.8.2 regression guard. A customer's auto-bootstrapped /loop
+    """v2.8.2 regression guard. A customer's auto-bootstrapped /goal
     (firing /shipyard:ship-execute) kept re-firing after the sprint had
     completed and been archived, because:
 
       1. The execute->review handoff terminal printed the NEXT-UP line
-         AFTER the /loop-stop marker, so the loop-driver's last-read line
+         AFTER the /goal-stop marker, so the loop-driver's last-read line
          said "keep going to review" instead of "stop".
       2. The no-op terminal sweep (the safety net) only *printed* an
          advisory marker and treated its event emit as optional — in the
          affected project the noop terminal event had NEVER fired, so a
          leaked wakeup left no audit-log trace and the loop never died.
 
-    Fix: the /loop-stop marker is the FINAL signal at the handoff
+    Fix: the /goal-stop marker is the FINAL signal at the handoff
     terminal; the no-op emit is non-optional; a repeat no-op against the
-    same dead sprint self-detects and screams (pipeline_loop_leak_detected
-    + a hard LOOP LEAK marker) so the leak is loud and self-terminating.
+    same dead sprint self-detects and screams (pipeline_repeated_noop_detected
+    + a hard REPEATED NOOP marker) so the leak is loud and self-terminating.
     """
 
     def test_execute_handoff_stop_marker_is_the_last_signal(self):
-        """In the execute terminal_handoff banner, the /loop-stop marker
+        """In the execute terminal_handoff banner, the /goal-stop marker
         must come AFTER the NEXT UP /ship-review line. Since v2.9.0 the CLI
         prints the banner (cursor-cli.mjs — behavior pinned in
         test_cursor_cli.mjs); this asserts the skill documents the same
@@ -446,10 +440,10 @@ class TestHandoffSeamWakeupLeak(unittest.TestCase):
         nextup = region.find("NEXT UP: /ship-review")
         stop = region.find(LOOP_STOP_MARKER)
         self.assertNotEqual(nextup, -1, "handoff banner missing NEXT UP: /ship-review")
-        self.assertNotEqual(stop, -1, "handoff banner missing /loop-stop marker")
+        self.assertNotEqual(stop, -1, "handoff banner missing /goal-stop marker")
         self.assertGreater(
             stop, nextup,
-            "execute handoff: /loop-stop marker must be the FINAL line, "
+            "execute handoff: /goal-stop marker must be the FINAL line, "
             "printed AFTER NEXT UP — else the loop-driver reads 'keep going'",
         )
 
@@ -463,7 +457,7 @@ class TestHandoffSeamWakeupLeak(unittest.TestCase):
                 text,
             ),
             "execute handoff must frame /ship-review as a separate user-started "
-            "cycle, not a continuation of the execute /loop",
+            "cycle, not a continuation of the execute /goal",
         )
 
     def test_both_refs_document_loop_leak_event(self):
@@ -489,7 +483,7 @@ class TestHandoffSeamWakeupLeak(unittest.TestCase):
             text = read(p)
             self.assertIn("cursor noop", text, f"{p.name} must route the no-op path through the CLI")
             self.assertRegex(
-                text, r"repeat-leak|pipeline_loop_leak_detected",
+                text, r"repeat-leak|pipeline_repeated_noop_detected",
                 f"{p.name} must document the CLI's repeat-leak self-detection",
             )
 
@@ -501,13 +495,13 @@ class TestHandoffSeamWakeupLeak(unittest.TestCase):
                 f"(skipping it is what made the original leak invisible)",
             )
 
-    def test_terminal_paths_clean_up_cron_fallback(self):
+    def test_terminal_paths_have_no_legacy_driver_fallback(self):
         for p in (SHIP_EXECUTE_SKILL, SHIP_REVIEW_SKILL):
-            self.assertIn(
-                "CronDelete", read(p),
-                f"{p.name} terminal/no-op path must CronDelete any "
-                f"pipeline_loop_bootstrap_fallback cron",
-            )
+            text = read(p)
+            self.assertNotIn("CronCreate", text)
+            self.assertNotIn("CronDelete", text)
+            self.assertNotIn("pipeline_goal_driver_fallback", text)
+            self.assertNotIn("/loop", text)
 
 
 if __name__ == "__main__":

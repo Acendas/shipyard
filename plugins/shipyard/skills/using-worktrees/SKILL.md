@@ -30,6 +30,8 @@ The orchestrator dispatches a subagent with `isolation: "worktree"` on the `Agen
 ```
 Agent(
   subagent_type: "general-purpose",
+  model: <caller-resolved model tier, or omit>,
+  effort: <caller-resolved agent_effort tier, or omit>,
   isolation: "worktree",
   prompt: <task-loop prompt template, parameterized>
 )
