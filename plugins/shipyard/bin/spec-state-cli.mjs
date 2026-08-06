@@ -30,10 +30,12 @@ import {
   readFileSync,
   realpathSync,
   renameSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { join, relative } from "node:path";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
+import { readRequireParkEvidence } from "./config-read.mjs";
 import {
   BACKLOG_REMOVING_STATUSES,
   FEATURE_TRANSITIONS,
@@ -999,6 +1001,71 @@ function backlogSet(dataDir, args) {
   });
 }
 
+/**
+ * `feature assign-ac-ids <FID>` — give every Gherkin scenario under the
+ * feature's `## Acceptance Criteria` section a stable `@AC-<n>` tag, so
+ * acceptance criteria have machine-addressable ids that `verify-ac-coverage`
+ * (and the `// AC-<n>` code markers builders emit) can key on. Idempotent:
+ * a scenario already carrying an `@AC-<n>` tag is left untouched; new ids
+ * continue from the current max. Tags are inserted as a gherkin tag line
+ * directly above the scenario, at the scenario's indentation.
+ *
+ * Prints `assign-ac-ids <FID>: assigned N (total M)`.
+ */
+function featureAssignAcIds(dataDir, args) {
+  const fid = args[0];
+  if (!fid) fail(2, "usage: feature assign-ac-ids <FID>");
+  withNamedLock(dataDir, `feature-${fid}`, () => {
+    const path = resolveFeatureFile(dataDir, fid);
+    const content = readFileSync(path, "utf8");
+    const lines = content.split(/\r?\n/);
+
+    // Bound the AC section: from the `## Acceptance Criteria` heading to the
+    // next `## ` heading (or EOF). Only tag scenarios inside it.
+    const acStart = lines.findIndex((l) => /^##\s+Acceptance Criteria\s*$/i.test(l));
+    if (acStart === -1) {
+      process.stdout.write(`assign-ac-ids ${fid}: no "## Acceptance Criteria" section — nothing to tag\n`);
+      return;
+    }
+    let acEnd = lines.length;
+    for (let i = acStart + 1; i < lines.length; i++) {
+      if (/^##\s+/.test(lines[i])) { acEnd = i; break; }
+    }
+
+    // Highest existing @AC-<n> anywhere in the section → continue from there.
+    let maxId = 0;
+    for (let i = acStart; i < acEnd; i++) {
+      const m = lines[i].match(/@AC-(\d+)\b/);
+      if (m) maxId = Math.max(maxId, parseInt(m[1], 10));
+    }
+
+    const out = [];
+    let assigned = 0;
+    let total = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const inSection = i > acStart && i < acEnd;
+      const scen = inSection ? lines[i].match(/^(\s*)(Scenario|Scenario Outline):/) : null;
+      if (scen) {
+        total += 1;
+        // Preceding non-blank line already carries an @AC tag? then keep as-is.
+        let j = out.length - 1;
+        while (j >= 0 && out[j].trim() === "") j--;
+        const prev = j >= 0 ? out[j] : "";
+        if (!/@AC-\d+\b/.test(prev)) {
+          maxId += 1;
+          assigned += 1;
+          out.push(`${scen[1]}@AC-${maxId}`);
+        }
+      }
+      out.push(lines[i]);
+    }
+
+    if (assigned > 0) atomicWriteFile(path, out.join("\n"));
+    logEvent(dataDir, "feature_ac_ids_assigned", { feature: fid, assigned, total });
+    process.stdout.write(`assign-ac-ids ${fid}: assigned ${assigned} (total ${total})\n`);
+  });
+}
+
 // --- idea commands -----------------------------------------------------------
 
 function ideaSetStatus(dataDir, args) {
@@ -1087,8 +1154,10 @@ function taskSetStatus(dataDir, args) {
   const toStatus = args[1];
   const reasonIdx = args.indexOf("--reason");
   const reason = reasonIdx !== -1 ? args[reasonIdx + 1] : undefined;
+  const evidenceIdx = args.indexOf("--evidence");
+  const evidence = evidenceIdx !== -1 ? args[evidenceIdx + 1] : undefined;
   const force = args.includes("--force");
-  if (!tid || !toStatus) fail(2, "usage: task set-status <TID> <status> [--reason \"...\"] [--force]");
+  if (!tid || !toStatus) fail(2, "usage: task set-status <TID> <status> [--reason \"...\"] [--evidence <path>] [--force]");
   if (!TASK_STATUS_ALLOWED.has(toStatus)) {
     fail(2, `spec-state: task set-status: unknown status "${toStatus}". Allowed: ${[...TASK_STATUS_ALLOWED].join(", ")}`);
   }
@@ -1102,6 +1171,32 @@ function taskSetStatus(dataDir, args) {
     const fm = parseFm(content);
     if (!fm) fail(3, `spec-state: ${tid} has no frontmatter block — refusing`);
     const fromStatus = getScalar(fm.block, "status");
+
+    // Park-evidence price parity (rec 2, opt-in via execution.require_park_evidence).
+    // A task that was actively being built and is now parked should have a
+    // capture/return to show for it — mirroring what `task accept-return`
+    // demands for completion. Scoped to the in-progress → parked transition:
+    // pre-dispatch parks (from approved/todo — routing/design blocks like
+    // misrouted_kind or design_ambiguity) legitimately have NO capture, so
+    // requiring evidence there would break them. `--force` bypasses.
+    if (
+      TASK_HELD_STATUS_FIELDS[toStatus] &&
+      fromStatus === "in-progress" &&
+      !force &&
+      readRequireParkEvidence(dataDir)
+    ) {
+      let evidenceOk = false;
+      if (evidence) {
+        try { evidenceOk = statSync(evidence).size > 0; } catch { evidenceOk = false; }
+      }
+      if (!evidenceOk) {
+        fail(
+          3,
+          `spec-state: task set-status ${toStatus} from in-progress requires --evidence <path> to a non-empty capture/return file ` +
+            `(execution.require_park_evidence is on). Point it at the builder's capture log or .subagent-returns/<id>.json, or pass --force.`,
+        );
+      }
+    }
 
     if (fromStatus === "done" && toStatus !== "done" && !force) {
       fail(
@@ -1412,8 +1507,10 @@ function dispatch(dataDir, entity, sub, rest) {
         return featureRecordProof(dataDir, rest);
       case "check-probes":
         return featureCheckProbes(dataDir, rest);
+      case "assign-ac-ids":
+        return featureAssignAcIds(dataDir, rest);
       default:
-        fail(2, `shipyard-data feature: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes`);
+        fail(2, `shipyard-data feature: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes|assign-ac-ids`);
     }
   } else if (entity === "backlog") {
     switch (sub) {

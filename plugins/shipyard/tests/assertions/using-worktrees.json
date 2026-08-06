@@ -5,6 +5,21 @@
     "pattern": "isolation: \"worktree\"|isolation: worktree"
   },
   {
+    "name": "has_no_isolation_section",
+    "type": "contains",
+    "pattern": "## Choosing No Isolation"
+  },
+  {
+    "name": "no_isolation_is_sequential_only",
+    "type": "contains",
+    "pattern": "sequential-only"
+  },
+  {
+    "name": "integration_gate_vacuous_when_no_iso",
+    "type": "contains",
+    "pattern": "vacuously satisfied"
+  },
+  {
     "name": "has_branch_naming",
     "type": "contains",
     "pattern": "shipyard/wt-"

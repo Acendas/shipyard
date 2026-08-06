@@ -34,6 +34,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { evaluateFreshness, FULL_SUITE_KEY } from "./verify-ledger.mjs";
+import { readMaxParkedRatio } from "./config-read.mjs";
 
 /**
  * Parse a YAML-ish frontmatter block from markdown content.
@@ -252,6 +253,29 @@ export function evaluateExecuteTerminal({ dataDir }) {
     reasons.push(
       `Missing evidence for task ${t} — need task_dispatch_returned status=complete, or (for a parked task) a task_blocked event`,
     );
+  }
+
+  // Completion-ratio gate (deferral guard). Parking satisfies a task's slot
+  // above — a deliberate deadlock fix (2026-07 Fable review) — but with NO
+  // ceiling that allowance lets a sprint park its way to green. Cap the parked
+  // fraction; above the cap, refuse the terminal UNLESS a `terminal_parked_accepted`
+  // event records that the user consciously accepted the parked set. That event
+  // is the escape hatch the deadlock fix needs (a sprint CAN still terminate
+  // with heavy parking) while removing the SILENT path (it now takes an explicit,
+  // logged human acknowledgement, surfaced by the skill via AskUserQuestion).
+  if (allTaskIds.length > 0) {
+    const parkedInSprint = allTaskIds.filter((t) => tasksParked.has(t) && !tasksCompleted.has(t));
+    const ratio = parkedInSprint.length / allTaskIds.length;
+    const maxRatio = readMaxParkedRatio(dataDir);
+    const accepted = events.some((ev) => ev.type === "terminal_parked_accepted");
+    if (ratio > maxRatio && !accepted) {
+      const pct = (n) => `${Math.round(n * 100)}%`;
+      reasons.push(
+        `Parked ratio ${pct(ratio)} exceeds max ${pct(maxRatio)} — ${parkedInSprint.length} of ${allTaskIds.length} tasks parked ` +
+          `(${parkedInSprint.join(", ")}). Complete more tasks, or record explicit user acceptance with ` +
+          `\`shipyard-data events emit terminal_parked_accepted\` (only after confirming with the user — this is the deliberate escape hatch, not a rubber stamp).`,
+      );
+    }
   }
 
   // Sprint-complete predicate evidence.

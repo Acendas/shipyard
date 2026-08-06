@@ -36,17 +36,19 @@ shipyard-data verify-wave-integrated
 
 ## Invariant 4 — Spec coverage shows no orphan AC for the sprint slice
 
-**What it checks.** Every acceptance criterion in every linked feature maps to either a passing test (via the existing `acceptance_probe` / `demo_probe` linkage) or an implementation marker in the diff. Orphan AC = no mapping.
+**What it checks.** Every `@AC-<n>`-tagged acceptance criterion in every linked feature has an `AC-<n>` marker (a `// AC-<n>` / `# AC-<n>` code marker, or the `@AC-<n>` tag copied into a test) somewhere in the sprint diff. A tagged AC with no marker is an orphan. This is the single sprint invariant that structurally resists a deferral-heavy sprint passing, so it is CLI-backed (not prose-adjudicated) — the deferral-bias review flagged it as previously the softest-enforced invariant with no primitive.
 
-**Primitive.** Read feature spec files and the diff `sprint_base_sha..sprint_head_sha`. For each AC, search the diff and the linked task files for either:
+**Primitive (deterministic).**
 
-- An `acceptance_probe:` field on a task that references this AC, AND a passing run of that probe in the event log (`task_loop_iteration` with `probe_exit: 0`), OR
-- A test file in the diff whose path matches the AC's `tests:` field, OR
-- An implementation file in the diff containing a comment-marker like `// AC-<id>` or `# AC-<id>`.
+```text
+shipyard-data verify-ac-coverage --base <sprint_base_sha> --head <sprint_head_sha>
+# exit 0 = no orphans; exit 3 = orphan AC(s) (listed) when execution.enforce_ac_coverage is true.
+# Features with NO @AC-<n> tags print WARN and never fail — the migration-safety valve.
+```
 
-If none of these exist, the AC is an orphan.
+Acceptance criteria get stable `@AC-<n>` ids from `shipyard-data feature assign-ac-ids <FID>` (run at authoring and normalized at sprint-plan time); builders emit `// AC-<n>` markers for the criteria their task implements. A feature that has never had ids assigned is advisory only, so this gate cannot false-block a project mid-adoption.
 
-**Verdict.** PASS = zero orphan AC. FAIL = one or more orphans (report them with their feature ID).
+**Verdict.** PASS = `verify-ac-coverage` exits 0. FAIL = exit 3 (orphans listed with their feature ID). Advisory-only (WARN, PASS) when `execution.enforce_ac_coverage` is false or the feature has no tagged ACs.
 
 ## Invariant 5 — No silent-failure markers in the sprint event-log window
 
@@ -70,16 +72,18 @@ Filter to events whose timestamp is after the sprint's `started_at` (from SPRINT
 
 ## Invariant 6 — No uncommitted state across any builder worktree
 
-**What it checks.** No `shipyard/wt-*` worktree carries uncommitted state at sprint completion. By this point all should have been merged back and pruned during wave-boundary cleanup; any survivor with dirty state is a leak.
+**What it checks.** No `shipyard/wt-*` worktree carries uncommitted state at sprint completion. By this point all should have been merged back and pruned during wave-boundary cleanup; any survivor with dirty state is a leak. **Isolation off (in-place sprint):** there are no `shipyard/wt-*` worktrees, so also assert the shared main working tree is clean — a failed in-place builder's residue lives there, invisible to the wt-scoped check.
 
 **Primitive.**
 
 ```text
 shipyard-context check-dirty-worktrees
 # stdout = one absolute path per dirty shipyard/wt-* worktree, empty if all clean
+shipyard-context check-dirty-tree
+# isolation-off only: porcelain of the main working tree, empty if clean
 ```
 
-**Verdict.** PASS = no leftover worktrees, or all leftover worktrees are clean. FAIL = one or more dirty.
+**Verdict.** PASS = no leftover worktrees, all leftover worktrees clean, AND (isolation off) the main working tree is clean. FAIL = one or more dirty.
 
 ## Invariant 7 — Code-review scanners report no must-fix findings
 

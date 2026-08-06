@@ -981,5 +981,496 @@ class TestShipyardDataDoctor(unittest.TestCase):
         self.assertEqual(code, 0, f'emit failed: {err}')
 
 
+class TestShipyardDataConfigIsolation(unittest.TestCase):
+    """`config set-isolation <worktree|none>` — the persistent backing store
+    for `/ship-execute --isolation`. Validates the enum, mutates the nested
+    execution.isolation key atomically, and preserves the inline comment.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-isolation-test-')
+        self.plugin_data = os.path.join(self.tmp, 'plugin-data')
+        self.project_dir = os.path.join(self.tmp, 'project')
+        os.makedirs(self.plugin_data)
+        os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
+        self.env = {
+            'CLAUDE_PROJECT_DIR': self.project_dir,
+            'CLAUDE_PLUGIN_DATA': self.plugin_data,
+        }
+        out, err, code = run_cli(['onboarding', 'bootstrap'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.data_dir = next(
+            line.split('=', 1)[1] for line in out.splitlines()
+            if line.startswith('SHIPYARD_DATA=')
+        )
+        self.config_path = os.path.join(self.data_dir, 'config.md')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _isolation_line(self):
+        with open(self.config_path) as f:
+            for line in f:
+                if line.strip().startswith('isolation:'):
+                    return line
+        return None
+
+    def test_default_template_is_worktree(self):
+        line = self._isolation_line()
+        self.assertIsNotNone(line, 'template must ship execution.isolation')
+        self.assertIn('worktree', line)
+
+    def test_set_isolation_none(self):
+        out, err, code = run_cli(['config', 'set-isolation', 'none'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertIn('execution.isolation: none', out)
+        line = self._isolation_line()
+        self.assertRegex(line, r'^\s+isolation:\s+none')
+        # Inline comment must survive the atomic mutation.
+        self.assertIn('#', line)
+
+    def test_set_isolation_worktree_roundtrip(self):
+        run_cli(['config', 'set-isolation', 'none'], env_extra=self.env)
+        out, err, code = run_cli(['config', 'set-isolation', 'worktree'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertRegex(self._isolation_line(), r'^\s+isolation:\s+worktree')
+
+    def test_rejects_invalid_value(self):
+        out, err, code = run_cli(['config', 'set-isolation', 'bogus'], env_extra=self.env)
+        self.assertEqual(code, 2, 'invalid isolation value must exit 2')
+        self.assertIn('worktree|none', err)
+        # config.md must be untouched on rejection.
+        self.assertIn('worktree', self._isolation_line())
+
+    def test_rejects_parallel_no_iso_is_documented_sequential_only(self):
+        # Guard: the skill contract states no-isolation is sequential-only.
+        # This pins the CLI enum surface; the dispatch coercion lives in the
+        # ship-execute skill (prose gate), asserted in the eval suite.
+        out, _, code = run_cli(['config', 'set-isolation', 'parallel'], env_extra=self.env)
+        self.assertEqual(code, 2)
+
+
+class TestShipyardDataEnsureSharedCaches(unittest.TestCase):
+    """`ensure-shared-caches` — materialize the config `shared_caches:` map into
+    .claude/settings.json `env` (the injection seam for warm package-manager
+    download caches across worktrees). Opt-in, absolute-paths-only, idempotent,
+    and non-destructive to other settings.json keys.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-sharedcache-test-')
+        self.plugin_data = os.path.join(self.tmp, 'plugin-data')
+        self.project_dir = os.path.join(self.tmp, 'project')
+        os.makedirs(self.plugin_data)
+        os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
+        self.env = {
+            'CLAUDE_PROJECT_DIR': self.project_dir,
+            'CLAUDE_PLUGIN_DATA': self.plugin_data,
+        }
+        out, err, code = run_cli(['onboarding', 'bootstrap'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.data_dir = next(
+            line.split('=', 1)[1] for line in out.splitlines()
+            if line.startswith('SHIPYARD_DATA=')
+        )
+        self.config_path = os.path.join(self.data_dir, 'config.md')
+        self.settings_path = os.path.join(self.project_dir, '.claude', 'settings.json')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _add_shared_cache(self, line):
+        with open(self.config_path) as f:
+            s = f.read()
+        s = s.replace('shared_caches:\n', f'shared_caches:\n  {line}\n', 1)
+        with open(self.config_path, 'w') as f:
+            f.write(s)
+
+    def test_empty_is_noop(self):
+        out, err, code = run_cli(['ensure-shared-caches'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertIn('none configured', out)
+        self.assertFalse(os.path.exists(self.settings_path),
+                         'no-op must not create settings.json')
+
+    def test_absolute_value_written_to_env(self):
+        self._add_shared_cache('GRADLE_USER_HOME: /Users/you/.gradle')
+        out, err, code = run_cli(['ensure-shared-caches'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        with open(self.settings_path) as f:
+            settings = json.load(f)
+        self.assertEqual(settings['env']['GRADLE_USER_HOME'], '/Users/you/.gradle')
+
+    def test_relative_value_refused(self):
+        self._add_shared_cache('npm_config_cache: relative/bad')
+        out, err, code = run_cli(['ensure-shared-caches'], env_extra=self.env)
+        self.assertIn('must resolve to an absolute path', err)
+        # Nothing valid to write → no settings.json.
+        self.assertFalse(os.path.exists(self.settings_path))
+
+    def test_prunes_removed_key_but_keeps_user_env(self):
+        # Shipyard writes GRADLE_USER_HOME; a user separately hand-sets MY_VAR.
+        self._add_shared_cache('GRADLE_USER_HOME: /Users/you/.gradle')
+        run_cli(['ensure-shared-caches'], env_extra=self.env)
+        with open(self.settings_path) as f:
+            settings = json.load(f)
+        settings['env']['MY_VAR'] = 'user-set'
+        with open(self.settings_path, 'w') as f:
+            json.dump(settings, f)
+        # Now remove the cache entry from config and re-run.
+        with open(self.config_path) as f:
+            s = f.read()
+        s = s.replace('  GRADLE_USER_HOME: /Users/you/.gradle\n', '')
+        with open(self.config_path, 'w') as f:
+            f.write(s)
+        run_cli(['ensure-shared-caches'], env_extra=self.env)
+        with open(self.settings_path) as f:
+            settings = json.load(f)
+        self.assertNotIn('GRADLE_USER_HOME', settings.get('env', {}),
+                         'our removed key must be pruned')
+        self.assertEqual(settings['env']['MY_VAR'], 'user-set',
+                         "a user's own env key must never be pruned")
+
+    def test_expands_home_and_tilde(self):
+        home = os.path.expanduser('~')
+        self._add_shared_cache('CARGO_HOME: ~/.cargo')
+        self._add_shared_cache('PIP_CACHE_DIR: ${HOME}/.cache/pip')
+        run_cli(['ensure-shared-caches'], env_extra={**self.env, 'HOME': home})
+        with open(self.settings_path) as f:
+            settings = json.load(f)
+        self.assertEqual(settings['env']['CARGO_HOME'], os.path.join(home, '.cargo'))
+        self.assertEqual(settings['env']['PIP_CACHE_DIR'], f'{home}/.cache/pip')
+
+    def test_quoted_value_with_hash_survives(self):
+        # F6: a quoted value may contain a space or '#' without truncation.
+        self._add_shared_cache('GRADLE_USER_HOME: "/Users/you/My Cache#1"')
+        run_cli(['ensure-shared-caches'], env_extra=self.env)
+        with open(self.settings_path) as f:
+            settings = json.load(f)
+        self.assertEqual(settings['env']['GRADLE_USER_HOME'], '/Users/you/My Cache#1')
+
+    def test_preserves_other_settings_keys(self):
+        os.makedirs(os.path.dirname(self.settings_path), exist_ok=True)
+        with open(self.settings_path, 'w') as f:
+            json.dump({'worktree': {'baseRef': 'head'}, 'env': {'EXISTING': '1'}}, f)
+        self._add_shared_cache('CARGO_HOME: /Users/you/.cargo')
+        out, err, code = run_cli(['ensure-shared-caches'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        with open(self.settings_path) as f:
+            settings = json.load(f)
+        self.assertEqual(settings['worktree']['baseRef'], 'head',
+                         'unrelated keys must survive')
+        self.assertEqual(settings['env']['EXISTING'], '1',
+                         'pre-existing env keys must survive')
+        self.assertEqual(settings['env']['CARGO_HOME'], '/Users/you/.cargo')
+
+    def test_idempotent(self):
+        self._add_shared_cache('GOMODCACHE: /Users/you/go/pkg/mod')
+        run_cli(['ensure-shared-caches'], env_extra=self.env)
+        with open(self.settings_path) as f:
+            first = f.read()
+        run_cli(['ensure-shared-caches'], env_extra=self.env)
+        with open(self.settings_path) as f:
+            second = f.read()
+        self.assertEqual(first, second, 're-run must be a no-op byte-for-byte')
+
+
+class TestShipyardDataResolveIsolation(unittest.TestCase):
+    """`resolve-isolation` — the single deterministic on/off answer used by
+    /ship-execute so the dispatch decision has a CLI source of truth (F1)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-resolveiso-test-')
+        self.plugin_data = os.path.join(self.tmp, 'plugin-data')
+        self.project_dir = os.path.join(self.tmp, 'project')
+        os.makedirs(self.plugin_data)
+        os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
+        self.env = {
+            'CLAUDE_PROJECT_DIR': self.project_dir,
+            'CLAUDE_PLUGIN_DATA': self.plugin_data,
+        }
+        run_cli(['onboarding', 'bootstrap'], env_extra=self.env)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_default_is_worktree(self):
+        out, err, code = run_cli(['resolve-isolation'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.strip(), 'worktree')
+
+    def test_config_none_resolves_none(self):
+        run_cli(['config', 'set-isolation', 'none'], env_extra=self.env)
+        out, _, code = run_cli(['resolve-isolation'], env_extra=self.env)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), 'none')
+
+    def test_flag_overrides_config(self):
+        run_cli(['config', 'set-isolation', 'none'], env_extra=self.env)
+        out, _, _ = run_cli(['resolve-isolation', '--flag', 'true'], env_extra=self.env)
+        self.assertEqual(out.strip(), 'worktree', 'flag must win over config')
+
+    def test_flag_vocabularies(self):
+        for token, expect in [('false', 'none'), ('none', 'none'), ('off', 'none'),
+                              ('true', 'worktree'), ('worktree', 'worktree'), ('on', 'worktree')]:
+            out, _, code = run_cli(['resolve-isolation', '--flag', token], env_extra=self.env)
+            self.assertEqual((out.strip(), code), (expect, 0), f'token {token!r}')
+
+    def test_bad_flag_exits_2(self):
+        _, err, code = run_cli(['resolve-isolation', '--flag', 'maybe'], env_extra=self.env)
+        self.assertEqual(code, 2)
+        self.assertIn('invalid --flag', err)
+
+
+class TestWorkerQueueIsolationGuard(unittest.TestCase):
+    """Enqueue refuses parallel builders when isolation is off — the structural
+    backstop against parallel-in-place corruption (F1). Scoped to ship-execute;
+    ship-review (read-only scanners) is never blocked."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-queueguard-test-')
+        self.plugin_data = os.path.join(self.tmp, 'plugin-data')
+        self.project_dir = os.path.join(self.tmp, 'project')
+        os.makedirs(self.plugin_data)
+        os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
+        self.env = {
+            'CLAUDE_PROJECT_DIR': self.project_dir,
+            'CLAUDE_PLUGIN_DATA': self.plugin_data,
+        }
+        run_cli(['onboarding', 'bootstrap'], env_extra=self.env)
+        self.input = os.path.join(self.tmp, 'items.json')
+        with open(self.input, 'w') as f:
+            json.dump([{'id': 'T-1'}], f)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _enqueue(self, extra):
+        return run_cli(['queue', 'enqueue', '--pipeline', 'ship-execute',
+                        '--stage', 'wave_1_dispatch', '--input', self.input] + extra,
+                       env_extra=self.env)
+
+    def test_config_none_blocks_ship_execute_enqueue(self):
+        run_cli(['config', 'set-isolation', 'none'], env_extra=self.env)
+        _, err, code = self._enqueue([])
+        self.assertEqual(code, 2)
+        self.assertIn('sequential-only', err)
+
+    def test_require_isolation_none_blocks(self):
+        _, err, code = self._enqueue(['--require-isolation', 'false'])
+        self.assertEqual(code, 2)
+        self.assertIn('sequential-only', err)
+
+    def test_require_isolation_worktree_allows(self):
+        out, err, code = self._enqueue(['--require-isolation', 'worktree'])
+        self.assertEqual(code, 0, err)
+        self.assertIn('enqueued', out)
+
+    def test_default_worktree_allows(self):
+        out, err, code = self._enqueue([])
+        self.assertEqual(code, 0, err)
+
+    def test_ship_review_not_blocked_by_config_none(self):
+        run_cli(['config', 'set-isolation', 'none'], env_extra=self.env)
+        out, err, code = run_cli(['queue', 'enqueue', '--pipeline', 'ship-review',
+                                  '--stage', 'review_fix_wave', '--input', self.input],
+                                 env_extra=self.env)
+        self.assertEqual(code, 0, f'read-only ship-review must not be blocked: {err}')
+
+    def test_bad_require_isolation_exits_2(self):
+        _, err, code = self._enqueue(['--require-isolation', 'nope'])
+        self.assertEqual(code, 2)
+        self.assertIn('invalid --require-isolation', err)
+
+
+class TestParkEvidenceGate(unittest.TestCase):
+    """rec 2: execution.require_park_evidence gates in-progress → parked
+    transitions on a real --evidence file. Off by default; routing parks
+    (from non-in-progress) never require evidence."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-parkev-test-')
+        self.plugin_data = os.path.join(self.tmp, 'plugin-data')
+        self.project_dir = os.path.join(self.tmp, 'project')
+        os.makedirs(self.plugin_data)
+        os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
+        self.env = {'CLAUDE_PROJECT_DIR': self.project_dir, 'CLAUDE_PLUGIN_DATA': self.plugin_data}
+        out, _, _ = run_cli(['onboarding', 'bootstrap'], env_extra=self.env)
+        self.data_dir = next(l.split('=', 1)[1] for l in out.splitlines() if l.startswith('SHIPYARD_DATA='))
+        self.tdir = os.path.join(self.data_dir, 'spec', 'tasks')
+        os.makedirs(self.tdir, exist_ok=True)
+        self._enable()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _enable(self):
+        with open(self.data_dir + '/config.md') as f:
+            s = f.read()
+        with open(self.data_dir + '/config.md', 'w') as f:
+            f.write(s.replace('require_park_evidence: false', 'require_park_evidence: true'))
+
+    def _task(self, tid, status):
+        with open(os.path.join(self.tdir, f'{tid}-x.md'), 'w') as f:
+            f.write(f'---\nid: {tid}\nstatus: {status}\n---\nbody\n')
+
+    def test_in_progress_park_without_evidence_refused(self):
+        self._task('T001', 'in-progress')
+        out, err, code = run_cli(['task', 'set-status', 'T001', 'needs-attention',
+                                  '--reason', 'persistent_failure'], env_extra=self.env)
+        self.assertEqual(code, 3, out)
+        self.assertIn('requires --evidence', err)
+
+    def test_in_progress_park_with_evidence_ok(self):
+        self._task('T002', 'in-progress')
+        ev = os.path.join(self.tmp, 'capture.log')
+        with open(ev, 'w') as f:
+            f.write('probe output\n')
+        out, err, code = run_cli(['task', 'set-status', 'T002', 'needs-attention',
+                                  '--reason', 'persistent_failure', '--evidence', ev], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+
+    def test_routing_park_from_approved_needs_no_evidence(self):
+        self._task('T003', 'approved')
+        out, err, code = run_cli(['task', 'set-status', 'T003', 'blocked',
+                                  '--reason', 'design_ambiguity'], env_extra=self.env)
+        self.assertEqual(code, 0, f'pre-dispatch routing park must not require evidence: {err}')
+
+
+class TestFeatureAssignAcIds(unittest.TestCase):
+    """`feature assign-ac-ids <FID>` — stable @AC-<n> tags on Gherkin scenarios
+    (rec 6 foundation). Idempotent."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-acids-test-')
+        self.plugin_data = os.path.join(self.tmp, 'plugin-data')
+        self.project_dir = os.path.join(self.tmp, 'project')
+        os.makedirs(self.plugin_data)
+        os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
+        self.env = {'CLAUDE_PROJECT_DIR': self.project_dir, 'CLAUDE_PLUGIN_DATA': self.plugin_data}
+        out, _, _ = run_cli(['onboarding', 'bootstrap'], env_extra=self.env)
+        self.data_dir = next(l.split('=', 1)[1] for l in out.splitlines() if l.startswith('SHIPYARD_DATA='))
+        self.fdir = os.path.join(self.data_dir, 'spec', 'features')
+        os.makedirs(self.fdir, exist_ok=True)
+        self.fpath = os.path.join(self.fdir, 'F001-demo.md')
+        with open(self.fpath, 'w') as f:
+            f.write('---\nid: F001\n---\n\n## Acceptance Criteria\n\n'
+                    '```gherkin\nFeature: D\n  Scenario: one\n    Given x\n'
+                    '  Scenario: two\n    Given y\n```\n\n## Interface\nx\n')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_assigns_and_is_idempotent(self):
+        out, err, code = run_cli(['feature', 'assign-ac-ids', 'F001'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertIn('assigned 2', out)
+        body = open(self.fpath).read()
+        self.assertIn('@AC-1', body)
+        self.assertIn('@AC-2', body)
+        out2, _, _ = run_cli(['feature', 'assign-ac-ids', 'F001'], env_extra=self.env)
+        self.assertIn('assigned 0', out2)
+
+    def test_no_ac_section_is_noop(self):
+        with open(self.fpath, 'w') as f:
+            f.write('---\nid: F001\n---\n\n## Interface\nx\n')
+        out, _, code = run_cli(['feature', 'assign-ac-ids', 'F001'], env_extra=self.env)
+        self.assertEqual(code, 0)
+        self.assertIn('no "## Acceptance Criteria"', out)
+
+
+class TestVerifyAcCoverage(unittest.TestCase):
+    """`verify-ac-coverage` — orphan-AC gate (rec 6). Marker in diff satisfies;
+    untagged feature is advisory; enforce flag toggles hard-fail."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-accov-test-')
+        self.plugin_data = os.path.join(self.tmp, 'plugin-data')
+        self.project_dir = os.path.join(self.tmp, 'project')
+        os.makedirs(self.plugin_data)
+        os.makedirs(self.project_dir)
+        git_init_project(self.project_dir)
+        self.env = {'CLAUDE_PROJECT_DIR': self.project_dir, 'CLAUDE_PLUGIN_DATA': self.plugin_data}
+        out, _, _ = run_cli(['onboarding', 'bootstrap'], env_extra=self.env)
+        self.data_dir = next(l.split('=', 1)[1] for l in out.splitlines() if l.startswith('SHIPYARD_DATA='))
+        os.makedirs(os.path.join(self.data_dir, 'spec', 'features'), exist_ok=True)
+        os.makedirs(os.path.join(self.data_dir, 'sprints', 'current'), exist_ok=True)
+        with open(os.path.join(self.data_dir, 'spec', 'features', 'F001-demo.md'), 'w') as f:
+            f.write('---\nid: F001\n---\n## Acceptance Criteria\n```gherkin\nFeature: D\n'
+                    '  @AC-1\n  Scenario: one\n  @AC-2\n  Scenario: two\n```\n')
+        with open(os.path.join(self.data_dir, 'sprints', 'current', 'SPRINT.md'), 'w') as f:
+            f.write('---\nid: sprint-1\nfeatures: [F001]\n---\n')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _git(self, *args):
+        subprocess.run(['git', '-C', self.project_dir] + list(args), check=True, capture_output=True)
+
+    def _commit_all(self, msg):
+        self._git('add', '-A')
+        subprocess.run(['git', '-C', self.project_dir, '-c', 'user.email=t@t',
+                        '-c', 'user.name=t', 'commit', '-m', msg, '-q'], check=True, capture_output=True)
+
+    def _base(self):
+        subprocess.run(['git', '-C', self.project_dir, '-c', 'user.email=t@t', '-c', 'user.name=t',
+                        'commit', '--allow-empty', '-m', 'base', '-q'], check=True, capture_output=True)
+        return subprocess.run(['git', '-C', self.project_dir, 'rev-parse', 'HEAD'],
+                              capture_output=True, text=True).stdout.strip()
+
+    def test_orphan_ac_hard_fails(self):
+        base = self._base()
+        with open(os.path.join(self.project_dir, 'src.js'), 'w') as f:
+            f.write('function one() { /* AC-1 */ return 1; }\n')  # AC-2 missing
+        self._commit_all('impl-ac1')
+        out, err, code = run_cli(['verify-ac-coverage', '--base', base, '--head', 'HEAD'],
+                                 env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 3, out)
+        self.assertIn('F001 AC-2', out)
+
+    def test_all_markers_present_passes(self):
+        base = self._base()
+        with open(os.path.join(self.project_dir, 'src.js'), 'w') as f:
+            f.write('/* AC-1 */\n// AC-2\n')
+        self._commit_all('impl-both')
+        out, err, code = run_cli(['verify-ac-coverage', '--base', base, '--head', 'HEAD'],
+                                 env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0, out)
+
+    def test_untagged_feature_is_advisory(self):
+        # Strip the @AC tags → feature has no tagged ACs → WARN, never fail.
+        with open(os.path.join(self.data_dir, 'spec', 'features', 'F001-demo.md'), 'w') as f:
+            f.write('---\nid: F001\n---\n## Acceptance Criteria\n```gherkin\nFeature: D\n'
+                    '  Scenario: one\n```\n')
+        base = self._base()
+        with open(os.path.join(self.project_dir, 'src.js'), 'w') as f:
+            f.write('nothing\n')
+        self._commit_all('impl')
+        out, err, code = run_cli(['verify-ac-coverage', '--base', base, '--head', 'HEAD'],
+                                 env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0, out)
+        self.assertIn('WARN', out)
+
+    def test_advisory_mode_does_not_block(self):
+        with open(self.data_dir + '/config.md') as f:
+            s = f.read()
+        with open(self.data_dir + '/config.md', 'w') as f:
+            f.write(s.replace('enforce_ac_coverage: true', 'enforce_ac_coverage: false'))
+        base = self._base()
+        with open(os.path.join(self.project_dir, 'src.js'), 'w') as f:
+            f.write('/* AC-1 */\n')  # AC-2 orphan
+        self._commit_all('impl-ac1')
+        out, err, code = run_cli(['verify-ac-coverage', '--base', base, '--head', 'HEAD'],
+                                 env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0, f'advisory mode must not block: {out}')
+        self.assertIn('advisory mode', out)
+
+
 if __name__ == '__main__':
     unittest.main()

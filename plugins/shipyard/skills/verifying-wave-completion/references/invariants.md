@@ -95,20 +95,21 @@ Filter the output to events with timestamps after `wave_base_sha`'s correspondin
 
 ## Invariant 6 — No un-integrated or uncommitted builder worktree
 
-**What it checks.** After the wave-boundary integration + teardown: (a) no `shipyard/wt-*` worktree branch still carries commits not in the working branch, and (b) no surviving `shipyard/wt-*` worktree has uncommitted changes. Part (a) is the orphaning guard — a worktree torn down before its branch merged is exactly how the v2.8 incident lost six commits; part (b) is the original dirty-tree check.
+**What it checks.** After the wave-boundary integration + teardown: (a) no `shipyard/wt-*` worktree branch still carries commits not in the working branch, and (b) no surviving `shipyard/wt-*` worktree has uncommitted changes. Part (a) is the orphaning guard — a worktree torn down before its branch merged is exactly how the v2.8 incident lost six commits; part (b) is the original dirty-tree check. **(c) In-place mode (isolation off):** there are no `shipyard/wt-*` worktrees, so (a)/(b) pass vacuously — but the shared working tree can still carry a failed builder's residue. When the wave ran with isolation off, ALSO assert `shipyard-context check-dirty-tree` is empty; a dirty main tree is a real leftover the wt-scoped check cannot see.
 
 **Primitive.**
 
 ```text
 shipyard-data verify-wave-integrated     # part (a): every live wt branch merged; exit 3 lists offenders
 shipyard-context check-dirty-worktrees   # part (b): one path per dirty shipyard/wt-* worktree; empty = clean
+shipyard-context check-dirty-tree        # part (c), isolation-off only: porcelain of the main working tree; empty = clean
 ```
 
 Invariants 2 and 6 share the `verify-wave-integrated` primitive — run it once and read its verdict for both: Check A (worktree branches merged) feeds invariant 6(a), Check B (no dangling return commit) feeds invariant 2.
 
 **Verdicts.**
 
-- **PASS** — `verify-wave-integrated` exits 0 (or vacuously passes because the worktrees were already torn down past a recorded `wave_integration_verified` event) AND `check-dirty-worktrees` is empty.
+- **PASS** — `verify-wave-integrated` exits 0 (or vacuously passes because the worktrees were already torn down past a recorded `wave_integration_verified` event) AND `check-dirty-worktrees` is empty AND (isolation off) `check-dirty-tree` is empty.
 - **RECOVERABLE** — uncommitted state matching a recognized salvage pattern (next session's Step 0 worktree-salvage handles it). Recovery: emit `wave_check_worktree_leftover` and proceed; the next session recovers.
 - **ESCALATE** — an un-integrated worktree branch (Check A fail), or uncommitted state that looks like in-flight work rather than stale salvage. Halt and surface.
 

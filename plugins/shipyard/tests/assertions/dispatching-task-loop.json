@@ -1,5 +1,15 @@
 [
   {
+    "name": "brief_carries_isolation_line",
+    "type": "contains",
+    "pattern": "Isolation:"
+  },
+  {
+    "name": "has_in_place_mode",
+    "type": "contains",
+    "pattern": "In-place mode"
+  },
+  {
     "name": "dispatches_registered_agent",
     "type": "contains",
     "pattern": "subagent_type: \"shipyard:shipyard-disciplined-builder\"",

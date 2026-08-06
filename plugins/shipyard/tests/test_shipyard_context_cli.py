@@ -1097,6 +1097,41 @@ class TestCheckDirtyWorktrees(NamedSubcommandBase):
         self.assertNotIn('user-worktree', out)
 
 
+class TestCheckDirtyTree(NamedSubcommandBase):
+    """`shipyard-context check-dirty-tree` — porcelain of the MAIN working
+    tree, the in-place (isolation off) counterpart to check-dirty-worktrees
+    (F3). Empty output = clean; non-empty = a failed in-place builder's residue
+    that the wt-scoped check cannot see.
+    """
+
+    def _seed_commit(self):
+        with open(os.path.join(self.project_dir, 'seed.txt'), 'w') as f:
+            f.write('seed')
+        subprocess.run(['git', '-C', self.project_dir, 'add', 'seed.txt'],
+                       check=True, capture_output=True)
+        subprocess.run(['git', '-C', self.project_dir,
+                        '-c', 'user.email=t@t', '-c', 'user.name=t',
+                        'commit', '-m', 'seed', '-q'],
+                       check=True, capture_output=True)
+
+    def test_clean_tree_prints_nothing(self):
+        self._seed_commit()
+        out, _, code = run_cli(['check-dirty-tree'],
+                               env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), '')
+
+    def test_dirty_main_tree_reported(self):
+        self._seed_commit()
+        # Uncommitted change in the MAIN checkout (what in-place builders share).
+        with open(os.path.join(self.project_dir, 'residue.txt'), 'w') as f:
+            f.write('partial in-place edit')
+        out, _, code = run_cli(['check-dirty-tree'],
+                               env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0)
+        self.assertIn('residue.txt', out)
+
+
 class TestDiagnoseResolutionFailure(unittest.TestCase):
     """`diagnose` must produce a useful report even when the data dir CANNOT
     be resolved — that's the exact failure (e.g. a breadcrumb stranded by a

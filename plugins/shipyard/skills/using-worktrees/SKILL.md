@@ -17,11 +17,22 @@ Shipyard isolates parallel task execution in git worktrees so concurrent subagen
 | Solo (1–3 tasks per wave, sequential) | No — tasks run on the working branch, one after another |
 | Task / parallel (4+ tasks per wave, concurrent) | **Yes** — one worktree per task |
 | Track mode (persistent feature tracks) | **Yes** — one worktree per feature track |
+| `--isolation false` / `execution.isolation: none` | **No** — forced sequential in-place on the working branch (see below) |
 | `/ship-review` diff inspection | Optional — read-only; worktree only if reviewing across branches |
 | Hotfix | No — work on the user's current branch directly |
 | `/ship-quick` | No — single change, working branch |
 
 The rule of thumb: **isolate when concurrency would otherwise race**. Sequential work doesn't need worktrees.
+
+## Choosing No Isolation (`--isolation false`)
+
+A project with a heavy build (large native toolchain, slow dependency install, big test image) can pay more to reconstruct a cold worktree than it saves from parallelism. For those, `/ship-execute --isolation false` — or the persistent `execution.isolation: none` in config.md (`shipyard-data config set-isolation none`) — runs the sprint **sequentially in-place on the working branch**, keeping the warm canonical checkout.
+
+**No-isolation is sequential-only, by construction.** It is NOT "parallel without worktrees." Two parallel builders on one shared checkout would clobber each other's edits, and there would be no per-task `shipyard/wt-*` branch for the wave-integration gate (`verify-wave-integrated`) to rebase and merge — the whole branch-based integration model assumes one worktree branch per concurrent task. So when isolation is off, dispatch is the `solo` shape regardless of task count; `--isolation false` combined with `--mode task|track` coerces to sequential with a one-line note rather than racing.
+
+The integration gate stays correct either way: with zero `shipyard/wt-*` branches it is **vacuously satisfied** — sequential commits land directly on the working branch, nothing to rebase.
+
+The complementary lever — keep isolation *and* get speed — is `worktree_warm` (CoW-clone build-artifact dirs into each fresh worktree) plus `shared_caches` (shared package-manager download caches). Prefer those first; reach for `--isolation false` when the build genuinely can't run cheaply outside the canonical checkout.
 
 ## How to Create a Worktree (the New, Simple Way)
 

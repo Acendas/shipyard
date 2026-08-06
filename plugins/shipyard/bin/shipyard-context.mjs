@@ -190,7 +190,7 @@ function globMatch(base, pattern) {
 const VIEW_REGISTRY = {
   config: {
     path: ["config.md"],
-    lines: 100,
+    lines: 130,
     fallback: "Project configuration missing — run shipyard-data onboarding bootstrap",
   },
   codebase: {
@@ -1072,6 +1072,32 @@ function main() {
       }
       break;
     }
+    case "check-dirty-tree": {
+      // Report uncommitted state in the MAIN working tree (the project root
+      // checkout), not the shipyard/wt-* worktrees. This is the in-place
+      // (isolation: none) counterpart to check-dirty-worktrees: when builders
+      // run sequentially in-place, a failed builder leaves the shared working
+      // tree dirty and the next task inherits it — and check-dirty-worktrees
+      // (scoped to wt-*) never sees it. Used by the per-task in-place gate and
+      // the wave/sprint completeness invariants when isolation is off.
+      //
+      // Output: the `git status --porcelain` lines (empty if clean). Exit 0
+      // always — the output IS the result; the caller decides PASS/RECOVER.
+      let projectRoot;
+      try {
+        projectRoot = getProjectRoot();
+      } catch (err) {
+        if (err instanceof ShipyardResolverError) process.exit(0);
+        throw err;
+      }
+      const status = spawnSync("git", ["-C", projectRoot, "status", "--porcelain"], {
+        encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+      });
+      if (status.status === 0 && status.stdout.trim().length > 0) {
+        process.stdout.write(status.stdout.trim() + "\n");
+      }
+      process.exit(0);
+    }
     case "terminal-gate": {
       // Diagnostic: inspect what the terminal-cursor gate would say about
       // the current data dir. Users run this when they hit a deny from the
@@ -1108,7 +1134,7 @@ function main() {
       die(
         "Usage: shipyard-context {path|spec-counts|status-counts|debug-count|" +
           "view|list|count-of|reference|version|project-claude-md|diagnose|" +
-          "check-commit-exists|scan-events|check-dirty-worktrees|terminal-gate}",
+          "check-commit-exists|scan-events|check-dirty-worktrees|check-dirty-tree|terminal-gate}",
       );
   }
 }

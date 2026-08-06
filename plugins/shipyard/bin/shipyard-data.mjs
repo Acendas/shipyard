@@ -74,6 +74,7 @@ import { readinessCheckCmd } from "./readiness-check.mjs";
 import { bootstrapOnboarding, ensureInitializedDataDir, renderOnboardingLines } from "./init-data.mjs";
 import { reviewPlanCmd } from "./review-plan.mjs";
 import { queueCmd } from "./worker-queue.mjs";
+import { readExecutionIsolation, normalizeIsolationToken, readMaxIdeasPerSprint, readEnforceAcCoverage } from "./config-read.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -1328,6 +1329,42 @@ function nextIdCmd(args, { dataDir: dataDirOverride } = {}) {
   // land here on first allocation. mkdirSync is idempotent with recursive.
   mkdirSync(kindDir, { recursive: true });
 
+  // Deferral-backlog guard (rec 3): refuse to allocate a new IDEA id once the
+  // UNDISPOSITIONED idea backlog is at the cap. Ideas pile up faster than they
+  // are groomed — a cheap deferral channel with no ceiling — so cap the pool of
+  // ideas still awaiting disposition (status not `graduated`/`rejected`). This
+  // caps accumulation, not lifetime count: grooming ideas via /ship-backlog
+  // (graduate or reject) frees allocation again. Bypass with --force for the
+  // rare legitimate over-cap capture. Only applies to `ideas`.
+  if (kind === "ideas" && !args.includes("--force")) {
+    const cap = readMaxIdeasPerSprint(dataDir);
+    if (Number.isFinite(cap)) {
+      let undispositioned = 0;
+      let files = [];
+      try { files = readdirSync(kindDir); } catch { files = []; }
+      for (const f of files) {
+        if (!/^IDEA-.*\.md$/.test(f)) continue;
+        let status = "";
+        try {
+          const c = readFileSync(join(kindDir, f), "utf8");
+          const m = c.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+          if (m) {
+            const sm = m[1].match(/^status:\s*(\S+)/m);
+            if (sm) status = sm[1].replace(/^["']|["']$/g, "").toLowerCase();
+          }
+        } catch { /* unreadable → count as undispositioned (conservative) */ }
+        if (status !== "graduated" && status !== "rejected") undispositioned += 1;
+      }
+      if (undispositioned >= cap) {
+        process.stderr.write(
+          `shipyard-data next-id ideas: idea backlog full — ${undispositioned} undispositioned idea(s) ≥ cap ${cap}. ` +
+            `Groom the backlog first (/ship-backlog: graduate or reject ideas), raise execution.max_ideas_per_sprint, or pass --force for a one-off.\n`,
+        );
+        process.exit(3);
+      }
+    }
+  }
+
   const seqPath = join(kindDir, ".id-seq");
   const lockPath = seqPath + ".lock";
 
@@ -1543,6 +1580,238 @@ function ensureWorktreeBaseref() {
   process.stdout.write(`worktree.baseRef set to "head" (was: ${was ?? "unset"}) — ${settingsPath}\n`);
 }
 
+/**
+ * Parse the flat `shared_caches:` map from config.md frontmatter — env var
+ * name → absolute path. Comment lines (`#`) and empty/blank values are
+ * ignored. Any read/parse failure or an absent block returns an empty map
+ * (the safe no-op default), so projects initialized before this key existed
+ * are unaffected. Deliberately hand-rolled to match the other config-block
+ * scanners here rather than pulling in a YAML dep.
+ */
+function readSharedCachesConfig(dataDir) {
+  const configPath = join(dataDir, "config.md");
+  if (!existsSync(configPath)) return {};
+  let content;
+  try {
+    content = readFileSync(configPath, "utf8");
+  } catch {
+    return {};
+  }
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fmMatch) return {};
+  const lines = fmMatch[1].split(/\r?\n/);
+  const start = lines.findIndex((l) => /^shared_caches:\s*$/.test(l));
+  if (start === -1) return {};
+  const out = {};
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\S/.test(lines[i])) break; // left the block
+    // Grab `KEY: <rest>` first, THEN decide how to read the value — so a
+    // quoted value can legitimately contain a `#` or spaces (F6). Comment
+    // stripping only applies to the unquoted form.
+    const m = lines[i].match(/^\s+([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
+    if (!m) continue;
+    const key = m[1];
+    let rest = m[2];
+    let val;
+    const q = rest[0];
+    if (q === '"' || q === "'") {
+      // Quoted: take everything up to the matching closing quote verbatim;
+      // anything after it (e.g. a trailing comment) is ignored.
+      const end = rest.indexOf(q, 1);
+      val = end === -1 ? rest.slice(1) : rest.slice(1, end);
+    } else {
+      // Unquoted: a ` #...` tail is a comment; trim what remains.
+      val = rest.replace(/\s+#.*$/, "").trim();
+    }
+    if (val) out[key] = val;
+  }
+  return out;
+}
+
+/**
+ * Ensure <projectRoot>/.claude/settings.json `env` carries the configured
+ * `shared_caches` entries so every builder — parent or worktree subagent —
+ * inherits the same package-manager download cache. settings.json `env` is
+ * the injection seam (structural, not model-authored prose); reusing the
+ * same atomic read-merge-write as ensureWorktreeBaseref keeps every other
+ * key intact.
+ *
+ * Only ABSOLUTE-path values are written; a relative value is refused with a
+ * warning (a worktree-relative cache defeats the purpose). Values may use a
+ * leading `~` or `${HOME}`/`$HOME`, expanded here so a config isn't nailed to
+ * one machine's literal home path (F4).
+ *
+ * Reconciled, not additive (F2): the exact set of keys THIS command wrote last
+ * time is tracked in a data-dir sidecar (`shared-caches-managed.json`). On each
+ * run, keys previously written by us but no longer in config are REMOVED from
+ * settings.json `env`; keys we never wrote (a user's own `env` entries) are
+ * never touched — that's why we track ownership explicitly instead of pruning
+ * by a name allowlist, which would clobber a hand-set var. Disabling the
+ * feature (emptying `shared_caches`) therefore cleanly withdraws our injections.
+ *
+ * Idempotent: a run that changes nothing writes nothing (never creates an empty
+ * settings.json). Emits shared_caches_ensured.
+ */
+function expandHomePath(p) {
+  const home = process.env.HOME || process.env.USERPROFILE || "";
+  if (!home) return p;
+  if (p === "~") return home;
+  if (p.startsWith("~/") || p.startsWith("~\\")) return join(home, p.slice(2));
+  return p.replace(/\$\{HOME\}/g, home).replace(/\$HOME\b/g, home);
+}
+
+function ensureSharedCaches() {
+  const projectRoot = getProjectRoot();
+  const dataDir = getDataDir({ projectRoot, silent: true });
+  const caches = readSharedCachesConfig(dataDir);
+
+  // Desired = configured entries, home-expanded and absolute-validated.
+  const desired = {};
+  for (const [k, rawV] of Object.entries(caches)) {
+    const v = expandHomePath(rawV);
+    if (!isAbsolute(v)) {
+      process.stderr.write(`shipyard-data ensure-shared-caches: refusing "${k}=${rawV}" — value must resolve to an absolute path\n`);
+      continue;
+    }
+    desired[k] = v;
+  }
+
+  // Keys we wrote on a previous run (ownership record for safe pruning).
+  const managedPath = join(dataDir, "shared-caches-managed.json");
+  let prevManaged = [];
+  if (existsSync(managedPath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(managedPath, "utf8"));
+      if (Array.isArray(parsed)) prevManaged = parsed.filter((x) => typeof x === "string");
+    } catch { /* malformed sidecar → treat as empty; we'll rewrite it */ }
+  }
+
+  const claudeDir = join(projectRoot, ".claude");
+  const settingsPath = join(claudeDir, "settings.json");
+  const settingsExisted = existsSync(settingsPath);
+  let settings = {};
+  if (settingsExisted) {
+    let raw;
+    try {
+      raw = readFileSync(settingsPath, "utf8");
+    } catch (err) {
+      process.stderr.write(`shipyard-data ensure-shared-caches: cannot read ${settingsPath}: ${err.message}\n`);
+      process.exit(1);
+    }
+    try {
+      settings = JSON.parse(raw);
+    } catch (err) {
+      process.stderr.write(
+        `shipyard-data ensure-shared-caches: ${settingsPath} is not valid JSON (${err.message}) — refusing to overwrite.\n`,
+      );
+      process.exit(1);
+    }
+    if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
+      process.stderr.write(
+        `shipyard-data ensure-shared-caches: ${settingsPath} is not a JSON object — refusing to overwrite.\n`,
+      );
+      process.exit(1);
+    }
+  }
+
+  const prevEnv =
+    settings.env && typeof settings.env === "object" && !Array.isArray(settings.env) ? settings.env : {};
+  const nextEnv = { ...prevEnv };
+
+  // Prune: only keys WE wrote last time and that are gone from config now.
+  const removed = [];
+  for (const k of prevManaged) {
+    if (!(k in desired) && k in nextEnv) {
+      delete nextEnv[k];
+      removed.push(k);
+    }
+  }
+  // Set desired.
+  for (const [k, v] of Object.entries(desired)) nextEnv[k] = v;
+
+  const desiredKeys = Object.keys(desired);
+  const envChanged = JSON.stringify(prevEnv) !== JSON.stringify(nextEnv);
+  const managedChanged = JSON.stringify(prevManaged.slice().sort()) !== JSON.stringify(desiredKeys.slice().sort());
+
+  if (!envChanged && !managedChanged) {
+    process.stdout.write(
+      desiredKeys.length === 0
+        ? "shared_caches: none configured — no-op\n"
+        : `shared_caches: already up to date (${desiredKeys.length} env var(s))\n`,
+    );
+    return;
+  }
+
+  // Write settings.json only when env actually changed (avoid creating an
+  // empty file just to record a no-op), but always keep the sidecar in sync.
+  if (envChanged) {
+    if (Object.keys(nextEnv).length > 0) {
+      settings.env = nextEnv;
+    } else {
+      // Withdrew our last entries and nothing else lives in env — drop the key
+      // rather than leave an empty object behind.
+      delete settings.env;
+    }
+    mkdirSync(claudeDir, { recursive: true });
+    const out = JSON.stringify(settings, null, 2) + "\n";
+    const tmp = settingsPath + ".tmp";
+    writeFileSync(tmp, out, "utf8");
+    renameSync(tmp, settingsPath);
+  }
+
+  // Sidecar records exactly what we now own.
+  const mtmp = managedPath + ".tmp";
+  writeFileSync(mtmp, JSON.stringify(desiredKeys) + "\n", "utf8");
+  renameSync(mtmp, managedPath);
+
+  try {
+    logEvent(dataDir, "shared_caches_ensured", { keys: desiredKeys.join(","), removed: removed.join(",") });
+  } catch { /* event is best-effort */ }
+
+  const parts = [];
+  if (desiredKeys.length) parts.push(`wrote ${desiredKeys.length} (${desiredKeys.join(", ")})`);
+  if (removed.length) parts.push(`removed ${removed.length} (${removed.join(", ")})`);
+  process.stdout.write(`shared_caches: ${parts.join("; ") || "no change"} — ${settingsPath}\n`);
+}
+
+/**
+ * `shipyard-data resolve-isolation [--flag <true|false|worktree|none|on|off>]`
+ * — the single deterministic answer to "does this dispatch use worktree
+ * isolation?". Precedence: `--flag` (this invocation) > `execution.isolation`
+ * in config.md > default `worktree`. Prints exactly `worktree` or `none` to
+ * stdout so a skill can capture it with `$(...)` and branch without
+ * re-deriving the rule in prose (the prose-drift class the whole isolation
+ * change exists to fix — resolution now has a CLI source of truth).
+ *
+ * An unrecognized `--flag` value is a hard error (exit 2), never a silent
+ * fall-through to the default.
+ */
+function resolveIsolation(args) {
+  let flagRaw = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--flag") {
+      flagRaw = args[i + 1];
+      i++;
+    } else if (args[i].startsWith("--flag=")) {
+      flagRaw = args[i].slice("--flag=".length);
+    }
+  }
+  let resolved;
+  if (flagRaw != null) {
+    const norm = normalizeIsolationToken(flagRaw);
+    if (norm === null) {
+      process.stderr.write(
+        `shipyard-data resolve-isolation: invalid --flag "${flagRaw}" — expected true|false|worktree|none|on|off\n`,
+      );
+      process.exit(2);
+    }
+    resolved = norm;
+  } else {
+    resolved = readExecutionIsolation(getDataDir({ silent: true }));
+  }
+  process.stdout.write(resolved + "\n");
+}
+
 // --- worktree-integration git helpers (anchor-commit + verify-wave-integrated) ---
 
 function gitCapture(args, cwd) {
@@ -1560,6 +1829,126 @@ function gitIsAncestor(ancestor, descendant, cwd) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Parse the `@AC-<n>` tags in a feature file's `## Acceptance Criteria`
+ * section. Returns a sorted array of numeric ids (e.g. [1, 2, 3]). Empty if
+ * the section is missing or untagged (→ advisory, never a hard fail).
+ */
+function parseFeatureAcIds(featurePath) {
+  let content;
+  try {
+    content = readFileSync(featurePath, "utf8");
+  } catch {
+    return [];
+  }
+  const lines = content.split(/\r?\n/);
+  const start = lines.findIndex((l) => /^##\s+Acceptance Criteria\s*$/i.test(l));
+  if (start === -1) return [];
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^##\s+/.test(lines[i])) { end = i; break; }
+  }
+  const ids = new Set();
+  for (let i = start; i < end; i++) {
+    const re = /@AC-(\d+)\b/g;
+    let m;
+    while ((m = re.exec(lines[i])) !== null) ids.add(parseInt(m[1], 10));
+  }
+  return [...ids].sort((a, b) => a - b);
+}
+
+/**
+ * `verify-ac-coverage --base <sha> --head <sha>` — deterministic backing for
+ * sprint-complete invariant 4. For each feature linked to the current sprint,
+ * every `@AC-<n>`-tagged acceptance criterion must have a matching `AC-<n>`
+ * marker (`// AC-<n>`, `# AC-<n>`, or the `@AC-<n>` tag copied into a test)
+ * somewhere in the sprint diff `base..head`. A tagged AC with no marker is an
+ * ORPHAN. Features with NO tagged ACs are reported as advisory WARNINGs and
+ * never fail the gate — that is the migration-safety valve: a project that has
+ * not run `feature assign-ac-ids` is never false-blocked.
+ *
+ * Exit 0 = no orphans (warnings allowed). Exit 3 = one or more orphans AND
+ * execution.enforce_ac_coverage is true. When enforcement is off, orphans are
+ * printed but exit is 0 (advisory mode).
+ */
+function verifyAcCoverage(args) {
+  const flagVal = (name) => {
+    const i = args.indexOf(name);
+    return i !== -1 ? args[i + 1] : null;
+  };
+  const base = flagVal("--base");
+  const head = flagVal("--head") || "HEAD";
+  if (!base) {
+    process.stderr.write("shipyard-data verify-ac-coverage: --base <sha> is required (pass sprint_base_sha)\n");
+    process.exit(2);
+  }
+  const projectRoot = getProjectRoot();
+  const dataDir = getDataDir({ projectRoot, silent: true });
+
+  // Sprint features from SPRINT.md frontmatter.
+  const sprintPath = join(dataDir, "sprints", "current", "SPRINT.md");
+  if (!existsSync(sprintPath)) {
+    process.stderr.write(`shipyard-data verify-ac-coverage: no ${sprintPath}\n`);
+    process.exit(2);
+  }
+  const sprintContent = readFileSync(sprintPath, "utf8");
+  const fm = sprintContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const featuresLine = fm ? fm[1].match(/^features:\s*(.+)$/m) : null;
+  const featureIds = featuresLine
+    ? featuresLine[1].replace(/[[\]"']/g, "").split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+
+  // Full sprint diff text (added + context lines) — markers may sit on either.
+  const diff = gitCapture(["diff", `${base}..${head}`], projectRoot) || "";
+
+  const featuresDir = join(dataDir, "spec", "features");
+  const orphans = [];
+  const warnings = [];
+  let checkedFeatures = 0;
+
+  for (const fid of featureIds) {
+    // Resolve the feature file by <fid>-*.md prefix.
+    let featurePath = null;
+    try {
+      const match = readdirSync(featuresDir).find((f) => f.startsWith(`${fid}-`) && f.endsWith(".md"));
+      if (match) featurePath = join(featuresDir, match);
+    } catch { /* no features dir */ }
+    if (!featurePath) {
+      warnings.push(`${fid}: feature file not found — skipped`);
+      continue;
+    }
+    const acIds = parseFeatureAcIds(featurePath);
+    if (acIds.length === 0) {
+      warnings.push(`${fid}: no @AC-<n> tags — run \`shipyard-data feature assign-ac-ids ${fid}\` (advisory, not blocking)`);
+      continue;
+    }
+    checkedFeatures += 1;
+    for (const n of acIds) {
+      const marker = new RegExp(`\\bAC-${n}\\b`);
+      if (!marker.test(diff)) orphans.push(`${fid} AC-${n}`);
+    }
+  }
+
+  for (const w of warnings) process.stdout.write(`WARN ${w}\n`);
+  if (orphans.length === 0) {
+    process.stdout.write(`verify-ac-coverage: OK — ${checkedFeatures} feature(s) with tagged ACs fully covered in ${base}..${head}\n`);
+    process.exit(0);
+  }
+
+  process.stdout.write(`verify-ac-coverage: ${orphans.length} orphan AC(s) — no AC-<n> marker in ${base}..${head}:\n`);
+  for (const o of orphans) process.stdout.write(`  - ${o}\n`);
+  const enforce = readEnforceAcCoverage(dataDir);
+  try {
+    logEvent(dataDir, "ac_coverage_checked", { orphans: orphans.length, checked_features: checkedFeatures, enforce });
+  } catch { /* best-effort */ }
+  if (enforce) {
+    process.stdout.write("Add `// AC-<n>` / `# AC-<n>` markers (or the @AC-<n> tag in a test) for each orphan, or set execution.enforce_ac_coverage: false for advisory mode.\n");
+    process.exit(3);
+  }
+  process.stdout.write("(advisory mode: execution.enforce_ac_coverage is false — not blocking)\n");
+  process.exit(0);
 }
 
 /**
@@ -2044,6 +2433,44 @@ function configSetEffort(tier, value) {
     logEvent(dataDir, "config_agent_effort_set", { tier, value });
   } catch { /* best-effort */ }
   process.stdout.write(`agent_effort.${tier}: ${written}\n`);
+}
+
+// `execution.isolation` vocabulary: `worktree` (task/track builders each get an
+// isolated git worktree, parallel + branch-integrated) or `none` (sequential
+// in-place on the working branch, no worktrees — the warm-checkout choice for
+// heavy builds). Validated because it gates dispatch shape; a typo must fail
+// loud, not silently fall through to the default.
+const ISOLATION_VALUES = new Set(["worktree", "none"]);
+
+function configSetIsolation(value) {
+  if (!ISOLATION_VALUES.has(value)) {
+    process.stderr.write(
+      "shipyard-data config set-isolation: usage: config set-isolation <worktree|none>\n",
+    );
+    process.exit(2);
+  }
+  const dataDir = getDataDir({ silent: true });
+  const configPath = join(dataDir, "config.md");
+  if (!existsSync(configPath)) {
+    process.stderr.write(`shipyard-data config set-isolation: no ${configPath} — run shipyard-data onboarding bootstrap first\n`);
+    process.exit(1);
+  }
+  const content = readFileSync(configPath, "utf8");
+  const fmMatch = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
+  if (!fmMatch) {
+    process.stderr.write("shipyard-data config set-isolation: config.md has no frontmatter block — refusing\n");
+    process.exit(1);
+  }
+  let [, open, block, close] = fmMatch;
+  block = setFrontmatterNestedValue(block, "execution", "isolation", value);
+  const newContent = open + block + close + content.slice(fmMatch[0].length);
+  const tmp = configPath + ".tmp";
+  writeFileSync(tmp, newContent, "utf8");
+  renameSync(tmp, configPath);
+  try {
+    logEvent(dataDir, "config_isolation_set", { value });
+  } catch { /* best-effort */ }
+  process.stdout.write(`execution.isolation: ${value}\n`);
 }
 
 /**
@@ -2699,6 +3126,14 @@ function main() {
       });
       break;
     }
+    case "ensure-shared-caches": {
+      ensureSharedCaches();
+      break;
+    }
+    case "resolve-isolation": {
+      resolveIsolation(process.argv.slice(3));
+      break;
+    }
     case "ensure-worktree-baseref": {
       ensureWorktreeBaseref();
       break;
@@ -2706,6 +3141,10 @@ function main() {
     case "anchor-commit": {
       const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "anchor-commit");
       anchorCommit(rest[0], rest[1], { dataDir: dataDirOverride });
+      break;
+    }
+    case "verify-ac-coverage": {
+      verifyAcCoverage(process.argv.slice(3));
       break;
     }
     case "verify-wave-integrated": {
@@ -2736,6 +3175,8 @@ function main() {
         configSetModel(rest[1], rest[2]);
       } else if (rest[0] === "set-effort") {
         configSetEffort(rest[1], rest[2]);
+      } else if (rest[0] === "set-isolation") {
+        configSetIsolation(rest[1]);
       } else if (rest[0] === "set") {
         // Generic allowlisted config.md fields outside the `models:` block
         // (currently just product-spec-path) route through spec-state-cli's
@@ -2744,7 +3185,7 @@ function main() {
         specStateCmd(getDataDir({ silent: true }), ["config", "set", ...rest.slice(1)]);
       } else {
         process.stderr.write(
-          `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*> | set-effort <build|build_trivial|fixer|operational|operational_fix|think|coordinator|simplifier> <low|medium|high|inherit> | set <key> <value>\n`,
+          `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*> | set-effort <build|build_trivial|fixer|operational|operational_fix|think|coordinator|simplifier> <low|medium|high|inherit> | set-isolation <worktree|none> | set <key> <value>\n`,
         );
         process.exit(2);
       }
@@ -2817,7 +3258,7 @@ function main() {
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | metrics <record-retro|regenerate> ... [--data-dir <path>] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set> ... | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
+        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | metrics <record-retro|regenerate> ... [--data-dir <path>] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | ensure-shared-caches | resolve-isolation [--flag <true|false|worktree|none>] | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | verify-ac-coverage [--base <sha>] [--head <sha>] | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|assign-ac-ids> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set-isolation|set> ... | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
       );
       process.exit(1);
   }

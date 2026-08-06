@@ -1,5 +1,45 @@
 [
   {
+    "name": "has_isolation_flag",
+    "type": "contains",
+    "pattern": "--isolation true\\|false"
+  },
+  {
+    "name": "has_isolation_resolution_rule",
+    "type": "contains",
+    "pattern": "Isolation resolution"
+  },
+  {
+    "name": "no_iso_coerces_sequential",
+    "type": "contains",
+    "pattern": "coerce to sequential"
+  },
+  {
+    "name": "ensures_shared_caches",
+    "type": "contains",
+    "pattern": "ensure-shared-caches"
+  },
+  {
+    "name": "resolves_isolation_via_cli",
+    "type": "contains",
+    "pattern": "resolve-isolation"
+  },
+  {
+    "name": "enqueue_passes_require_isolation",
+    "type": "contains",
+    "pattern": "--require-isolation"
+  },
+  {
+    "name": "in_place_clean_tree_gate",
+    "type": "contains",
+    "pattern": "check-dirty-tree"
+  },
+  {
+    "name": "has_patch_task_budget",
+    "type": "contains",
+    "pattern": "Patch-task budget"
+  },
+  {
     "name": "no_git_push",
     "type": "not_contains",
     "pattern": "\\bgit\\s+push\\b"

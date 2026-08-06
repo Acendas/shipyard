@@ -11,13 +11,14 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { atomicWrite, logEvent, withLockfile } from "./_hook_lib.mjs";
+import { readExecutionIsolation, normalizeIsolationToken } from "./config-read.mjs";
 
 const QUEUE_BASENAME = ".worker-queue.json";
 const DEFAULT_TTL_SECONDS = 30 * 60;
 
 function usage() {
   return [
-    "shipyard-data queue enqueue --pipeline <ship-execute|ship-review> --stage <stage> --input <json>",
+    "shipyard-data queue enqueue --pipeline <ship-execute|ship-review> --stage <stage> --input <json> [--require-isolation <worktree|none>]",
     "shipyard-data queue claim --pipeline <ship-execute|ship-review> --stage <stage> --worker <id> [--ttl-seconds <n>]",
     "shipyard-data queue complete <task-id> --pipeline <p> --stage <stage> --worker <id> --result <path>",
     "shipyard-data queue fail <task-id> --pipeline <p> --stage <stage> --worker <id> --reason <text>",
@@ -185,6 +186,45 @@ function enqueue(dataDir, args) {
   const pipeline = normalizePipeline(flag(args, "--pipeline", { required: true }));
   const stage = flag(args, "--stage", { required: true });
   const input = flag(args, "--input", { required: true });
+
+  // Structural guard against parallel-in-place corruption (isolation review
+  // F1), scoped to ship-execute — the WRITE path. The queue is the
+  // parallel-dispatch mechanism; enqueuing builders when isolation is off
+  // would spawn concurrent writers on one shared checkout that clobber each
+  // other, and no downstream gate catches it (verify-wave-integrated passes
+  // vacuously with zero shipyard/wt-* branches). ship-review workers are
+  // read-only scanners/analysts — parallel is always safe there regardless of
+  // isolation — so this guard MUST NOT apply to them.
+  //
+  // Precedence mirrors resolve-isolation: an explicit --require-isolation (the
+  // caller's resolved per-invocation decision, incl. the --isolation false
+  // flag that never touches config) wins; otherwise fall back to config's
+  // execution.isolation. This makes "sequential-only" a CLI invariant, not a
+  // prose request. --require-isolation is validated for every pipeline so a
+  // typo still fails loud even on ship-review.
+  const requireRaw = flag(args, "--require-isolation");
+  let effectiveIsolation = null;
+  if (requireRaw != null) {
+    effectiveIsolation = normalizeIsolationToken(requireRaw);
+    if (effectiveIsolation === null) {
+      throw Object.assign(
+        new Error(`shipyard-data queue enqueue: invalid --require-isolation "${requireRaw}" — expected true|false|worktree|none`),
+        { exitCode: 2 },
+      );
+    }
+  } else if (pipeline === "ship-execute") {
+    effectiveIsolation = readExecutionIsolation(dataDir);
+  }
+  if (pipeline === "ship-execute" && effectiveIsolation === "none") {
+    throw Object.assign(
+      new Error(
+        "shipyard-data queue enqueue: isolation resolves to none (sequential-only) — refusing to enqueue parallel builders. " +
+          "Dispatch this wave sequentially in-place (solo shape) instead of via the worker queue.",
+      ),
+      { exitCode: 2 },
+    );
+  }
+
   const parsed = JSON.parse(readFileSync(input, "utf8"));
   const additions = tasksFromInput(parsed, { pipeline, stage });
   let enqueued = 0;

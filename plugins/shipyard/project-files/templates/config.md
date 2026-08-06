@@ -55,6 +55,12 @@ operational_tasks:
 execution:
   max_parallel_agents: 3      # max concurrent builder subagents per wave (1-4, hard ceiling 4)
   max_tasks_per_wave: 6       # max tasks in one wave; wider dependency layers split into consecutive waves along track boundaries (wave COUNT is never capped — it's dependency depth)
+  isolation: worktree         # worktree | none. worktree = task/track builders each get an isolated git worktree (parallel, branch-integrated). none = run sequentially in-place on the working branch, no worktrees — the deliberate choice for a heavy build where a warm canonical checkout beats parallelism (no-isolation is sequential-only). Override per run with `/ship-execute --isolation true|false`. Set with `shipyard-data config set-isolation <worktree|none>`.
+  max_parked_ratio: 0.34      # deferral guard: max fraction of a sprint's tasks that may be parked (blocked/needs-attention) and still allow terminal advance. Above this, terminal-gate refuses unless a `terminal_parked_accepted` event records explicit user acceptance. 1 = disable.
+  max_ideas_per_sprint: 12    # deferral guard: `next-id ideas` refuses once this many UNDISPOSITIONED idea files exist (groom via /ship-backlog first). 0 = disable.
+  max_patch_tasks: 5          # deferral guard: cap on cumulative patch tasks per execute/review run before escalation (mirrors operational_tasks.max_patch_tasks, applied to the execute/review deviation paths too). 0 = disable.
+  require_park_evidence: false # when true, parking an in-progress task (blocked/needs-attention) requires --evidence <capture/return path>, mirroring task accept-return. Opt-in.
+  enforce_ac_coverage: true   # when true, sprint-complete invariant 4 hard-fails on an orphan AC (a @AC-<n>-tagged acceptance criterion with no // AC-<n> marker in the sprint diff). Features with NO tagged ACs are always advisory (never false-block a project pre-adoption). Assign ids with `shipyard-data feature assign-ac-ids <FID>`.
 worktree_warm:
   enabled: false        # opt-in; empty paths + disabled = exact current behavior (cold worktrees)
   paths: []             # regenerable build/cache dirs to clone/copy into every new task worktree,
@@ -62,6 +68,21 @@ worktree_warm:
                          # stack detection, user-overridable. Dependency-resolution dirs (node_modules,
                          # .venv, vendor/bundle, deps, ...) are refused by name in code even if listed
                          # here — copying/symlinking them causes false-green tests (probe-confirmed).
+shared_caches:
+  # Env vars pointing each package manager's GLOBAL DOWNLOAD cache at a stable
+  # shared absolute path, materialized into .claude/settings.json `env` by
+  # `shipyard-data ensure-shared-caches` (run at ship-execute Step 0). This shares
+  # the network-bound download/unpack across worktrees; each worktree still
+  # resolves its OWN node_modules/.venv, so the worktree_warm false-green refusal
+  # stays intact. NOTE: most ecosystems ALREADY share these by default
+  # (~/.npm, ~/.gradle, ~/.cargo, ~/.cache/pip) — this block only helps when a
+  # project or sandbox has overridden them to a worktree-local dir. Empty = no-op.
+  # Values must be ABSOLUTE paths. Example:
+  #   GRADLE_USER_HOME: /Users/you/.gradle
+  #   npm_config_cache: /Users/you/.npm
+  #   PIP_CACHE_DIR: /Users/you/.cache/pip
+  #   CARGO_HOME: /Users/you/.cargo
+  #   GOMODCACHE: /Users/you/go/pkg/mod
 models:
   # Model tier per work class. Values are Agent-tool model names
   # (fable | opus | sonnet | haiku) or first-party Claude IDs (`claude-*`);

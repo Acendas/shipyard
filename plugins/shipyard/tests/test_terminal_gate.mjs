@@ -239,6 +239,56 @@ test("execute terminal: allows when all evidence present", () => {
   });
 });
 
+test("execute terminal: one-of-three parked is below default ratio → allowed", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, {}); // 3 tasks: T001, T002, T003
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_1_gate" },
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_2_gate" },
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T001", commit_sha: "a" },
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T002", commit_sha: "b" },
+      { type: "task_blocked", task_id: "T003", reason: "persistent_failure" },
+      { type: "sprint_complete_passed", sprint_id: "sprint-001" },
+    ]);
+    const v = evaluateExecuteTerminal({ dataDir });
+    assert.equal(v.allowed, true, `expected allow (1/3 = 0.33 < 0.34); got: ${v.reasons.join("; ")}`);
+  });
+});
+
+test("execute terminal: parked ratio over cap → denied with ratio reason", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, {}); // 3 tasks
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_1_gate" },
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_2_gate" },
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T001", commit_sha: "a" },
+      { type: "task_blocked", task_id: "T002", reason: "persistent_failure" },
+      { type: "task_blocked", task_id: "T003", reason: "salvage_failed" },
+      { type: "sprint_complete_passed", sprint_id: "sprint-001" },
+    ]);
+    const v = evaluateExecuteTerminal({ dataDir });
+    assert.equal(v.allowed, false, "2/3 parked = 0.67 > 0.34 must block");
+    assert.ok(v.reasons.some((r) => r.includes("Parked ratio")), `expected ratio reason; got: ${v.reasons.join("; ")}`);
+  });
+});
+
+test("execute terminal: over-cap parked allowed once terminal_parked_accepted is recorded", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, {});
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_1_gate" },
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_2_gate" },
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T001", commit_sha: "a" },
+      { type: "task_blocked", task_id: "T002", reason: "persistent_failure" },
+      { type: "task_blocked", task_id: "T003", reason: "salvage_failed" },
+      { type: "terminal_parked_accepted", accepted_by: "user" },
+      { type: "sprint_complete_passed", sprint_id: "sprint-001" },
+    ]);
+    const v = evaluateExecuteTerminal({ dataDir });
+    assert.equal(v.allowed, true, `explicit acceptance must open the hatch; got: ${v.reasons.join("; ")}`);
+  });
+});
+
 test("execute terminal: denies when SPRINT.md missing", () => {
   withTempDataDir((dataDir) => {
     const v = evaluateExecuteTerminal({ dataDir });

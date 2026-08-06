@@ -16,12 +16,21 @@ Otherwise, proceed.
 
 # Environment & rules (read before your first action)
 
-1. **Worktree branch self-check — your VERY FIRST action.** Run
-   `git branch --show-current`. It MUST match `shipyard/wt-*`. If it does not,
-   you are NOT in your isolated worktree — STOP immediately and return
-   STATUS: BLOCKED with ESCALATION_CODE: isolation_failure. Do NOT "fix" this by
-   checking out the working branch yourself; that bypasses isolation and races
-   the other builders in this wave.
+1. **Worktree branch self-check — your VERY FIRST action.** This check depends on
+   the `Isolation:` line in your brief.
+   - **`Isolation: on`** (or the line is absent — the isolated default): run
+     `git branch --show-current`. It MUST match `shipyard/wt-*`. If it does not,
+     you are NOT in your isolated worktree — STOP immediately and return
+     STATUS: BLOCKED with ESCALATION_CODE: isolation_failure. Do NOT "fix" this by
+     checking out the working branch yourself; that bypasses isolation and races
+     the other builders in this wave.
+   - **`Isolation: off`** (in-place mode — the orchestrator dispatched you
+     sequentially on the working branch, no worktree): SKIP the `shipyard/wt-*`
+     assertion. Instead confirm you are on the `Working branch` from your brief;
+     if not, STOP with ESCALATION_CODE: isolation_failure (a wrong branch here is
+     still a real dispatch error). In this mode you are the only builder running,
+     so committing on the working branch is correct and expected — but you MUST
+     still make exactly one atomic task commit, never leave the tree dirty.
 
 2. **Kind refusal.** This loop is for feature tasks only. Read the task file
    frontmatter first: if `kind: operational` or `kind: research`, STOP and return
@@ -31,7 +40,16 @@ Otherwise, proceed.
 3. **Stay in scope — capture deferred unknowns as IDEA files.** If you notice an
    out-of-scope problem, improvement, or scope-adjacent rot while working, do NOT
    expand the task to fix it — a wave depends on tasks staying independent, and
-   scope creep is what makes parallel merge-back conflict. Instead write up to
+   scope creep is what makes parallel merge-back conflict. **Scope note by isolation
+   mode:** that rationale is about PARALLEL merge-back. When your brief says
+   `Isolation: off` (sequential in-place — solo or `--isolation false`), there is no
+   parallel merge-back to conflict, so a small, necessary adjacent fix that the
+   task genuinely needs to work is not forbidden — prefer doing it over deferring a
+   blocker to an IDEA and parking your own task. This never licenses building
+   BEYOND the task's spec (over-build is a scope violation the spec reviewer flags
+   in any mode); it only relaxes the no-touch-adjacent-code rule whose sole purpose
+   was parallel-conflict avoidance. Genuinely out-of-scope items still become IDEAs.
+   In isolated mode (`Isolation: on`), keep the rule strict. Instead write up to
    3 `IDEA-*` files to the ideas directory given in your brief (one short markdown
    file each: what you saw, where, why it matters) and commit them atomically with
    your task commit. They surface later in /ship-sprint's carry-over scan and
@@ -40,6 +58,19 @@ Otherwise, proceed.
    a number races every sibling builder doing the same thing and clobbers whichever
    IDEA file loses. The CLI returns a zero-padded 3-digit string — use it as
    `IDEA-<id>` in BOTH the filename and the `id:` frontmatter field.
+
+3a. **Mark the acceptance criteria you satisfy (`// AC-<n>`).** Read your
+   feature file (the `Feature file:` path in your brief) and find the
+   `@AC-<n>` tags in its `## Acceptance Criteria` section. For each tagged
+   acceptance criterion your task implements, leave an `AC-<n>` marker in the
+   code or test that satisfies it — a `// AC-<n>` (C/JS/Java/Go/Rust/…),
+   `# AC-<n>` (Python/Ruby/shell), or the `@AC-<n>` tag inside the
+   corresponding test. This is what the sprint-complete AC-coverage gate
+   (`verify-ac-coverage`) keys on: a tagged AC with no marker anywhere in the
+   sprint diff is an ORPHAN and blocks sprint completion. One short marker per
+   AC you touch is enough; do not manufacture markers for ACs another task
+   owns. If your feature file has no `@AC-<n>` tags, there is nothing to mark
+   (the gate is advisory for untagged features).
 
 4. **Cross-platform shell.** Any shell you write (in tests, scripts, or commit
    hooks) must run on macOS, Linux, AND Windows. Do NOT use `mktemp`,

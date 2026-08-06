@@ -35,7 +35,8 @@ Read and follow this playbook from a command skill (`ship-execute`, `ship-quick`
 - `acceptance_probe` — the smoke command from the task frontmatter (required; if missing, halt and surface to the user — the task is unauthorable without one)
 - `data_dir` — literal `<SHIPYARD_DATA>` path
 - `base_ref` — the git ref the subagent's work forks from (the working-branch HEAD at dispatch, or the worktree base). The subagent's step-6 anti-stub self-scan diffs `git diff {{base_ref}}...HEAD` against it; without bounds the scan has nothing to compare.
-- `worktree_path` — informational only. With `isolation: "worktree"` Claude Code owns worktree creation and sets the subagent's cwd; this value (when non-null) is passed to the subagent purely so it can name its own checkout in logs. The orchestrator never pre-creates a worktree — see the Integration Notes.
+- `isolation` — `on` or `off`. `on` (the default) dispatches with `isolation: "worktree"`; `off` (solo, or `--isolation false` / `execution.isolation: none`) omits the arg and the builder runs in-place on the working branch. The value is surfaced to the builder as the `Isolation:` brief line, which gates its branch self-check (`shipyard/wt-*` when on, working-branch when off). Off is sequential-only — never dispatch it in parallel.
+- `worktree_path` — informational only. With `isolation: "worktree"` Claude Code owns worktree creation and sets the subagent's cwd; this value (when non-null) is passed to the subagent purely so it can name its own checkout in logs. Null when isolation is off. The orchestrator never pre-creates a worktree — see the Integration Notes.
 - `sprint_id` — sprint ID for event-log scoping (the `id:` from `SPRINT.md` frontmatter)
 - `wave_number` — wave number for event-log scoping (current value of cursor `wave_number`)
 - `dispatch_mode` — `sync` or `background`. `sync` = today's behavior, orchestrator parses Agent return value. `background` = orchestrator dispatches via `Agent(run_in_background: true)` and recovers the structured return from `.shipyard-events.jsonl` + capture file. Default `sync` for backward compatibility.
@@ -61,11 +62,12 @@ Agent(
   subagent_type: "shipyard:shipyard-disciplined-builder",
   model: <models.build value, or omit>,
   effort: <agent_effort.build_trivial for effort:S, else agent_effort.build; omit if empty>,
-  isolation: "worktree",
+  isolation: "worktree",   // ONLY when isolation is on; OMIT this line entirely when isolation is off (solo, or forced off by --isolation false / execution.isolation: none) — the builder then runs in-place on the working branch
   run_in_background: <true for wave dispatch, false for --task/--hotfix>,
   prompt: "
     Task ID:          {{task_id}}
     Working branch:    {{working_branch}}
+    Isolation:         {{on if dispatched with isolation: "worktree", else off}}
     Worktree path:     {{worktree_path_or_none}}
     Base ref:          {{base_ref}}
     Data dir:          {{data_dir}}
@@ -175,7 +177,8 @@ The subagent's exit contract is the same Iron Law as Ralph's promise — but at 
 
 ## Integration Notes
 
-- **Worktree mode.** Pass `isolation: "worktree"` on the Agent call — this is the ONLY path (see `using-worktrees`). Claude Code creates the worktree, fires the `WorktreeCreate` hook (which owns the `shipyard/wt-*` branch), and sets the subagent's cwd. Never pre-create the worktree with `git worktree add` — that bypasses the hook's branch naming and the `worktree.baseRef` handling, and it is what the agent's branch self-check exists to catch. `worktree_path` in the brief is informational only.
+- **Worktree mode (isolation on).** Pass `isolation: "worktree"` on the Agent call — for isolated dispatch this is the ONLY path (see `using-worktrees`). Claude Code creates the worktree, fires the `WorktreeCreate` hook (which owns the `shipyard/wt-*` branch), and sets the subagent's cwd. Never pre-create the worktree with `git worktree add` — that bypasses the hook's branch naming and the `worktree.baseRef` handling, and it is what the agent's branch self-check exists to catch. `worktree_path` in the brief is informational only.
+- **In-place mode (isolation off).** When the caller resolved isolation to off (solo, or `--isolation false` / `execution.isolation: none`), OMIT the `isolation:` argument entirely and pass `worktree_path` as null. The builder runs on the working branch in the orchestrator's checkout, sequentially — so this path must never be dispatched in parallel (no per-task `shipyard/wt-*` branch exists for the wave-integration gate to rebase). The builder's `shipyard/wt-*` branch self-check is skipped in this mode; commits land directly on the working branch and the integration gate is vacuously satisfied.
 - **Test execution is deferred by default.** Tasks write tests but do NOT run them — scoped tests run at the wave boundary, full suite at sprint completion. The acceptance probe is the only check that runs inside the task; it's the wiring proof, the deferred suite is the unit-level proof. This is the only mode of operation; there's no opt-in flag.
 - **Hotfix is the one exception** that DOES run tests at task level. The regression-test cycle (Red → Green → Revert → Red → Restore → Green) requires watching the test go through the full red-green-red-green motion — a deferred suite can't prove a regression test catches the specific bug. Hotfix dispatches inline this discipline; sprint dispatches don't.
 

@@ -1,5 +1,10 @@
 [
   {
+    "name": "normalizes_ac_ids_at_plan",
+    "type": "contains",
+    "pattern": "assign-ac-ids"
+  },
+  {
     "name": "uses_atomic_archive_sprint_command",
     "type": "contains",
     "pattern": "shipyard-data archive-sprint"
