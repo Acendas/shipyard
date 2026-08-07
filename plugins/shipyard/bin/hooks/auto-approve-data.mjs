@@ -394,7 +394,9 @@ export async function run(hookInput, _env) {
     // `shipyard-context diagnose` instead of silent.
     const featuresDir = join(shipyardData, "spec", "features");
     const isBacklogMd = base === "BACKLOG.md";
-    const isFeatureFile = /^F\d{3}-.*\.md$/.test(base) && dataDirContains(filePath, featuresDir);
+    // `[a-z]?` covers child/sub-feature files (F071d-…md); without it a
+    // hand-Edit of a sub-feature's frontmatter left no audit breadcrumb.
+    const isFeatureFile = /^F\d{3}[a-z]?-.*\.md$/.test(base) && dataDirContains(filePath, featuresDir);
     if (isBacklogMd || isFeatureFile) {
       try {
         logEvent(shipyardData, "model_state_file_write", { file: filePath });

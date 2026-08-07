@@ -38,11 +38,19 @@ import {
   configPluginsDirFromPluginData,
   ensureDataDirLink,
   legacyBreadcrumbName,
+  scopePluginDataRoot,
 } from "../shipyard-resolver.mjs";
 
 export function run(_hookInput, env) {
-  const pluginData = env.CLAUDE_PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA;
-  if (!pluginData) return 0; // nothing to write — let resolver handle it
+  const rawPluginData = env.CLAUDE_PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA;
+  if (!rawPluginData) return 0; // nothing to write — let resolver handle it
+  // Normalize to the plugin-scoped level (`<...>/plugins/data/<plugin>-<market>`)
+  // before it goes anywhere. This hook both WRITES the breadcrumb the resolver
+  // later reads and computes `projects/<hash>` itself for the `.shipyard` link;
+  // stamping the raw value would persist a shared-root path into a file and a
+  // symlink that outlive the session that mis-set it. getDataDir normalizes on
+  // read too, so this is belt-and-braces, not the only defence.
+  const pluginData = scopePluginDataRoot(rawPluginData);
 
   let projectRoot, hash;
   try {

@@ -25,6 +25,8 @@ import {
   deriveDataRootFromResolverPath,
   deriveInstallInfoFromResolverPath,
   getProjectHash,
+  installDataSegmentFromSelf,
+  scopePluginDataRoot,
 } from "../bin/shipyard-resolver.mjs";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -156,6 +158,88 @@ test("env-absent cache resolver resolves to its own install, not a foreign bread
       else process.env.CLAUDE_PLUGIN_DATA = prevPluginData;
       for (const p of breadcrumbCandidates(hash, { configTag: personalTag })) rmSync(p, { force: true });
       for (const p of breadcrumbCandidates(hash, { legacy: true })) rmSync(p, { force: true });
+    }
+  });
+});
+
+// --- shared-root vs plugin-scoped CLAUDE_PLUGIN_DATA ------------------------
+//
+// Regression tests for the 2026-08-06 "data root one directory too shallow"
+// bug: CLAUDE_PLUGIN_DATA pointing at the SHARED `<config>/plugins/data` root
+// resolved to `plugins/data/projects/<hash>` instead of
+// `plugins/data/<plugin>-<marketplace>/projects/<hash>`, minting an empty
+// phantom project dir beside the real one.
+
+test("scopePluginDataRoot: already-scoped path is returned unchanged", async () => {
+  await withTemp(async (root) => {
+    const install = fakeInstall(root, ".claude-work");
+    const resolver = await importResolver(install.resolverPath, "scoped-noop");
+    assert.equal(resolver.scopePluginDataRoot(install.dataRoot), install.dataRoot);
+    // ...including with a trailing separator, which basename() must tolerate.
+    assert.equal(resolver.scopePluginDataRoot(install.dataRoot + "/"), install.dataRoot + "/");
+  });
+});
+
+test("scopePluginDataRoot: shared plugins/data root gains the plugin segment", async () => {
+  await withTemp(async (root) => {
+    const install = fakeInstall(root, ".claude-work");
+    const sharedRoot = join(install.configPluginsDir, "data");
+    const resolver = await importResolver(install.resolverPath, "scoped-shared");
+    // Rule 2: the scoped dir exists on disk (fakeInstall created it).
+    assert.equal(resolver.scopePluginDataRoot(sharedRoot), install.dataRoot);
+    // Rule 3: still appended when the scoped dir does NOT exist yet, because
+    // the path literally has the `<...>/plugins/data` shape.
+    rmSync(install.dataRoot, { recursive: true, force: true });
+    assert.equal(resolver.scopePluginDataRoot(sharedRoot), install.dataRoot);
+  });
+});
+
+test("scopePluginDataRoot: an unrelated custom dir is never rewritten", async () => {
+  await withTemp(async (root) => {
+    const install = fakeInstall(root, ".claude-work");
+    const custom = join(root, "somewhere-else");
+    mkdirSync(custom, { recursive: true });
+    const resolver = await importResolver(install.resolverPath, "scoped-custom");
+    assert.equal(resolver.scopePluginDataRoot(custom), custom);
+    // A phantom `projects/` under the custom dir must NOT be read as
+    // "already scoped" — that is exactly the state the bug leaves behind.
+    mkdirSync(join(custom, "projects"), { recursive: true });
+    assert.equal(resolver.scopePluginDataRoot(custom), custom);
+  });
+});
+
+test("scopePluginDataRoot: dev/linked install (no segment) is a no-op", () => {
+  // The dev resolver in this repo is not under plugins/cache/<market>/<plugin>,
+  // so there is no segment to append and every path passes through untouched.
+  // This is what keeps existing fixtures (CLAUDE_PLUGIN_DATA=<tmp>/data)
+  // working unchanged.
+  const anyPath = join(tmpdir(), "plugins", "data");
+  assert.equal(scopePluginDataRoot(anyPath), anyPath);
+  assert.equal(installDataSegmentFromSelf(), null);
+});
+
+test("getDataDir: shared root and scoped root resolve to the SAME project dir", async () => {
+  await withTemp(async (root) => {
+    const repo = setupRepo(root);
+    const install = fakeInstall(root, ".claude-work");
+    const hash = getProjectHash(realpathSync(repo));
+    const sharedRoot = join(install.configPluginsDir, "data");
+    const expected = join(install.dataRoot, "projects", hash);
+
+    const prevProjectDir = process.env.CLAUDE_PROJECT_DIR;
+    const prevPluginData = process.env.CLAUDE_PLUGIN_DATA;
+    process.env.CLAUDE_PROJECT_DIR = repo;
+    try {
+      const resolver = await importResolver(install.resolverPath, "both-levels");
+      process.env.CLAUDE_PLUGIN_DATA = sharedRoot;
+      assert.equal(resolver.getDataDir(), expected);
+      process.env.CLAUDE_PLUGIN_DATA = install.dataRoot;
+      assert.equal(resolver.getDataDir(), expected);
+    } finally {
+      if (prevProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+      else process.env.CLAUDE_PROJECT_DIR = prevProjectDir;
+      if (prevPluginData === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
+      else process.env.CLAUDE_PLUGIN_DATA = prevPluginData;
     }
   });
 });

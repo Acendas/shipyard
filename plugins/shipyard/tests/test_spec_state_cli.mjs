@@ -743,3 +743,129 @@ test("config set worktree-warm-enabled: creates the worktree_warm block when abs
     p.cleanup();
   }
 });
+
+// --- child / sub-feature ids (F071d) ---------------------------------------
+//
+// `F001a`/`F001b` sub-features are a documented split convention
+// (project-files/rules/shipyard-spec.md, ship-discuss's 200-line limit), but
+// FID_RE only accepted `F\d{3}` — so `backlog add F071d` was refused and one
+// real project's BACKLOG.md logged seven hand-worked-around instances.
+
+test("backlog add: accepts a child feature id (F071d)", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F071d", { status: "approved" });
+    const r = p.run(["backlog", "add", "F071d"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(readBacklogIds(p), ["F071d"]);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("feature set-status / set: accept a child feature id", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F036a", { status: "proposed" });
+    assert.equal(p.run(["feature", "set-status", "F036a", "approved"]).code, 0);
+    assert.match(readFeature(p, "F036a"), /status: approved/);
+    assert.equal(p.run(["feature", "set", "F036a", "story_points=5"]).code, 0);
+    assert.match(readFeature(p, "F036a"), /story_points: 5/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("feature id validation still rejects genuinely malformed ids", () => {
+  const p = makeProject();
+  try {
+    for (const bad of ["F71d", "F071dd", "F071D", "F0711", "NOT-AN-ID"]) {
+      const r = p.run(["backlog", "add", bad]);
+      assert.equal(r.code, 2, `${bad} should be a usage error, got ${r.code}`);
+    }
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("backlog add/rank: a malformed PRE-EXISTING row warns instead of blocking the whole index", () => {
+  const p = makeProject();
+  try {
+    // Seed the index with a row no validator accepts. Before the fix,
+    // readFeatureRice hard-failed on it while scoring EVERY existing row, so
+    // one bad row refused every future add and every re-rank.
+    const backlogFile = join(p.dataDir, "backlog", "BACKLOG.md");
+    writeFileSync(
+      backlogFile,
+      readFileSync(backlogFile, "utf8").replace("|------|----|", "|------|----|\n| 1 | NOT-AN-ID |"),
+    );
+    writeFeature(p, "F002", { status: "approved" });
+
+    const add = p.run(["backlog", "add", "F002"]);
+    assert.equal(add.code, 0, add.stderr);
+    assert.match(add.stderr, /unrecognized id: NOT-AN-ID/);
+    assert.ok(readBacklogIds(p).includes("F002"));
+    // Kept, not silently dropped — and sunk below the scoreable rows.
+    assert.deepEqual(readBacklogIds(p), ["F002", "NOT-AN-ID"]);
+
+    const rank = p.run(["backlog", "rank"]);
+    assert.equal(rank.code, 0, rank.stderr);
+    assert.match(rank.stderr, /unrecognized id: NOT-AN-ID/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+// --- false-green exit codes -------------------------------------------------
+
+test("feature set-status: an unknown status is refused even with --force", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001", { status: "proposed" });
+    // --force overrides the transition GRAPH, never the status vocabulary.
+    // This used to write `status: bogus` into the feature file and exit 0.
+    const r = p.run(["feature", "set-status", "F001", "bogus", "--force"]);
+    assert.equal(r.code, 2);
+    assert.match(r.stderr, /unknown feature status "bogus"/);
+    assert.match(readFeature(p, "F001"), /status: proposed/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("feature set-status: a flag is never read as the status positional", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001", { status: "proposed" });
+    // `set-status F001 --force approved` used to bind toStatus="--force" and,
+    // waved past the graph by --force itself, write `status: --force` + exit 0.
+    const r = p.run(["feature", "set-status", "F001", "--force", "approved"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFeature(p, "F001"), /status: approved/);
+    assert.doesNotMatch(readFeature(p, "F001"), /status: --force/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("backlog remove: exits non-zero when NONE of the named ids were present", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001", { status: "approved" });
+    assert.equal(p.run(["backlog", "add", "F001"]).code, 0);
+
+    // All-missing: previously printed an error AND `removed (none)` at exit 0,
+    // indistinguishable from a real removal to an exit-code-checking caller.
+    const none = p.run(["backlog", "remove", "F900"]);
+    assert.equal(none.code, 4);
+    assert.deepEqual(readBacklogIds(p), ["F001"]);
+
+    // Partial hit stays successful (per-id removal is idempotent) but says so.
+    const partial = p.run(["backlog", "remove", "F001", "F900"]);
+    assert.equal(partial.code, 0, partial.stderr);
+    assert.match(partial.stderr, /not present \(no-op\): F900/);
+    assert.deepEqual(readBacklogIds(p), []);
+  } finally {
+    p.cleanup();
+  }
+});

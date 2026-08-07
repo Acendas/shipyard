@@ -411,3 +411,113 @@ test("scan-stubs: invalid --data-dir path exits non-zero naming the flag", () =>
     f.cleanup();
   }
 });
+
+// --- feature / backlog / idea / config ------------------------------------
+//
+// These route into spec-state-cli exactly like `task` and `draft`, but used
+// to parse `--data-dir` nowhere: the flag and its value fell through as stray
+// positionals and the command wrote into the RESOLVED dir at exit 0 — a
+// wrong-target write that looked like success.
+
+function seedSpecDir(dataDir, { feature, idea, config, backlog } = {}) {
+  mkdirSync(join(dataDir, "spec", "features"), { recursive: true });
+  mkdirSync(join(dataDir, "spec", "ideas"), { recursive: true });
+  if (feature) {
+    writeFileSync(
+      join(dataDir, "spec", "features", `${feature}-x.md`),
+      `---\nid: ${feature}\nstatus: proposed\nrice_reach: 4\nrice_impact: 2\nrice_confidence: 1\nrice_effort: 2\nupdated: 2026-01-01\n---\n\n# x\n`,
+    );
+  }
+  if (idea) {
+    writeFileSync(
+      join(dataDir, "spec", "ideas", `${idea}-x.md`),
+      `---\nid: ${idea}\nstatus: proposed\n---\n\n# x\n`,
+    );
+  }
+  if (backlog) {
+    mkdirSync(join(dataDir, "backlog"), { recursive: true });
+    writeFileSync(
+      join(dataDir, "backlog", "BACKLOG.md"),
+      "---\nlast_groomed: 2026-01-01\n---\n\n# Backlog\n\n| Rank | ID |\n|------|----|\n\n## Overrides\n",
+    );
+  }
+  if (config) writeFileSync(join(dataDir, "config.md"), "---\nconfig_version: 5\n---\n");
+}
+
+test("feature set-status: --data-dir honored, mutates the explicit dir not the resolved one", () => {
+  const f = makeFixture();
+  try {
+    seedSpecDir(f.explicitDataDir, { feature: "F001" });
+    seedSpecDir(f.realDataDir, { feature: "F001" });
+    const r = f.run(["feature", "set-status", "F001", "approved", "--data-dir", f.explicitDataDir]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(join(f.explicitDataDir, "spec", "features", "F001-x.md"), "utf8"), /status: approved/);
+    // The resolved dir must be untouched — that is the whole point of the flag.
+    assert.match(readFileSync(join(f.realDataDir, "spec", "features", "F001-x.md"), "utf8"), /status: proposed/);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("backlog add: --data-dir honored", () => {
+  const f = makeFixture();
+  try {
+    seedSpecDir(f.explicitDataDir, { feature: "F002", backlog: true });
+    seedSpecDir(f.realDataDir, { backlog: true });
+    f.run(["feature", "set-status", "F002", "approved", "--data-dir", f.explicitDataDir]);
+    const r = f.run(["backlog", "add", "F002", "--data-dir", f.explicitDataDir]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(join(f.explicitDataDir, "backlog", "BACKLOG.md"), "utf8"), /\|\s*1\s*\|\s*F002\s*\|/);
+    assert.doesNotMatch(readFileSync(join(f.realDataDir, "backlog", "BACKLOG.md"), "utf8"), /F002/);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("idea set-status: --data-dir honored", () => {
+  const f = makeFixture();
+  try {
+    seedSpecDir(f.explicitDataDir, { idea: "IDEA-001" });
+    const r = f.run(["idea", "set-status", "IDEA-001", "rejected", "--data-dir", f.explicitDataDir]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(join(f.explicitDataDir, "spec", "ideas", "IDEA-001-x.md"), "utf8"), /status: rejected/);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("config set / set-isolation: --data-dir honored on every config verb", () => {
+  const f = makeFixture();
+  try {
+    seedSpecDir(f.explicitDataDir, { config: true });
+    seedSpecDir(f.realDataDir, { config: true });
+
+    const set = f.run(["config", "set", "product-spec-path", "docs/spec/", "--data-dir", f.explicitDataDir]);
+    assert.equal(set.code, 0, set.stderr);
+    // set-isolation is a sibling verb writing the SAME config.md; it must not
+    // silently drop a flag its neighbour honors.
+    const iso = f.run(["config", "set-isolation", "none", "--data-dir", f.explicitDataDir]);
+    assert.equal(iso.code, 0, iso.stderr);
+
+    const written = readFileSync(join(f.explicitDataDir, "config.md"), "utf8");
+    assert.match(written, /product_spec_path: docs\/spec\//);
+    assert.match(written, /isolation: none/);
+    assert.equal(readFileSync(join(f.realDataDir, "config.md"), "utf8"), "---\nconfig_version: 5\n---\n");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("feature: --data-dir validation errors are reported, not swallowed", () => {
+  const f = makeFixture();
+  try {
+    const rel = f.run(["feature", "set-status", "F001", "approved", "--data-dir", "relative/path"]);
+    assert.equal(rel.code, 2);
+    assert.match(rel.stderr, /--data-dir path must be absolute/);
+    const missing = f.run(["backlog", "rank", "--data-dir", join(f.root, "nope")]);
+    assert.equal(missing.code, 2);
+    assert.match(missing.stderr, /--data-dir path does not exist/);
+  } finally {
+    f.cleanup();
+  }
+});

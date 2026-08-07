@@ -213,7 +213,26 @@ function withTwoFeatureLocks(dataDir, fidA, fidB, fn) {
 
 // --- feature / idea resolution -------------------------------------------
 
-const FID_RE = /^F\d{3}$/;
+/**
+ * Feature ids come in two shapes:
+ *   F004   — a plain feature, what `next-id features` allocates.
+ *   F071d  — a CHILD / sub-feature: the parent's number plus one lowercase
+ *            letter suffix.
+ *
+ * The child form is a documented, first-class convention, not an ad-hoc
+ * spelling: `project-files/rules/shipyard-spec.md` shows `F001a`/`F001b`/
+ * `F001c` as the canonical split, and ship-discuss's 200-line limit tells
+ * authors to "split into sub-features (F001a, F001b)". Real projects carry
+ * `F036a`, `F071a`..`F071e` on disk. But this regex only ever accepted
+ * `F\d{3}`, so `backlog add F071d` was refused and the backlog index had to
+ * be hand-edited — logged as a known bug seven times in one project's
+ * BACKLOG.md Overrides section before it was fixed.
+ *
+ * Exactly one lowercase letter: `next-id`'s allocator matches `^F0*(\d+)`
+ * and a multi-letter or uppercase suffix appears nowhere in the repo or the
+ * docs, so widening further would accept ids nothing else can produce.
+ */
+const FID_RE = /^F\d{3}[a-z]?$/;
 const IDEA_ID_RE = /^IDEA-\d{3}$/;
 const EPIC_ID_RE = /^E\d{3}$/;
 const TID_RE = /^T\d{3}$/;
@@ -241,7 +260,7 @@ function resolveEntityFile(dataDir, subdir, id, { optional = false } = {}) {
 }
 
 function resolveFeatureFile(dataDir, fid, opts) {
-  if (!FID_RE.test(fid)) fail(2, `spec-state: invalid feature id "${fid}" — expected F### (e.g. F004)`);
+  if (!FID_RE.test(fid)) fail(2, `spec-state: invalid feature id "${fid}" — expected F### or F###<letter> (e.g. F004, F071d)`);
   return resolveEntityFile(dataDir, "features", fid, opts);
 }
 
@@ -266,7 +285,21 @@ function validateTaskId(tid) {
 
 // --- RICE ------------------------------------------------------------------
 
+/**
+ * RICE score for a feature id, or `{ score: null, missing: [...] }`.
+ *
+ * Never throws on a bad id. This is called once per EXISTING backlog row by
+ * `backlog add` and `backlog rank`, so a hard `fail()` here is whole-index
+ * validation: a single malformed row anywhere in BACKLOG.md would refuse
+ * every future add and every re-rank, with an error naming an id the caller
+ * never mentioned. That is what made the `F071d` refusal so sticky — the
+ * widened FID_RE fixes the specific id, but one typo'd row would still
+ * deadlock the whole file. Pre-existing junk is now reported as a warning by
+ * the callers and sunk to the bottom of the index alongside the other
+ * unscoreable rows; only the entry actually being added is hard-validated.
+ */
 function readFeatureRice(dataDir, fid) {
+  if (!FID_RE.test(fid)) return { score: null, missing: ["invalid_id"] };
   const path = resolveFeatureFile(dataDir, fid, { optional: true });
   if (!path) return { score: null, missing: ["file_not_found"] };
   const content = readFileSync(path, "utf8");
@@ -351,10 +384,26 @@ function serializeBacklog({ path, fm, preTable, ids, tail }) {
 // --- feature commands -------------------------------------------------------
 
 function featureSetStatus(dataDir, args) {
-  const fid = args[0];
-  const toStatus = args[1];
+  // Positionals only — a flag must never be read as the id or the status.
+  // `feature set-status F001 --force done` used to bind toStatus="--force",
+  // which `--force` then waved past the transition graph: the CLI wrote
+  // `status: --force` into the feature file and exited 0.
+  const positional = args.filter((a) => !a.startsWith("--"));
+  const fid = positional[0];
+  const toStatus = positional[1];
   const force = args.includes("--force");
   if (!fid || !toStatus) fail(2, "usage: feature set-status <FID> <status> [--force]");
+  // Vocabulary check runs BEFORE (and independently of) --force. --force
+  // overrides the transition GRAPH — which edges are legal — not the set of
+  // statuses that exist at all. Writing an unknown status is never a
+  // successful flip, and every downstream reader (backlog auto-removal,
+  // sprint gates, ship-status) keys off this exact vocabulary.
+  if (!Object.prototype.hasOwnProperty.call(FEATURE_TRANSITIONS, toStatus)) {
+    fail(
+      2,
+      `spec-state: unknown feature status "${toStatus}". Allowed: ${Object.keys(FEATURE_TRANSITIONS).join(", ")}`,
+    );
+  }
 
   withNamedLock(dataDir, `feature-${fid}`, () => {
     const path = resolveFeatureFile(dataDir, fid);
@@ -640,7 +689,7 @@ function featureSetTasks(dataDir, args) {
   const fid = args[0];
   const raw = args[1];
   if (!fid || raw === undefined) fail(2, "usage: feature set-tasks <FID> <TID,TID,...>");
-  if (!FID_RE.test(fid)) fail(2, `spec-state: invalid feature id "${fid}" — expected F###`);
+  if (!FID_RE.test(fid)) fail(2, `spec-state: invalid feature id "${fid}" — expected F### or F###<letter> (e.g. F004, F071d)`);
   const tasks = raw
     .split(",")
     .map((s) => s.trim())
@@ -833,7 +882,7 @@ function featureCheckProbes(dataDir, args) {
   const fids = args.filter((a) => !a.startsWith("--"));
   if (fids.length === 0) fail(2, "usage: feature check-probes <FID> [<FID> ...]");
   for (const fid of fids) {
-    if (!FID_RE.test(fid)) fail(2, `spec-state: invalid feature id "${fid}" — expected F### (e.g. F004)`);
+    if (!FID_RE.test(fid)) fail(2, `spec-state: invalid feature id "${fid}" — expected F### or F###<letter> (e.g. F004, F071d)`);
   }
 
   const failures = [];
@@ -894,12 +943,30 @@ function featureCheckProbes(dataDir, args) {
 
 // --- backlog commands --------------------------------------------------------
 
+/**
+ * Report BACKLOG.md rows whose id doesn't parse, without failing. Scoped
+ * separately from the entry being mutated: pre-existing junk is the file
+ * owner's problem to clean up, not a reason to block an unrelated add/rank
+ * (see readFeatureRice's note on whole-index validation).
+ */
+function warnMalformedBacklogIds(ids) {
+  const bad = ids.filter((id) => !FID_RE.test(id));
+  if (bad.length) {
+    process.stderr.write(
+      `spec-state: warning — BACKLOG.md has ${bad.length} row(s) with an unrecognized id: ${bad.join(", ")}. ` +
+        `Expected F### or F###<letter>. They are kept, ranked last, and otherwise ignored.\n`,
+    );
+  }
+}
+
 function backlogAdd(dataDir, args) {
   const fids = args.filter((a) => !a.startsWith("--"));
   if (fids.length === 0) fail(2, "usage: backlog add <FID> [<FID> ...]");
 
   for (const fid of fids) {
-    if (!FID_RE.test(fid)) fail(2, `spec-state: invalid feature id "${fid}"`);
+    if (!FID_RE.test(fid)) {
+      fail(2, `spec-state: invalid feature id "${fid}" — expected F### or F###<letter> (e.g. F004, F071d)`);
+    }
   }
 
   // Fixed lock order: each feature lock (sorted, for determinism), then backlog.
@@ -912,6 +979,7 @@ function backlogAdd(dataDir, args) {
   acquire(0, () => {
     withNamedLock(dataDir, "backlog", () => {
       const b = parseBacklog(dataDir);
+      warnMalformedBacklogIds(b.ids);
       const added = [];
       for (const fid of fids) {
         const path = resolveFeatureFile(dataDir, fid);
@@ -941,8 +1009,19 @@ function backlogAdd(dataDir, args) {
   });
 }
 
+/**
+ * Remove ids from the backlog index.
+ *
+ * Exit shape: 0 if at least one id was actually removed (a partial hit still
+ * prints the misses to stderr and succeeds — removal is idempotent per id),
+ * 4 if NONE of the named ids were in the index. The all-missing case used to
+ * print an error to stderr, print `removed (none)` to stdout, and exit 0 —
+ * indistinguishable to an exit-code-checking caller from a real removal,
+ * which is the same false-green shape as a failed status flip reporting
+ * success.
+ */
 function backlogRemove(dataDir, args) {
-  const fids = args;
+  const fids = args.filter((a) => !a.startsWith("--"));
   if (fids.length === 0) fail(2, "usage: backlog remove <FID> [<FID> ...]");
   withNamedLock(dataDir, "backlog", () => {
     const b = parseBacklog(dataDir);
@@ -952,19 +1031,23 @@ function backlogRemove(dataDir, args) {
       if (b.ids.includes(fid)) removed.push(fid);
       else missing.push(fid);
     }
+    if (removed.length === 0) {
+      fail(4, `spec-state: backlog remove: none of the named id(s) are in BACKLOG.md: ${missing.join(", ")}`);
+    }
     b.ids = b.ids.filter((id) => !fids.includes(id));
     serializeBacklog(b);
     if (missing.length) {
       process.stderr.write(`backlog remove: not present (no-op): ${missing.join(", ")}\n`);
     }
     logEvent(dataDir, "backlog_removed", { features: removed.join(",") });
-    process.stdout.write(`backlog remove: removed ${removed.length ? removed.join(", ") : "(none)"}\n`);
+    process.stdout.write(`backlog remove: removed ${removed.join(", ")}\n`);
   });
 }
 
 function backlogRank(dataDir) {
   withNamedLock(dataDir, "backlog", () => {
     const b = parseBacklog(dataDir);
+    warnMalformedBacklogIds(b.ids);
     const withScores = b.ids.map((id) => ({ id, ...readFeatureRice(dataDir, id) }));
     const scored = withScores.filter((x) => x.score !== null).sort((a, c) => c.score - a.score);
     const unscored = withScores.filter((x) => x.score === null);
@@ -1082,7 +1165,7 @@ function ideaSetStatus(dataDir, args) {
     fail(3, "spec-state: idea set-status rejected refuses --to — a rejected idea has no graduation target");
   }
   if (toFeature) {
-    if (!FID_RE.test(toFeature)) fail(3, `spec-state: --to "${toFeature}" is not a valid feature id (expected F###)`);
+    if (!FID_RE.test(toFeature)) fail(3, `spec-state: --to "${toFeature}" is not a valid feature id (expected F### or F###<letter>)`);
     if (!resolveFeatureFile(dataDir, toFeature, { optional: true })) {
       fail(3, `spec-state: --to ${toFeature} does not exist under spec/features/`);
     }

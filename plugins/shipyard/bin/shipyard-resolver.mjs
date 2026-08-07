@@ -106,6 +106,75 @@ export function deriveDataRootFromSelf(sourceUrl = import.meta.url) {
   return deriveDataRootFromResolverPath(sourcePath);
 }
 
+/**
+ * The `<plugin>-<marketplace>` directory segment this install owns under the
+ * shared `<configRoot>/plugins/data/` root, or null for a dev/linked install
+ * (no `plugins/cache/<marketplace>/<plugin>/` in the resolver's own path, so
+ * there is no defined segment to speak of).
+ */
+export function installDataSegmentFromSelf(sourceUrl = import.meta.url) {
+  const sourcePath = resolverPathFromUrl(sourceUrl);
+  if (!sourcePath) return null;
+  const info = deriveInstallInfoFromResolverPath(sourcePath);
+  return info ? `${info.plugin}-${info.marketplace}` : null;
+}
+
+/**
+ * Normalize a plugin-data root to the PLUGIN-SCOPED level.
+ *
+ * The bug this fixes: `plugins/data/` is a root SHARED by every installed
+ * plugin, and each plugin owns exactly one `<plugin>-<marketplace>/`
+ * subdirectory inside it (that is the layout `deriveDataRootFromResolverPath`
+ * above produces, and the layout every working install on disk has). But
+ * `getDataDir` used to append `projects/<hash>` to whatever
+ * CLAUDE_PLUGIN_DATA happened to contain. Hand-exporting the SHARED root
+ * (`CLAUDE_PLUGIN_DATA=~/.claude-work/plugins/data`) therefore minted
+ * `plugins/data/projects/<hash>` — a sibling of the real
+ * `plugins/data/shipyard-acendas/projects/<hash>`, one level too shallow.
+ * Every lookup landed in a fresh, empty, config-less project dir: a
+ * long-existing feature read back as MISSING-FILE, and `doctor` grew
+ * phantom-project warnings. Observed 2026-08-06.
+ *
+ * DISCRIMINATOR RULE (deterministic, in this order):
+ *   0. No known segment (dev/linked install) → return unchanged. We cannot
+ *      invent a segment name we were never installed under, and guessing
+ *      would break every dev/test fixture that points CLAUDE_PLUGIN_DATA at
+ *      a bare scratch dir.
+ *   1. `basename(pluginData) === <segment>` → ALREADY scoped, return
+ *      unchanged. This is the backward-compatibility case: a correct setup
+ *      (Claude Code's own export, and what the SessionStart breadcrumb
+ *      records) is never rewritten.
+ *   2. `<pluginData>/<segment>` exists on disk → we were handed the parent
+ *      of our own scoped dir. Strongest possible evidence, so it outranks
+ *      the shape check below; it also covers non-standard roots.
+ *   3. `basename === "data"` and its parent is named `plugins` → the shared
+ *      `<configRoot>/plugins/data` root, before our scoped dir has ever been
+ *      created. Append. Deliberately narrow: an arbitrary custom directory
+ *      that merely happens to be handed to us is left alone, so this can
+ *      only ever redirect a path that literally has the shared-root shape.
+ *   4. Anything else → unchanged.
+ *
+ * Note what is NOT used as a discriminator: "does `<pluginData>/projects`
+ * exist". That test is worthless here precisely BECAUSE of the bug — the
+ * shared root grows a phantom `projects/` the first time the shallow path is
+ * used, so it would report "already scoped" exactly in the broken case.
+ */
+export function scopePluginDataRoot(pluginData, opts = {}) {
+  if (!pluginData) return pluginData;
+  const segment = Object.prototype.hasOwnProperty.call(opts, "segment")
+    ? opts.segment
+    : installDataSegmentFromSelf();
+  if (!segment) return pluginData; // rule 0
+  const trimmed = pluginData.replace(/[\\/]+$/, "") || pluginData;
+  if (basename(trimmed) === segment) return pluginData; // rule 1
+  const scoped = join(trimmed, segment);
+  if (existsSync(scoped)) return scoped; // rule 2
+  if (basename(trimmed) === "data" && basename(dirname(trimmed)) === "plugins") {
+    return scoped; // rule 3
+  }
+  return pluginData; // rule 4
+}
+
 export function configTagForPluginsDir(configPluginsDir) {
   if (!configPluginsDir) return null;
   return createHash("sha256")
@@ -755,7 +824,14 @@ export function getDataDir(opts = {}) {
     process.exit(1);
   }
 
-  return join(pluginData, "projects", projectHash);
+  // 6. Normalize to the plugin-scoped level before appending projects/<hash>.
+  //    Applied HERE (once, at the single join site) rather than at each of the
+  //    four discovery steps, so env / self-derived / breadcrumb / link can
+  //    never disagree about which level they produced. Steps 2 and 4 already
+  //    yield scoped paths and are returned unchanged by rule 1 / the early
+  //    return; only a hand-exported shared root is rewritten. See
+  //    scopePluginDataRoot for the discriminator and the incident behind it.
+  return join(scopePluginDataRoot(pluginData), "projects", projectHash);
 }
 
 // CLI entry point — invoked by Python hook scripts via subprocess

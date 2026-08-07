@@ -64,7 +64,7 @@ import { fileURLToPath } from "node:url";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
 import { dirLooksInitialized, ensureDataDirLink, getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
 import { cursorCmd } from "./cursor-cli.mjs";
-import { parseFrontmatter, parseWaves } from "./terminal-gate.mjs";
+import { parseFrontmatter, parseWaves, readEvents } from "./terminal-gate.mjs";
 import { specStateCmd } from "./spec-state-cli.mjs";
 import { FEATURE_TRANSITIONS } from "./spec-lifecycle.mjs";
 import { skillLockCmd } from "./skill-lock.mjs";
@@ -74,7 +74,17 @@ import { readinessCheckCmd } from "./readiness-check.mjs";
 import { bootstrapOnboarding, ensureInitializedDataDir, renderOnboardingLines } from "./init-data.mjs";
 import { reviewPlanCmd } from "./review-plan.mjs";
 import { queueCmd } from "./worker-queue.mjs";
-import { readExecutionIsolation, normalizeIsolationToken, readMaxIdeasPerSprint, readEnforceAcCoverage } from "./config-read.mjs";
+import {
+  readExecutionIsolation,
+  normalizeIsolationToken,
+  readMaxIdeasPerSprint,
+  readEnforceAcCoverage,
+  readRefactorScope,
+  readDispatchOrder,
+  readMaxTasksPerWave,
+  readMergeIndependentLayers,
+  readMaxTasksPerWaveMerged,
+} from "./config-read.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -543,7 +553,10 @@ function parseFeatureSummary(line) {
   return m[1].split(",").map((part) => {
     const [id, points] = part.trim().split(":");
     return { id, points: Number.parseInt(points, 10) || 0 };
-  }).filter((f) => /^F\d+$/.test(f.id));
+  // Child/sub-feature ids (F071d) are legitimate — see FID_RE in
+  // spec-state-cli.mjs. A plain /^F\d+$/ silently dropped them from every
+  // sprint feature summary, so their story points vanished from metrics.
+  }).filter((f) => /^F\d+[a-z]?$/.test(f.id));
 }
 
 function sortSprintRecords(records) {
@@ -936,6 +949,8 @@ function initSprint(sprintId, opts = {}) {
  *
  * Usage: shipyard-data clean-worktrees [--dry-run] [--force] [--all]
  */
+
+
 function cleanWorktrees(opts = {}) {
   const projectRoot = getProjectRoot();
   const worktreesDir = join(projectRoot, ".claude", "worktrees");
@@ -1812,6 +1827,41 @@ function resolveIsolation(args) {
   process.stdout.write(resolved + "\n");
 }
 
+/**
+ * `shipyard-data resolve-refactor-scope` — prints exactly `sprint` or `wave`.
+ *
+ * Same reason `resolve-isolation` exists: the stage graph permits BOTH
+ * `wave_gate → sprint_refactor` and `wave_gate → sprint_full_build`, so which
+ * one a tick takes is a config read, and a config read the model performs by
+ * eyeballing config.md text is the prose-drift class we keep paying for.
+ */
+function resolveRefactorScope() {
+  process.stdout.write(readRefactorScope(getDataDir({ silent: true })) + "\n");
+}
+
+/**
+ * `shipyard-data resolve-wave-caps` — prints the wave-width decision inputs as
+ * one JSON object so `/ship-sprint` wave assignment reads them instead of
+ * re-deriving defaults from config.md prose (and silently using the wrong
+ * default when the key is absent).
+ */
+function resolveWaveCaps() {
+  const dataDir = getDataDir({ silent: true });
+  process.stdout.write(
+    JSON.stringify({
+      max_tasks_per_wave: readMaxTasksPerWave(dataDir),
+      merge_independent_layers: readMergeIndependentLayers(dataDir),
+      max_tasks_per_wave_merged: readMaxTasksPerWaveMerged(dataDir),
+      dispatch_order: readDispatchOrder(dataDir),
+    }) + "\n",
+  );
+}
+
+
+
+
+
+
 // --- worktree-integration git helpers (anchor-commit + verify-wave-integrated) ---
 
 function gitCapture(args, cwd) {
@@ -2361,7 +2411,7 @@ function syncOrchestrateModel(value) {
   return changed;
 }
 
-function configSetModel(tier, value) {
+function configSetModel(tier, value, { dataDir: dataDirOverride } = {}) {
   if (!MODEL_TIERS.has(tier) || !isAllowedModelValue(value)) {
     process.stderr.write(
       "shipyard-data config set-model: usage: config set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*>\n",
@@ -2369,7 +2419,7 @@ function configSetModel(tier, value) {
     process.exit(2);
   }
   const written = value === "inherit" ? '""' : value;
-  const dataDir = getDataDir({ silent: true });
+  const dataDir = dataDirOverride ?? getDataDir({ silent: true });
   const configPath = join(dataDir, "config.md");
   if (!existsSync(configPath)) {
     process.stderr.write(`shipyard-data config set-model: no ${configPath} — run shipyard-data onboarding bootstrap first\n`);
@@ -2403,7 +2453,7 @@ function configSetModel(tier, value) {
   process.stdout.write(`models.${tier}: ${written}${syncNote}\n`);
 }
 
-function configSetEffort(tier, value) {
+function configSetEffort(tier, value, { dataDir: dataDirOverride } = {}) {
   if (!AGENT_EFFORT_TIERS.has(tier) || !AGENT_EFFORT_VALUES.has(value)) {
     process.stderr.write(
       "shipyard-data config set-effort: usage: config set-effort <build|build_trivial|fixer|operational|operational_fix|think|coordinator|simplifier> <low|medium|high|inherit>\n",
@@ -2411,7 +2461,7 @@ function configSetEffort(tier, value) {
     process.exit(2);
   }
   const written = value === "inherit" ? '""' : value;
-  const dataDir = getDataDir({ silent: true });
+  const dataDir = dataDirOverride ?? getDataDir({ silent: true });
   const configPath = join(dataDir, "config.md");
   if (!existsSync(configPath)) {
     process.stderr.write(`shipyard-data config set-effort: no ${configPath} — run shipyard-data onboarding bootstrap first\n`);
@@ -2442,14 +2492,14 @@ function configSetEffort(tier, value) {
 // loud, not silently fall through to the default.
 const ISOLATION_VALUES = new Set(["worktree", "none"]);
 
-function configSetIsolation(value) {
+function configSetIsolation(value, { dataDir: dataDirOverride } = {}) {
   if (!ISOLATION_VALUES.has(value)) {
     process.stderr.write(
       "shipyard-data config set-isolation: usage: config set-isolation <worktree|none>\n",
     );
     process.exit(2);
   }
-  const dataDir = getDataDir({ silent: true });
+  const dataDir = dataDirOverride ?? getDataDir({ silent: true });
   const configPath = join(dataDir, "config.md");
   if (!existsSync(configPath)) {
     process.stderr.write(`shipyard-data config set-isolation: no ${configPath} — run shipyard-data onboarding bootstrap first\n`);
@@ -2611,6 +2661,7 @@ function taskAcceptReturn(args, opts = {}) {
 
   const dataDir = opts.dataDir || getDataDir({ silent: true });
   anchorCommit(taskId, sha, { dataDir });
+
   logEvent(dataDir, "task_dispatch_returned", {
     pipeline: "ship-execute",
     sprint,
@@ -2774,7 +2825,10 @@ const DOCTOR_WATERMARK_BASENAME = ".doctor-watermark.json";
 const REGISTRY_ENTITY_RULES = {
   features: {
     dir: join("spec", "features"),
-    idRe: /^F\d+$/,
+    // Accepts child/sub-feature ids (F036a, F071d) — the documented split
+    // convention in project-files/rules/shipyard-spec.md. Without the
+    // optional letter, doctor reported real feature files as malformed.
+    idRe: /^F\d+[a-z]?$/,
     requiredKeys: [
       "id", "title", "type", "epic", "status", "story_points", "complexity",
       "token_estimate", "rice_reach", "rice_impact", "rice_confidence",
@@ -3134,6 +3188,14 @@ function main() {
       resolveIsolation(process.argv.slice(3));
       break;
     }
+    case "resolve-refactor-scope": {
+      resolveRefactorScope();
+      break;
+    }
+    case "resolve-wave-caps": {
+      resolveWaveCaps();
+      break;
+    }
     case "ensure-worktree-baseref": {
       ensureWorktreeBaseref();
       break;
@@ -3170,19 +3232,24 @@ function main() {
       break;
     }
     case "config": {
-      const rest = process.argv.slice(3);
+      // `config set` routes into spec-state-cli and so needs `--data-dir` for
+      // the same worktree reason as feature/backlog/idea/task. The sibling
+      // set-model/set-effort/set-isolation verbs write the SAME config.md, so
+      // they take the override too — a flag that worked on one config verb
+      // and was silently dropped by the next three would be worse than none.
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "config");
       if (rest[0] === "set-model") {
-        configSetModel(rest[1], rest[2]);
+        configSetModel(rest[1], rest[2], { dataDir: dataDirOverride });
       } else if (rest[0] === "set-effort") {
-        configSetEffort(rest[1], rest[2]);
+        configSetEffort(rest[1], rest[2], { dataDir: dataDirOverride });
       } else if (rest[0] === "set-isolation") {
-        configSetIsolation(rest[1]);
+        configSetIsolation(rest[1], { dataDir: dataDirOverride });
       } else if (rest[0] === "set") {
         // Generic allowlisted config.md fields outside the `models:` block
         // (currently just product-spec-path) route through spec-state-cli's
         // shared conventions (withLockfile, temp+rename, logEvent) rather
         // than a second copy of that machinery here.
-        specStateCmd(getDataDir({ silent: true }), ["config", "set", ...rest.slice(1)]);
+        specStateCmd(dataDirOverride ?? getDataDir({ silent: true }), ["config", "set", ...rest.slice(1)]);
       } else {
         process.stderr.write(
           `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*> | set-effort <build|build_trivial|fixer|operational|operational_fix|think|coordinator|simplifier> <low|medium|high|inherit> | set-isolation <worktree|none> | set <key> <value>\n`,
@@ -3203,7 +3270,17 @@ function main() {
     case "feature":
     case "backlog":
     case "idea": {
-      specStateCmd(getDataDir({ silent: true }), process.argv.slice(2));
+      // These route into spec-state-cli exactly like `task`/`draft` do, and
+      // for the same reason need `--data-dir`: a builder/subagent whose
+      // worktree re-resolves to a different project dir than the
+      // orchestrator's would otherwise mutate the wrong feature files. The
+      // flag used to be parsed nowhere on this path, so it landed in `rest`
+      // as a stray positional: `feature set-status F001 approved --data-dir
+      // /x` ignored the trailing pair entirely and wrote into the RESOLVED
+      // dir instead — a wrong-target write that exited 0 and looked like
+      // success.
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), command);
+      specStateCmd(dataDirOverride ?? getDataDir({ silent: true }), [command, ...rest]);
       break;
     }
     case "draft": {
@@ -3258,7 +3335,7 @@ function main() {
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | metrics <record-retro|regenerate> ... [--data-dir <path>] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | ensure-shared-caches | resolve-isolation [--flag <true|false|worktree|none>] | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | verify-ac-coverage [--base <sha>] [--head <sha>] | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|assign-ac-ids> ... | backlog <add|remove|rank|set> ... | idea set-status ... [--to FNNN] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set-isolation|set> ... | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
+        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | metrics <record-retro|regenerate> ... [--data-dir <path>] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | ensure-shared-caches | resolve-isolation [--flag <true|false|worktree|none>] | resolve-refactor-scope | resolve-wave-caps | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | verify-ac-coverage [--base <sha>] [--head <sha>] | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes|assign-ac-ids> ... [--data-dir <path>] | backlog <add|remove|rank|set> ... [--data-dir <path>] | idea set-status ... [--to FNNN] [--data-dir <path>] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set-isolation|set> ... [--data-dir <path>] | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
       );
       process.exit(1);
   }

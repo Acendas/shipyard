@@ -854,5 +854,40 @@ class TestShipyardResolverProductionScenarios(unittest.TestCase):
             )
 
 
+    def test_plugin_data_root_scoping_is_a_noop_for_dev_installs(self):
+        """Backward compatibility for the shared-vs-scoped CLAUDE_PLUGIN_DATA fix.
+
+        `getDataDir` now normalizes a SHARED `<config>/plugins/data` root up to
+        the plugin-scoped `<...>/plugins/data/<plugin>-<marketplace>` level
+        (see scopePluginDataRoot). That normalization is keyed on the resolver's
+        OWN install path, so a dev/linked checkout like this repo has no
+        segment to append and every path must pass through untouched.
+
+        Pinning it here guards the compatibility half of the fix: existing
+        setups (and every test fixture that points CLAUDE_PLUGIN_DATA at a bare
+        scratch directory) must keep resolving exactly where they always did.
+        The scoped/shared equivalence itself is covered against a fake cache
+        install in tests/test_resolver_install_scoping.mjs.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, 'repo')
+            os.makedirs(repo)
+            self._git_init(repo)
+            for name in ('data', 'plugins/data'):
+                plugin_data = os.path.join(tmp, *name.split('/'))
+                os.makedirs(plugin_data, exist_ok=True)
+                out, code = run_resolver(
+                    'data-dir',
+                    env_extra={'CLAUDE_PLUGIN_DATA': plugin_data},
+                    cwd=repo,
+                )
+                self.assertEqual(code, 0, f'{name}: unexpected exit')
+                self.assertEqual(
+                    os.path.dirname(os.path.dirname(out)),
+                    plugin_data,
+                    f'{name}: dev install must not rewrite CLAUDE_PLUGIN_DATA',
+                )
+
+
 if __name__ == '__main__':
     unittest.main()
