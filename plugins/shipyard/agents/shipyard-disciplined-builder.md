@@ -58,6 +58,13 @@ Otherwise, proceed.
    a number races every sibling builder doing the same thing and clobbers whichever
    IDEA file loses. The CLI returns a zero-padded 3-digit string — use it as
    `IDEA-<id>` in BOTH the filename and the `id:` frontmatter field.
+   **Allocation never fails on backlog size.** If the allocator prints a
+   `WARNING — N undispositioned idea(s) at/over cap` line, it has still returned a
+   valid id on stdout: use it and write the IDEA file as normal. That warning is
+   addressed to whoever plans the next sprint, not to you. Never respond to it by
+   dropping the finding, renaming it into a task-scoped file, or demoting it to a
+   sentence in your return notes — an IDEA file is the only channel the carry-over
+   scan and /ship-backlog can see, and a finding recorded anywhere else is lost.
 
 3a. **Mark the acceptance criteria you satisfy (`// AC-<n>`).** Read your
    feature file (the `Feature file:` path in your brief) and find the

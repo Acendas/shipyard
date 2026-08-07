@@ -1383,6 +1383,7 @@ const CONFIG_SET_ALLOWLIST = {
   "worktree-warm-enabled": { parent: "worktree_warm", fmKey: "enabled", type: "bool" },
   "worktree-warm-paths": { parent: "worktree_warm", fmKey: "paths", type: "array" },
   "test-commands-rerun-failed": { parent: "test_commands", fmKey: "rerun_failed", type: "scalar" },
+  "max-undispositioned-ideas": { parent: "execution", fmKey: "max_undispositioned_ideas", type: "scalar" },
 };
 
 /**

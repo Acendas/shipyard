@@ -71,13 +71,14 @@ import { skillLockCmd } from "./skill-lock.mjs";
 import { scanStubsCmd } from "./scan-stubs.mjs";
 import { verifyCmd } from "./verify-ledger.mjs";
 import { readinessCheckCmd } from "./readiness-check.mjs";
+import { checkIdeaBacklogCmd, countUndispositionedIdeas } from "./idea-backlog.mjs";
 import { bootstrapOnboarding, ensureInitializedDataDir, renderOnboardingLines } from "./init-data.mjs";
 import { reviewPlanCmd } from "./review-plan.mjs";
 import { queueCmd } from "./worker-queue.mjs";
 import {
   readExecutionIsolation,
   normalizeIsolationToken,
-  readMaxIdeasPerSprint,
+  readMaxUndispositionedIdeas,
   readEnforceAcCoverage,
   readRefactorScope,
   readDispatchOrder,
@@ -1344,38 +1345,24 @@ function nextIdCmd(args, { dataDir: dataDirOverride } = {}) {
   // land here on first allocation. mkdirSync is idempotent with recursive.
   mkdirSync(kindDir, { recursive: true });
 
-  // Deferral-backlog guard (rec 3): refuse to allocate a new IDEA id once the
-  // UNDISPOSITIONED idea backlog is at the cap. Ideas pile up faster than they
-  // are groomed — a cheap deferral channel with no ceiling — so cap the pool of
-  // ideas still awaiting disposition (status not `graduated`/`rejected`). This
-  // caps accumulation, not lifetime count: grooming ideas via /ship-backlog
-  // (graduate or reject) frees allocation again. Bypass with --force for the
-  // rare legitimate over-cap capture. Only applies to `ideas`.
+  // Deferral-backlog WARNING (not a gate). This used to exit 3 once the
+  // undispositioned backlog hit the cap, which made capture the failure point:
+  // a builder that found something real got a refusal, had no sanctioned
+  // override in its agent body, and wrote the finding somewhere unindexed
+  // instead. An untidy backlog is a chore; a lost finding is gone. So
+  // allocation now always succeeds and the cap is enforced at sprint-open
+  // instead (`check-idea-backlog`), which is where an ungroomed backlog is
+  // actually a decision to defer. Full rationale: bin/idea-backlog.mjs.
   if (kind === "ideas" && !args.includes("--force")) {
-    const cap = readMaxIdeasPerSprint(dataDir);
+    const cap = readMaxUndispositionedIdeas(dataDir);
     if (Number.isFinite(cap)) {
-      let undispositioned = 0;
-      let files = [];
-      try { files = readdirSync(kindDir); } catch { files = []; }
-      for (const f of files) {
-        if (!/^IDEA-.*\.md$/.test(f)) continue;
-        let status = "";
-        try {
-          const c = readFileSync(join(kindDir, f), "utf8");
-          const m = c.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-          if (m) {
-            const sm = m[1].match(/^status:\s*(\S+)/m);
-            if (sm) status = sm[1].replace(/^["']|["']$/g, "").toLowerCase();
-          }
-        } catch { /* unreadable → count as undispositioned (conservative) */ }
-        if (status !== "graduated" && status !== "rejected") undispositioned += 1;
-      }
-      if (undispositioned >= cap) {
+      const { count } = countUndispositionedIdeas(dataDir);
+      if (count >= cap) {
         process.stderr.write(
-          `shipyard-data next-id ideas: idea backlog full — ${undispositioned} undispositioned idea(s) ≥ cap ${cap}. ` +
-            `Groom the backlog first (/ship-backlog: graduate or reject ideas), raise execution.max_ideas_per_sprint, or pass --force for a one-off.\n`,
+          `shipyard-data next-id ideas: WARNING — ${count} undispositioned idea(s) at/over cap ${cap}. ` +
+            `Allocating anyway (capture is never blocked); /ship-sprint will refuse to open the next sprint ` +
+            `until the backlog is groomed via /ship-backlog.\n`,
         );
-        process.exit(3);
       }
     }
   }
@@ -3331,11 +3318,20 @@ function main() {
       readinessCheckCmd(getProjectRoot(), getDataDir({ silent: true }), process.argv.slice(3));
       break;
     }
+    case "check-idea-backlog": {
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(
+        process.argv.slice(3),
+        "check-idea-backlog",
+      );
+      const dd = dataDirOverride ?? getDataDir({ silent: true });
+      checkIdeaBacklogCmd(dd, readEvents(dd), readMaxUndispositionedIdeas(dd), rest);
+      break;
+    }
     // For project-id / project-root use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash|project-root`.
     default:
       process.stderr.write(
         `shipyard-data: unknown command "${command}". ` +
-        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | metrics <record-retro|regenerate> ... [--data-dir <path>] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | ensure-shared-caches | resolve-isolation [--flag <true|false|worktree|none>] | resolve-refactor-scope | resolve-wave-caps | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | verify-ac-coverage [--base <sha>] [--head <sha>] | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes|assign-ac-ids> ... [--data-dir <path>] | backlog <add|remove|rank|set> ... [--data-dir <path>] | idea set-status ... [--to FNNN] [--data-dir <path>] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set-isolation|set> ... [--data-dir <path>] | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ...\n`,
+        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | metrics <record-retro|regenerate> ... [--data-dir <path>] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | ensure-shared-caches | resolve-isolation [--flag <true|false|worktree|none>] | resolve-refactor-scope | resolve-wave-caps | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | verify-ac-coverage [--base <sha>] [--head <sha>] | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes|assign-ac-ids> ... [--data-dir <path>] | backlog <add|remove|rank|set> ... [--data-dir <path>] | idea set-status ... [--to FNNN] [--data-dir <path>] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set-isolation|set> ... [--data-dir <path>] | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ... | check-idea-backlog [--json] [--data-dir <path>]\n`,
       );
       process.exit(1);
   }

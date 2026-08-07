@@ -99,6 +99,19 @@ No user action required — same `/ship-*` commands, same pipeline behavior. Oth
 - `/ship-execute` and `/ship-review` gained a lightweight per-wave / per-stage task mirror (TaskList-visible progress, mirror-only — never authority, same discipline as the existing discuss/sprint task mirrors).
 - Mode-semantics correction: Agent Teams do **not** get worktree isolation. Subagent mode (`isolation: "worktree"`) remains the build default; Teams is opt-in for large parallel waves.
 
+## 3.24.0 → 3.25.0
+
+The idea-backlog guard moved off the capture path. Previously `shipyard-data next-id ideas` **refused to allocate** once undispositioned ideas reached `execution.max_ideas_per_sprint` (default 12). That made writing a finding down the thing that failed: builders and reviewers hitting the cap had no sanctioned override in their agent bodies, so real findings ended up in task-scoped files and return notes instead of the backlog, where nothing indexes them.
+
+Now:
+
+- **`next-id ideas` always allocates.** Over cap it prints a warning to stderr and still returns a valid id on stdout. Capture is never blocked.
+- **The cap gates opening a new sprint instead** — `/ship-sprint` Step 0.5 runs `shipyard-data check-idea-backlog` (exit 3 = over cap) and offers grooming, raising the cap, or explicit acceptance. That's the point where an ungroomed backlog is a real decision to defer rather than a bookkeeping lag.
+- **New config key: `execution.max_undispositioned_ideas`** (default 12), set via `shipyard-data config set max-undispositioned-ideas <n>`. The old `max_ideas_per_sprint` is still read as a fallback, so **no action is required** — but the old name promised a per-sprint scoping that never existed (the count has always been a lifetime scan of `spec/ideas/`). Rename it when convenient; if both are present, the new key wins.
+- **Escape hatch:** `shipyard-data events emit idea_backlog_accepted count=<n>` lets planning proceed over cap, but only while the backlog stays at or below `<n>`. It is not a permanent bypass.
+
+**If you're already wedged** (a large backlog that was silently refusing allocations), run `/ship-backlog` and groom — then check what got lost during the refusal window: findings from that period may be sitting in task-scoped filenames or builder return notes rather than `spec/ideas/`.
+
 ## Older versions
 
 Pre-2.0 in-project `.shipyard/` directories were migrated by 1.x's `/ship-init`. If you're upgrading from a much older version that still has `.shipyard/`, install 1.12.x first to migrate, then upgrade to 2.0.

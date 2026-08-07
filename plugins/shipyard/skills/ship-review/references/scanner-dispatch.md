@@ -161,7 +161,7 @@ Out-of-scope gaps are real defects — they deserve tracking — but they don't 
 
 **How to capture** (mechanical):
 
-1. Allocate an ID atomically: run `shipyard-data next-id ideas` — returns a zero-padded 3-digit string (e.g., `042`). **Do NOT `ls` and guess** — parallel reviewers would race.
+1. Allocate an ID atomically: run `shipyard-data next-id ideas` — returns a zero-padded 3-digit string (e.g., `042`). **Do NOT `ls` and guess** — parallel reviewers would race. Allocation never fails on backlog size: a `WARNING — N undispositioned idea(s) at/over cap` line still comes with a valid id on stdout. Use it. The backlog cap is enforced at sprint-open (`/ship-sprint` Step 0.5), never here — dropping a finding because the backlog looks full is the one wrong response.
 
 2. Write the IDEA file via the Write tool at `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` (slug is lowercase-kebab-case, ≤5 words):
    ```yaml

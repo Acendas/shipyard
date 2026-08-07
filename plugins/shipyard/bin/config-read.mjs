@@ -128,12 +128,20 @@ export function readMaxParkedRatio(dataDir) {
 }
 
 /**
- * `execution.max_ideas_per_sprint` — cap on UNDISPOSITIONED idea files before
- * `next-id ideas` refuses further allocation (deferral-backlog guard). Default
- * 12. A non-positive/malformed value disables the cap (returns Infinity).
+ * `execution.max_undispositioned_ideas` — cap on UNDISPOSITIONED idea files
+ * before /ship-sprint refuses to open a new sprint (deferral-backlog gate).
+ * Default 12. A non-positive/malformed value disables the cap (Infinity).
+ *
+ * The legacy key `max_ideas_per_sprint` is still read as a fallback. That name
+ * promised a per-sprint scoping that was never implemented — the count has
+ * always been a lifetime scan of `spec/ideas/` — so it read as a throttle when
+ * it was a permanent ceiling. See bin/idea-backlog.mjs for why the cap moved
+ * off the allocation path entirely.
  */
-export function readMaxIdeasPerSprint(dataDir) {
-  const raw = readExecutionScalar(dataDir, "max_ideas_per_sprint");
+export function readMaxUndispositionedIdeas(dataDir) {
+  const raw =
+    readExecutionScalar(dataDir, "max_undispositioned_ideas") ??
+    readExecutionScalar(dataDir, "max_ideas_per_sprint");
   if (raw == null) return 12;
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return Infinity;

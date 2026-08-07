@@ -69,7 +69,7 @@ On the answers, `shipyard-data cursor resume review`, then append responses to R
 
 For each actionable improvement, allocate an ID atomically and write an idea file. Cap at 5 IDEAs per retrospective. Each IDEA must cite the trigger metric or event evidence from `RETRO-DATA.md`; duplicate, vague, or one-off observations stay in `RETRO-DATA.md` as notes instead of entering the backlog.
 
-**Allocate the ID.** Run `shipyard-data next-id ideas` — the CLI returns a zero-padded 3-digit string (e.g., `042`). Use it as `IDEA-042` in the filename and the `id` frontmatter field. **Do NOT `ls spec/ideas/` and pick a number manually** — parallel sessions would race and clobber each other. The allocator is the only safe way to pick an idea ID.
+**Allocate the ID.** Run `shipyard-data next-id ideas` — the CLI returns a zero-padded 3-digit string (e.g., `042`). Use it as `IDEA-042` in the filename and the `id` frontmatter field. **Do NOT `ls spec/ideas/` and pick a number manually** — parallel sessions would race and clobber each other. The allocator is the only safe way to pick an idea ID. It never refuses on backlog size — a `WARNING — N undispositioned idea(s) at/over cap` line still returns a valid id on stdout, and the cap is enforced at sprint-open instead (`/ship-sprint` Step 0.5).
 
 **Write the file** via the Write tool at `<SHIPYARD_DATA>/spec/ideas/IDEA-<id>-<slug>.md` with this frontmatter:
 ```yaml

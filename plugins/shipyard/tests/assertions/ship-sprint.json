@@ -737,5 +737,15 @@
     "type": "contains",
     "pattern": "shipyard-data resolve-wave-caps",
     "target": "ref:wave-decomposition.md"
+  },
+  {
+    "name": "gates_sprint_open_on_idea_backlog",
+    "type": "contains",
+    "pattern": "check-idea-backlog"
+  },
+  {
+    "name": "idea_backlog_escape_hatch_is_explicit",
+    "type": "contains",
+    "pattern": "idea_backlog_accepted"
   }
 ]

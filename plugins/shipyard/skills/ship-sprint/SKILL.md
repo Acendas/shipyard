@@ -95,30 +95,45 @@ On entering PLAN mode, `TaskCreate` one task per step so the user can watch the 
 
 | # | Subject |
 |---|---------|
-| 1 | Step 1: Determine Capacity |
-| 2 | Step 1.5: Carry-Over Scan |
-| 3 | Step 2: Select Features |
-| 4 | Step 3: Research Before Planning |
-| 5 | Step 3.5: Rules Compliance Check |
-| 6 | Step 3.55: Terminology Alignment Check |
-| 7 | Step 3.6: Definition of Ready Gate |
-| 8 | Step 3.7: Surface Implementation Decisions |
-| 9 | Step 3.75: Simplification Scan |
-| 10 | Step 4: Decompose Tasks (5-stage protocol) |
-| 11 | Step 5: Build Task Dependency Graph |
-| 12 | Step 6: Find the Bottleneck |
-| 13 | Step 7: Wave Assignment |
-| 14 | Step 8: Determine Execution Mode |
-| 15 | Step 9: Prepare Sprint Plan |
-| 16 | Step 9.5: Quality Gate (self-review loop) |
-| 17 | Step 9.7: Adversarial Critique |
-| 18 | Step 10: Generate Quality Gate Manifest |
-| 19 | Step 11: Present Sprint Plan |
-| 20 | Step 12: Create Sprint (after approval) |
+| 1 | Step 0.5: Idea Backlog Gate |
+| 2 | Step 1: Determine Capacity |
+| 3 | Step 1.5: Carry-Over Scan |
+| 4 | Step 2: Select Features |
+| 5 | Step 3: Research Before Planning |
+| 6 | Step 3.5: Rules Compliance Check |
+| 7 | Step 3.55: Terminology Alignment Check |
+| 8 | Step 3.6: Definition of Ready Gate |
+| 9 | Step 3.7: Surface Implementation Decisions |
+| 10 | Step 3.75: Simplification Scan |
+| 11 | Step 4: Decompose Tasks (5-stage protocol) |
+| 12 | Step 5: Build Task Dependency Graph |
+| 13 | Step 6: Find the Bottleneck |
+| 14 | Step 7: Wave Assignment |
+| 15 | Step 8: Determine Execution Mode |
+| 16 | Step 9: Prepare Sprint Plan |
+| 17 | Step 9.5: Quality Gate (self-review loop) |
+| 18 | Step 9.7: Adversarial Critique |
+| 19 | Step 10: Generate Quality Gate Manifest |
+| 20 | Step 11: Present Sprint Plan |
+| 21 | Step 12: Create Sprint (after approval) |
 
-Create all 20 in one batch (subjects prefixed with a plan slug, e.g. `[sprint-plan] Step 7: Wave Assignment`). `TaskUpdate` to `in_progress` when a step starts, `completed` when it ends. A legitimately-skipped step (nothing to carry over, no data-model concern) is marked `completed` with `skipped: <reason>` in the description — never deleted silently.
+Create all 21 in one batch (subjects prefixed with a plan slug, e.g. `[sprint-plan] Step 7: Wave Assignment`). `TaskUpdate` to `in_progress` when a step starts, `completed` when it ends. A legitimately-skipped step (nothing to carry over, no data-model concern) is marked `completed` with `skipped: <reason>` in the description — never deleted silently.
 
 **Guardrail (load-bearing): the task list is a progress surface and a recovery anchor, NEVER authority.** Do not gate any behavior on TaskList state, do not cite task status as evidence a step ran, and never mark a step's task completed before its file artifacts exist (task files, SPRINT-DRAFT.md, the manifest). SPRINT-DRAFT.md, the task files, and the event log remain the record; tasks are the user-visible mirror. (Note: /ship-execute track mode also uses the task system for *build* tasks — the `[sprint-plan] Step N:` subject prefix keeps the planning checklist distinguishable.)
+
+### Step 0.5: Idea Backlog Gate
+
+Run `shipyard-data check-idea-backlog`. **Exit 0 → proceed to Step 1 silently** (do not report a passing gate). **Exit 3 → the undispositioned idea backlog is over cap and you must stop before spending any planning work.**
+
+This gate exists because capture is deliberately unblockable: `next-id ideas` always allocates, so builders and reviewers never lose a finding to a full backlog. The cost of that is paid here — at the one moment where an ungroomed backlog is genuinely a decision to defer rather than a bookkeeping lag.
+
+On exit 3, echo the CLI's stderr text, then AskUserQuestion with exactly three options:
+
+1. **Groom now** (recommended) — stop planning and hand off to `/ship-backlog`. Most over-cap backlogs are dominated by ideas that are already stale, duplicated, or fixed; a grooming pass usually clears the cap in one sitting.
+2. **Raise the cap** — run `shipyard-data config set max-undispositioned-ideas <n>`. The honest choice when the project genuinely runs a large idea pool and the old number was wrong.
+3. **Accept and plan anyway** — run `shipyard-data events emit idea_backlog_accepted count=<current count>` (take the count from the CLI's message), then proceed. The event covers the backlog only while it stays at or below that count, so this is a one-time acknowledgement, not a permanent bypass.
+
+**Never emit `idea_backlog_accepted` without the user picking option 3.** It is the logged escape hatch, not a way past a gate you found inconvenient.
 
 ### Step 1: Determine Capacity
 
