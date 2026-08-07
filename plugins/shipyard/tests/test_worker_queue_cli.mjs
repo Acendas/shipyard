@@ -36,7 +36,7 @@ function makeProject() {
   if (init.code !== 0 || !isAbsolute(dataDir)) {
     throw new Error(`fixture setup failed: ${init.stderr}`);
   }
-  return { root, repo, dataDir, run, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return { root, repo, dataDir, dataDirRoot: data, run, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 function writeQueueArtifact(path, id, fields = {}) {
@@ -487,6 +487,78 @@ test("queue stale non-idempotent items can be retried or parked explicitly", () 
     ]).stdout);
     assert.equal(parked.task.status, "failed");
     assert.equal(parked.task.reason, "not safe to replay");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("queue enqueue orders execute work longest-effort-first so the long pole starts first", () => {
+  const p = makeProject();
+  try {
+    const input = join(p.root, "wave.json");
+    // Deliberately enqueued shortest-first, XL last — the pathological order
+    // that leaves the wave's tail running the XL alone.
+    writeFileSync(input, JSON.stringify([
+      { id: "T001", effort: "S" },
+      { id: "T002", effort: "M" },
+      { id: "T003", effort: "XL" },
+      { id: "T004", effort: "L" },
+    ]));
+    p.run(["queue", "enqueue", "--pipeline", "execute", "--stage", "wave_1_dispatch", "--input", input]);
+
+    // claim hands out array order, so claim order proves dispatch order.
+    const claimed = [];
+    for (let i = 0; i < 4; i++) {
+      const out = JSON.parse(p.run([
+        "queue", "claim", "--pipeline", "execute", "--stage", "wave_1_dispatch", "--worker", `w${i}`,
+      ]).stdout);
+      claimed.push(out.task.id);
+    }
+    assert.deepEqual(claimed, ["T003", "T004", "T002", "T001"]);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("queue enqueue effort ordering is stable and tolerates missing/malformed effort", () => {
+  const p = makeProject();
+  try {
+    const input = join(p.root, "wave.json");
+    writeFileSync(input, JSON.stringify([
+      { id: "T009" },                    // absent effort → sorts last
+      { id: "T002", effort: "bogus" },   // malformed → sorts last, must not throw
+      { id: "T007", effort: "L" },
+      { id: "T003", effort: "L" },       // same rank as T007 → id tie-break
+    ]));
+    const res = p.run(["queue", "enqueue", "--pipeline", "execute", "--stage", "wave_1_dispatch", "--input", input]);
+    assert.equal(res.code, 0);
+
+    const claimed = [];
+    for (let i = 0; i < 4; i++) {
+      const out = JSON.parse(p.run([
+        "queue", "claim", "--pipeline", "execute", "--stage", "wave_1_dispatch", "--worker", `w${i}`,
+      ]).stdout);
+      claimed.push(out.task.id);
+    }
+    assert.deepEqual(claimed, ["T003", "T007", "T002", "T009"]);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("queue enqueue leaves review work in authored order (effort ordering is execute-only)", () => {
+  const p = makeProject();
+  try {
+    const input = join(p.root, "batches.json");
+    writeFileSync(input, JSON.stringify([
+      { id: "B001", effort: "S" },
+      { id: "B002", effort: "XL" },
+    ]));
+    p.run(["queue", "enqueue", "--pipeline", "review", "--stage", "review_fix_wave_1", "--input", input]);
+    const first = JSON.parse(p.run([
+      "queue", "claim", "--pipeline", "review", "--stage", "review_fix_wave_1", "--worker", "w1",
+    ]).stdout);
+    assert.equal(first.task.id, "B001");
   } finally {
     p.cleanup();
   }

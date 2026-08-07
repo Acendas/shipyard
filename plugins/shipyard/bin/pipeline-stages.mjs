@@ -46,6 +46,7 @@ const STAGE_PATTERNS = {
     { re: /^wave_(?<wave>\d+)_tests$/, key: "wave_tests" },
     { re: /^wave_(?<wave>\d+)_verify$/, key: "wave_verify" },
     { re: /^wave_(?<wave>\d+)_gate$/, key: "wave_gate" },
+    { re: /^sprint_refactor$/, key: "sprint_refactor" },
     { re: /^sprint_full_build$/, key: "sprint_full_build" },
     { re: /^sprint_tests_fix_iter_(?<iter>\d+)$/, key: "sprint_tests_fix_iter" },
     { re: /^sprint_full_tests$/, key: "sprint_full_tests" },
@@ -118,8 +119,19 @@ const GRAPH = {
     wave_tests: { next: ["wave_verify", "wave_tests_fix_iter"] },
     wave_tests_fix_iter: { selfLoop: true, next: ["wave_tests", "wave_verify"] },
     wave_verify: { next: ["wave_gate", "wave_redispatch_iter"] },
-    // gate → next wave's dispatch (wave+1) or into sprint completion
-    wave_gate: { next: ["wave_dispatch", "sprint_full_build"], waveAdvance: ["wave_dispatch"] },
+    // gate → next wave's dispatch (wave+1) or into sprint completion.
+    // sprint_refactor is the `execution.refactor_scope: sprint` landing
+    // stage (the default); the direct edge to sprint_full_build remains for
+    // `refactor_scope: wave`, where refactoring already happened per wave.
+    wave_gate: {
+      next: ["wave_dispatch", "sprint_refactor", "sprint_full_build"],
+      waveAdvance: ["wave_dispatch"],
+    },
+    // Deliberately BEFORE the full build/suite: the sprint-wide refactor is
+    // non-blocking on its own failure, so the thing that actually catches a
+    // regression it introduces is sprint_full_build + sprint_full_tests
+    // running after it.
+    sprint_refactor: { next: ["sprint_full_build"] },
     sprint_full_build: { next: ["sprint_full_tests"] },
     sprint_full_tests: { next: ["sprint_demo_probes", "sprint_tests_fix_iter"] },
     sprint_tests_fix_iter: { selfLoop: true, next: ["sprint_full_tests", "sprint_demo_probes"] },

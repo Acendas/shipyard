@@ -1625,5 +1625,85 @@
     "type": "contains",
     "pattern": "allows the narrow `ship-discuss` \\+ `ship-execute` pair",
     "why": "Execution should remain blocked by sprint planning/review-like planning work, while permitting future-work discussion in parallel."
+  },
+  {
+    "name": "sprint_refactor_stage_exists",
+    "type": "contains",
+    "pattern": "stage_id: sprint_refactor"
+  },
+  {
+    "name": "sprint_refactor_default_scope",
+    "type": "contains",
+    "pattern": "execution.refactor_scope"
+  },
+  {
+    "name": "sprint_refactor_before_full_build_rationale",
+    "type": "contains",
+    "pattern": "placed BEFORE the full build and suite on purpose"
+  },
+  {
+    "name": "wave_refactor_pass_through_under_sprint_scope",
+    "type": "contains",
+    "pattern": "runs only when .execution.refactor_scope: wave"
+  },
+  {
+    "name": "via_collapse_documented",
+    "type": "contains",
+    "pattern": "--via wave_<N>_build --via wave_<N>_refactor"
+  },
+  {
+    "name": "dispatch_order_effort_in_work_items",
+    "type": "contains",
+    "pattern": "Include each item's .effort."
+  },
+  {
+    "name": "dispatch_order_is_cli_enforced",
+    "type": "contains",
+    "pattern": "enqueue order .is. dispatch order"
+  },
+  {
+    "name": "via_terminals_not_chainable",
+    "type": "contains",
+    "pattern": "[Tt]erminals are never chainable",
+    "target": "ref:pipeline-cursor.md"
+  },
+  {
+    "name": "via_atomic_refusal",
+    "type": "contains",
+    "pattern": "refuses the whole chain",
+    "target": "ref:pipeline-cursor.md"
+  },
+  {
+    "name": "via_preserves_event_trail",
+    "type": "contains",
+    "pattern": "identical to ticking through stage by stage",
+    "target": "ref:pipeline-cursor.md"
+  },
+  {
+    "name": "sprint_refactor_in_stage_map",
+    "type": "contains",
+    "pattern": "sprint_refactor",
+    "target": "ref:pipeline-cursor.md"
+  },
+  {
+    "name": "refactor_scope_resolved_by_cli",
+    "type": "contains",
+    "pattern": "shipyard-data resolve-refactor-scope"
+  },
+  {
+    "name": "via_allowlist_is_config_dependent",
+    "type": "contains",
+    "pattern": "config-dependent CLI allowlist"
+  },
+  {
+    "name": "via_allowlist_config_rationale",
+    "type": "contains",
+    "pattern": "computed from config",
+    "target": "ref:pipeline-cursor.md"
+  },
+  {
+    "name": "gate_does_not_require_sha_ancestry",
+    "type": "contains",
+    "pattern": "originally-returned sha to be an ancestor"
   }
 ]

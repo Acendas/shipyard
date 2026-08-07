@@ -668,8 +668,26 @@
   {
     "name": "wave_size_cap_check_in_validation",
     "type": "contains",
-    "pattern": "No wave exceeds .execution.max_tasks_per_wave",
+    "pattern": "No wave exceeds its applicable width cap",
     "target": "ref:spec-validation.md"
+  },
+  {
+    "name": "wave_size_cap_names_both_caps",
+    "type": "contains",
+    "pattern": "execution.max_tasks_per_wave_merged",
+    "target": "ref:spec-validation.md"
+  },
+  {
+    "name": "independent_layer_merge_default",
+    "type": "contains",
+    "pattern": "keep it as ONE wave",
+    "target": "ref:wave-decomposition.md"
+  },
+  {
+    "name": "independent_layer_merge_not_oversold",
+    "type": "contains",
+    "pattern": "does NOT raise build concurrency",
+    "target": "ref:wave-decomposition.md"
   },
   {
     "name": "render_provenance_negation",
@@ -713,5 +731,11 @@
     "type": "contains",
     "pattern": "agent_effort\\.think",
     "why": "Sprint planning deep-dive/analyst agents should use the configurable think-effort tier."
+  },
+  {
+    "name": "wave_caps_resolved_by_cli",
+    "type": "contains",
+    "pattern": "shipyard-data resolve-wave-caps",
+    "target": "ref:wave-decomposition.md"
   }
 ]

@@ -961,3 +961,161 @@ test("cursor set refuses the status lifecycle field (no silent un-pause backdoor
     p.cleanup();
   }
 });
+
+test("stage graph: sprint_refactor sits between the last wave gate and the full build", () => {
+  assert.equal(validateTransition("ship-execute", "wave_2_gate", "sprint_refactor").ok, true);
+  assert.equal(validateTransition("ship-execute", "sprint_refactor", "sprint_full_build").ok, true);
+  // refactor_scope: wave keeps the direct edge.
+  assert.equal(validateTransition("ship-execute", "wave_2_gate", "sprint_full_build").ok, true);
+  // It is not a back door into the wave loop or straight to tests.
+  assert.equal(validateTransition("ship-execute", "sprint_refactor", "wave_3_dispatch").ok, false);
+  assert.equal(validateTransition("ship-execute", "sprint_refactor", "sprint_full_tests").ok, false);
+});
+
+test("cursor CLI: --via collapses pass-through stages into one tick with a full event trail", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    for (const s of ["preflight", "salvage", "load", "readiness", "wave_1_dispatch", "wave_1_waiting", "wave_1_recovery", "wave_1_boundary"]) {
+      p.run(["cursor", "advance", "execute", s, "sprint=sprint-001"], { expectFail: false });
+    }
+    // build → refactor → tests in ONE call. (boundary is NOT collapsible — it
+    // performs the merges — so it gets its own tick above.)
+    const r = p.run([
+      "cursor", "advance", "execute", "wave_1_tests",
+      "--via", "wave_1_build", "--via", "wave_1_refactor",
+      "sprint=sprint-001",
+    ], { expectFail: false });
+    assert.equal(r.code, 0);
+    assert.match(r.stdout, /collapsed 3 stages into one tick/);
+
+    // Cursor landed on the final stage only.
+    const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+    assert.match(cursor, /stage: wave_1_tests/);
+
+    // Every intermediate hop still left its tick events — this is what keeps
+    // the terminal gate and wave invariants (event-log readers) whole.
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    for (const s of ["wave_1_build", "wave_1_refactor", "wave_1_tests"]) {
+      assert.match(events, new RegExp(`"next_stage":"${s}"`), `missing tick_completed hop for ${s}`);
+      assert.match(events, new RegExp(`"pipeline_tick_started"[^\\n]*"stage":"${s}"`), `missing tick_started for ${s}`);
+    }
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cursor CLI: an illegal hop refuses the WHOLE chain — no cursor write, no events", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "sprint=sprint-001"], { expectFail: false });
+    const eventsBefore = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+
+    // wave_1_build is collapsible, but preflight → wave_1_build is not a legal
+    // graph edge — so the chain must be refused as a whole.
+    const r = p.run([
+      "cursor", "advance", "execute", "wave_1_refactor", "--via", "wave_1_build",
+    ]);
+    assert.equal(r.code, 3);
+    assert.match(r.stderr, /illegal stage transition/);
+    assert.match(r.stderr, /of chain/);
+
+    const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+    assert.match(cursor, /stage: preflight/, "cursor must not have moved");
+    assert.equal(
+      readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"),
+      eventsBefore,
+      "a refused chain must emit no partial hop events",
+    );
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cursor CLI: terminals cannot be reached or hidden inside a --via chain", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "sprint=sprint-001"], { expectFail: false });
+
+    const asTarget = p.run([
+      "cursor", "advance", "execute", "terminal_handoff_to_review", "--via", "salvage",
+    ]);
+    assert.notEqual(asTarget.code, 0);
+    assert.match(asTarget.stderr, /cannot chain --via into terminal stage/);
+
+    const asHop = p.run([
+      "cursor", "advance", "execute", "wave_1_refactor", "--via", "terminal_single_task",
+    ]);
+    assert.notEqual(asHop.code, 0);
+    assert.match(asHop.stderr, /is a terminal stage/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+
+
+
+
+test("cursor CLI: --via refuses gate/verdict stages whose tick IS downstream evidence", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight", "sprint=sprint-001"], { expectFail: false });
+
+    // Collapsing is an ALLOWLIST: anything that dispatches an agent, runs a
+    // command, or produces a verdict must be refused, in BOTH pipelines.
+    const gate = p.run(["cursor", "advance", "execute", "sprint_refactor", "--via", "wave_3_gate"]);
+    assert.notEqual(gate.code, 0);
+    assert.match(gate.stderr, /not collapsible in this project/);
+
+    for (const stage of [
+      "wave_2_dispatch", "wave_2_verify", "wave_2_recovery", "wave_2_waiting",
+      "sprint_complete_gate", "sprint_demo_probes", "sprint_full_tests",
+      // sprint_refactor is the ONLY refactor pass under refactor_scope: sprint —
+      // collapsing it would silently remove refactoring from the whole sprint.
+      "sprint_refactor",
+    ]) {
+      const r = p.run(["cursor", "advance", "execute", "load", "--via", stage]);
+      assert.notEqual(r.code, 0, `${stage} must not be collapsible`);
+    }
+    for (const stage of ["critic", "final_pass", "spec_review", "goal_verify", "simplify", "tests"]) {
+      const r = p.run(["cursor", "advance", "review", "verdict", "--via", stage]);
+      assert.notEqual(r.code, 0, `review stage ${stage} must not be collapsible`);
+    }
+
+    // Pass-through stages nothing gates on stay collapsible.
+    // wave_boundary performs the merges — it must NOT be collapsible.
+    const boundary = p.run(["cursor", "advance", "execute", "wave_1_build", "--via", "wave_1_boundary"]);
+    assert.notEqual(boundary.code, 0, "wave_boundary rebases/merges; collapsing it fabricates integration proof");
+
+    for (const s of ["salvage", "load", "readiness", "wave_1_dispatch", "wave_1_waiting", "wave_1_recovery", "wave_1_boundary"]) {
+      p.run(["cursor", "advance", "execute", s, "sprint=sprint-001"], { expectFail: false });
+    }
+    const ok = p.run([
+      "cursor", "advance", "execute", "wave_1_tests", "--via", "wave_1_build", "--via", "wave_1_refactor", "sprint=sprint-001",
+    ], { expectFail: false });
+    assert.equal(ok.code, 0, ok.stderr);
+
+    // ...but the SAME stages stop being collapsible once configured, because
+    // then they do real work and the tick would be fabricated evidence.
+    writeFileSync(
+      join(p.dataDir, "config.md"),
+      `---\nbuild_commands:\n  full: "npm run build"\nexecution:\n  refactor_scope: wave\n---\n\n# Config\n`,
+    );
+    for (const stage of ["wave_2_build", "wave_2_refactor", "sprint_full_build"]) {
+      const r = p.run(["cursor", "advance", "execute", "load", "--via", stage]);
+      assert.notEqual(r.code, 0, `${stage} must not collapse when its command is configured`);
+      assert.match(r.stderr, /not collapsible in this project/);
+    }
+  } finally {
+    p.cleanup();
+  }
+});
+
+
+
+
+

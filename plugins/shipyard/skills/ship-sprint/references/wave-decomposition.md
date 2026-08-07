@@ -142,7 +142,19 @@ Rules:
 - Each wave completes fully before the next starts
 - Mark which waves can run in parallel (multiple subagents)
 
-**Wave size cap (`execution.max_tasks_per_wave`, default 6).** All quality machinery is wave-scoped — one integration gate, one scoped build/test run, one spec review, one completion gate per wave. An oversized wave makes those checkpoints rare and smears failure attribution across a giant merge surface. When a dependency layer has more tasks than the cap:
+**Wave size cap (`execution.max_tasks_per_wave`, default 6).** All quality machinery is wave-scoped — one integration gate, one scoped build/test run, one spec review, one completion gate per wave. An oversized wave makes those checkpoints rare and smears failure attribution across a giant merge surface.
+
+**But splitting an independent layer costs a whole boundary (`execution.merge_independent_layers`, default true).** The waves produced by this split have **no dependency on each other** — that is what makes the split legal in the first place — yet `/ship-execute` runs them strictly in series, paying a full boundary cycle (build + refactor + tests + spec review + integration + gate) for each extra wave. So before splitting, check the merge path:
+
+**Read the caps from the CLI, not from config.md prose:** `shipyard-data resolve-wave-caps` prints one JSON object — `{max_tasks_per_wave, merge_independent_layers, max_tasks_per_wave_merged, dispatch_order}` — with every default applied and every malformed value already coerced. Do not re-derive these numbers by reading config.md.
+
+- If the layer's task count is `<= max_tasks_per_wave_merged` (default 12), **keep it as ONE wave** and skip the split entirely.
+- Beyond that bound, split as documented below. The merge-surface cost of an arbitrarily wide wave does eventually exceed the saved boundary.
+- Set `merge_independent_layers: false` to always split, when failure attribution on a smaller diff matters more than the saved boundary.
+
+**Do not oversell the merge.** It does NOT raise build concurrency — `execution.max_parallel_agents` (default 3, hard ceiling 4) still caps that, so a merged 12-task wave is still four batches of three. What it removes is the *duplicated boundary machinery*, which is where the wall-clock actually goes.
+
+When a dependency layer has more tasks than the cap **and the merge path above does not apply**:
 
 - Split it into consecutive waves **along track boundaries** — keep tasks sharing a parent feature in the same wave (a track's nested per-task builders share the track coordinator's running context; splitting a track across waves forces that coordinator to idle at a boundary mid-feature).
 - If a single track alone exceeds the cap, split that track across consecutive waves at its most natural internal seam (e.g., data layer wave, then service/UI wave).

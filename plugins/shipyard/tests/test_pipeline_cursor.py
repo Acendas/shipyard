@@ -280,6 +280,7 @@ class TestStageMapDocumented(unittest.TestCase):
         "wave_N_tests",
         "wave_N_verify",
         "wave_N_gate",
+        "sprint_refactor",
         "sprint_full_build",
         "sprint_full_tests",
         "sprint_complete_gate",

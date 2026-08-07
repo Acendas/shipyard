@@ -74,7 +74,8 @@ The graph is enforced by `bin/pipeline-stages.mjs`.
 | `wave_N_refactor` | refactor/mutate pass | `wave_N_tests` | log + continue |
 | `wave_N_tests` | wave tests | `wave_N_verify` | `wave_N_tests_fix_iter_K` |
 | `wave_N_verify` | spec review scope=wave | `wave_N_gate` | `wave_N_redispatch_iter_K` |
-| `wave_N_gate` | `verifying-wave-completion` evidence gate | next wave or `sprint_full_build` | escalate |
+| `wave_N_gate` | `verifying-wave-completion` evidence gate | next wave, `sprint_refactor`, or `sprint_full_build` | escalate |
+| `sprint_refactor` | sprint-wide refactor/mutate pass (`refactor_scope: sprint`) | `sprint_full_build` | log + continue |
 | `sprint_full_build` | full build | `sprint_full_tests` | pause/escalate |
 | `sprint_full_tests` | full suite | `sprint_demo_probes` | `sprint_tests_fix_iter_K` |
 | `sprint_demo_probes` | user-flow probes | `sprint_complete_gate` | pause/escalate |
@@ -106,6 +107,20 @@ shipyard-data cursor advance execute <next-stage> next_action="<one line>" --not
 The CLI emits `pipeline_tick_completed`, auto-emits `pipeline_tick_started` for the new stage, and prints `▶ TICK COMPLETE — ... /goal continues.`. Echo it as the final line.
 
 For `wave_N_waiting`, the marker may include a bounded-wait hint for background workers. Queue state and artifacts decide completion; notifications are advisory.
+
+### Collapsing pass-through stages (`--via`)
+
+A stage with nothing configured to run still cost a full `/goal` re-entry to advance through. `--via` collapses a run of pass-through stages into the tick that precedes them:
+
+```
+shipyard-data cursor advance execute wave_3_tests --via wave_3_build --via wave_3_refactor
+```
+
+- Every hop is graph-validated in order. **One illegal hop refuses the whole chain** — no cursor write, no partial events.
+- Each hop still emits its own `pipeline_tick_completed` + `pipeline_tick_started` (tagged `collapsed=true`), so the event trail is identical to ticking through stage by stage. This is what keeps the terminal-evidence gate and the wave invariants — both event-log readers, never cursor-history readers — whole.
+- The cursor file is written once, at the final stage.
+- **Terminals are never chainable**, as a hop or as the target. A terminal advance prints the stop marker `/goal` reads; it stays one deliberate call.
+- **Collapsible stages are a CLI allowlist, computed from config**: `wave_build` and `sprint_full_build` only when the matching `build_commands` key is unset, `wave_refactor` only under `execution.refactor_scope: sprint`. `wave_boundary` is never collapsible — it rebases, ff-merges, and runs the integration gate. An allowlist rather than a blocklist because the failure is asymmetric (a missed entry fabricates proof a stage ran), and config-dependent because the same stage name does real work in one project and nothing in another.
 
 ## Self-Looping Stages
 

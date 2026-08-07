@@ -64,11 +64,40 @@ import {
   readEvents,
 } from "./terminal-gate.mjs";
 import { writeProgress } from "./progress-render.mjs";
+import { hasConfiguredCommand, readRefactorScope } from "./config-read.mjs";
 
 const CURSOR_FILE = {
   "ship-execute": "EXECUTE-CURSOR.md",
   "ship-review": "REVIEW-CURSOR.md",
 };
+
+/**
+ * Which stage keys a `--via` chain may collapse — CONFIG-DEPENDENT.
+ *
+ * `--via` emits each hop's `pipeline_tick_completed`, and downstream readers
+ * (terminal-gate, wave invariants, PROGRESS.md, event-log resume) treat that as
+ * proof the stage ran. So a stage may only be collapsed when it genuinely does
+ * nothing — and for these stages that depends on config, not on the stage name:
+ * `sprint_full_build` runs a real cross-module build when `build_commands.full`
+ * is set, and `wave_refactor` dispatches a real agent under
+ * `execution.refactor_scope: wave`. A static allowlist declared them always
+ * collapsible and would have logged proof for work that never happened.
+ *
+ * `wave_boundary` is absent unconditionally: it rebases and ff-merges every task
+ * branch, runs verify-wave-integrated, and tears down worktrees.
+ *
+ * Every read failure resolves toward NOT collapsible — a wrongly-refused
+ * collapse costs one /goal re-entry; a wrongly-allowed one fabricates evidence.
+ */
+function collapsibleKeys(dataDir) {
+  const keys = new Set();
+  if (!hasConfiguredCommand(dataDir, "build_commands", "scoped") && !hasConfiguredCommand(dataDir, "build_commands", "full")) {
+    keys.add("wave_build");
+  }
+  if (!hasConfiguredCommand(dataDir, "build_commands", "full")) keys.add("sprint_full_build");
+  if (readRefactorScope(dataDir) === "sprint") keys.add("wave_refactor");
+  return keys;
+}
 
 const STOP_MARKER = "▶ CYCLE COMPLETE — pipeline terminal. /goal should stop.";
 
@@ -223,6 +252,7 @@ function writeCursorFile(dataDir, pipeline, content) {
 /** Parse trailing `k=v` args + flags. Returns { fields, note, force }. */
 function parseArgs(rest) {
   const fields = {};
+  const via = [];
   let note = null;
   let force = false;
   for (let i = 0; i < rest.length; i++) {
@@ -235,13 +265,19 @@ function parseArgs(rest) {
       note = rest[++i] ?? "";
       continue;
     }
+    if (a === "--via") {
+      const v = rest[++i];
+      if (!v) usageFail("cursor: --via requires a stage name");
+      via.push(v);
+      continue;
+    }
     const eq = a.indexOf("=");
-    if (eq <= 0) usageFail(`cursor: unrecognized argument "${a}" — expected k=v, --note <text>, or --force`);
+    if (eq <= 0) usageFail(`cursor: unrecognized argument "${a}" — expected k=v, --note <text>, --via <stage>, or --force`);
     const k = a.slice(0, eq);
     const v = a.slice(eq + 1);
     fields[k] = v;
   }
-  return { fields, note, force };
+  return { fields, note, force, via };
 }
 
 function splitEventFields(fields) {
@@ -407,10 +443,50 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
   if (!pipeline) usageFail(`cursor advance: unknown pipeline "${pipelineArg}" — expected execute|review`);
   if (!stage) usageFail("cursor advance: missing <stage>");
 
-  const { fields, note, force } = parseArgs(rest);
+  const { fields, note, force, via } = parseArgs(rest);
   const { outcome, reason, cursorFields } = splitEventFields(fields);
   const prior = readCursor(dataDir, pipeline);
   const from = prior?.fm?.stage ?? null;
+
+  // Multi-hop advance (v3.24.0). `--via <stage>` collapses pass-through
+  // stages — an unconfigured `wave_N_build`, or `wave_N_refactor` under
+  // `execution.refactor_scope: sprint` — into the tick that precedes them,
+  // instead of paying a full /goal re-entry per stage to do nothing.
+  //
+  // Evidence is unaffected: the terminal gate and the wave invariants read
+  // the EVENT LOG, never cursor history, so emitting each hop's
+  // tick_completed/tick_started pair below makes a collapsed chain
+  // byte-equivalent to having ticked through it one stage at a time. Only
+  // the cursor FILE write and the /goal round-trips are saved.
+  //
+  // Terminals are excluded from chains on purpose: a terminal advance
+  // prints the stop marker that /goal reads, and burying it mid-chain (or
+  // reaching it without its own deliberate tick) makes the stop signal
+  // ambiguous. Terminals stay one explicit call.
+  if (via.length > 0) {
+    // Target check first: a terminal target is a more specific (and more
+    // confusing) mistake than a non-collapsible hop, so report it directly.
+    if (isTerminalStage(pipeline, stage)) {
+      usageFail(
+        `cursor advance: cannot chain --via into terminal stage ${stage} — advance to the last non-terminal stage first, then run the terminal advance on its own`,
+      );
+    }
+    for (const v of via) {
+      if (isTerminalStage(pipeline, v)) {
+        usageFail(`cursor advance: --via ${v} is a terminal stage — terminals must be their own deliberate advance`);
+      }
+      const key = normalizeStage(pipeline, v)?.key;
+      const allowed = collapsibleKeys(dataDir);
+      if (!key || !allowed.has(key)) {
+        usageFail(
+          `cursor advance: --via ${v} is not collapsible in this project. Collapsing emits its ` +
+            `pipeline_tick_completed event — which downstream gates read as proof the stage ran — so a stage ` +
+            `may only be chained when its command/agent is unconfigured and it genuinely does nothing. ` +
+            `Collapsible here: ${[...allowed].join(", ") || "(none)"}. Advance to ${v} on its own tick.`,
+        );
+      }
+    }
+  }
 
   // Archive→terminal seam (v3.4.0). ship-review's release path runs
   // archive-sprint BEFORE its terminal advance, which rotates current/
@@ -452,13 +528,22 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
     );
   }
 
+  // The full path this advance traverses: from → via… → stage. With no
+  // --via this is the single hop it has always been.
+  const chain = [...via, stage];
+
   if (!force) {
-    const verdict = validateTransition(pipeline, from, stage);
-    if (!verdict.ok) {
-      gateFail(`cursor advance refused — illegal stage transition`, [
-        verdict.reason,
-        "If this is deliberate recovery (crash mid-pipeline, hand-repair), re-run with --force. The evidence gates still apply.",
-      ]);
+    let hopFrom = from;
+    for (const hopTo of chain) {
+      const verdict = validateTransition(pipeline, hopFrom, hopTo);
+      if (!verdict.ok) {
+        gateFail(`cursor advance refused — illegal stage transition`, [
+          verdict.reason,
+          ...(via.length > 0 ? [`(hop ${hopFrom ?? "(fresh)"} → ${hopTo} of chain ${[from ?? "(fresh)", ...chain].join(" → ")})`] : []),
+          "If this is deliberate recovery (crash mid-pipeline, hand-repair), re-run with --force. The evidence gates still apply.",
+        ]);
+      }
+      hopFrom = hopTo;
     }
   }
 
@@ -539,24 +624,39 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
         reason: "re-entry-without-progress",
       });
     }
-    logEvent(dataDir, "pipeline_tick_completed", {
-      pipeline,
-      sprint,
-      stage: from ?? "(fresh)",
-      outcome: from === stage ? "self_loop" : "advanced",
-      next_stage: stage,
-      ...(merged.wave_number != null ? { wave: merged.wave_number } : {}),
-    });
-    // The CLI also emits the next tick's started event — the last
-    // pipeline-lifecycle event that used to be a model-side ritual
-    // (forgettable, never verified). Zero consumers gate on it; it exists
-    // for audit-log readability.
-    logEvent(dataDir, "pipeline_tick_started", {
-      pipeline,
-      sprint,
-      stage,
-      ...(merged.iteration != null ? { iteration: merged.iteration } : {}),
-    });
+    // One tick_completed/tick_started pair PER HOP. With no --via this is
+    // the single pair it has always been; with --via the collapsed chain
+    // leaves exactly the same event trail as ticking through it stage by
+    // stage, which is what keeps the terminal-evidence gate and the wave
+    // invariants (both event-log readers) whole.
+    let hopFrom = from;
+    for (const hopTo of chain) {
+      const isFinal = hopTo === chain[chain.length - 1];
+      // Intermediate hops take their wave from the stage name; the final
+      // hop keeps merged.wave_number so an explicit wave_number= still wins.
+      const hopWave = isFinal ? merged.wave_number : normalizeStage(pipeline, hopTo)?.wave;
+      logEvent(dataDir, "pipeline_tick_completed", {
+        pipeline,
+        sprint,
+        stage: hopFrom ?? "(fresh)",
+        outcome: hopFrom === hopTo ? "self_loop" : "advanced",
+        next_stage: hopTo,
+        ...(hopWave != null ? { wave: hopWave } : {}),
+        ...(via.length > 0 ? { collapsed: true } : {}),
+      });
+      // The CLI also emits the next tick's started event — the last
+      // pipeline-lifecycle event that used to be a model-side ritual
+      // (forgettable, never verified). Zero consumers gate on it; it exists
+      // for audit-log readability.
+      logEvent(dataDir, "pipeline_tick_started", {
+        pipeline,
+        sprint,
+        stage: hopTo,
+        ...(isFinal && merged.iteration != null ? { iteration: merged.iteration } : {}),
+        ...(via.length > 0 ? { collapsed: true } : {}),
+      });
+      hopFrom = hopTo;
+    }
   }
 
   const path = writeCursorFile(dataDir, pipeline, proposedContent);
@@ -573,7 +673,11 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
   } catch { /* rendering is best-effort; next advance retries */ }
   if (terminal) clearExecutionLock(dataDir, pipeline);
 
-  process.stdout.write(`cursor: ${from ?? "(fresh)"} → ${stage} (${path})\n`);
+  const pathText = via.length > 0 ? [from ?? "(fresh)", ...chain].join(" → ") : `${from ?? "(fresh)"} → ${stage}`;
+  process.stdout.write(`cursor: ${pathText} (${path})\n`);
+  if (via.length > 0) {
+    process.stdout.write(`  (collapsed ${chain.length} stages into one tick — ${via.length} pass-through stage(s) skipped)\n`);
+  }
   if (terminal) {
     if (stage === "terminal_handoff_to_review") {
       // NEXT-UP first, stop marker LAST — the v2.8.2 handoff-seam rule,

@@ -11,7 +11,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { atomicWrite, logEvent, withLockfile } from "./_hook_lib.mjs";
-import { readExecutionIsolation, normalizeIsolationToken } from "./config-read.mjs";
+import { readExecutionIsolation, normalizeIsolationToken, readDispatchOrder } from "./config-read.mjs";
 
 const QUEUE_BASENAME = ".worker-queue.json";
 const DEFAULT_TTL_SECONDS = 30 * 60;
@@ -169,6 +169,11 @@ function taskFromItem(item, { pipeline, stage, idx = 0 }) {
     required_validation: asList(item.required_validation ?? item.required_probes),
     payload: item.payload ?? null,
     source: item.source ? String(item.source) : null,
+    // Carried for dispatch ordering (see sortForDispatch). Not a gate input.
+    effort: item.effort ? String(item.effort).toUpperCase() : null,
+    // The wave base this task's branch is cut from. Informational only — the
+    // reuse guards derive everything from the queue's completion records.
+    base_sha: /^[0-9a-fA-F]{7,40}$/.test(String(item.base_sha ?? "")) ? String(item.base_sha) : null,
     idempotent: item.idempotent !== false,
     attempt: Number.isInteger(item.attempt) ? item.attempt : 0,
     claimed_by: null,
@@ -180,6 +185,31 @@ function taskFromItem(item, { pipeline, stage, idx = 0 }) {
     artifact_status: null,
     reason: null,
   };
+}
+
+/**
+ * Longest-effort-first ordering, tie-broken by id so the result is stable and
+ * reproducible. `claim` hands out the first pending task in array order, so
+ * enqueue order IS dispatch order — which makes this the CLI-enforced version
+ * of "start the long pole first" rather than a prose request to the model.
+ *
+ * Why it matters: `max_parallel_agents` defaults to 3, so a 6-task wave runs in
+ * batches. An XL enqueued last means the wave's tail is that XL running alone
+ * after everything else drained; enqueued first it overlaps with the short work.
+ *
+ * Unknown/absent effort sorts LAST (rank 0) rather than throwing — a task file
+ * with a malformed `effort:` must not break dispatch. Merge order at the wave
+ * boundary is unaffected; that stays task-id order.
+ */
+const EFFORT_RANK = { XL: 4, L: 3, M: 2, S: 1 };
+
+export function sortForDispatch(tasks) {
+  return [...tasks].sort((a, b) => {
+    const ra = EFFORT_RANK[a.effort] ?? 0;
+    const rb = EFFORT_RANK[b.effort] ?? 0;
+    if (ra !== rb) return rb - ra;
+    return String(a.id).localeCompare(String(b.id));
+  });
 }
 
 function enqueue(dataDir, args) {
@@ -226,7 +256,14 @@ function enqueue(dataDir, args) {
   }
 
   const parsed = JSON.parse(readFileSync(input, "utf8"));
-  const additions = tasksFromInput(parsed, { pipeline, stage });
+  let additions = tasksFromInput(parsed, { pipeline, stage });
+  // Dispatch ordering is CLI-owned for the same reason isolation is: a prose
+  // instruction to "enqueue the long pole first" is not enforcement.
+  // ship-review's read-only scanners gain nothing from effort ordering, so this
+  // is scoped to the execute pipeline.
+  if (pipeline === "ship-execute" && readDispatchOrder(dataDir) === "critical_path") {
+    additions = sortForDispatch(additions);
+  }
   let enqueued = 0;
 
   withQueue(dataDir, (queue) => {
@@ -253,6 +290,23 @@ function enqueue(dataDir, args) {
   process.stdout.write(JSON.stringify({ enqueued, total_input: additions.length }) + "\n");
 }
 
+/**
+ * Builder-reuse guards, run before a REUSING builder is handed its next task.
+ *
+ * Every input here is derived from state the QUEUE already owns (which worker
+ * claimed which tasks) or from git — never from a flag the builder volunteers.
+ * An earlier version took `--previous` and `--reuse-count` from the caller,
+ * which meant a builder that simply omitted them got an unguarded claim and a
+ * cap that never fired. A guard the guarded party can switch off is not a guard.
+ *
+ * Refusal kinds:
+ *   - CONTRACT violation (missing anchor, dirty/unprovable tree) → throw exit 3.
+ *   - POLICY stop (manifest churn, cap reached) → {reason} so the builder exits
+ *     cleanly with claimed:false and main spawns a fresh one.
+ *
+ * All git failures are treated as "cannot prove safe" and refuse. These guards
+ * exist to prevent a false-green; failing open would defeat them entirely.
+ */
 function claim(dataDir, args) {
   const pipeline = normalizePipeline(flag(args, "--pipeline", { required: true }));
   const stage = flag(args, "--stage", { required: true });
@@ -276,6 +330,8 @@ function claim(dataDir, args) {
   });
 
   if (claimed) {
+    // Record it against THIS worktree so the next claim from here is correctly
+    // seen as reuse regardless of queue mutations or worker naming.
     logEvent(dataDir, "worker_queue_claimed", {
       pipeline,
       stage,
