@@ -12,7 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -464,6 +464,75 @@ test("idea set-status: legal transitions to graduated/rejected, illegal refused"
     writeIdea(p, "IDEA-002", "graduated");
     const bad = p.run(["idea", "set-status", "IDEA-002", "rejected"]);
     assert.equal(bad.code, 3);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("idea repair: audit reports invalid records without mutating them", () => {
+  const p = makeProject();
+  try {
+    writeIdea(p, "IDEA-001", "captured");
+    const before = readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-001-test.md"), "utf8");
+    const r = p.run(["idea", "repair", "--json"]);
+    assert.equal(r.code, 3);
+    const result = JSON.parse(r.stdout.split("\n")[0]);
+    assert.equal(result.findings.length, 1);
+    assert.ok(result.findings[0].reasons.includes("legacy_status"));
+    assert.equal(readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-001-test.md"), "utf8"), before);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("idea repair --fix normalizes legacy and missing statuses", () => {
+  const p = makeProject();
+  try {
+    writeIdea(p, "IDEA-001", "merged");
+    writeFileSync(join(p.dataDir, "spec", "ideas", "IDEA-002-test.md"), "---\nid: IDEA-002\ntitle: Missing Status\n---\n");
+    const r = p.run(["idea", "repair", "--fix", "--json"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(JSON.parse(r.stdout).fixed, 2);
+    assert.match(readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-001-test.md"), "utf8"), /status: proposed/);
+    assert.match(readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-002-test.md"), "utf8"), /status: proposed/);
+    assert.match(readEvents(p), /ideas_repaired/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("idea repair --fix creates frontmatter and IDs slug-named files", () => {
+  const p = makeProject();
+  try {
+    writeFileSync(join(p.dataDir, "spec", "ideas", "bulk-export.md"), "# Bulk Export\n\nKeep this body.\n");
+    const r = p.run(["idea", "repair", "--fix"]);
+    assert.equal(r.code, 0, r.stderr);
+    const name = readdirSync(join(p.dataDir, "spec", "ideas")).find((f) => /^IDEA-\d{3}-bulk-export\.md$/.test(f));
+    assert.ok(name);
+    const content = readFileSync(join(p.dataDir, "spec", "ideas", name), "utf8");
+    assert.match(content, /^---\nid: IDEA-\d{3}\ntitle: "Bulk Export"\ntype: idea\nstatus: proposed/m);
+    assert.match(content, /Keep this body\./);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("idea repair --fix splits duplicate and malformed IDs and advances allocator floor", () => {
+  const p = makeProject();
+  try {
+    writeFileSync(join(p.dataDir, "spec", "ideas", "IDEA-297-a.md"), "---\nid: IDEA-297\nstatus: proposed\n---\n# A\n");
+    writeFileSync(join(p.dataDir, "spec", "ideas", "IDEA-297-b.md"), "---\nid: IDEA-297\nstatus: proposed\n---\n# B\n");
+    writeFileSync(join(p.dataDir, "spec", "ideas", "bad-id.md"), "---\nid: idea-seven\nstatus: open\n---\n# Bad ID\n");
+    const r = p.run(["idea", "repair", "--fix", "--json"]);
+    assert.equal(r.code, 0, r.stderr);
+    const ids = readdirSync(join(p.dataDir, "spec", "ideas"))
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => f.match(/^(IDEA-\d{3})/)?.[1]);
+    assert.equal(new Set(ids).size, 3);
+    assert.ok(ids.includes("IDEA-297"));
+    assert.ok(ids.includes("IDEA-298"));
+    assert.ok(ids.includes("IDEA-299"));
+    assert.equal(readFileSync(join(p.dataDir, "spec", "ideas", ".id-seq"), "utf8").trim(), "299");
   } finally {
     p.cleanup();
   }

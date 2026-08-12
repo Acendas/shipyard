@@ -1202,6 +1202,117 @@ function ideaSetStatus(dataDir, args) {
   });
 }
 
+const IDEA_STATUSES = new Set(Object.keys(IDEA_TRANSITIONS));
+const LEGACY_IDEA_STATUSES = new Set([
+  "open",
+  "idea",
+  "captured",
+  "new",
+  "backlog",
+  "resolved",
+  "merged",
+  "reclassified",
+]);
+
+function ideaRepair(dataDir, args) {
+  const fix = args.includes("--fix");
+  const json = args.includes("--json");
+  const unknown = args.filter((arg) => !["--fix", "--json"].includes(arg));
+  if (unknown.length) fail(2, `usage: idea repair [--fix] [--json] (unknown argument: ${unknown[0]})`);
+
+  const dir = join(dataDir, "spec", "ideas");
+  mkdirSync(dir, { recursive: true });
+  withNamedLock(dataDir, "idea-repair", () => {
+    const files = readdirSync(dir).filter((name) => !name.startsWith(".") && name.endsWith(".md")).sort();
+    const records = files.map((name) => {
+      const path = join(dir, name);
+      const content = readFileSync(path, "utf8");
+      const fm = parseFm(content);
+      const filenameId = name.match(/^(IDEA-\d{3})(?:-|\.md$)/)?.[1] ?? null;
+      const frontmatterId = fm ? getScalar(fm.block, "id") : "";
+      return { name, path, content, fm, filenameId, frontmatterId };
+    });
+
+    let max = 0;
+    for (const record of records) {
+      for (const id of [record.filenameId, IDEA_ID_RE.test(record.frontmatterId) ? record.frontmatterId : null]) {
+        if (id) max = Math.max(max, Number(id.slice(5)));
+      }
+    }
+    const seqPath = join(dir, ".id-seq");
+    if (existsSync(seqPath)) {
+      const seq = Number.parseInt(readFileSync(seqPath, "utf8").trim(), 10);
+      if (Number.isFinite(seq)) max = Math.max(max, seq);
+    }
+
+    const claimed = new Set();
+    const changes = [];
+    const allocate = () => {
+      do max += 1; while (claimed.has(`IDEA-${String(max).padStart(3, "0")}`));
+      return `IDEA-${String(max).padStart(3, "0")}`;
+    };
+
+    for (const record of records) {
+      let id = record.filenameId || (IDEA_ID_RE.test(record.frontmatterId) ? record.frontmatterId : null);
+      const reasons = [];
+      if (!record.fm) reasons.push("no_frontmatter");
+      if (!IDEA_ID_RE.test(record.frontmatterId)) reasons.push(record.frontmatterId ? "malformed_id" : "missing_id");
+      if (!record.filenameId) reasons.push("noncanonical_filename");
+      if (!id || claimed.has(id)) {
+        if (id && claimed.has(id)) reasons.push("duplicate_id");
+        id = allocate();
+      }
+      claimed.add(id);
+
+      let status = record.fm ? (getScalar(record.fm.block, "status") ?? "").toLowerCase() : "";
+      if (!IDEA_STATUSES.has(status)) {
+        reasons.push(status ? (LEGACY_IDEA_STATUSES.has(status) ? "legacy_status" : "unknown_status") : "missing_status");
+        // Invalid historical terminal-looking states cannot safely be called
+        // graduated without a verified feature target. Proposed is the only
+        // lossless repair state: it makes the record reachable for grooming.
+        status = "proposed";
+      }
+
+      if (record.filenameId && record.filenameId !== id) reasons.push("filename_id_changed");
+      if (record.frontmatterId && record.frontmatterId !== id && !reasons.includes("malformed_id")) reasons.push("frontmatter_id_changed");
+      if (!reasons.length) continue;
+
+      let targetName = record.name;
+      if (!record.filenameId || record.filenameId !== id) {
+        const rawSlug = record.name.replace(/\.md$/, "").replace(/^IDEA-[^-]+-?/, "");
+        const slug = rawSlug.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        targetName = `${id}${slug ? `-${slug}` : ""}.md`;
+        if (existsSync(join(dir, targetName)) && targetName !== record.name) targetName = `${id}.md`;
+      }
+
+      changes.push({ file: record.name, target: targetName, id, status, reasons });
+      if (!fix) continue;
+
+      let output;
+      if (record.fm) {
+        let block = setScalar(record.fm.block, "id", id);
+        block = setScalar(block, "status", status);
+        output = record.fm.open + block + record.fm.close + record.fm.rest;
+      } else {
+        const heading = record.content.match(/^#\s+(.+)$/m)?.[1]?.trim();
+        const title = (heading || record.name.replace(/\.md$/, "").replace(/[-_]+/g, " ")).replace(/"/g, "\\\"");
+        output = `---\nid: ${id}\ntitle: "${title}"\ntype: idea\nstatus: ${status}\ncreated: null\n---\n\n${record.content}`;
+      }
+      atomicWriteFile(record.path, output);
+      if (targetName !== record.name) renameSync(record.path, join(dir, targetName));
+    }
+
+    if (fix && changes.length) {
+      atomicWriteFile(seqPath, String(max) + "\n");
+      logEvent(dataDir, "ideas_repaired", { count: changes.length, highest_id: max });
+    }
+    const result = { clean: changes.length === 0, fixed: fix ? changes.length : 0, findings: changes };
+    if (json) process.stdout.write(JSON.stringify(result) + "\n");
+    else process.stdout.write(`${fix ? "IDEA_REPAIR" : "IDEA_AUDIT"} findings=${changes.length} fixed=${result.fixed}\n`);
+    if (!fix && changes.length) fail(3, `idea repair: ${changes.length} invalid idea record(s); rerun with --fix`);
+  });
+}
+
 // --- task commands -----------------------------------------------------------
 
 const TASK_STATUS_ALLOWED = new Set(["pending", "in-progress", "done", "blocked", "approved", "needs-attention"]);
@@ -1613,8 +1724,10 @@ function dispatch(dataDir, entity, sub, rest) {
     switch (sub) {
       case "set-status":
         return ideaSetStatus(dataDir, rest);
+      case "repair":
+        return ideaRepair(dataDir, rest);
       default:
-        fail(2, `shipyard-data idea: unknown subcommand "${sub ?? ""}". Expected: set-status`);
+        fail(2, `shipyard-data idea: unknown subcommand "${sub ?? ""}". Expected: set-status|repair`);
     }
   } else if (entity === "task") {
     switch (sub) {
