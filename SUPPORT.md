@@ -19,7 +19,7 @@
 
 **"Execution lock won't clear"** — Run `/ship-status`. It detects stale locks and offers to clear them.
 
-**"Tests aren't running"** — Check that `test_commands` is configured in your project config. Run `/ship-init` to reconfigure if needed.
+**"Tests aren't running"** — Check that `test_commands` is filled in your project's `config.md`, which is at `.shipyard/config.md` in your repo. Shipyard doesn't detect your test commands; it runs the ones written there. Edit the file and run your command again; there's no separate setup step to re-run.
 
 **"Plugin not loading"** — Make sure you added the Acendas marketplace and installed with `claude plugin install shipyard@acendas`. Run `/reload-plugins` after any manual edits.
 

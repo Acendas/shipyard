@@ -7,7 +7,8 @@ Thanks for your interest in Shipyard. This guide covers everything you need to g
 ### Prerequisites
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
-- Python 3
+- Node.js ≥ 18 (Shipyard's CLIs and hooks are Node; CI uses Node 20)
+- Python 3 (the eval suite and pytest tests)
 - Git
 
 ### Clone and test locally
@@ -21,37 +22,44 @@ Test by loading the plugin directly into a test project:
 
 ```bash
 cd /path/to/test-project
-claude --plugin-dir /path/to/shipyard
+claude --plugin-dir /path/to/shipyard/plugins/shipyard
 ```
 
-Then run `/ship-init` inside Claude Code to set up the test project.
+Then run any `/ship-*` command inside Claude Code, such as `/ship-status`. On first run its onboarding gate creates the test project's data directory and `config.md`, then stops. Fill in the test and build commands in `config.md` if you want to exercise the full pipeline.
 
 After editing source files, run `/reload-plugins` inside Claude Code — no restart needed.
 
 ## Project Structure
 
 ```
-shipyard/
-├── .claude-plugin/
-│   └── plugin.json              Plugin manifest
-├── skills/*/                    Slash commands and capability skills
-│   └── SKILL.md
-├── agents/                      Subagent definitions (6 agents)
-│   └── shipyard-*.md
-├── bin/                         Node CLIs and hook modules
-│   ├── shipyard-data.mjs
-│   └── hooks/*.mjs
-├── hooks/                       Hook configuration
-│   └── hooks.json
-├── project-files/               Templates and plugin-local references
-│   ├── rules/shipyard-*.md      Plugin-local rules
-│   └── templates/*.md           Markdown templates (9 templates)
-├── tests/                       Eval framework
-│   ├── eval-run.py
-│   └── assertions/*.json
-├── CLAUDE.md                    Development guidance for Claude Code
-└── README.md
+shipyard/                            Repo root
+├── plugins/shipyard/                The plugin itself
+│   ├── .claude-plugin/
+│   │   └── plugin.json              Plugin manifest
+│   ├── skills/*/                    11 slash commands + 21 capability skills
+│   │   └── SKILL.md
+│   ├── agents/                      Subagent definitions (7 agents)
+│   │   └── shipyard-*.md
+│   ├── bin/                         Node CLIs and hook modules
+│   │   ├── shipyard-data.mjs
+│   │   └── hooks/*.mjs
+│   ├── hooks/                       Hook configuration
+│   │   └── hooks.json
+│   ├── project-files/               Templates and plugin-local references
+│   │   ├── references/*.md          Plugin-local reference guides
+│   │   ├── rules/shipyard-*.md      Plugin-local rules
+│   │   └── templates/*.md           Markdown templates (9 templates)
+│   └── tests/                       Evals and unit tests
+│       ├── eval-run.py              Eval suite
+│       ├── assertions/*.json        Eval assertions
+│       ├── test_*.py                pytest tests
+│       └── test_*.mjs               Node tests (node:test)
+├── README.md
+├── UPGRADING.md
+└── CONTRIBUTING.md
 ```
+
+Paths in the rest of this guide are relative to `plugins/shipyard/` unless they start with `plugins/`.
 
 ## What to Work On
 
@@ -73,11 +81,11 @@ Key conventions:
 Agent definitions follow [Claude Code agent format](https://docs.anthropic.com/en/docs/claude-code/agents):
 - YAML frontmatter with `name`, `description`, `model`, `allowed-tools`, `maxTurns`, `memory`
 - Markdown body with instructions
-- Agents are spawned by skills (e.g., `ship-execute` spawns `shipyard-builder`)
+- Agents are dispatched by the thin `dispatching-*` capability skills, which verify each agent's structured return rather than trusting it (e.g., `dispatching-task-loop` dispatches `shipyard-disciplined-builder` during `/ship-execute`)
 
 ### Rules (`project-files/rules/shipyard-*.md`)
 
-Rules provide passive guidance for Shipyard's own skills and references. They stay plugin-local; `/ship-init` does not copy `shipyard-*.md` rules into the user's project.
+Rules provide passive guidance for Shipyard's own skills and references. They stay plugin-local; onboarding does not copy `shipyard-*.md` rules into the user's project.
 
 ### Hook Scripts (`bin/hooks/`)
 
@@ -99,20 +107,26 @@ Conventions:
 
 ### Templates (`project-files/templates/`)
 
-Markdown templates with YAML frontmatter. Used by `/ship-init` and other skills to create new files.
+Markdown templates with YAML frontmatter. Onboarding (`shipyard-data onboarding bootstrap`) creates each project's `config.md` from the `config.md` template and syncs the templates into the project's data directory; skills use them to create new files (features, tasks, bugs, sprints and so on).
 
 ## Running Tests
 
+From the repo root:
+
 ```bash
-python3 tests/eval-run.py           # full eval
-python3 tests/eval-run.py -v        # verbose
-python3 tests/eval-run.py --skill ship-execute  # one skill
+python3 plugins/shipyard/tests/eval-run.py                       # full eval
+python3 plugins/shipyard/tests/eval-run.py -v                    # verbose
+python3 plugins/shipyard/tests/eval-run.py --skill ship-execute  # one skill
+python3 -m pytest plugins/shipyard/tests/                        # Python tests
+node --test plugins/shipyard/tests/*.mjs                         # Node tests
 ```
+
+CI runs the eval suite and the pytest tests. Run the Node tests locally too; CI doesn't run them separately.
 
 For hook scripts:
 ```bash
-node --check bin/hook-runner.mjs
-node --check bin/hooks/auto-approve-data.mjs
+node --check plugins/shipyard/bin/hook-runner.mjs
+node --check plugins/shipyard/bin/hooks/auto-approve-data.mjs
 ```
 
 ## Conventions
@@ -137,14 +151,14 @@ Scopes: `skill`, `agent`, `rule`, `hook`, `plugin`, `template`, `docs`
 
 1. Fork the repo and create a feature branch
 2. Make your changes
-3. Run `python3 tests/eval-run.py` to verify
+3. Run the eval suite, pytest and Node tests (see [Running Tests](#running-tests)) to verify
 4. Test by loading plugin into a test project and trying affected commands
 5. Open a PR with a clear description of what changed and why
 
 ## Architecture Decisions
 
 **Why a Claude Code plugin?**
-Plugins integrate natively — skills, agents, and hooks load automatically. No CLI needed, no manual file copying for the core tool. `/ship-init` handles project-specific setup (rules, scripts, templates).
+Plugins integrate natively — skills, agents, and hooks load automatically. No manual file copying for the core tool. Project-specific setup is a CLI step (`shipyard-data onboarding bootstrap`) that every command's onboarding gate runs on first use: it creates the project's data directory and `config.md` and syncs templates into it, without installing anything into the user's project.
 
 **Why markdown files instead of a database?**
 Shipyard state must survive Claude Code context resets (`/clear`). Files are the only durable medium. Markdown with YAML frontmatter is human-readable, git-diffable, and parseable.
