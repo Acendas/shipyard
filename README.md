@@ -118,13 +118,13 @@ claude plugin install shipyard@acendas
 
 The marketplace pins Shipyard to a released version tag (not `main`) — so every install is deterministic. To pick up a new release, run `/plugin marketplace update` then `/plugin install shipyard@acendas` again.
 
-Then initialize any project:
+### First run in a project
 
-```
-/ship-init
-```
+There's no separate setup command. Run any `/ship-*` command — usually `/ship-discuss` — and Shipyard's onboarding gate notices the project is new. It creates the project's data directory and a `config.md` with the project name filled in, reports what it did, and stops. Run your command again to carry on.
 
-Shipyard analyzes your codebase, detects your tech stack, generates project-specific expert skills, and configures everything. Zero git noise — all data lives in Claude's plugin data directory, not in your repo.
+Before your first sprint, open `config.md` and fill in the commands Shipyard should run: `test_commands` (unit, integration, e2e), `build_commands`, and the framework and CI fields. Shipyard runs the commands you give it rather than guessing them. From your next session, a `.shipyard` link in your repo points at the data directory, so the file is at `.shipyard/config.md`. Shipyard doesn't add the link to `.gitignore` for you, so add it yourself.
+
+Zero git noise — all data lives in Claude's plugin data directory, not in your repo.
 
 ## The Workflow — 6 Commands
 
@@ -190,9 +190,10 @@ Bugs, retro action items, and incomplete work from the previous sprint automatic
 
 ## All Commands
 
+Eleven commands. Project setup isn't one of them: it happens automatically the first time you run any command (see [First run in a project](#first-run-in-a-project)).
+
 | Command | What it does | Who does the work |
 |---|---|---|
-| `/ship-init` | Setup — analyze codebase, generate rules and expert skills | Auto + you answer Qs |
 | `/ship-discuss` | Feature discovery — research, challenge, write spec | You talk, Claude writes |
 | `/ship-backlog` | View, groom, prioritize the backlog | You decide |
 | `/ship-sprint` | Plan sprint — tasks, waves, critical path, estimates | You approve the plan |
@@ -250,7 +251,8 @@ Shipyard accumulates project intelligence across sprints:
 - **Anti-pattern detection** — scope creep, estimates off by >50%, same component breaking twice, testing gaps. Patterns get flagged in retros and tracked as improvement items.
 - **Carry-over scan** — every new sprint starts by surfacing open bugs, blocked tasks, retro action items, and incomplete features from previous sprints. You decide what to bring forward, what to defer, what to kill.
 - **Retro items become real work** — improvements identified during retrospectives are saved as idea files. They surface during the next sprint planning. They don't live in a doc nobody reads — they enter the workflow as actionable tasks.
-- **Codebase-aware planning** — `/ship-init` analyzes your stack, patterns, and conventions. Sprint planning references this context. The researcher agent investigates your actual code before proposing implementation approaches.
+- **Codebase-aware planning** — the researcher agent investigates your actual code before proposing implementation approaches. Planning skills and agents also read an optional `codebase-context.md` in the data directory (stack, conventions, key paths) when it exists. Shipyard doesn't generate that file; write it yourself if you want every agent grounded in your conventions.
+- **Expert skills on demand** — when `/ship-sprint` finds several tasks needing knowledge about a technology no existing skill covers, it writes a project-specific expert skill for it (see [Key Design Decisions](#key-design-decisions)).
 
 The result: sprint 5 is meaningfully better planned than sprint 1 — because Shipyard knows where your project underestimates, where it breaks, and what it committed to improving.
 
@@ -263,7 +265,7 @@ Shipyard is built for teams that care about their API bill.
 - **Fixed context budgets** — every skill loads project state through hard line caps (`head -50`, `head -30`). A 500-line backlog costs the same tokens as a 5-line backlog.
 - **Lazy-loaded references** — detailed protocols (TDD cycle, git strategy, team mode, communication design) live in separate files, loaded only when the model actually needs them. Not inline, not always-on.
 - **Subagent isolation** — each agent starts with a clean, purpose-built context and dies when done. No conversation history accumulation across a 3-hour session.
-- **Hooks run outside the model** — three Node hooks (plugin-data breadcrumb, auto-approve/deny for CLI-owned state, worktree branch setup) cost zero tokens. Everything else that used to be advisory hook enforcement moved into skill-prose Iron Laws plus the orchestrator-side gates above, which are stronger because they check git ground truth instead of trusting a model's self-report.
+- **Hooks run outside the model** — four Node hooks (plugin-data breadcrumb, session-end lock release, auto-approve/deny for CLI-owned state, worktree branch setup) cost zero tokens. Everything else that used to be advisory hook enforcement moved into skill-prose Iron Laws plus the orchestrator-side gates above, which are stronger because they check git ground truth instead of trusting a model's self-report.
 - **Agent memory scoping** — the test runner loads zero project memory. The critic loads only project-level context. Every agent carries exactly the context it needs, nothing more.
 
 The real comparison isn't "Shipyard vs one clean AI session." It's Shipyard vs the realistic cost of re-doing failed work, re-explaining lost context, and debugging code that wasn't tested properly the first time.
@@ -272,9 +274,11 @@ The real comparison isn't "Shipyard vs one clean AI session." It's Shipyard vs t
 
 Shipyard is a [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-code/plugins) built entirely on Claude Code primitives — no external runtime, no server, no database.
 
-### Skills (12)
+### Skills (32)
 
-Each `/ship-*` command is a [skill](https://docs.anthropic.com/en/docs/claude-code/skills) — a markdown file with YAML frontmatter and dynamic context injection via `!` backtick commands.
+Each of the 11 `/ship-*` commands is a [skill](https://docs.anthropic.com/en/docs/claude-code/skills) — a markdown file with YAML frontmatter and dynamic context injection via `!` backtick commands. The other 21 are capability skills the commands call: the TDD cycle, authoring and running acceptance probes, extracting acceptance criteria, splitting stories, the anti-stub scan, the dispatch wrappers below, and so on.
+
+Every command starts with the same onboarding gate: if the project has no `config.md` yet, it runs `shipyard-data onboarding bootstrap`, reports the result, and stops. Setup state is owned by the CLI, not inferred by the model.
 
 ### Registered agents + thin dispatch wrappers
 
@@ -284,24 +288,25 @@ Shipyard ships 7 registered agents under `agents/` — `shipyard-code-reviewer`,
 
 Path-scoped [rules](https://docs.anthropic.com/en/docs/claude-code/rules) that lazy-load when Claude touches matching files: `shipyard-ask-user` (question design), `shipyard-data-model` (source-of-truth discipline), `shipyard-next-up` (routing conventions), `shipyard-spec` (spec formatting).
 
-### Hooks (3)
+### Hooks (4)
 
 Node [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) that enforce discipline automatically:
 
-- **Plugin-data breadcrumb** (`SessionStart`) — writes a resolvable path to the plugin data directory so skill subprocesses can find it even when the platform doesn't propagate the env var.
+- **Plugin-data breadcrumb** (`SessionStart`) — writes a resolvable path to the plugin data directory so skill subprocesses can find it even when the platform doesn't propagate the env var, and re-establishes the `.shipyard` link for initialized projects.
+- **Lock release** (`SessionEnd`) — releases any planning or execution lock still held by the ending session, so a command that aborted mid-run doesn't block the next one until the two-hour stale threshold. Locks held by other sessions are never touched.
 - **Auto-approve / deny for CLI-owned state** (`PreToolUse`) — auto-approves Writes/Edits inside Shipyard's data directory, and denies outright any model attempt to hand-write a pipeline cursor, feature/BACKLOG.md frontmatter, or a skill-mutex lock file — all of those are single-writer CLI surfaces (`shipyard-data cursor|feature|backlog|lock ...`).
 - **Worktree branch** (`WorktreeCreate`) — creates the task worktree's branch from the current local HEAD, guards against orphaning a prior agent's un-integrated commits on a branch-name collision.
 
 ### Project Data
 
-All Shipyard data lives **outside your project** in `${CLAUDE_PLUGIN_DATA}/projects/<hash>/`. Zero git noise — the only in-repo artifact is a **gitignored `.shipyard` symlink** pointing at that data dir (a navigation convenience that also serves as the resolver's last-resort fallback). Shipyard's bundled rules stay plugin-local and are read on demand; `/ship-init` does not copy `shipyard-*.md` rules into your project.
+All Shipyard data lives **outside your project** in `${CLAUDE_PLUGIN_DATA}/projects/<hash>/`. Close to zero git noise — the in-repo artifacts are a **`.shipyard` symlink** pointing at that data dir (a navigation convenience that also serves as the resolver's last-resort fallback; add it to your `.gitignore`, which Shipyard doesn't do for you) and any expert skills `/ship-sprint` writes to `.claude/skills/`. Shipyard's bundled rules stay plugin-local and are read on demand; onboarding does not copy `shipyard-*.md` rules into your project.
 
 Builder subagent worktrees under `<repo>/.claude/worktrees/<task>` share the orchestrator's parent-repo data directory, so wave state does not diverge. User-created worktrees elsewhere hash their own toplevel and get isolated Shipyard state, so they do not clobber the parent project.
 
 ```
 plugin-data/projects/<hash>/
-├── config.md              Project settings
-├── codebase-context.md    Auto-generated codebase analysis
+├── config.md              Project settings (created on first run)
+├── codebase-context.md    Optional: project conventions you write; read when present
 ├── spec/
 │   ├── epics/             High-level groupings
 │   ├── features/          Feature specs with acceptance criteria
@@ -314,8 +319,12 @@ plugin-data/projects/<hash>/
 ├── sprints/
 │   └── current/           Active sprint with wave structure
 ├── memory/
-│   └── metrics.md         Velocity, throughput, and retro insights
+│   ├── metrics.json       Velocity, throughput, and retro insights (authoritative)
+│   └── metrics.md         Readable view, generated from metrics.json
+├── releases/              Release records
+├── templates/             File templates
 ├── debug/                 Persistent debug sessions
+│   └── resolved/          Closed investigations
 └── verify/                Review verdicts
 ```
 
@@ -352,9 +361,9 @@ Zero git noise. No merge conflicts on spec files. No accidental commits of plann
 </details>
 
 <details>
-<summary><strong>Why auto-generate SME skills?</strong></summary>
+<summary><strong>Why generate expert skills on demand?</strong></summary>
 <br>
-During /ship-init, the skill-writer agent scans your codebase and generates project-specific expert skills (e.g., /nextjs-expert, /postgres-expert) that encode how YOUR project uses each technology — not generic docs, but actual paths, config, patterns, and conventions.
+During sprint planning, if knowledge gaps cluster around a technology that has no skill in your project's `.claude/skills/` (say, several tasks need OAuth patterns), `/ship-sprint` dispatches a subagent to write a project-specific expert skill for it, such as `/oauth-expert`, and reports it in the sprint plan. Skills are written when a real gap appears rather than generated up front for every technology. Unlike the rest of Shipyard's data, they're saved in your repo, under `.claude/skills/`: commit them or ignore them as you prefer.
 </details>
 
 ## Requirements

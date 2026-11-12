@@ -4,9 +4,9 @@
 
 Shipyard 2.0 is a substantial overhaul. Most installs upgrade cleanly via `claude plugin update`, but there are two situations that need a manual touch.
 
-### Empty `/ship-init` after upgrade — orphan data recovery
+### Existing project treated as new after upgrade — orphan data recovery
 
-**Symptom.** You upgrade, run `/ship-init` in a project where you previously had a Shipyard sprint or backlog, and Shipyard reports a fresh install — your prior sprint state, backlog, codebase context, and memory are all missing.
+**Symptom.** You upgrade, run a Shipyard command in a project where you previously had a Shipyard sprint or backlog, and Shipyard treats it as a fresh install — your prior sprint state, backlog, codebase context, and memory are all missing. On 2.x this showed up when running `/ship-init`; on current versions, where setup is automatic, the onboarding gate of whatever `/ship-*` command you ran creates a new project config instead of finding your old one.
 
 **Cause.** 2.0 changed how project hashes are computed for git worktrees. If your previous Shipyard sessions ran inside a user-owned worktree, the data was stored under the *parent repo's* hash. After the upgrade the resolver hashes the worktree path itself — so it looks at a different (empty) directory and reports no install.
 
@@ -45,7 +45,7 @@ Shipyard 2.0 is a substantial overhaul. Most installs upgrade cleanly via `claud
    echo "$(pwd)" > <new-path>/.project-root
    ```
 
-   Re-run `/ship-init` to verify it now sees your sprint and backlog.
+   Run `/ship-status` to verify it now sees your sprint and backlog.
 
 If you previously had two worktrees of the same repo whose Shipyard sessions co-mingled state under the parent hash, only one worktree can claim that data. The other will start fresh; there's no automatic way to de-interleave a shared dir.
 
@@ -56,7 +56,10 @@ Pre-2.0 `/ship-init` silently installed two things into your project that 2.0 re
 1. Rule files in `.claude/rules/shipyard-*.md` — these loaded into *every* Claude Code session in the project, not just Shipyard ones. 2.0 keeps rules in the plugin and loads them only inside `/ship-*` skills.
 2. Permission entries in `.claude/settings.local.json` — silently merged. 2.0 makes permissions opt-in with explicit consent.
 
-Run `/ship-init` once after upgrading. It detects both kinds of legacy footprint and offers cleanup with a clear before/after. Shipyard-specific entries are offered separately from generally-useful entries (`Bash(git:*)`, `Bash(ls:*)`, `WebSearch`, `WebFetch`) so you can keep your everyday allowlist.
+On 2.x, running `/ship-init` once after upgrading detected both kinds of leftover and offered to clean them up. Current versions have no `/ship-init` and no longer check for these leftovers, so if you're upgrading from 1.x, remove them by hand:
+
+- Delete any `.claude/rules/shipyard-*.md` files in your project.
+- In `.claude/settings.local.json`, remove the permission entries that refer to Shipyard or its CLIs (`shipyard-data`, `shipyard-context`). Keep generally useful entries such as `Bash(git:*)`, `Bash(ls:*)`, `WebSearch` and `WebFetch` if you rely on them.
 
 ### Retired CLI surface
 
@@ -71,13 +74,13 @@ These `shipyard-data` and `shipyard-context` subcommands were removed:
 | `shipyard-data project-root` | `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-root` |
 | `shipyard-data reap-obsolete` | None — soft-deleted records stay on disk; manual cleanup if needed |
 | `shipyard-data events {tail,grep,since,json}` | Read `<SHIPYARD_DATA>/.shipyard-events.jsonl` directly with `tail -f`, `jq`, etc. |
-| `shipyard-context legacy-check` | None — `/ship-init`'s footprint cleanup section subsumes it |
+| `shipyard-context legacy-check` | None — remove leftovers by hand (see [Legacy footprint cleanup](#legacy-footprint-cleanup)) |
 
 If you have automation that called any of the above, update it to the replacement column.
 
 ### Hook surface trimmed
 
-12 hooks → 3. The retired ones (TDD enforcement, session-guard, subagent-stop, agent-heartbeat, cwd-restore, loop-detect, on-commit, post-compact, block-bash-state-write) were *advisory* enforcement that 2.0 moves into prose-level "Iron Laws" inside the dispatching skills, with orchestrator-side gates as the safety net (commit-sha verification, anti-stub-scan, probe-output match). Surviving hooks: `SessionStart` plugin-data breadcrumb, `PreToolUse` auto-approve for SHIPYARD_DATA writes, `WorktreeCreate` branch setup.
+12 hooks → 3. The retired ones (TDD enforcement, session-guard, subagent-stop, agent-heartbeat, cwd-restore, loop-detect, on-commit, post-compact, block-bash-state-write) were *advisory* enforcement that 2.0 moves into prose-level "Iron Laws" inside the dispatching skills, with orchestrator-side gates as the safety net (commit-sha verification, anti-stub-scan, probe-output match). Surviving hooks: `SessionStart` plugin-data breadcrumb, `PreToolUse` auto-approve for SHIPYARD_DATA writes, `WorktreeCreate` branch setup. (A fourth hook has since been added: `SessionEnd` releases any planning or execution lock the ending session still holds. See the README's Hooks section.)
 
 If you depended on a retired hook (e.g., your CI grepped logs for tdd-check output), the replacement is the structured event log at `<SHIPYARD_DATA>/.shipyard-events.jsonl`.
 
@@ -111,6 +114,16 @@ Now:
 - **Escape hatch:** `shipyard-data events emit idea_backlog_accepted count=<n>` lets planning proceed over cap, but only while the backlog stays at or below `<n>`. It is not a permanent bypass.
 
 **If you're already wedged** (a large backlog that was silently refusing allocations), run `/ship-backlog` and groom — then check what got lost during the refusal window: findings from that period may be sitting in task-scoped filenames or builder return notes rather than `spec/ideas/`.
+
+## `/ship-init` retired (current versions)
+
+Current versions (3.26.0 at the time of writing) have no `/ship-init` command. If your notes, scripts or team docs still say to run it, here's what replaced each part of it:
+
+- **Project setup** is automatic. Every `/ship-*` command starts with an onboarding gate: in a project with no `config.md` yet, it runs `shipyard-data onboarding bootstrap`, which creates the project's data directory and a `config.md` with the project name filled in, reports what it did, and stops. Run your command again to carry on.
+- **Test and build commands** are no longer detected for you. Fill in `test_commands` and `build_commands` in `config.md` yourself; from your next session it's reachable at `.shipyard/config.md` in your repo.
+- **Codebase analysis** is no longer generated. Agents and planning skills still read `codebase-context.md` from the data directory when it exists; write it yourself if you want them grounded in your stack and conventions.
+- **Expert skills** are written on demand by `/ship-sprint` when several tasks need knowledge of a technology no existing skill covers. They're saved to `.claude/skills/` in your project.
+- **Reconfiguring** means editing `config.md` (or using `shipyard-data config set-model`, `set-effort`, `set-isolation` and `set <key> <value>` for the settings those cover). There's no setup step to re-run.
 
 ## Older versions
 
