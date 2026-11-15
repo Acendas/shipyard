@@ -82,7 +82,7 @@ def parse_frontmatter(filepath):
 
 def find_all_files(directory, pattern="*.md"):
     """Recursively find files matching pattern."""
-    return list(directory.rglob(pattern))
+    return sorted(directory.rglob(pattern))
 
 
 def read_file(filepath):
@@ -315,7 +315,7 @@ def check_file_references(result):
         # Check references/ subdirectory files are actually referenced
         refs_dir = skill_dir / "references"
         if refs_dir.is_dir():
-            for ref_file in refs_dir.glob("*.md"):
+            for ref_file in sorted(refs_dir.glob("*.md")):
                 ref_relative = f"skills/{skill_dir.name}/references/{ref_file.name}"
                 if ref_relative in content or ref_file.name in content:
                     result.ok(f"ref:{skill_dir.name}:references/{ref_file.name}:referenced")
@@ -336,7 +336,7 @@ def check_agent_references(result):
             continue
 
         # Check all .md files in the skill
-        for md_file in skill_dir.rglob("*.md"):
+        for md_file in sorted(skill_dir.rglob("*.md")):
             content = read_file(md_file)
             rel = md_file.relative_to(PROJECT_ROOT)
 
@@ -443,7 +443,10 @@ def check_skill_assertions(result, skill_filter=None):
         all_text = skill_main + "\n"
         # Also collect reference files for 'contains' checks (features may be in refs)
         refs_text = ""
-        for md_file in skill_dir.rglob("*.md"):
+        # Sorted: the order files come back in differs between filesystems,
+        # and a pattern that spans two files must not pass on one machine
+        # and fail on another (it did, in CI).
+        for md_file in sorted(skill_dir.rglob("*.md")):
             if md_file.name != "SKILL.md":
                 refs_text += read_file(md_file) + "\n"
 

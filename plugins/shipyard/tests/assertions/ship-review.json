@@ -664,11 +664,11 @@
   "why": "v3.0.0: cursor advance + stuck_counter computation stay shell-side, never in the dispatched agent"
  },
  {
-  "name": "gap_analysis_has_inline_fallback",
+  "name": "gap_analysis_dispatch_failure_surfaces_blocked",
   "type": "contains",
-  "pattern": "On dispatch failure.*inline|run the Stage 4 \\+ 4.5 analysis inline",
-  "dotall": true,
-  "why": "v3.0.0: on dispatch failure the shell evaluates gap analysis + self-review inline"
+  "pattern": "On dispatch failure, surface the wrapper's BLOCKED outcome",
+  "why": "The gap-analysis table is evaluated by the registered agent; when its dispatch fails the wrapper's BLOCKED outcome is surfaced, never a hand-rolled generic subagent. (The v3.0.0 wording of this check, 'On dispatch failure.*inline' with dotall over every file of the skill, matched only by accident of file order and failed in CI on one runner.)",
+  "target": "ref:review-stages-approval.md"
  },
  {
   "name": "pause_before_ask_rule_stated",
