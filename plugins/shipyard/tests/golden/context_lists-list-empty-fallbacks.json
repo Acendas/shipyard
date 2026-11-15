@@ -1,0 +1,27 @@
+{
+  "epics": {
+    "code": 0,
+    "stdout": "No epics yet",
+    "stderr": ""
+  },
+  "stories": {
+    "code": 0,
+    "stdout": "No stories yet",
+    "stderr": ""
+  },
+  "features": {
+    "code": 0,
+    "stdout": "No features yet",
+    "stderr": ""
+  },
+  "ideas": {
+    "code": 0,
+    "stdout": "No ideas yet",
+    "stderr": ""
+  },
+  "debug-sessions": {
+    "code": 0,
+    "stdout": "No active debug sessions",
+    "stderr": ""
+  }
+}

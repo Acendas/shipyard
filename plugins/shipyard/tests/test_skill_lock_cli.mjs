@@ -91,14 +91,14 @@ test("init pre-creates a released sentinel for both lock kinds", () => {
 test("acquire: free/released lock acquires cleanly with depth:1", () => {
   const p = makeProject();
   try {
-    const r = p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    const r = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     assert.equal(r.code, 0);
     const json = stdoutJson(r);
     assert.equal(json.acquired, true);
     assert.equal(json.reentry, false);
     assert.equal(json.depth, 1);
     const lock = readLock(p, "planning");
-    assert.equal(lock.skill, "ship-discuss");
+    assert.equal(lock.skill, "ship-sprint");
     assert.equal(lock.session_id, "sessA");
     assert.equal(lock.depth, 1);
     assert.equal("compaction_count" in lock, false, "compaction_count must not be in the new shape");
@@ -112,8 +112,8 @@ test("acquire: free/released lock acquires cleanly with depth:1", () => {
 test("acquire: same-session reentry bumps depth and reports reentry:true", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
-    const r = p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
+    const r = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     assert.equal(r.code, 0);
     const json = stdoutJson(r);
     assert.equal(json.acquired, true);
@@ -135,12 +135,12 @@ test("acquire: stale lock (>2h) is recovered and emits stale_lock_recovered", ()
       join(p.dataDir, ".active-session.json"),
       JSON.stringify({ skill: "ship-sprint", sprint: null, wave: null, started: staleStarted, session_id: "oldsess", cleared: null, depth: 1 }),
     );
-    const r = p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    const r = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     assert.equal(r.code, 0);
     assert.match(r.stderr, /recovered stale/);
     const json = stdoutJson(r);
     assert.equal(json.recovered, "stale");
-    assert.equal(readLock(p, "planning").skill, "ship-discuss");
+    assert.equal(readLock(p, "planning").skill, "ship-sprint");
     const events = readEvents(p);
     assert.match(events, /"stale_lock_recovered".*"prior_skill":"ship-sprint"/);
   } finally {
@@ -154,7 +154,7 @@ test("acquire: corrupt JSON is recovered and emits corrupt_lock_recovered with a
   const p = makeProject();
   try {
     writeFileSync(join(p.dataDir, ".active-session.json"), "{not valid json at all");
-    const r = p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    const r = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     assert.equal(r.code, 0);
     assert.match(r.stderr, /recovered corrupt/);
     const json = stdoutJson(r);
@@ -172,14 +172,14 @@ test("acquire: corrupt JSON is recovered and emits corrupt_lock_recovered with a
 test("acquire: held by another fresh session exits 3 with block text and blocked JSON", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     const r = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessB"]);
     assert.equal(r.code, 3);
     assert.match(r.stderr, /⛔ Another planning session is active/);
-    assert.match(r.stderr, /ship-discuss/);
+    assert.match(r.stderr, /ship-sprint/);
     const json = stdoutJson(r);
     assert.equal(json.acquired, false);
-    assert.equal(json.blocked.skill, "ship-discuss");
+    assert.equal(json.blocked.skill, "ship-sprint");
   } finally {
     p.cleanup();
   }
@@ -187,13 +187,15 @@ test("acquire: held by another fresh session exits 3 with block text and blocked
 
 // --- cross-lock guard --------------------------------------------------------
 
-test("cross-lock guard: acquiring execution while planning is held by a different fresh session is blocked", () => {
+test("different commands never block each other: execute starts while sprint planning runs in another session", () => {
   const p = makeProject();
   try {
     p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     const r = p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sessB"]);
-    assert.equal(r.code, 3);
-    assert.match(r.stderr, /planning session is active/);
+    assert.equal(r.code, 0, r.stderr);
+    const json = stdoutJson(r);
+    assert.equal(json.cross_lock_allowed, "ship-execute+ship-sprint");
+    assert.deepEqual(json.running_beside, ["ship-sprint"]);
   } finally {
     p.cleanup();
   }
@@ -228,13 +230,36 @@ test("cross-lock guard: ship-discuss may run while ship-execute execution is hel
   }
 });
 
-test("cross-lock guard: ship-sprint is still blocked while ship-execute execution is held", () => {
+test("the next sprint can be planned while the current one executes, and a discussion runs beside both", () => {
   const p = makeProject();
   try {
     p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sessA"]);
-    const r = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessB"]);
-    assert.equal(r.code, 3);
-    assert.match(r.stderr, /execution lock is active/);
+    let r = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessB"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(stdoutJson(r).cross_lock_allowed, "ship-execute+ship-sprint");
+    r = p.run(["lock", "acquire", "discuss", "--skill", "ship-discuss", "--session", "sessC"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(stdoutJson(r).running_beside.sort(), ["ship-execute", "ship-sprint"]);
+    // the lock still stops a second copy of the same command
+    for (const [kind, skill] of [["execution", "ship-execute"], ["execution", "ship-review"], ["planning", "ship-sprint"], ["discuss", "ship-discuss"]]) {
+      const again = p.run(["lock", "acquire", kind, "--skill", skill, "--session", "sessZ"]);
+      assert.equal(again.code, 3, `${skill} must be blocked by the running ${kind} command`);
+    }
+    assert.match(p.run(["lock", "acquire", "discuss", "--skill", "ship-discuss", "--session", "sessZ"]).stderr, /Another discussion is active/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("a caller that still says `planning --skill ship-discuss` gets the discuss lock, and sprint planning is not blocked by it", () => {
+  const p = makeProject();
+  try {
+    assert.equal(p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]).code, 0);
+    assert.equal(JSON.parse(readFileSync(join(p.dataDir, ".active-discuss.json"), "utf8")).skill, "ship-discuss");
+    assert.equal(p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessB"]).code, 0);
+    assert.equal(p.run(["lock", "release", "planning", "--skill", "ship-discuss", "--session", "sessA"]).code, 0);
+    assert.equal(JSON.parse(readFileSync(join(p.dataDir, ".active-discuss.json"), "utf8")).skill, null);
+    assert.equal(JSON.parse(readFileSync(join(p.dataDir, ".active-session.json"), "utf8")).skill, "ship-sprint");
   } finally {
     p.cleanup();
   }
@@ -243,7 +268,7 @@ test("cross-lock guard: ship-sprint is still blocked while ship-execute executio
 test("cross-lock guard: same session on the other lock proceeds and flags cross_lock_same_session", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     const r = p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sessA"]);
     assert.equal(r.code, 0);
     const json = stdoutJson(r);
@@ -254,19 +279,13 @@ test("cross-lock guard: same session on the other lock proceeds and flags cross_
   }
 });
 
-test("cross-lock guard: both locks held by (different) strangers reports both and hints /ship-status", () => {
+test("only the command's own lock blocks it: other held locks are reported, not counted", () => {
   const p = makeProject();
   try {
-    // The guard structurally prevents this state from arising through two
-    // sequential CLI acquires (the second would always be blocked by the
-    // first via the cross-lock check) — it can only arise from a legacy/
-    // hand-written lock file or a race between two concurrent first-time
-    // acquires on the two DIFFERENT kind-specific meta-locks. Simulate that
-    // by writing both lock files directly, then attempting a third acquire.
     const now = new Date().toISOString();
     writeFileSync(
       join(p.dataDir, ".active-session.json"),
-      JSON.stringify({ skill: "ship-discuss", sprint: null, wave: null, started: now, session_id: "sessA", cleared: null, depth: 1 }),
+      JSON.stringify({ skill: "ship-sprint", sprint: null, wave: null, started: now, session_id: "sessA", cleared: null, depth: 1 }),
     );
     writeFileSync(
       join(p.dataDir, ".active-execution.json"),
@@ -274,12 +293,10 @@ test("cross-lock guard: both locks held by (different) strangers reports both an
     );
     const r = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessC"]);
     assert.equal(r.code, 3);
-    assert.match(r.stderr, /ship-discuss/);
-    assert.match(r.stderr, /ship-execute/);
-    assert.match(r.stderr, /\/ship-status to clear/);
+    assert.match(r.stderr, /ship-sprint/);
+    assert.doesNotMatch(r.stderr, /ship-execute/);
     const json = stdoutJson(r);
-    assert.equal(Array.isArray(json.blocked), true);
-    assert.equal(json.blocked.length, 2);
+    assert.equal(json.blocked.skill, "ship-sprint");
   } finally {
     p.cleanup();
   }
@@ -290,14 +307,14 @@ test("cross-lock guard: both locks held by (different) strangers reports both an
 test("release: depth > 1 only decrements, does not release", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]); // depth 2
-    const r = p.run(["lock", "release", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]); // depth 2
+    const r = p.run(["lock", "release", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     assert.equal(r.code, 0);
     const json = stdoutJson(r);
     assert.equal(json.released, false);
     assert.equal(json.depth, 1);
-    assert.equal(readLock(p, "planning").skill, "ship-discuss", "still held at depth 1");
+    assert.equal(readLock(p, "planning").skill, "ship-sprint", "still held at depth 1");
   } finally {
     p.cleanup();
   }
@@ -306,8 +323,8 @@ test("release: depth > 1 only decrements, does not release", () => {
 test("release: depth 1 writes the sentinel and emits skill_lock_released", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
-    const r = p.run(["lock", "release", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
+    const r = p.run(["lock", "release", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     assert.equal(r.code, 0);
     const json = stdoutJson(r);
     assert.equal(json.released, true);
@@ -323,13 +340,13 @@ test("release: depth 1 writes the sentinel and emits skill_lock_released", () =>
 test("release: held by another session is a no-op (exit 0, reason held_by_other)", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
-    const r = p.run(["lock", "release", "planning", "--skill", "ship-discuss", "--session", "sessB"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
+    const r = p.run(["lock", "release", "planning", "--skill", "ship-sprint", "--session", "sessB"]);
     assert.equal(r.code, 0);
     const json = stdoutJson(r);
     assert.equal(json.released, false);
     assert.equal(json.reason, "held_by_other");
-    assert.equal(readLock(p, "planning").skill, "ship-discuss", "not released by a stranger's request");
+    assert.equal(readLock(p, "planning").skill, "ship-sprint", "not released by a stranger's request");
   } finally {
     p.cleanup();
   }
@@ -338,7 +355,7 @@ test("release: held by another session is a no-op (exit 0, reason held_by_other)
 test("release: already-released/missing lock is idempotent (exit 0)", () => {
   const p = makeProject();
   try {
-    const r = p.run(["lock", "release", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    const r = p.run(["lock", "release", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     assert.equal(r.code, 0);
     assert.equal(stdoutJson(r).released, true);
   } finally {
@@ -349,7 +366,7 @@ test("release: already-released/missing lock is idempotent (exit 0)", () => {
 test("release: --force writes the sentinel regardless of holder", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     const r = p.run(["lock", "release", "planning", "--force", "--session", "sessB"]);
     assert.equal(r.code, 0);
     const json = stdoutJson(r);
@@ -368,7 +385,7 @@ test("session-unverified: acquire treats a fresh held lock as held-by-other even
   const p = makeProject();
   try {
     // First acquire also unverified (no --session, no CLAUDE_SESSION_ID) -> session_id stored as null.
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint"]);
     // Second unverified acquire must NOT treat this as "mine" just because both have session_id null.
     const r = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint"]);
     assert.equal(r.code, 3);
@@ -381,8 +398,8 @@ test("session-unverified: acquire treats a fresh held lock as held-by-other even
 test("session-unverified: release still succeeds when --skill matches the held lock's skill", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss"]);
-    const r = p.run(["lock", "release", "planning", "--skill", "ship-discuss"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint"]);
+    const r = p.run(["lock", "release", "planning", "--skill", "ship-sprint"]);
     assert.equal(r.code, 0);
     assert.equal(stdoutJson(r).released, true);
     assert.equal(readLock(p, "planning").skill, null);
@@ -400,7 +417,7 @@ test("check: read-only, reports free/mine/held without writing or recovering", (
     assert.equal(free.code, 0);
     assert.equal(stdoutJson(free).state, "released");
 
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     const mine = p.run(["lock", "check", "planning", "--session", "sessA"]);
     assert.equal(mine.code, 0);
     assert.equal(stdoutJson(mine).state, "mine");
@@ -416,13 +433,14 @@ test("check: read-only, reports free/mine/held without writing or recovering", (
 test("status: read-only, reports both locks in one JSON line", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     const r = p.run(["lock", "status"]);
     assert.equal(r.code, 0);
     const json = stdoutJson(r);
     assert.equal(json.planning.state, "held");
-    assert.equal(json.planning.skill, "ship-discuss");
+    assert.equal(json.planning.skill, "ship-sprint");
     assert.equal(json.execution.state, "released");
+    assert.ok(["free", "released"].includes(json.discuss.state), "the discuss lock is reported too");
   } finally {
     p.cleanup();
   }
@@ -438,7 +456,7 @@ test("CLAUDE_CODE_SESSION_ID makes a same-session re-acquire 'mine', not blocked
   const p = makeProject();
   try {
     const envA = { CLAUDE_CODE_SESSION_ID: "sess-real" };
-    const first = p.run(["lock", "acquire", "planning", "--skill", "ship-discuss"], envA);
+    const first = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint"], envA);
     assert.equal(first.code, 0);
     assert.equal(readLock(p, "planning").session_id, "sess-real");
 
@@ -455,7 +473,7 @@ test("CLAUDE_CODE_SESSION_ID makes a same-session re-acquire 'mine', not blocked
 test("a different session is still correctly blocked (identity is real, not ignored)", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss"], { CLAUDE_CODE_SESSION_ID: "sess-A" });
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint"], { CLAUDE_CODE_SESSION_ID: "sess-A" });
     const other = p.run(["lock", "acquire", "planning", "--skill", "ship-sprint"], { CLAUDE_CODE_SESSION_ID: "sess-B" });
     assert.equal(other.code, 3);
   } finally {
@@ -468,7 +486,7 @@ test("a different session is still correctly blocked (identity is real, not igno
 test("reapSessionLocks releases the ending session's own locks", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sessA"]);
 
     const { released } = reapSessionLocks(p.dataDir, "sessA");
@@ -484,11 +502,11 @@ test("reapSessionLocks releases the ending session's own locks", () => {
 test("reapSessionLocks never touches a concurrent session's lock", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     // A different session ends; sessA's lock must survive.
     const { released } = reapSessionLocks(p.dataDir, "sessB");
     assert.equal(released.length, 0);
-    assert.equal(readLock(p, "planning").skill, "ship-discuss");
+    assert.equal(readLock(p, "planning").skill, "ship-sprint");
   } finally {
     p.cleanup();
   }
@@ -497,10 +515,10 @@ test("reapSessionLocks never touches a concurrent session's lock", () => {
 test("reapSessionLocks is a no-op when the ending session id is absent", () => {
   const p = makeProject();
   try {
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss", "--session", "sessA"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "sessA"]);
     const { released } = reapSessionLocks(p.dataDir, null);
     assert.equal(released.length, 0);
-    assert.equal(readLock(p, "planning").skill, "ship-discuss");
+    assert.equal(readLock(p, "planning").skill, "ship-sprint");
   } finally {
     p.cleanup();
   }
@@ -510,11 +528,11 @@ test("reapSessionLocks leaves an unverified (null-session) lock alone", () => {
   const p = makeProject();
   try {
     // No --session, no CLAUDE_CODE_SESSION_ID -> session_id stored as null.
-    p.run(["lock", "acquire", "planning", "--skill", "ship-discuss"]);
+    p.run(["lock", "acquire", "planning", "--skill", "ship-sprint"]);
     assert.equal(readLock(p, "planning").session_id, null);
     const { released } = reapSessionLocks(p.dataDir, "sess-whatever");
     assert.equal(released.length, 0);
-    assert.equal(readLock(p, "planning").skill, "ship-discuss");
+    assert.equal(readLock(p, "planning").skill, "ship-sprint");
   } finally {
     p.cleanup();
   }

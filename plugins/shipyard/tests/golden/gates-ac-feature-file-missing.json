@@ -1,0 +1,5 @@
+{
+  "code": 0,
+  "stdout": "WARN F009: feature file not found — skipped\nverify-ac-coverage: OK — 0 feature(s) with tagged ACs fully covered in <BASE>..HEAD",
+  "stderr": ""
+}

@@ -86,7 +86,7 @@ test("task set-status: legal set writes status + emits task_status_set", () => {
     const r = p.run(["task", "set-status", "T001", "in-progress"]);
     assert.equal(r.code, 0);
     assert.match(readTask(p, "T001"), /status: in-progress/);
-    assert.match(readEvents(p), /task_status_set/);
+    assert.match(readEvents(p), /step_status_set/, "v4: a builder unit is a step; writers emit step_status_set");
   } finally {
     p.cleanup();
   }
@@ -114,7 +114,7 @@ test("task set-status: blocked writes blocked_reason + blocked_since AND emits t
     assert.match(content, /blocked_reason: "waiting on API key"/);
     assert.match(content, /blocked_since: "\d{4}-\d{2}-\d{2}T/);
     const events = readEvents(p);
-    assert.match(events, /"task_status_set".*"to":"blocked".*"reason":"waiting on API key"/);
+    assert.match(events, /"step_status_set".*"to":"blocked".*"reason":"waiting on API key"/);
     assert.match(events, /"task_blocked".*"task":"T001".*"reason":"waiting on API key"/);
   } finally {
     p.cleanup();
@@ -193,7 +193,7 @@ test("task append-verify: appends a structurally-parseable block entry", () => {
     assert.match(content, /exit: 0/);
     assert.match(content, /capture: "captures\/T001\/run-1\.log"/);
     assert.match(content, /at: "\d{4}-\d{2}-\d{2}T/);
-    assert.match(readEvents(p), /task_verify_appended/);
+    assert.match(readEvents(p), /step_verify_appended/);
   } finally {
     p.cleanup();
   }
@@ -261,7 +261,7 @@ test("task set-status: needs-attention requires --reason, does NOT auto-emit tas
     const r = p.run(["task", "set-status", "T001", "needs-attention", "--reason", "persistent_failure"]);
     assert.equal(r.code, 0);
     const events = readEvents(p);
-    assert.match(events, /"task_status_set".*"to":"needs-attention".*"reason":"persistent_failure"/);
+    assert.match(events, /"step_status_set".*"to":"needs-attention".*"reason":"persistent_failure"/);
     assert.doesNotMatch(events, /"task_blocked"/, "needs-attention must not auto-emit task_blocked (documented as distinct from blocked)");
   } finally {
     p.cleanup();

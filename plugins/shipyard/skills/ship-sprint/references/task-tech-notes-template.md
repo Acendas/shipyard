@@ -1,6 +1,6 @@
 # Task Technical Notes Template
 
-This is the canonical template for the `## Technical Notes` section in every task file. The orchestrator reads this file once during sprint planning, fills it in per task, and writes the result into the task file. **Do not echo this template back into conversation** — write it directly to the task file via the Write tool.
+This is the canonical template for the `## Technical Notes` section in every step file. The orchestrator reads this file once during sprint planning, fills it in per task, and writes the result into the step file. **Do not echo this template back into conversation** — write it directly to the step file via the Write tool.
 
 ```markdown
 ## Technical Notes
@@ -71,4 +71,4 @@ This is the canonical template for the `## Technical Notes` section in every tas
 
 ## Style
 
-Be prescriptive. "Use X" not "Consider X or Y". The builder needs decisions, not options. Task specs should be executable — a builder should be able to follow them mechanically without re-reading the feature file.
+Be prescriptive: "Use X", not "Consider X or Y" — the builder needs decisions, not options.

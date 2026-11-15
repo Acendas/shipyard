@@ -1,5 +1,66 @@
 # Upgrading Shipyard
 
+> **Note:** `/ship-init` was removed in v3.20.0. Onboarding now runs automatically on the first `/ship-status` in a project. Older sections below still mention `/ship-init` as historical record.
+
+## 3.26.0 → 4.0.0
+
+4.0.0 is the first published release after 3.26.0. **It has breaking changes.** Read this section, then run the migration.
+
+```
+shipyard-data migrate --dry-run      read the plan
+shipyard-data migrate                apply it (idempotent)
+shipyard-data migrate --reverse      restore the original tree byte for byte
+```
+
+### What is different for you
+
+| Area | 3.26.0 | 4.0.0 |
+|---|---|---|
+| Words and ids | features `F###`, bugs `B###`, tasks `T###` | stories `S###` (feature or bug), builder **steps** `P###`, enabling **tasks** `T###`. Old ids still resolve |
+| Front door | `/ship-discuss`, `/ship-quick`, `/ship-bug` | `/ship-discuss` only. It proposes a lane: capture, refine, land now, or hotfix. `/ship-quick` and `/ship-bug` are removed |
+| Questions in a discussion | Asked in rounds | Asked one card at a time as research finds them; research runs in the background and never waits for you |
+| A discussion and the project | Could edit project files | Writes specs only. A small change becomes a task for `/ship-execute --task` |
+| Planning | Small steps, waves capped at 6 | The plan is scored for parallel work (`sprint plan-score`); steps go in the earliest wave their dependencies allow; same-wave steps may not touch the same file; each step's check must fail before the work (`sprint probes-at-base`) |
+| Agents at once | 3 builders, written in a skill | At most 100 agents alive at once (`execution.max_agents`), enforced when an agent is started |
+| Executing a sprint | Could stop to ask | Unattended after readiness: it decides by a written ladder and records every decision for the review |
+| Quality work | At sprint review | Inside execute, per story: spec review, gap analysis, code review, fixes in the same sprint |
+| Sprint review | Scans and fixes | A twelve-section review document the CLI writes, shown whole, with one acceptance question |
+| Models | One build model | Three speeds by step size: small steps on the light model, reasoning on the build model, hard work on the think model (`models.light`) |
+| Tests | Test first | Behaviour first: one scenario per criterion, a journey test by default, scenario ids checked both ways |
+| UI stories | Not checked against a design | A signed-off design in the discussion, compared with the delivered screen at review |
+| Commands running together | One at a time | A lock only stops a second copy of the same command. You can discuss, and draft the next sprint, while a sprint runs |
+| After a sprint | Branches and stale state left behind | Branches swept, drift repaired (`shipyard-data reconcile`), a dead session no longer blocks |
+| When a person is needed | Whenever a step that needed you came up | At the start (spikes, tests, decisions whose result changes what is built) or at the end (looks and checks, in one sitting). Never in the middle. The plan says what it needs from you, and the progress line says when (`sprint needs-you`) |
+| Test runs | Re-run at every stage | A passing run on this exact code is evidence and is not run again; a fix is confirmed with the failed tests only. `shipyard-data infra check` reports your test setup and `infra apply` sets up what is missing |
+| Urgent bugs | `/ship-bug --hotfix` | `/ship-discuss` proposes the hotfix lane and writes the story with its check; `/ship-execute --hotfix S###` builds it beside a running sprint |
+| Retiring a story | Edit the file | `shipyard-data story set-status <id> rejected --reason "<why>" --replaced-by <ids>`; it also lists where your project still names the story |
+| How it talks | Assumed an engineer | Plain words, a short summary first, a picture or example, one question per card |
+
+### Settings to know
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `execution.max_agents` | 100 | Most agents alive at once. Replaces `max_parallel_agents` |
+| `execution.parallel_plan` | true | A story cannot enter a sprint while the plan score reports a problem |
+| `execution.probe_must_fail_first` | true | A step's check must fail on today's code |
+| `verify_ignore` | (empty) | Paths that cannot change a build or test result; a commit touching only these keeps a test proof fresh |
+| `execution.patch_wave_tests` | sprint | A wave made only of fix steps skips its own build and test run; the sprint's full run covers it. `wave` runs them every time |
+| `execution.unattended` | true | Execute does not ask questions mid-sprint |
+| `execution.overlap_waves` | true | The next wave starts as soon as the previous one is merged |
+| `models.light` | unset | Set it (for example `haiku`) to turn on the light tier for small steps |
+| `spec.behaviour_first` | true | Scenario rules are checked when a story is approved |
+| `discuss_writable` | empty | Project documents a discussion may write (your decision record) |
+
+Old template values left in your `config.md` are ignored where the default changed (`max_parallel_agents: 3`, `max_tasks_per_wave: 6`, `max_tasks_per_wave_merged: 12`). A number you chose yourself is kept.
+
+### How this release was built
+
+4.0.0 was developed through milestones numbered 3.27 and 4.0 to 4.21. They were never published on their own. Where a skill, a message or a note says "(4.17)" or "v4.20", it names the milestone inside 4.0.0 that introduced the behaviour.
+
+## Development milestones inside 4.0.0
+
+The notes for each milestone (3.27 and 4.0 to 4.21), newest first, are in [docs/milestones-4.0.md](docs/milestones-4.0.md).
+
 ## 1.x → 2.0
 
 Shipyard 2.0 is a substantial overhaul. Most installs upgrade cleanly via `claude plugin update`, but there are two situations that need a manual touch.

@@ -47,7 +47,8 @@ function writeSprint(dataDir, opts) {
     { wave: 1, tasks: ["T001", "T002"] },
     { wave: 2, tasks: ["T003"] },
   ];
-  const fmFeatures = `[${features.join(", ")}]`;
+  // opts.rawFeatures: verbatim frontmatter value for `features:` (any spelling).
+  const fmFeatures = opts.rawFeatures ?? `[${features.join(", ")}]`;
   const waveBlock = waves
     .map((w) => `### Wave ${w.wave}\nTasks: [${w.tasks.join(", ")}]\n`)
     .join("\n");
@@ -73,6 +74,10 @@ T001 → T003
 `;
   writeFileSync(join(dataDir, "sprints", "current", "SPRINT.md"), content);
 }
+
+// F028: settled per-story reviews for the default fixture stories (F001, F002).
+const reviewed = (story, verdict = "approve") => ({ type: "story_reviewed", story, sprint: "sprint-001", verdict });
+const REVIEWED_DEFAULT = [reviewed("F001"), reviewed("F002")];
 
 function writeEvents(dataDir, events) {
   const lines = events.map((e) => JSON.stringify({ ts: new Date().toISOString(), ...e })).join("\n") + "\n";
@@ -232,6 +237,7 @@ test("execute terminal: allows when all evidence present", () => {
       { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T002", commit_sha: "abc2" },
       { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T003", commit_sha: "abc3" },
       { type: "sprint_complete_passed", sprint_id: "sprint-001" },
+      ...REVIEWED_DEFAULT,
     ]);
     const v = evaluateExecuteTerminal({ dataDir });
     assert.equal(v.allowed, true, `expected allow; got reasons: ${v.reasons.join("; ")}`);
@@ -249,6 +255,7 @@ test("execute terminal: one-of-three parked is below default ratio → allowed",
       { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T002", commit_sha: "b" },
       { type: "task_blocked", task_id: "T003", reason: "persistent_failure" },
       { type: "sprint_complete_passed", sprint_id: "sprint-001" },
+      ...REVIEWED_DEFAULT,
     ]);
     const v = evaluateExecuteTerminal({ dataDir });
     assert.equal(v.allowed, true, `expected allow (1/3 = 0.33 < 0.34); got: ${v.reasons.join("; ")}`);
@@ -265,6 +272,7 @@ test("execute terminal: parked ratio over cap → denied with ratio reason", () 
       { type: "task_blocked", task_id: "T002", reason: "persistent_failure" },
       { type: "task_blocked", task_id: "T003", reason: "salvage_failed" },
       { type: "sprint_complete_passed", sprint_id: "sprint-001" },
+      ...REVIEWED_DEFAULT,
     ]);
     const v = evaluateExecuteTerminal({ dataDir });
     assert.equal(v.allowed, false, "2/3 parked = 0.67 > 0.34 must block");
@@ -283,9 +291,38 @@ test("execute terminal: over-cap parked allowed once terminal_parked_accepted is
       { type: "task_blocked", task_id: "T003", reason: "salvage_failed" },
       { type: "terminal_parked_accepted", accepted_by: "user" },
       { type: "sprint_complete_passed", sprint_id: "sprint-001" },
+      ...REVIEWED_DEFAULT,
     ]);
     const v = evaluateExecuteTerminal({ dataDir });
     assert.equal(v.allowed, true, `explicit acceptance must open the hatch; got: ${v.reasons.join("; ")}`);
+  });
+});
+
+test("execute terminal (F028): a story without a settled review blocks; changes settles only with a disposition; execution.story_review: false restores the old behavior", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, {});
+    const base = [
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_1_gate" },
+      { type: "pipeline_tick_completed", pipeline: "ship-execute", stage: "wave_2_gate" },
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T001", commit_sha: "abc1" },
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T002", commit_sha: "abc2" },
+      { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T003", commit_sha: "abc3" },
+      { type: "sprint_complete_passed", sprint_id: "sprint-001" },
+    ];
+    writeEvents(dataDir, [...base, reviewed("F001")]);
+    let v = evaluateExecuteTerminal({ dataDir });
+    assert.equal(v.allowed, false);
+    assert.ok(v.reasons.some((r) => /Missing per-story review for F002/.test(r)), v.reasons.join("; "));
+    writeEvents(dataDir, [...base, reviewed("F001"), reviewed("F002", "changes")]);
+    v = evaluateExecuteTerminal({ dataDir });
+    assert.equal(v.allowed, false);
+    assert.ok(v.reasons.some((r) => /F002 review verdict is 'changes' with no disposition/.test(r)), v.reasons.join("; "));
+    writeEvents(dataDir, [...base, reviewed("F001"), reviewed("F002", "changes"), { type: "story_review_dispositioned", story: "F002", sprint: "sprint-001", via: "patch_steps" }]);
+    assert.equal(evaluateExecuteTerminal({ dataDir }).allowed, true);
+    // switch off: no per-story requirement at all
+    writeFileSync(join(dataDir, "config.md"), "---\nexecution:\n  story_review: false\n---\n");
+    writeEvents(dataDir, base);
+    assert.equal(evaluateExecuteTerminal({ dataDir }).allowed, true);
   });
 });
 
@@ -321,6 +358,7 @@ test("execute terminal: denies when one wave gate event missing", () => {
       { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T002" },
       { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T003" },
       { type: "sprint_complete_passed" },
+      ...REVIEWED_DEFAULT,
     ]);
     const v = evaluateExecuteTerminal({ dataDir });
     assert.equal(v.allowed, false);
@@ -339,6 +377,7 @@ test("execute terminal: denies when a task lacks task_dispatch_returned", () => 
       // T002 missing
       { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T003" },
       { type: "sprint_complete_passed" },
+      ...REVIEWED_DEFAULT,
     ]);
     const v = evaluateExecuteTerminal({ dataDir });
     assert.equal(v.allowed, false);
@@ -361,6 +400,7 @@ test("execute terminal: status=blocked counts as PARKED evidence (v3.1.0), not c
       { type: "task_dispatch_returned", pipeline: "ship-execute", status: "blocked", task_id: "T002" },
       { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T003" },
       { type: "sprint_complete_passed" },
+      ...REVIEWED_DEFAULT,
     ]);
     const v = evaluateExecuteTerminal({ dataDir });
     assert.equal(v.allowed, true, "a parked task with a blocked event must not brick the terminal");
@@ -377,6 +417,7 @@ test("execute terminal: a task with NO evidence at all still blocks the terminal
       // T002: nothing. T003: complete.
       { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T003" },
       { type: "sprint_complete_passed" },
+      ...REVIEWED_DEFAULT,
     ]);
     const v = evaluateExecuteTerminal({ dataDir });
     assert.equal(v.allowed, false);
@@ -394,6 +435,7 @@ test("execute terminal: task_blocked event alone is valid parking evidence", () 
       { type: "task_blocked", task: "T002", reason: "persistent_failure" },
       { type: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T003" },
       { type: "sprint_complete_passed" },
+      ...REVIEWED_DEFAULT,
     ]);
     const v = evaluateExecuteTerminal({ dataDir });
     assert.equal(v.allowed, true);
@@ -528,7 +570,7 @@ test("review terminal_changes: denies when no patch or bug events recorded", () 
     ]);
     const v = evaluateReviewTerminal({ dataDir, terminalStage: "terminal_changes" });
     assert.equal(v.allowed, false);
-    assert.ok(v.reasons.some((r) => r.includes("patch_task_created or bug_created")));
+    assert.ok(v.reasons.some((r) => r.includes("patch_step_created or story_created")));
   });
 });
 
@@ -631,6 +673,8 @@ test("execute terminal: allows when events use 'event' key instead of 'type'", (
       { event: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T002" },
       { event: "task_dispatch_returned", pipeline: "ship-execute", status: "complete", task_id: "T003" },
       { event: "sprint_complete_passed" },
+      { event: "story_reviewed", story: "F001", sprint: "sprint-001", verdict: "approve" },
+      { event: "story_reviewed", story: "F002", sprint: "sprint-001", verdict: "approve" },
     ];
     const lines = events.map((e) => JSON.stringify({ ts: new Date().toISOString(), ...e })).join("\n") + "\n";
     writeFileSync(join(dataDir, ".shipyard-events.jsonl"), lines);
@@ -831,4 +875,112 @@ body`,
     });
     assert.equal(v.allowed, true);
   });
+});
+
+// --- Pins of CURRENT features-parsing behavior (F002 T011) ---------------
+// T012 flipped the old pins: the gate now uses parseFrontmatterList.
+
+function missingVerdictReasons(rawFeatures) {
+  let reasons;
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, { rawFeatures });
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-review", stage: "demo_user" },
+    ]);
+    reasons = evaluateReviewTerminal({ dataDir, terminalStage: "terminal_approved" }).reasons;
+  });
+  return reasons.filter((r) => r.startsWith("Missing verdict file"));
+}
+
+function reviewReasons(rawFeatures, opts = {}) {
+  let reasons;
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, { rawFeatures });
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-review", stage: "demo_user" },
+    ]);
+    if (opts.setup) opts.setup(dataDir);
+    reasons = evaluateReviewTerminal({ dataDir, terminalStage: "terminal_approved" }).reasons;
+    reasons = reasons.map((r) => r.split(dataDir).join("<DATA>"));
+  });
+  return reasons;
+}
+
+test("F002 AC-3/4: bare, inline and quoted features resolve to plain ids; message names id + absolute path", () => {
+  for (const raw of ["[F001, F002]", "F001, F002", '["F001", "F002"]', "['F001', 'F002']"]) {
+    assert.deepEqual(
+      reviewReasons(raw).filter((r) => r.startsWith("Missing verdict file")),
+      [
+        "Missing verdict file for feature F001: <DATA>/verify/F001-verdict.md",
+        "Missing verdict file for feature F002: <DATA>/verify/F002-verdict.md",
+      ],
+      raw,
+    );
+  }
+});
+
+test("F002 AC-3: quoted id with approve verdict is not denied on verdict", () => {
+  const reasons = reviewReasons('["F003"]', {
+    setup: (d) =>
+      writeFileSync(join(d, "verify", "F003-verdict.md"), "---\nrecommendation: approve\n---\n"),
+  });
+  assert.deepEqual(reasons.filter((r) => /verdict|features/i.test(r)), []);
+});
+
+test("F002 AC-5: zero parsed ids deny and name the raw value", () => {
+  for (const raw of ["[]", '""', "[ , ]"]) {
+    const r = reviewReasons(raw).filter((x) => /features/.test(x));
+    assert.equal(r.length, 1, raw);
+    assert.match(r[0], /zero feature ids/);
+    assert.ok(r[0].includes(raw === '""' ? '""' : raw), `raw value named: ${r[0]}`);
+  }
+});
+
+test("F002 AC-6 (revised 4.3.0 review): a block-list features/stories key resolves like every other sprint reader — verdicts are demanded per id, never 'block lists unsupported'", () => {
+  let reasons;
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir, { rawFeatures: "\n  - F001\n  - F002" });
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-review", stage: "demo_user" },
+    ]);
+    reasons = evaluateReviewTerminal({ dataDir, terminalStage: "terminal_approved" }).reasons;
+  });
+  assert.ok(!reasons.some((r) => /block lists unsupported/.test(r)), reasons.join("|"));
+  assert.ok(reasons.some((r) => /F001/.test(r) && /verdict/i.test(r)), reasons.join("|"));
+  assert.ok(reasons.some((r) => /F002/.test(r) && /verdict/i.test(r)), reasons.join("|"));
+});
+
+test("F002 AC-7: BOM + CRLF SPRINT.md and verdict still parse", () => {
+  let reasons;
+  withTempDataDir((dataDir) => {
+    const sprint = `\uFEFF---\r\nid: s\r\nstatus: in-progress\r\nfeatures: ["F003"] # note\r\n---\r\n\r\n## Waves\r\n`;
+    writeFileSync(join(dataDir, "sprints", "current", "SPRINT.md"), sprint);
+    writeFileSync(join(dataDir, "verify", "F003-verdict.md"), "\uFEFF---\r\nrecommendation: approve\r\n---\r\n");
+    writeEvents(dataDir, [
+      { type: "pipeline_tick_completed", pipeline: "ship-review", stage: "demo_user" },
+    ]);
+    reasons = evaluateReviewTerminal({ dataDir, terminalStage: "terminal_approved" }).reasons;
+  });
+  assert.deepEqual(reasons.filter((r) => /verdict|features/i.test(r)), []);
+  // BOM sprint must still resolve its ids (missing verdict is named, not silently skipped).
+  withTempDataDir((dataDir) => {
+    writeFileSync(join(dataDir, "sprints", "current", "SPRINT.md"), `\uFEFF---\r\nstatus: in-progress\r\nfeatures: [F009]\r\n---\r\n`);
+    writeEvents(dataDir, [{ type: "pipeline_tick_completed", pipeline: "ship-review", stage: "demo_user" }]);
+    const r = evaluateReviewTerminal({ dataDir, terminalStage: "terminal_approved" }).reasons;
+    assert.ok(r.some((x) => x.startsWith("Missing verdict file for feature F009")), r.join("|"));
+  });
+});
+
+test("F002 AC-10: hotfix / single_task terminal stages add no new deny reason", () => {
+  for (const stage of ["terminal_hotfix", "terminal_single_task"]) {
+    withTempDataDir((dataDir) => {
+      writeSprint(dataDir, { rawFeatures: "[]" });
+      const v = evaluateLoopLeakGuard({
+        dataDir,
+        proposedContent: `---\npipeline: ship-execute\nstage: ${stage}\nterminal: false\n---\n`,
+        cursorBasename: "EXECUTE-CURSOR.md",
+      });
+      assert.equal(v.allowed, true, stage);
+    });
+  }
 });

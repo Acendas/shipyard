@@ -10,22 +10,25 @@
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
-import { atomicWrite, logEvent, withLockfile } from "./_hook_lib.mjs";
+import { atomicWrite, EVENTS_LOG_NAME, logEvent, withLockfile } from "./_hook_lib.mjs";
 import { readExecutionIsolation, normalizeIsolationToken, readDispatchOrder } from "./config-read.mjs";
 
 const QUEUE_BASENAME = ".worker-queue.json";
 const DEFAULT_TTL_SECONDS = 30 * 60;
+// A builder emits task_loop_iteration every cycle; one inside this window means "working, not dead".
+const LIVENESS_WINDOW_MS = 15 * 60 * 1000; // one definition of "alive", shared with presumed-dead.mjs DEFAULT_RECENT_MINUTES
 
 function usage() {
   return [
     "shipyard-data queue enqueue --pipeline <ship-execute|ship-review> --stage <stage> --input <json> [--require-isolation <worktree|none>]",
-    "shipyard-data queue claim --pipeline <ship-execute|ship-review> --stage <stage> --worker <id> [--ttl-seconds <n>]",
+    "shipyard-data queue claim --pipeline <ship-execute|ship-review> --stage <stage> --worker <id> [--task <id>] [--ttl-seconds <n>]",
     "shipyard-data queue complete <task-id> --pipeline <p> --stage <stage> --worker <id> --result <path>",
     "shipyard-data queue fail <task-id> --pipeline <p> --stage <stage> --worker <id> --reason <text>",
     "shipyard-data queue list [--pipeline <p>] [--stage <stage>]",
     "shipyard-data queue requeue-stale [--pipeline <p>] [--stage <stage>]",
     "shipyard-data queue retry-stale <task-id> --pipeline <p> --stage <stage> --reason <text>",
     "shipyard-data queue park-stale <task-id> --pipeline <p> --stage <stage> --reason <text>",
+    "shipyard-data queue reconcile <task-id> --pipeline <p> --stage <stage>",
   ].join("\n");
 }
 
@@ -157,7 +160,19 @@ function tasksFromInput(parsed, { pipeline, stage }) {
 }
 
 function taskFromItem(item, { pipeline, stage, idx = 0 }) {
-  const id = sanitizeId(item.id, `work-${idx + 1}`);
+  // The id names the step a builder claims. A model wrote `task_id` instead of
+  // `id` once (sprint-006, 2026-11-13): three builders claimed `work-1..3`,
+  // could not tell which step they held, and were retired. Accept the obvious
+  // spellings, and for the execute pipeline refuse an item that names nothing
+  // rather than inventing a placeholder a builder cannot act on.
+  const rawId = item.id ?? item.task_id ?? item.step_id ?? item.step ?? item.task;
+  if (pipeline === "ship-execute" && (rawId === undefined || rawId === null || String(rawId).trim() === "")) {
+    throw Object.assign(
+      new Error(`shipyard-data queue enqueue: item ${idx + 1} has no id — every ship-execute item needs "id": "<P###|T###>" (task_id / step_id are accepted too)`),
+      { exitCode: 2 },
+    );
+  }
+  const id = sanitizeId(rawId, `work-${idx + 1}`);
   return {
     id,
     pipeline: normalizePipeline(item.pipeline ?? pipeline),
@@ -193,7 +208,7 @@ function taskFromItem(item, { pipeline, stage, idx = 0 }) {
  * enqueue order IS dispatch order — which makes this the CLI-enforced version
  * of "start the long pole first" rather than a prose request to the model.
  *
- * Why it matters: `max_parallel_agents` defaults to 3, so a 6-task wave runs in
+ * Why it matters: before 4.18 three builders ran at a time, so a 6-task wave ran in
  * batches. An XL enqueued last means the wave's tail is that XL running alone
  * after everything else drained; enqueued first it overlaps with the short work.
  *
@@ -290,23 +305,6 @@ function enqueue(dataDir, args) {
   process.stdout.write(JSON.stringify({ enqueued, total_input: additions.length }) + "\n");
 }
 
-/**
- * Builder-reuse guards, run before a REUSING builder is handed its next task.
- *
- * Every input here is derived from state the QUEUE already owns (which worker
- * claimed which tasks) or from git — never from a flag the builder volunteers.
- * An earlier version took `--previous` and `--reuse-count` from the caller,
- * which meant a builder that simply omitted them got an unguarded claim and a
- * cap that never fired. A guard the guarded party can switch off is not a guard.
- *
- * Refusal kinds:
- *   - CONTRACT violation (missing anchor, dirty/unprovable tree) → throw exit 3.
- *   - POLICY stop (manifest churn, cap reached) → {reason} so the builder exits
- *     cleanly with claimed:false and main spawns a fresh one.
- *
- * All git failures are treated as "cannot prove safe" and refuse. These guards
- * exist to prevent a false-green; failing open would defeat them entirely.
- */
 function claim(dataDir, args) {
   const pipeline = normalizePipeline(flag(args, "--pipeline", { required: true }));
   const stage = flag(args, "--stage", { required: true });
@@ -316,14 +314,29 @@ function claim(dataDir, args) {
     throw Object.assign(new Error("shipyard-data queue claim: --ttl-seconds must be a positive number"), { exitCode: 2 });
   }
 
+  // --task <id>: a worker named after its step claims that step and no other,
+  // so the name is a usable address (SendMessage, the agent ledger) — without
+  // it a worker called w2-T427 once claimed T425.
+  const explicit = flag(args, "--task");
   let claimed = null;
   withQueue(dataDir, (queue) => {
-    const task = queue.tasks.find((t) => t.pipeline === pipeline && t.stage === stage && t.status === "pending");
+    const pending = queue.tasks.filter((t) => t.pipeline === pipeline && t.stage === stage && t.status === "pending");
+    // A worker named after a step claims that step, with or without --task:
+    // `builder-T427` (or `w2-T427`) takes T427 when it is pending. This needs
+    // no cooperation from the prompt, so a name can never drift from its
+    // claim. A worker with any other name takes the next item, as before.
+    const named = explicit == null
+      ? queue.tasks.find((t) => t.pipeline === pipeline && t.stage === stage && (worker === t.id || worker.endsWith(`-${t.id}`)))
+      : null;
+    const wanted = explicit ?? named?.id ?? null;
+    // A named worker whose step is no longer pending gets nothing — never a different step.
+    const task = pending.find((t) => wanted == null || t.id === wanted);
     if (!task) return;
     const now = Date.now();
     task.status = "claimed";
     task.claimed_by = worker;
     task.claimed_at = new Date(now).toISOString();
+    task.ttl_seconds = ttl;
     task.deadline_at = new Date(now + ttl * 1000).toISOString();
     task.attempt = Number(task.attempt ?? 0) + 1;
     claimed = { ...task };
@@ -404,7 +417,11 @@ function validateArtifact(dataDir, task, result) {
   }
   const status = normalizeStatus(artifact.status);
 
-  const required = ["probe_exit_code", "output_tail", "capture_file"];
+  // capture_file is optional (4.9.2): the artifact itself carries output_tail,
+  // and the CLI-written return (`task-return`) never set the field, so every
+  // builder return failed this check unless the builder hand-edited its file.
+  // When given, it must still be a real absolute path.
+  const required = ["probe_exit_code", "output_tail"];
   if (task.pipeline === "ship-execute") required.push("escalation_code");
   if (status === "COMPLETE") required.push("commit_sha");
   const missing = required.filter((field) => {
@@ -420,10 +437,42 @@ function validateArtifact(dataDir, task, result) {
   if (typeof artifact.output_tail !== "string" || artifact.output_tail.trim() === "") {
     throw Object.assign(new Error("shipyard-data queue complete: result artifact output_tail must be a non-empty string"), { exitCode: 3 });
   }
-  if (typeof artifact.capture_file !== "string" || !isAbsolute(artifact.capture_file) || !existsSync(artifact.capture_file)) {
+  const hasCapture = artifact.capture_file !== undefined && artifact.capture_file !== null && artifact.capture_file !== "";
+  if (hasCapture && (typeof artifact.capture_file !== "string" || !isAbsolute(artifact.capture_file) || !existsSync(artifact.capture_file))) {
     throw Object.assign(new Error("shipyard-data queue complete: result artifact capture_file must be an existing absolute path"), { exitCode: 3 });
   }
   return { status };
+}
+
+/**
+ * Close the queue item a builder's return belongs to (4.9.2). Called by
+ * `task-return`, so a builder records its result with ONE command. Before
+ * this a builder needed a second one (`queue complete`), which a worktree
+ * sandbox refused in a real sprint: three finished builders were left with
+ * claimed items and the unattended sprint stopped to ask its owner.
+ * No-op (never throws) when the step has no claimed ship-execute item.
+ * @returns {{ settled: boolean, reason?: string, task?: object }}
+ */
+export function settleFromReturn(dataDir, taskId, artifactPath) {
+  let updated = null, reason = "";
+  try {
+    withQueue(dataDir, (queue) => {
+      const mine = queue.tasks.filter((t) => t.pipeline === "ship-execute" && t.id === taskId && t.status === "claimed");
+      if (mine.length !== 1) { reason = mine.length ? "ambiguous" : "no_claimed_item"; return; }
+      const task = mine[0];
+      const artifact = validateArtifact(dataDir, task, artifactPath);
+      task.status = "complete";
+      task.completed_at = nowIso();
+      task.result = artifactPath;
+      task.artifact_status = artifact.status;
+      updated = { ...task };
+    });
+  } catch (err) { return { settled: false, reason: String(err?.message ?? err).split("\n")[0] }; }
+  if (!updated) return { settled: false, reason };
+  try {
+    logEvent(dataDir, "worker_queue_completed", { pipeline: updated.pipeline, stage: updated.stage, task: updated.id, worker: updated.claimed_by, result: artifactPath, artifact_status: updated.artifact_status, claim_attempt: updated.attempt, kind: updated.kind, via: "task-return" });
+  } catch { /* best-effort */ }
+  return { settled: true, task: updated };
 }
 
 function complete(dataDir, args) {
@@ -438,8 +487,12 @@ function complete(dataDir, args) {
   }
 
   let updated;
+  let already = false;
   withQueue(dataDir, (queue) => {
     const task = findTask(queue, selector, "complete");
+    // `task-return` already closed it with this same artifact (4.9.2): a
+    // builder following older instructions repeats the step harmlessly.
+    if (task.status === "complete" && task.result && resolve(task.result) === resolve(result)) { already = true; updated = { ...task }; return; }
     if (task.status !== "claimed") {
       throw Object.assign(new Error(`shipyard-data queue complete: task ${taskKey(task)} is ${task.status}, not claimed`), { exitCode: 3 });
     }
@@ -454,6 +507,7 @@ function complete(dataDir, args) {
     updated = { ...task };
   });
 
+  if (already) { process.stdout.write(JSON.stringify({ completed: true, already: true, task: updated }) + "\n"); return; }
   logEvent(dataDir, "worker_queue_completed", {
     pipeline: updated.pipeline,
     stage: updated.stage,
@@ -461,6 +515,8 @@ function complete(dataDir, args) {
     worker,
     result,
     artifact_status: updated.artifact_status,
+    claim_attempt: updated.attempt,
+    kind: updated.kind,
   });
   process.stdout.write(JSON.stringify({ completed: true, task: updated }) + "\n");
 }
@@ -491,6 +547,8 @@ function fail(dataDir, args) {
     task: updated.id,
     worker,
     reason,
+    claim_attempt: updated.attempt,
+    kind: updated.kind,
   });
   process.stdout.write(JSON.stringify({ failed: true, task: updated }) + "\n");
 }
@@ -543,6 +601,76 @@ function parkStale(dataDir, args) {
   process.stdout.write(JSON.stringify({ parked: true, task: updated }) + "\n");
 }
 
+/**
+ * Resolve a `completed_unacked` claim (completion event since the claim, but
+ * `queue complete` never landed). Valid .subagent-returns/<task>.json ->
+ * status complete (the wrapper then runs the normal recovery gate on it);
+ * missing/invalid -> failed with reason completed_unacked_artifact_missing.
+ * Only a claimed item classified completed_unacked is accepted, so a live or
+ * genuinely dead claim can never be force-completed through here.
+ */
+function reconcile(dataDir, args) {
+  const selector = resolveTaskSelector(args, "reconcile");
+  let updated;
+  let detail = null;
+  withQueue(dataDir, (queue) => {
+    const task = findTask(queue, selector, "reconcile");
+    // A reconcile that failed only because the artifact was unreadable or
+    // incomplete may be run again once the artifact is good (4.9.2): the work
+    // was done, and a second look must be able to say so.
+    const retry = task.status === "failed" && task.reason === "completed_unacked_artifact_missing";
+    if (task.status !== "claimed" && !retry) {
+      throw Object.assign(new Error(`shipyard-data queue reconcile: task ${taskKey(task)} is ${task.status}, not claimed`), { exitCode: 3 });
+    }
+    if (!retry && !isTaskCompletedUnacked(dataDir, task)) {
+      throw Object.assign(new Error(`shipyard-data queue reconcile: task ${taskKey(task)} is not completed_unacked (no completion event since its claim)`), { exitCode: 3 });
+    }
+    const artifactPath = expectedArtifactPath(dataDir, task)
+      ?? join(dataDir, "sprints", "current", ".subagent-returns", `${task.id}.json`);
+    let artifact = null;
+    if (!existsSync(artifactPath)) {
+      detail = `missing: ${artifactPath}`;
+    } else {
+      try {
+        artifact = validateArtifact(dataDir, task, artifactPath);
+      } catch (err) {
+        detail = String(err.message).split("\n")[0];
+      }
+    }
+    if (artifact) {
+      task.status = "complete";
+      task.completed_at = nowIso();
+      task.result = artifactPath;
+      task.artifact_status = artifact.status;
+      task.reconciled = true;
+      delete task.failed_at; delete task.reason; delete task.reason_detail;
+    } else {
+      task.status = "failed";
+      task.failed_at = nowIso();
+      task.reason = "completed_unacked_artifact_missing";
+      task.reason_detail = detail;
+    }
+    updated = { ...task };
+  });
+  if (updated.status === "complete") {
+    logEvent(dataDir, "worker_queue_completed", {
+      pipeline: updated.pipeline, stage: updated.stage, task: updated.id,
+      worker: updated.claimed_by, result: updated.result,
+      artifact_status: updated.artifact_status, claim_attempt: updated.attempt,
+      kind: updated.kind, reconciled: true,
+    });
+  } else {
+    // worker_queue_failed, not stale_parked: the item IS failed, and activeTime()/
+    // `report time` close a claim only on completed|failed (4.3.0 code review).
+    logEvent(dataDir, "worker_queue_failed", {
+      pipeline: updated.pipeline, stage: updated.stage, task: updated.id,
+      worker: updated.claimed_by, claim_attempt: updated.attempt, kind: updated.kind,
+      reason: updated.reason, detail, reconciled: true,
+    });
+  }
+  process.stdout.write(JSON.stringify({ reconciled: true, outcome: updated.status, task: updated }) + "\n");
+}
+
 function list(dataDir, args) {
   const pipeline = flag(args, "--pipeline");
   const stage = flag(args, "--stage");
@@ -555,19 +683,152 @@ function list(dataDir, args) {
   process.stdout.write(JSON.stringify({ tasks }, null, 2) + "\n");
 }
 
+/**
+ * Read-only liveness check for a claimed queue item. True when the event log
+ * shows, since the item was claimed (ts >= claimed_at floored to the second,
+ * because event ts has second precision), a task_loop_iteration newer than
+ * LIVENESS_WINDOW_MS. Completion events are NOT liveness (see
+ * isTaskCompletedUnacked). Events from earlier attempts never count.
+ * Never mutates the queue; unreadable log means "no evidence" (not live).
+ */
+export function isTaskLive(dataDir, task, now = Date.now(), windowMs = LIVENESS_WINDOW_MS) {
+  let raw;
+  try {
+    raw = readFileSync(join(dataDir, EVENTS_LOG_NAME), "utf8");
+  } catch {
+    return false;
+  }
+  return isTaskLiveInEvents(parseEventLines(raw, task?.id), task, now, windowMs);
+}
+
+function parseEventLines(raw, id) {
+  const out = [];
+  if (!id) return out;
+  for (const line of raw.split("\n")) {
+    if (!line.includes(id)) continue;
+    try { out.push(JSON.parse(line)); } catch { /* skip malformed */ }
+  }
+  return out;
+}
+
+/**
+ * Pure form of the liveness predicate over an in-memory event array. Shared by
+ * isTaskLive and bin/presumed-dead.mjs so there is one definition of "alive".
+ */
+export function isTaskLiveInEvents(events, task, now = Date.now(), windowMs = LIVENESS_WINDOW_MS) {
+  const claimedMs = Date.parse(task?.claimed_at ?? "");
+  if (!Number.isFinite(claimedMs)) return false;
+  const floor = Math.floor(claimedMs / 1000) * 1000;
+  for (const ev of events ?? []) {
+    if (!ev || ev.task !== task.id) continue;
+    const ts = Date.parse(ev.ts);
+    if (!Number.isFinite(ts) || ts < floor) continue;
+    if (ev.type === "task_loop_iteration" && now - ts <= windowMs) return true;
+  }
+  return false;
+}
+
+/**
+ * True when the log shows a completion signal (subagent_completed /
+ * task_return_recorded) since the claim. On an item still `claimed` this means
+ * the builder finished but `queue complete` never landed (worker died or the
+ * CLI refused): not alive, needs reconciliation against the
+ * .subagent-returns/<task>.json gate. Shared with bin/presumed-dead.mjs.
+ */
+export function isTaskCompletedUnackedInEvents(events, task) {
+  const claimedMs = Date.parse(task?.claimed_at ?? "");
+  if (!Number.isFinite(claimedMs)) return false;
+  const floor = Math.floor(claimedMs / 1000) * 1000;
+  for (const ev of events ?? []) {
+    if (!ev || ev.task !== task.id) continue;
+    const ts = Date.parse(ev.ts);
+    if (!Number.isFinite(ts) || ts < floor) continue;
+    if (ev.type === "subagent_completed" || ev.type === "task_return_recorded") return true;
+  }
+  return false;
+}
+
+/** Read-only dataDir form of isTaskCompletedUnackedInEvents. */
+export function isTaskCompletedUnacked(dataDir, task) {
+  let raw;
+  try {
+    raw = readFileSync(join(dataDir, EVENTS_LOG_NAME), "utf8");
+  } catch {
+    return false;
+  }
+  return isTaskCompletedUnackedInEvents(parseEventLines(raw, task?.id), task);
+}
+
+/** Read-only snapshot of the queue (no lock, no write) for detectors. */
+export function readQueueSnapshot(dataDir) {
+  return readQueue(dataDir);
+}
+
+const MAX_DEADLINE_MS = 120 * 60_000;
+
+/**
+ * Heartbeat renewal: the newest task_loop_iteration since claim pushes the
+ * deadline to progress_ts + ttl, capped at claimed_at + min(3 x ttl, 120 min).
+ * Only ever moves the deadline later. Returns the (possibly new) deadline ms.
+ * `events` (optional) is the task's pre-parsed event list; omitted, the log is read.
+ */
+export function extendedDeadlineMs(dataDir, task, events) {
+  const current = Date.parse(task?.deadline_at ?? "");
+  const claimedMs = Date.parse(task?.claimed_at ?? "");
+  if (!Number.isFinite(current) || !Number.isFinite(claimedMs)) return current;
+  let ttlMs = Number(task.ttl_seconds) * 1000;
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0) ttlMs = current - claimedMs; // legacy item
+  if (!(ttlMs > 0)) return current;
+  const floor = Math.floor(claimedMs / 1000) * 1000;
+  if (events === undefined) {
+    let raw;
+    try { raw = readFileSync(join(dataDir, EVENTS_LOG_NAME), "utf8"); } catch { return current; }
+    events = parseEventLines(raw, task.id);
+  }
+  let latest = -Infinity;
+  for (const ev of events) {
+    if (!ev || ev.task !== task.id || ev.type !== "task_loop_iteration") continue;
+    const ts = Date.parse(ev.ts);
+    if (Number.isFinite(ts) && ts >= floor && ts > latest) latest = ts;
+  }
+  if (!Number.isFinite(latest)) return current;
+  const cap = claimedMs + Math.min(3 * ttlMs, MAX_DEADLINE_MS);
+  return Math.max(current, Math.min(latest + ttlMs, cap));
+}
+
 function requeueStale(dataDir, args) {
   const pipelineRaw = flag(args, "--pipeline");
   const pipeline = pipelineRaw ? normalizePipeline(pipelineRaw) : null;
   const stage = flag(args, "--stage");
   const now = Date.now();
   const stale = [];
-
+  const live = [];
+  const completedUnacked = [];
   withQueue(dataDir, (queue) => {
+    // Read the event log exactly once per pass, INSIDE the queue lock: events
+    // appended while this process waited for the lock (heartbeats, completions)
+    // must be visible, or a live builder is re-pended / a finished claim goes
+    // stale. Reused for the heartbeat extension, completed-unacked and liveness.
+    let rawLog = "";
+    try { rawLog = readFileSync(join(dataDir, EVENTS_LOG_NAME), "utf8"); } catch { /* no evidence */ }
     for (const task of queue.tasks) {
       if (pipeline && task.pipeline !== pipeline) continue;
       if (stage && task.stage !== stage) continue;
       if (task.status !== "claimed" || !task.deadline_at) continue;
+      const events = parseEventLines(rawLog, task.id);
+      const extended = extendedDeadlineMs(dataDir, task, events);
+      if (Number.isFinite(extended) && extended > Date.parse(task.deadline_at)) {
+        task.deadline_at = new Date(extended).toISOString();
+      }
       if (Date.parse(task.deadline_at) > now) continue;
+      if (isTaskCompletedUnackedInEvents(events, task)) {
+        completedUnacked.push({ id: task.id });
+        continue;
+      }
+      if (isTaskLiveInEvents(events, task, now)) {
+        live.push({ id: task.id });
+        continue;
+      }
       if (task.idempotent !== true) {
         task.status = "stale";
         stale.push({ id: task.id, requeued: false });
@@ -585,8 +846,10 @@ function requeueStale(dataDir, args) {
     pipeline: pipeline ?? "all",
     stage: stage ?? "all",
     count: stale.length,
+    live: live.length,
+    completed_unacked: completedUnacked.length,
   });
-  process.stdout.write(JSON.stringify({ stale }) + "\n");
+  process.stdout.write(JSON.stringify({ stale, live, completed_unacked: completedUnacked }) + "\n");
 }
 
 export function queueCmd(dataDir, args) {
@@ -600,6 +863,7 @@ export function queueCmd(dataDir, args) {
     if (sub === "requeue-stale") return requeueStale(dataDir, args.slice(1));
     if (sub === "retry-stale") return retryStale(dataDir, args.slice(1));
     if (sub === "park-stale") return parkStale(dataDir, args.slice(1));
+    if (sub === "reconcile") return reconcile(dataDir, args.slice(1));
     throw Object.assign(new Error(`shipyard-data queue: unknown subcommand "${sub ?? ""}"\n${usage()}`), { exitCode: 2 });
   } catch (err) {
     if (err.exitCode) {

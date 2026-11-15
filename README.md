@@ -20,7 +20,7 @@ __|░|_________                                    |░|░|     |░|    |
 
 <h1>Shipyard</h1>
 
-<p><strong>The AI engineering org that lives inside your terminal.</strong></p>
+<p><strong>From an idea to tested code, in four commands, inside Claude Code.</strong></p>
 
 <p>
   <a href="https://github.com/acendas/shipyard/releases"><img src="https://img.shields.io/github/v/release/acendas/shipyard?style=flat-square&color=blue" alt="Release"></a>
@@ -33,25 +33,13 @@ __|░|_________                                    |░|░|     |░|    |
 
 ## Stop babysitting your AI.
 
-You're copy-pasting requirements into chat windows. You're re-explaining context every session. You're manually checking if the AI actually built what you asked for. You're debugging code that passed the AI's own "tests." You're losing work when sessions crash. You're starting from scratch every Monday.
+You paste requirements into a chat window. You explain the project again every session. You check by hand whether the AI built what you asked. You debug code that passed the AI's own tests. A session dies and the work goes with it.
 
-**That's not AI-assisted development. That's you being the project manager for a junior dev with amnesia.**
+**That is not AI-assisted development. That is you managing a junior developer with amnesia.**
 
-Shipyard is a full engineering org — planner, builders, reviewers, critics — that runs inside Claude Code. You describe what you want. Shipyard argues about the best approach, writes a spec, plans the sprint, builds everything test-first with parallel agents, then has a *separate* agent verify the work against the spec before you even see it.
+Shipyard is an engineering team that lives inside [Claude Code](https://docs.anthropic.com/en/docs/claude-code): a planner, builders, reviewers and a critic, held to written rules by a command-line tool that refuses shortcuts. You say what you want. Shipyard turns it into checks, plans the work so as much as possible runs at the same time, builds it test-first without asking you anything, has a different agent review the result, and hands you the evidence.
 
-**You talk. Shipyard plans. Claude builds. You approve.**
-
-```
-┌───────┐    ┌───────┐    ┌───────┐    ┌───────┐    ┌───────┐
-│ IDEA  │───►│ SPEC  │───►│ PLAN  │───►│ BUILD │───►│ SHIP  │
-│       │    │       │    │       │    │       │    │       │
-│  you  │    │ you + │    │ you + │    │ auto  │    │  you  │
-│ talk  │    │ claude│    │ claude│    │       │    │approve│
-└───────┘    └───────┘    └───────┘    └───────┘    └───────┘
-/discuss     /discuss     /sprint      /execute     /review
-```
-
-Feature specs, backlog grooming, sprint planning, test-driven execution, code review, retros, and releases — all through `/ship-*` slash commands. No browser tabs. No context switching. Just you and Claude building software.
+**You decide. Shipyard plans, builds and proves. You accept.**
 
 ## Why Shipyard
 
@@ -61,312 +49,370 @@ Feature specs, backlog grooming, sprint planning, test-driven execution, code re
 
 ### Without Shipyard
 
-- One agent does everything — plans, builds, reviews its own work
-- Spec is a document nobody checks again
-- Session crashes? Start over. Hope you remember where you were
-- Every session starts with a blank slate
-- Tests are optional, skipped under pressure
-- "It works" means "the AI said it works"
-- Token spend grows linearly as your project grows
-- Bugs from sprint 2 haunt you in sprint 5
+- One agent plans, builds and marks its own homework
+- The spec is a document nobody opens again
+- You are interrupted all day with questions
+- "It works" means the AI said so
+- A crashed session means starting over
+- The rules live in a prompt, and prompts get ignored
 
 </td>
 <td width="50%" valign="top">
 
 ### With Shipyard
 
-- Specialized agents — builders, reviewers, and critics that check each other's work
-- Spec is a machine-enforced contract verified at every stage
-- Crash recovery salvages uncommitted work from orphaned worktrees automatically
-- Velocity, retro insights, and carry-over items persist across sprints
-- TDD enforced in skill + rule prose and by orchestrator-side gates (commit-sha verification, anti-stub scan, probe-output match)
-- "It works" means a separate reviewer verified every acceptance scenario against the code
-- Fixed context budgets per skill — token cost doesn't grow with project size
-- Bugs, blocked tasks, and retro action items auto-surface in the next sprint
+- Separate agents build, review and criticise. A builder never approves its own work
+- Every acceptance scenario has an id, a test that carries it, and a check that both exist
+- You are needed at the start and at the end. The build in between asks nothing
+- "It works" means a check that failed before the work now passes, and a reviewer compared the result with the spec
+- Work is committed step by step. A new session carries on where the old one stopped
+- The rules are code. A command-line tool and hooks refuse the shortcut
 
 </td>
 </tr>
 </table>
 
-### The gap Shipyard closes
+### What you get in 4.0
 
-Every AI coding tool gives you a smart agent. Shipyard gives you a **team that argues**.
+| | |
+|---|---|
+| **Questions that do not block** | Research runs in the background. Its questions reach you one card at a time, and it keeps working while you think |
+| **Plans built for speed** | Every plan is scored for parallel work. Up to 100 agents run at once |
+| **A build you can walk away from** | No questions after the start. Every decision made for you is written down for the review |
+| **Checks that mean something** | A step's check must fail before the work is done, so passing it afterwards proves something |
+| **Tests that do not slow you down** | A test run that passed on this exact code is evidence and is not run again. After a fix only the failed tests rerun. Shipyard checks your test setup at the start of every plan and sets up what is missing |
+| **A review you can trust** | One document in twelve sections: what you can do now, the evidence, what was not done, what went badly. Shown whole |
+| **The right model for the job** | Small steps on the fast model, reasoning on the middle one, hard work on the strongest |
 
-Before any plan reaches you, an adversarial critic runs a pre-mortem — imagining how this feature fails spectacularly in 3 months, extracting hidden assumptions, and challenging every design decision. Before any code ships, a separate reviewer verifies it against the spec. Before any test passes, mutation testing confirms the tests actually catch bugs — not just that they run green.
+Shipyard holds itself to the same standard: its rules are covered by more than 950 Node tests, 500 Python tests and 5,000 checks on its own instructions.
 
-The result: **the intent you expressed in a conversation becomes a machine-verified guarantee on what gets shipped.** The gap between "what we said we'd build" and "what we actually built" is closed mechanically, not hopefully.
+## What Shipyard is
 
----
+Shipyard is a plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). You say what you want and accept the result. In between, Shipyard writes down what was agreed, plans the work, builds it with tests first, and checks it.
 
-## Install
+```
+  you decide                                               you accept
+      │                                                        ▲
+      ▼                                                        │
+┌───────────┐    ┌───────────┐    ┌──────────────┐    ┌───────────┐
+│  DISCUSS  │───►│   PLAN    │───►│    BUILD     │───►│  REVIEW   │
+│ what and  │    │ steps, in │    │ tests first, │    │ evidence, │
+│ why       │    │ waves     │    │ no questions │    │ one answer│
+└───────────┘    └───────────┘    └──────────────┘    └───────────┘
+/ship-discuss    /ship-sprint     /ship-execute       /ship-review
+      ▲                                                    │
+      └────── next idea, unfinished work, lessons ◄────────┘
+```
 
-Shipyard is distributed through the [Acendas marketplace](https://github.com/Acendas/acendas-marketplace).
+Words used on this page:
 
-**Add the marketplace and install the plugin:**
+| Word | Meaning |
+|---|---|
+| Story | One thing the product should do (or one bug to fix), with the checks that prove it. Id `S001` |
+| Backlog | The ordered list of approved stories waiting to be built |
+| Sprint | A batch of stories planned and built together |
+| Step | One small piece of a story that one builder finishes. Id `P001` |
+| Wave | The steps of a sprint that can be built at the same time |
+| Agent | A separate Claude helper with one job: build a step, review a story, research a question |
+| CLI | A command-line program. Shipyard's is `shipyard-data`; it owns the records and enforces the rules |
+| Hook | A small program Claude Code runs before an action. It can refuse the action |
 
-```bash
+## Install and first run
+
+```
 /plugin marketplace add Acendas/acendas-marketplace
 /plugin install shipyard@acendas
 ```
 
-Or from the CLI outside a session:
+Outside a session the same two commands start with `claude plugin …`. The [Acendas marketplace](https://github.com/Acendas/acendas-marketplace) pins Shipyard to a version tag. To pick up a new release, run `/plugin marketplace update`, install again, and restart open Claude Code sessions.
 
-```bash
-claude plugin marketplace add Acendas/acendas-marketplace
-claude plugin install shipyard@acendas
-```
-
-The marketplace pins Shipyard to a released version tag (not `main`) — so every install is deterministic. To pick up a new release, run `/plugin marketplace update` then `/plugin install shipyard@acendas` again.
-
-Then initialize any project:
+Then open your project and type:
 
 ```
-/ship-init
+/ship-status
 ```
 
-Shipyard analyzes your codebase, detects your tech stack, generates project-specific expert skills, and configures everything. Zero git noise — all data lives in Claude's plugin data directory, not in your repo.
+The first run sets the project up (`shipyard-data onboarding bootstrap`) and shows a dashboard with the next command to run. There is no separate init command.
 
-## The Workflow — 6 Commands
+Coming from 3.x? Read [UPGRADING.md](UPGRADING.md) first.
 
-Run them in order. Shipyard handles everything between.
+## The workflow
 
-### 1. Discuss what to build
-
-```
-/ship-discuss user notifications
-```
-
-Describe what you want in plain English. Shipyard asks smart questions, researches how other products solve the same problem, challenges your assumptions, writes acceptance criteria, and produces a complete feature spec. An adversarial critic reviews it before you see it.
-
-**You approve the spec.**
-
-### 2. Prioritize the backlog
+### 1. `/ship-discuss`: say what you want
 
 ```
-/ship-backlog
+/ship-discuss let people reset their password by email
 ```
 
-See everything that's planned. RICE-scored and ranked. Groom, reprioritize, split, archive, or kill features. Approve proposed features into the ready queue.
-
-**You decide what matters.**
-
-### 3. Plan a sprint
-
-```
-/ship-sprint
-```
-
-Pick features from the backlog. Shipyard researches how to build each one, surfaces implementation decisions for you to make, breaks features into tasks, finds the critical path, and groups tasks into parallel execution waves. A critic reviews the plan.
-
-**You approve the plan.**
-
-### 4. Build it
-
-```
-/ship-execute
-```
-
-Shipyard builds everything automatically. Tests first, then code — every task follows Red → Green → Refactor → Mutate → Verify → Commit. Tasks run in parallel via worktree isolation. Integration tests run between waves. Code review runs at the end.
-
-**You watch.** Type `pause` to stop cleanly. Session crashed? Run `/ship-execute` again — it auto-recovers and salvages in-flight work.
-
-### 5. Review and ship
-
-```
-/ship-review
-```
-
-Shipyard verifies every feature against its spec. Runs tests, checks coverage, confirms the feature actually works end-to-end (not just "tests pass"). Shows you the results.
-
-**You approve to release.** Then: retro runs, changelog generated, sprint archived.
-
-### 6. Repeat
-
-```
-/ship-discuss "next feature..."
-```
-
-Bugs, retro action items, and incomplete work from the previous sprint automatically surface at the start of the next `/ship-sprint`.
-
-## All Commands
-
-| Command | What it does | Who does the work |
+| You do | Shipyard does | You get |
 |---|---|---|
-| `/ship-init` | Setup — analyze codebase, generate rules and expert skills | Auto + you answer Qs |
-| `/ship-discuss` | Feature discovery — research, challenge, write spec | You talk, Claude writes |
-| `/ship-backlog` | View, groom, prioritize the backlog | You decide |
-| `/ship-sprint` | Plan sprint — tasks, waves, critical path, estimates | You approve the plan |
-| `/ship-execute` | Build everything with TDD | Fully automatic |
-| `/ship-review` | Verify, retro, changelog, release, archive | Auto + you approve |
-| `/ship-quick` | One-off task, no planning | You describe, auto builds |
-| `/ship-bug` | Report a bug, auto-triage, hotfix path | You report, auto tracks |
-| `/ship-debug` | Systematic debugging that survives /clear | Collaborative |
-| `/ship-spec` | Browse spec, search, absorb/sync with your docs | You browse |
-| `/ship-status` | Dashboard — progress, health, "what's next?" | Auto |
-| `/ship-help` | Questions, guidance, or ask Shipyard to act | You ask |
+| Describe an idea, a bug or a small change in your own words | Proposes how much process it needs (a "lane"). You confirm with one key. For a story it researches in the background and asks its questions one card at a time, each under a short explanation | A written story with scenarios (Given, When, Then), shown word for word before you approve it |
 
-## Your Spec vs Shipyard's Spec
+| Lane | For | What happens next |
+|---|---|---|
+| Capture | A thought to keep | Saved as an idea (`IDEA-001`). Nothing is built |
+| Refine | Real work | A story with acceptance scenarios, approved by you, added to the backlog |
+| Land now | A tiny, clear change | A task (`T001`) you build at once with `/ship-execute --task T001` |
+| Hotfix | A production bug | A bug story you fix at once with `/ship-execute --hotfix S001` |
 
-You probably have a product spec already. Shipyard doesn't replace it — it works alongside it.
+A story that changes a screen also gets a design: you sign it off, or waive it with a reason, before the story can be approved. A discussion writes specifications. It does not edit your code.
 
-```
-┌──────────────────────┐          ┌──────────────────────┐
-│   YOUR PRODUCT SPEC  │          │  SHIPYARD'S SPEC     │
-│                      │          │                      │
-│  "What the product   │ ─absorb──►  "What we're        │
-│   IS and should be"  │(new work)│   building next"     │
-│                      │          │                      │
-│  Lives in your repo  │          │  Lives in plugin     │
-│  Your format         │ ◄─sync─── data directory        │
-│  Your structure      │(outcomes)│  Shipyard format     │
-└──────────────────────┘          └──────────────────────┘
-```
+Useful forms: `/ship-discuss S001` (refine a story), `--idea <text>` (save and stop), `--chain <ids>` (several in a row), `--pull "<JQL>"` (import tickets from your tracker), or an issue key such as `SYS-123`.
 
-- **`/ship-spec absorb`** — pull your docs into Shipyard for planning (guards against absorbing already-completed work)
-- **`/ship-spec sync`** — push decisions and outcomes back to your docs (shipped, decided, or in-progress)
+### 2. `/ship-sprint`: plan the work
 
-## Safety Nets
+| You do | Shipyard does | You get |
+|---|---|---|
+| Pick the stories, or accept the suggestion. Approve the plan once | Brings forward unfinished work. Splits stories into steps and puts each step in the earliest wave it can run in. Scores the plan. Runs every step's check on today's code | A plan with waves, a score, and one line that says what the sprint needs from you |
 
-Shipyard assumes the AI will cut corners, lose context, and hallucinate — because it will. Every safety net exists because we don't trust the AI to police itself.
-
-- **Tests before code** — TDD is enforced in skill + rule prose and by orchestrator-side gates: commit-sha verification, an anti-stub scan of the diff, and a probe-output match before any task is marked complete. A model can't hand-wave "done" past a gate that checks git ground truth.
-- **Agents don't review their own work** — the builder writes code. A separate reviewer checks it against the spec. A separate critic reviews the reviewer. Three different model invocations, three different prompts, three different perspectives.
-- **You approve every plan** — features, sprint plans, debug fixes, releases, and spec syncs all go through plan mode for your explicit approval. Nothing ships without your sign-off. `/ship-discuss` renders the acceptance scenarios verbatim, the scope-drift check, and the spec together in one consolidated approval gate — you read the real content, not a summary count, before approving.
-- **Nothing is pushed** — Shipyard never pushes to remote or creates branches. It works on your current branch. You push when ready.
-- **Concurrent sessions blocked** — running `/ship-execute` in two terminals is hard-blocked. No git conflicts from parallel sessions.
-- **Crash recovery** — session dies from quota, crash, or closed terminal? Run the command again. Shipyard scans for orphaned worktrees, commits their uncommitted work as salvage, rebases onto main, and resumes from the exact wave where it stopped. Zero work lost.
-- **Pause on demand, resume safely** — say "pause" mid-sprint and the pipeline cursor flips to `status: paused`; a crashed or closed session self-recovers on the next run instead of needing a handoff file (there isn't one — it was retired in favor of the cursor's own state).
-- **Nothing gets lost** — bugs, retro action items, blocked tasks, and incomplete features persist on disk and auto-surface in the next sprint's carry-over scan. The system won't let you forget what you committed to fixing.
-- **Git doesn't lie** — before any agent dismisses a test failure as "pre-existing," it must prove via `git diff` that the failing test isn't on its own branch. No excuses, no handwaving.
-- **State has one writer, not a model with a text editor** — pipeline cursors, feature/backlog frontmatter, and skill-mutex locks are all CLI-owned (`shipyard-data cursor|feature|backlog|lock ...`); a PreToolUse hook denies any model attempt to hand-Write or hand-Edit them directly.
-
-## Gets Smarter About YOUR Project
-
-Most AI tools start fresh every time. Same blank slate, every conversation.
-
-Shipyard accumulates project intelligence across sprints:
-
-- **Velocity tracking** — points completed, throughput (pts/hour), estimate accuracy. By sprint 3, planning uses real data, not guesses.
-- **Anti-pattern detection** — scope creep, estimates off by >50%, same component breaking twice, testing gaps. Patterns get flagged in retros and tracked as improvement items.
-- **Carry-over scan** — every new sprint starts by surfacing open bugs, blocked tasks, retro action items, and incomplete features from previous sprints. You decide what to bring forward, what to defer, what to kill.
-- **Retro items become real work** — improvements identified during retrospectives are saved as idea files. They surface during the next sprint planning. They don't live in a doc nobody reads — they enter the workflow as actionable tasks.
-- **Codebase-aware planning** — `/ship-init` analyzes your stack, patterns, and conventions. Sprint planning references this context. The researcher agent investigates your actual code before proposing implementation approaches.
-
-The result: sprint 5 is meaningfully better planned than sprint 1 — because Shipyard knows where your project underestimates, where it breaks, and what it committed to improving.
-
-## Token Efficiency by Design
-
-Shipyard is built for teams that care about their API bill.
-
-- **Config-driven model and effort tiers** — `orchestrate` (Opus by default — user command shells), `think` (Opus by default — critique, spec review, decomposition), and `build` (Sonnet by default — execution labor) are set in `config.md`'s `models:` block. Spawned-agent effort is set separately in `agent_effort:` (`operational`/`coordinator`/`simplifier` low, `build`/`fixer` medium, `think` high). Flip a tier permanently with `shipyard-data config set-model <tier> <model>` or `shipyard-data config set-effort <tier> <low|medium|high|inherit>`; versioned Claude IDs such as `claude-opus-4-8` are accepted.
-- **Effort levels** — user command orchestration skills run low-effort controller loops; deep thinking happens in explicitly dispatched think/build agents. No wasted thinking tokens.
-- **Fixed context budgets** — every skill loads project state through hard line caps (`head -50`, `head -30`). A 500-line backlog costs the same tokens as a 5-line backlog.
-- **Lazy-loaded references** — detailed protocols (TDD cycle, git strategy, team mode, communication design) live in separate files, loaded only when the model actually needs them. Not inline, not always-on.
-- **Subagent isolation** — each agent starts with a clean, purpose-built context and dies when done. No conversation history accumulation across a 3-hour session.
-- **Hooks run outside the model** — three Node hooks (plugin-data breadcrumb, auto-approve/deny for CLI-owned state, worktree branch setup) cost zero tokens. Everything else that used to be advisory hook enforcement moved into skill-prose Iron Laws plus the orchestrator-side gates above, which are stronger because they check git ground truth instead of trusting a model's self-report.
-- **Agent memory scoping** — the test runner loads zero project memory. The critic loads only project-level context. Every agent carries exactly the context it needs, nothing more.
-
-The real comparison isn't "Shipyard vs one clean AI session." It's Shipyard vs the realistic cost of re-doing failed work, re-explaining lost context, and debugging code that wasn't tested properly the first time.
-
-## Architecture
-
-Shipyard is a [Claude Code plugin](https://docs.anthropic.com/en/docs/claude-code/plugins) built entirely on Claude Code primitives — no external runtime, no server, no database.
-
-### Skills (12)
-
-Each `/ship-*` command is a [skill](https://docs.anthropic.com/en/docs/claude-code/skills) — a markdown file with YAML frontmatter and dynamic context injection via `!` backtick commands.
-
-### Registered agents + thin dispatch wrappers
-
-Shipyard ships 7 registered agents under `agents/` — `shipyard-code-reviewer`, `shipyard-spec-reviewer`, and `shipyard-gap-analyst` (read-only), plus `shipyard-disciplined-builder`, `shipyard-researcher`, `shipyard-operational-task`, and `shipyard-track-coordinator`. Capability skills (`dispatching-task-loop`, `dispatching-spec-review`, `dispatching-code-review`, `dispatching-gap-analysis`, `dispatching-research-task`, `dispatching-operational-task`, `dispatching-track-coordinator`, and others) are thin gate wrappers around them: each dispatches the matching `subagent_type: shipyard:<name>` with a structured-return contract that the wrapper verifies independently (commit sha exists, probe exit code is 0, no stub patterns in the diff) rather than trusting the subagent's own claim of success. The verification spine — task-return contract, orchestrator gate, wave-integration check, commit anchoring — lives in the wrapper skills and CLI, not in the agents themselves.
-
-### Rules (4)
-
-Path-scoped [rules](https://docs.anthropic.com/en/docs/claude-code/rules) that lazy-load when Claude touches matching files: `shipyard-ask-user` (question design), `shipyard-data-model` (source-of-truth discipline), `shipyard-next-up` (routing conventions), `shipyard-spec` (spec formatting).
-
-### Hooks (3)
-
-Node [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) that enforce discipline automatically:
-
-- **Plugin-data breadcrumb** (`SessionStart`) — writes a resolvable path to the plugin data directory so skill subprocesses can find it even when the platform doesn't propagate the env var.
-- **Auto-approve / deny for CLI-owned state** (`PreToolUse`) — auto-approves Writes/Edits inside Shipyard's data directory, and denies outright any model attempt to hand-write a pipeline cursor, feature/BACKLOG.md frontmatter, or a skill-mutex lock file — all of those are single-writer CLI surfaces (`shipyard-data cursor|feature|backlog|lock ...`).
-- **Worktree branch** (`WorktreeCreate`) — creates the task worktree's branch from the current local HEAD, guards against orphaning a prior agent's un-integrated commits on a branch-name collision.
-
-### Project Data
-
-All Shipyard data lives **outside your project** in `${CLAUDE_PLUGIN_DATA}/projects/<hash>/`. Zero git noise — the only in-repo artifact is a **gitignored `.shipyard` symlink** pointing at that data dir (a navigation convenience that also serves as the resolver's last-resort fallback). Shipyard's bundled rules stay plugin-local and are read on demand; `/ship-init` does not copy `shipyard-*.md` rules into your project.
-
-Builder subagent worktrees under `<repo>/.claude/worktrees/<task>` share the orchestrator's parent-repo data directory, so wave state does not diverge. User-created worktrees elsewhere hash their own toplevel and get isolated Shipyard state, so they do not clobber the parent project.
+The score is printed by `shipyard-data sprint plan-score`. Example output:
 
 ```
-plugin-data/projects/<hash>/
-├── config.md              Project settings
-├── codebase-context.md    Auto-generated codebase analysis
+plan score: 9 steps in 3 waves · widest wave 6 · longest chain 3 (P001 → P004 → P009)
+  wave  1 ██████ 6
+  wave  2 ██ 2
+  wave  3 █ 1
+```
+
+A story cannot enter the sprint while the score reports a problem: a step placed later than it needs to be, or two steps of one wave changing the same file. A step's check must also fail before the work is done (`shipyard-data sprint probes-at-base`); a check that already passes proves nothing.
+
+Other forms: `--hours <n>` or `--until <time>` (plan to a time budget), `--cancel`. While a sprint is running, `/ship-sprint` can draft the next one without touching it.
+
+### 3. `/ship-execute`: build it
+
+| You do | Shipyard does | You get |
+|---|---|---|
+| Start it. Type `pause` if you want it to stop cleanly | Gives each step to a builder agent in its own copy of the code (a git worktree). The builder writes a failing test, then the code. When a story's last step is merged, the story is checked against its scenarios (spec review), for what is missing (gap analysis) and for code problems (code review). Findings are fixed in the same sprint | Commits on the branch you started from, and a log of every decision made for you |
+
+It reports once per stage or wave, in one line:
+
+```
+Wave 2 merged  [████████░░░░] 6/9 steps · you: not needed until the review (3 checks)
+```
+
+After the readiness check at the start, the build asks nothing. Where it would have asked, it works down a written ladder and records the outcome:
+
+```
+already decided in the plan → a written rule → quick choice (light model)
+   → one consult (think model) → Claude Code's advisor, if you turned it on → park the step, carry on
+```
+
+If the session dies, run `/ship-execute` again. It first saves any work left in builder worktrees, then continues.
+
+### 4. `/ship-review`: accept the sprint
+
+| You do | Shipyard does | You get |
+|---|---|---|
+| Read one document. Do the checks that need a person. Answer one question: accept or not | Writes the sprint review and shows it whole. After you accept: a retrospective, a changelog you approve, and the sprint is archived and its branches cleaned up | `CHANGELOG.md` in your project, finished stories, and a clean start for the next sprint |
+
+The review always has the same twelve sections: goal and outcome · what you can do now · evidence, before and after · quality work during the sprint · decisions made without asking · numbers · not done · found but not done · not verified, risks and debt · what went well and what did not · what to improve · next.
+
+Shipyard does not push, create git tags or publish a release. You do that when you are ready.
+
+### The other commands
+
+| Command | You do | Shipyard does | You get |
+|---|---|---|---|
+| `/ship-backlog` | Look at what is waiting; say what matters | Shows the running sprint, the backlog, proposed stories and ideas, ranked by RICE (reach × impact × confidence ÷ effort) | An ordered backlog. Options: `groom`, `rank`, `approve`, `bankruptcy` |
+| `/ship-spec` | Browse or search what was agreed | Shows epics (groups of stories), stories and progress. `absorb` pulls one of your documents in as a reference; `sync` writes outcomes back to your documents | One place to read the specification |
+| `/ship-status` | Ask where things stand | Checks the records, repairs what it safely can, shows the dashboard | Progress and the next command to run |
+| `/ship-debug` | Describe a problem | Investigates step by step and keeps its notes in a file, so nothing is lost when the conversation is cleared. `--resume` continues | A cause, a fix plan you approve, and a verified fix |
+| `/ship-help` | Ask a question, or ask for a change ("set the build model to opus") | Answers from your project's state, or makes the change through the CLI | An answer, or a confirmed change |
+
+## When it needs you
+
+At the start and at the end. Never in the middle.
+
+```
+        START                         MIDDLE                        END
+ ┌────────────────────┐      ┌────────────────────┐      ┌────────────────────┐
+ │ decisions          │      │ nothing            │      │ looks and checks,  │
+ │ spikes and tests   │ ───► │ the build decides  │ ───► │ in one sitting     │
+ │ whose result       │      │ and writes down    │      │ accept the sprint  │
+ │ changes the plan   │      │ why                │      │                    │
+ └────────────────────┘      └────────────────────┘      └────────────────────┘
+```
+
+| Moment | Example | Where you see it |
+|---|---|---|
+| Start | "Try the two payment providers and say which one we use" (a spike: a short trial whose result changes what gets built) | The plan: `you: 2 things at the start (about 10 min): … · 3 checks at the end` |
+| Middle | Nothing. A question here is denied by a hook | The progress line: `you: not needed until the review (3 checks)` |
+| End | "Look at the new screen on your phone" | The review lists the waiting checks grouped by where you do them |
+
+If you cannot do the start items when the sprint starts, the stories that depend on them leave the sprint; they do not stop halfway. A check done by a person is recorded only from that person's answer; accepting the sprint does not confirm it. `shipyard-data sprint needs-you` prints the current line.
+
+## What is new in 4.0.0
+
+4.0.0 is the first release after 3.26.0 and has breaking changes. Read [UPGRADING.md](UPGRADING.md) and run `shipyard-data migrate --dry-run`, then `shipyard-data migrate`. `shipyard-data migrate --reverse` undoes it. The history behind each change is in [docs/milestones-4.0.md](docs/milestones-4.0.md).
+
+| Change | What you notice |
+|---|---|
+| New words | "Features" and "bugs" are now **stories** (`S001`); the builder's units are **steps** (`P001`). Old ids still work |
+| One front door | `/ship-quick` and `/ship-bug` are gone. Everything starts at `/ship-discuss` |
+| Questions arrive as they come up | One card at a time while research keeps running in the background. Approval is always the last card |
+| A plan scored for parallel work | `shipyard-data sprint plan-score` shows waves, the widest wave and the longest chain, and blocks a plan that is slower than it has to be |
+| Up to 100 agents at once | `execution.max_agents` (default 100) counts every helper alive; a hook refuses one more. It replaces the old limit of 3 builders |
+| Checks that must fail first | Each step's check is run on today's code before the sprint starts |
+| Unattended build, quality work inside it | No questions mid-sprint. Reviews and their fixes happen per story during the build; the next wave starts as soon as the previous one is merged |
+| A review document shown whole | Twelve sections written by the CLI, then one acceptance question |
+| Three model speeds | Small steps on the light model, steps that need reasoning on the build model, hard work on the think model. A failed step climbs one level |
+| Behaviour-first tests | One scenario per criterion, written from what a user can observe. A test through the real code is the default. Scenario ids are checked against tests in both directions |
+| Design sign-off for screens | The delivered screen is compared with the design you approved |
+| Commands side by side | A lock only stops a second copy of the same command. You can discuss, or draft the next sprint, while one is being built |
+| Cleanup after a sprint | Shipyard's branches and finished worktrees are removed, and stale records repaired (`shipyard-data reconcile`). A dead session no longer blocks the next one |
+| A person at the start or the end | See [When it needs you](#when-it-needs-you). A check you leave open stays listed after the sprint is archived (`shipyard-data sprint needs-you`) and is recorded from your own words (`sprint person-check`) |
+| Evidence instead of a second run | Every passing build or test run is recorded as proof of that command on that code. A test tier already proven is not run again, a fix is confirmed with the failed tests only, and a wave made only of fix steps skips its own build and test run |
+| Test setup done for you | `shipyard-data infra check` reports four things (a test command, one run listing every failure, a failed-only run, an affected-tests run) and the measured time of your suite. `infra apply` sets what your test tool supports and files one small task for the rest |
+| What tests cost, in the review | Count, clock time, share of the sprint and the three longest runs |
+| Urgent fixes | A bug you report can be built at once with `/ship-execute --hotfix`, test first, without touching the running sprint |
+| Plain language | A short summary first, then a picture or an example. One question per card |
+
+## All commands
+
+| Command | What it does | Options |
+|---|---|---|
+| `/ship-discuss` | Takes in any new work: capture, refine, land now, hotfix | `[topic]`, `S###`, `E###`, `IDEA-###`, issue key, `--idea`, `--hotfix`, `--chain`, `--pull`, `--think <model>` |
+| `/ship-backlog` | Shows and orders what is waiting | `groom`, `rank`, `approve`, `bankruptcy` |
+| `/ship-sprint` | Plans a sprint, or cancels the active one | `--cancel`, `--hours <n>`, `--until <time>` |
+| `/ship-execute` | Builds the sprint, test first, in waves | `--task <id>`, `--hotfix <id>`, `--mode solo\|task\|track`, `--isolation true\|false` |
+| `/ship-review` | Sprint review, retrospective, changelog, archive | `[story id]`, `--demo`, `--hotfix <id>`, `--retro-only`, `--skip-retro` |
+| `/ship-status` | Dashboard and next step. Sets a project up on first run | `sprint`, `backlog`, `health`, `spec`, `diagnose` |
+| `/ship-spec` | Browse, search and manage the specification | `[id]`, `[search term]`, `ideas`, `absorb`, `sync` |
+| `/ship-debug` | Debugging that keeps its notes between sessions | `[problem]`, `--resume` |
+| `/ship-help` | Answers questions and makes small changes for you | `[question or request]` |
+
+## Settings
+
+Settings live in `config.md` in the project's data folder. The file is created with the defaults below. Ask `/ship-help` to change one, or ask Claude to run the CLI command shown.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `test_commands.unit` / `integration` / `e2e` | empty, or what setup detected | The commands that run your tests. Set with `shipyard-data config set test-commands-unit "<command>"` |
+| `models.think` / `build` / `light` | `opus` / `sonnet` / `haiku` | The model for hard work, for reasoning, and for small steps. A project created before 4.0.0 has no `light` until you set it: `shipyard-data config set-model light haiku` |
+| `models.orchestrate` | `opus` | The model that runs the four main commands |
+| `routing.size_tiers` | `S=light,M=build,L=think,XL=think` | Which model a step gets, by its size |
+| `execution.max_agents` | 100 | Most agents alive at once. `shipyard-data config set-max-agents <n>` |
+| `execution.isolation` | `worktree` | `worktree`: builders work in separate copies, in parallel. `none`: one at a time, in place. `shipyard-data config set-isolation <worktree\|none>` |
+| `execution.parallel_plan` | true | A story cannot enter a sprint while the plan score reports a problem |
+| `execution.probe_must_fail_first` | true | A step's check must fail on today's code |
+| `execution.unattended` | true | The build does not ask questions mid-sprint |
+| `execution.overlap_waves` | true | The next wave starts as soon as the previous one is merged |
+| `execution.story_review` / `code_review` | true / true | Each story is reviewed, code review included, during the build |
+| `execution.design_review` | true | A screen story is reviewed only after its screen was compared with the design |
+| `execution.enforce_ac_coverage` | true | A sprint cannot complete while a tagged scenario has no `AC-<n>` marker in the sprint's changes, or a changed test names no scenario |
+| `execution.max_parked_ratio` | 0.34 | Largest share of a sprint's steps that may be set aside before the sprint needs your explicit acceptance |
+| `execution.max_undispositioned_ideas` | 12 | Once this many ideas are waiting for a decision, a new sprint waits until you groom the backlog |
+| `execution.default_capacity` | 20 | Story points assumed for the first sprint, before there is history |
+| `execution.sweep_branches` | true | Remove Shipyard's branches when a sprint is archived |
+| `spec.behaviour_first` | true | Scenario rules are checked when a story is approved |
+| `review.code_review` | `off` | Also run Claude Code's built-in code review during `/ship-review`: `off`, `low`, `medium`, `high` |
+| `ui.adapter` | `none` | How screens are rendered for checking. `web` uses the Playwright already in your project; `frames` runs your own command (`ui.frame_command`) |
+| `quality_gates.standing` | empty | Checks applied to every sprint, in your words |
+| `discuss_writable` | empty | Project documents a discussion may write, for example your decision record |
+| `test_commands.scoped` / `rerun_failed` | empty, or what `infra apply` set | Run only the tests a change can affect; run only the tests that failed last time |
+| `verify_ignore` | empty | Paths that cannot change a test result (a changelog). A commit touching only these keeps a test proof fresh |
+| `execution.patch_wave_tests` | `sprint` | A wave made only of fix steps skips its own build and test run; `wave` runs them every time |
+
+The full list, with comments, is the template: [config.md](plugins/shipyard/project-files/templates/config.md).
+
+## Safety
+
+Shipyard does not rely on a model remembering a rule. The rules that matter are checked by the CLI or by a hook, and the action is refused.
+
+| What is refused | Why |
+|---|---|
+| Claude editing Shipyard's state by hand (progress, sprint and story headers, locks) | One writer keeps the records and the event log in agreement |
+| A question in the middle of a build | You may not be there. A mid-build question means planning left a gap |
+| A question card with two questions, or a long one | The explanation belongs in the chat, where it can be read |
+| A discussion editing project files, apart from the project's rule files and documents you list in `discuss_writable` | A discussion decides; building happens in a sprint or a task |
+| Approving a story with a scenario that has no id, no level tag, or no place in the story's path map | Every promised behaviour needs one named check |
+| Approving a screen story with no design decision | The design is decided before the work is planned |
+| A story entering a sprint with a plan problem, or a step whose check already passes | Slower than needed, or a check that proves nothing |
+| Starting an agent past the limit, or a builder on the wrong model | The limit and the routing are enforced when the agent starts |
+| Leaving a wave whose work is not all merged, or whose findings are undecided | Unmerged work and unanswered findings get lost |
+| Completing a sprint with too many steps set aside, a scenario with no test, or a story with no settled review | A sprint cannot reach "done" by putting work aside |
+| Recording a person's check without that person's answer | Accepting a sprint is not the same as having looked |
+| Showing a review with a section missing | You should see what went badly, not only what went well |
+| Deleting a change nobody committed | Shipyard cannot prove it is not yours. It is set aside in a git stash (`shipyard-data stray set-aside`) |
+| A second copy of the same command | Two planners or two builds would write the same files |
+| Migrating while a sprint is in progress | The sprint's evidence uses the old ids |
+| Pushing, tagging, or `git add -A` on your project (Shipyard never does these) | Your history and your releases are yours |
+
+## How it is built
+
+Shipyard uses Claude Code's own building blocks. There is no server and no database: the records are Markdown and JSON files.
+
+```
+you ──► command (skill) ──► agents do the work
+              │                   │
+              ▼                   ▼
+        shipyard-data CLI ◄── results are checked here, not taken on trust
+              │
+              ▼
+        data folder (outside your project)        hooks watch edits, questions and agents
+```
+
+| Part | Count | What it is |
+|---|---|---|
+| Skills | 30 | 9 commands you type (`ship-*`) and 21 internal ones the commands follow, such as `tdd-cycle` and `verifying-wave-completion` |
+| Agents | 7 | Helpers with one job each. First table below |
+| Hooks | 6 | Programs that can refuse an action. Second table below |
+| CLIs | 3 | `shipyard-data` (records and gates), `shipyard-context` (reads for the commands), `shipyard-logcap` (captures the output of a long run) |
+| Rules | 4 | Short texts on asking questions, the data model, next-step hints and spec format. They stay in the plugin |
+| Workflows | 2 | `review-scan` and `story-review`: optional, read-only review runs, off unless `review.workflow` is true |
+
+Shipyard ships 7 registered agents. Each is started through an internal skill that hands over the brief and checks what comes back.
+
+| Agent | Job |
+|---|---|
+| `shipyard-disciplined-builder` | Builds one step: failing test, code, check, commit |
+| `shipyard-spec-reviewer`, `shipyard-code-reviewer`, `shipyard-gap-analyst` | Read-only reviewers: scenarios against code and tests; security, bugs and silent failures in the change; what is still missing |
+| `shipyard-researcher` | Investigates one question and writes one findings document |
+| `shipyard-operational-task` | Runs a build, test or lint command until it passes |
+| `shipyard-track-coordinator` | Runs one story's steps in order inside a wave |
+
+| Hook | Runs | What it does |
+|---|---|---|
+| `plugin-data-breadcrumb` | When a session starts | Notes where the data folder is, so every command finds it |
+| `auto-approve-data` | Before Claude edits or writes a file | Lets writes to the data folder through without a prompt; refuses hand-edits to CLI-owned state; keeps a discussion out of project files |
+| `unattended-ask` | Before Claude asks a question | Refuses a question mid-build and a badly shaped question card |
+| `agent-ledger` | Before an agent is started or stopped | Keeps the list of live agents; enforces the agent limit and the routed model |
+| `worktree-branch` | When a worktree is created | Starts it from your current branch |
+| `lock-reap` | When a session ends | Releases any lock the session still holds |
+
+**The data folder.** Everything Shipyard records lives under Claude Code's plugin data folder, one folder per project. `/ship-status diagnose` prints the path. Your repository gets one link, `.shipyard`, that points there; add it to your `.gitignore`.
+
+```
+<plugin data>/projects/<hash>/
+├── config.md                 settings
 ├── spec/
-│   ├── epics/             High-level groupings
-│   ├── features/          Feature specs with acceptance criteria
-│   ├── tasks/             Task breakdowns with technical notes
-│   ├── bugs/              Bug reports and tracking
-│   ├── ideas/             Quick-captured ideas and retro items
-│   └── references/        Extracted API contracts, schemas, flows
-├── backlog/
-│   └── BACKLOG.md         RICE-ranked feature queue (IDs only)
+│   ├── epics/  stories/  steps/  tasks/  ideas/
+│   ├── designs/              signed-off designs for screen stories
+│   └── references/           documents you pulled in
+├── backlog/BACKLOG.md        ordered list of story ids
 ├── sprints/
-│   └── current/           Active sprint with wave structure
-├── memory/
-│   └── metrics.md         Velocity, throughput, and retro insights
-├── debug/                 Persistent debug sessions
-└── verify/                Review verdicts
+│   ├── current/              the sprint being built
+│   └── next/                 a sprint drafted ahead
+├── memory/metrics.md         velocity and points per hour
+├── debug/   verify/   releases/
+└── .shipyard-events.jsonl    the event log the gates read
 ```
-
-**Windows note:** the `shipyard-data.cmd` and `shipyard-context.cmd` wrappers
-delegate to Node and inherit cmd.exe's argument-quoting limitations. Paths
-containing spaces or special characters should be passed via the
-`CLAUDE_PLUGIN_DATA` environment variable rather than as command-line
-arguments. Skills shipped with Shipyard do not pass such arguments.
-
-## Key Design Decisions
-
-<details>
-<summary><strong>Why enforce TDD via prose + orchestrator gates, not a hook?</strong></summary>
-<br>
-Skill body and rule prose state the Iron Law (tests before code) at every entry point. The gates that actually catch a skipped or faked test live in the orchestrator: it verifies the returned commit sha exists in git, runs an anti-stub scan over the diff, and checks the acceptance probe's exit code — none of which trust the subagent's own "I wrote the tests" claim. A prose rule alone can be talked past; a gate checking git ground truth can't.
-</details>
-
-<details>
-<summary><strong>Why adversarial critique before approval?</strong></summary>
-<br>
-Self-review catches structural issues (missing fields, format). The critic agent catches logical issues (implicit assumptions, feasibility risks, untested hypotheses) using pre-mortem analysis and multi-persona review. Research shows this generates 30% more failure scenarios than asking "what could go wrong?"
-</details>
-
-<details>
-<summary><strong>Why single-source-of-truth data model?</strong></summary>
-<br>
-Feature files own all feature data. Task files own all task data. BACKLOG.md and SPRINT.md are lightweight indexes storing only IDs. This eliminates sync bugs between duplicate data sources.
-</details>
-
-<details>
-<summary><strong>Why plugin data instead of .shipyard/?</strong></summary>
-<br>
-Zero git noise. No merge conflicts on spec files. No accidental commits of planning state. The plugin data directory is per-project (keyed by git root hash) and lives outside the repo entirely.
-</details>
-
-<details>
-<summary><strong>Why auto-generate SME skills?</strong></summary>
-<br>
-During /ship-init, the skill-writer agent scans your codebase and generates project-specific expert skills (e.g., /nextjs-expert, /postgres-expert) that encode how YOUR project uses each technology — not generic docs, but actual paths, config, patterns, and conventions.
-</details>
 
 ## Requirements
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
-- Node.js ≥ 18 (already present wherever Claude Code runs — Shipyard's CLIs and hooks are Node)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- Node.js. Shipyard's CLIs and hooks are Node programs; the project's own tests run on Node 20
 - Git
-- macOS, Linux, or Windows
+- macOS or Linux. Windows wrappers (`.cmd`) are included; the automated tests run on Linux
+- Optional: Playwright in your project, for `ui.adapter: web`
+
+## Upgrading
+
+[UPGRADING.md](UPGRADING.md) lists what changes from 3.26.0 and the migration command. [docs/milestones-4.0.md](docs/milestones-4.0.md) has the detail.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, project structure, and conventions.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Questions and bug reports: [SUPPORT.md](SUPPORT.md). Security reports: [SECURITY.md](SECURITY.md).
 
 ## License
 

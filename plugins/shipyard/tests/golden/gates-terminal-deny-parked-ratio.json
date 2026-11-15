@@ -1,0 +1,5 @@
+{
+  "code": 1,
+  "stdout": "DENY — terminal cursor write would be refused. Missing evidence:\n  - Parked ratio 67% exceeds max 34% — 2 of 3 tasks parked (T002, T003). Complete more tasks, or record explicit user acceptance with `shipyard-data events emit terminal_parked_accepted` (only after confirming with the user — this is the deliberate escape hatch, not a rubber stamp).",
+  "stderr": ""
+}

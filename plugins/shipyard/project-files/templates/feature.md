@@ -79,6 +79,16 @@ As a [user], I want [capability] so that [benefit].
 
 ## Why This Matters
 
+## Paths
+
+Every way the trigger can end, written before the scenarios. Each ending has a scenario or the reason it cannot happen.
+
+| Ending | Covered by |
+|---|---|
+| [success] | @AC-1 |
+| [a refusal, failure or timeout] | @AC-2 |
+| [an ending that cannot happen] | cannot happen: [reason] |
+
 ## Acceptance Criteria
 
 ### Core AC
@@ -89,7 +99,7 @@ Feature: {{title}}
   Scenario: Happy path
     Given [context]
     When [action]
-    Then [expected result]
+    Then [what someone outside the system can observe]
 
   Scenario: Error / edge case
     Given [context]

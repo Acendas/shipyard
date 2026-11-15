@@ -23,5 +23,3 @@ TaskStop(bg.task_id)  # ends the tail-f and the Monitor together
 Apply this wrap at every stage that dispatches subagents: `wave_<N>_dispatch`, `wave_<N>_redispatch_iter_<K>`, and `sprint_tests_fix_iter_<K>`.
 
 Skip stages without subagent dispatch (preflight, salvage, load, readiness, boundary, refactor, tests, verify, gate). The `verify` and `tests` stages already have their own Monitor wired via `dispatching-operational-task` for stream-vs-capture verify runs (commit `de5c0c8`) — do not double-wrap.
-
-The streamer is cheap: `tail -f -n 0` starts at EOF (no historical replay), `grep --line-buffered` flushes line-by-line, JSONL events are tens of bytes each. Negligible per tick.

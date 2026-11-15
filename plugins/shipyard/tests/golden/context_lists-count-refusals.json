@@ -1,0 +1,27 @@
+{
+  "unknown": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "unknown count-of name: bogus. Known: stories, steps, bugs, features, epics, ideas, tasks"
+  },
+  "missing": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "unknown count-of name: (missing). Known: stories, steps, bugs, features, epics, ideas, tasks"
+  },
+  "quickTasks": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "unknown count-of name: quick-tasks. Known: stories, steps, bugs, features, epics, ideas, tasks"
+  },
+  "stories": {
+    "code": 0,
+    "stdout": "0",
+    "stderr": ""
+  },
+  "upperCase": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "unknown count-of name: Bugs. Known: stories, steps, bugs, features, epics, ideas, tasks"
+  }
+}

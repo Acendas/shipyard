@@ -1,10 +1,6 @@
 # Pipeline Cursor — EXECUTE-CURSOR.md
 
-The cursor records where `/ship-execute` is in its multi-wave pipeline so that:
-
-1. **`/goal` can re-enter one bounded stage at a time.** Each invocation reads the cursor, dispatches the matching handler, advances the cursor, and exits with an explicit marker.
-2. **Single-tick/debug invocations are deterministic.** `--single-tick` runs one handler and stops after the cursor advance.
-3. **Compaction recovery is structural.** The cursor's `stage:` field is authoritative; PROGRESS.md is confirmatory.
+The cursor records where `/ship-execute` is in its multi-wave pipeline: `/goal` re-enters one bounded stage per tick, and after compaction its `stage:` is authoritative (PROGRESS.md only confirms).
 
 ## CLI-Owned Cursor
 
@@ -48,12 +44,11 @@ working_branch: main
 pending_subagents:
   - task_id: T-007
     worker_id: builder-T-007
-    spawned_at: 2026-05-18T17:58:12Z
-    max_execution_minutes: 60
+    deadline_at: 2026-05-18T18:28:12Z
 ---
 ```
 
-`pending_subagents` is a progress mirror for wave waiting/recovery. Queue ledger and result artifacts are authority. An advance into `wave_N_dispatch` replaces the list; `wave_N_waiting` self-loops carry it forward.
+Queue mode entries carry only `task_id`, `worker_id` and `deadline_at` (no spawn timestamp); the stale-agent detector reads queue items (`claimed_at`/`deadline_at`), not this mirror. `pending_subagents` is a progress mirror for wave waiting/recovery. Queue ledger and result artifacts are authority. An advance into `wave_N_dispatch` replaces the list; `wave_N_waiting` self-loops carry it forward.
 
 ## Stage Map
 
@@ -104,9 +99,7 @@ For non-terminal stages:
 shipyard-data cursor advance execute <next-stage> next_action="<one line>" --note "<tick narrative>"
 ```
 
-The CLI emits `pipeline_tick_completed`, auto-emits `pipeline_tick_started` for the new stage, and prints `▶ TICK COMPLETE — ... /goal continues.`. Echo it as the final line.
-
-For `wave_N_waiting`, the marker may include a bounded-wait hint for background workers. Queue state and artifacts decide completion; notifications are advisory.
+The CLI emits the tick events and prints `▶ TICK COMPLETE — ... /goal continues.`; echo it as the final line. For `wave_N_waiting`, queue state and artifacts decide completion; notifications are advisory.
 
 ### Collapsing pass-through stages (`--via`)
 
@@ -147,8 +140,13 @@ The CLI emits `pipeline_terminal outcome=noop` first; emitting it is mandatory b
 | `pipeline_resumed` | `pipeline`, `sprint`, `stage`, `from_status` | CLI |
 | `pipeline_paused` | `pipeline`, `sprint`, `stage` | CLI |
 | `pipeline_stuck` | `pipeline`, `sprint`, `stage`, `iterations`, `reason` | CLI |
+| `session_budget_reached` | `pipeline`, `sprint`, `elapsed`, `max`, `stage` | CLI |
 
 Existing wave/task/sprint evidence events continue to be emitted by the relevant stage handlers and are verified by the terminal gate.
+
+## Session Budget (optional, default off)
+
+`execution.max_session_minutes` (absent or 0 = off) caps how long a session may keep starting waves (wave starts only, never mid-wave work). The CLI checks `session_started_at` (CLI-owned; stamped at preflight, refreshed by `cursor resume`) only when `cursor advance` targets `wave_N_dispatch`. When elapsed >= max it does NOT advance: it pauses at the prior stage, emits `session_budget_reached` (`elapsed`, `max`, `stage`), prints the resume hint and the stop marker last, and returns exit 0 (a non-zero exit would make `/goal` retry forever). `--force` never bypasses it, including forced recovery entries into any wave. Mid-wave stages (waiting, boundary, tests, verify), `sprint_*` stages, recording (`task-return`, events, anchors) and `cursor pause` are never gated. Tell the user the budget stopped the run; `shipyard-data cursor resume execute` starts a fresh clock.
 
 ## Entry Recipe
 
@@ -158,4 +156,3 @@ Existing wave/task/sprint evidence events continue to be emitted by the relevant
 4. Otherwise dispatch the handler for `SHIPYARD_CURSOR_STAGE`, or start fresh at `preflight`.
 5. Advance, pause, escalate, or terminal-advance through `shipyard-data cursor`.
 
-`/goal` is the only autonomous re-entry driver. `--single-tick` runs one handler and stops.

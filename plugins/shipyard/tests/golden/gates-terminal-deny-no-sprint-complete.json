@@ -1,0 +1,5 @@
+{
+  "code": 1,
+  "stdout": "DENY — terminal cursor write would be refused. Missing evidence:\n  - Missing sprint_complete_passed event — evaluating-sprint-complete predicate never reported STATUS: COMPLETE",
+  "stderr": ""
+}

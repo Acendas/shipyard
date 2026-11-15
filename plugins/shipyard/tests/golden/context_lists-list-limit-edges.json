@@ -1,0 +1,27 @@
+{
+  "zero": {
+    "code": 0,
+    "stdout": "No features yet",
+    "stderr": ""
+  },
+  "negative": {
+    "code": 0,
+    "stderr": "",
+    "count": 3
+  },
+  "nonNumeric": {
+    "code": 0,
+    "stdout": "No features yet",
+    "stderr": ""
+  },
+  "float": {
+    "code": 0,
+    "stderr": "",
+    "count": 2
+  },
+  "emptyString": {
+    "code": 0,
+    "stderr": "",
+    "count": 5
+  }
+}

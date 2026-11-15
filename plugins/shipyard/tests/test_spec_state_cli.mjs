@@ -36,13 +36,16 @@ test("spec-lifecycle: illegal feature transition lists valid next states", () =>
   assert.deepEqual(r.validNext, ["approved", "deferred", "rejected"]);
 });
 
-test("spec-lifecycle: done does NOT skip straight to released (rules-file chain)", () => {
-  assert.equal(validateStatusTransition(FEATURE_TRANSITIONS, "done", "released").ok, false);
+test("spec-lifecycle: done → released is legal (the release step), done → deployed → released too", () => {
+  assert.equal(validateStatusTransition(FEATURE_TRANSITIONS, "done", "released").ok, true);
+  assert.equal(validateStatusTransition(FEATURE_TRANSITIONS, "done", "deployed").ok, true);
+  assert.equal(validateStatusTransition(FEATURE_TRANSITIONS, "approved", "released").ok, false);
 });
 
 test("spec-lifecycle: idea transitions", () => {
-  assert.ok(validateStatusTransition(IDEA_TRANSITIONS, "proposed", "graduated").ok);
-  assert.equal(validateStatusTransition(IDEA_TRANSITIONS, "graduated", "rejected").ok, false);
+  // v4 (D-9): captured -> promoted; promoted is terminal. Old values are aliases at the CLI, not graph keys.
+  assert.ok(validateStatusTransition(IDEA_TRANSITIONS, "captured", "promoted").ok);
+  assert.equal(validateStatusTransition(IDEA_TRANSITIONS, "promoted", "rejected").ok, false);
 });
 
 // --- CLI integration fixture ----------------------------------------------
@@ -83,6 +86,9 @@ function makeProject() {
   return { root, repo, dataDir, run, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
+// a minimal body that passes the behaviour-first approval gate (4.15.3)
+const BEHAVIOUR_FIRST_BODY = "\n## Paths\n| Ending | Covered by |\n|---|---|\n| works | @AC-1 |\n\n## Acceptance Criteria\n```gherkin\n@AC-1 @e2e\nScenario: works\n  Given a\n  When b\n  Then c\n```\n";
+
 function writeFeature(p, fid, overrides = {}) {
   const fm = {
     id: fid,
@@ -101,7 +107,7 @@ function writeFeature(p, fid, overrides = {}) {
     ...overrides,
   };
   const lines = Object.entries(fm).map(([k, v]) => `${k}: ${v}`);
-  const content = `---\n${lines.join("\n")}\n---\n\n# Test Feature\n`;
+  const content = `---\n${lines.join("\n")}\n---\n\n# Test Feature\n` + BEHAVIOUR_FIRST_BODY;
   writeFileSync(join(p.dataDir, "spec", "features", `${fid}-test.md`), content);
 }
 
@@ -153,7 +159,7 @@ test("feature set-status: legal transition writes status + updated, emits event"
     const content = readFeature(p, "F001");
     assert.match(content, /status: approved/);
     assert.match(content, new RegExp(`updated: ${new Date().toISOString().slice(0, 10)}`));
-    assert.match(readEvents(p), /feature_status_changed/);
+    assert.match(readEvents(p), /story_status_changed/);
   } finally {
     p.cleanup();
   }
@@ -231,7 +237,7 @@ test("feature set: allowlisted numeric keys update, updated auto-bumps", () => {
     assert.match(content, /rice_reach: 20/);
     assert.match(content, /story_points: 5/);
     assert.doesNotMatch(content, /updated: 2020-01-01/);
-    assert.match(readEvents(p), /feature_field_set/);
+    assert.match(readEvents(p), /story_field_set/);
   } finally {
     p.cleanup();
   }
@@ -458,12 +464,25 @@ test("idea set-status: legal transitions to graduated/rejected, illegal refused"
   try {
     writeFeature(p, "F001");
     writeIdea(p, "IDEA-001", "proposed");
+    // legacy verb spelling still works and writes the v4 value
     const r = p.run(["idea", "set-status", "IDEA-001", "graduated", "--to", "F001"]);
-    assert.equal(r.code, 0);
+    assert.equal(r.code, 0, r.stderr);
     assert.match(readEvents(p), /idea_status_changed/);
+    const written = readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-001-test.md"), "utf8");
+    assert.match(written, /status: promoted/);
+    assert.match(written, /promoted_to: F001/);
+    assert.match(written, /graduated_to: F001/, "pre-v4 readers still find the target");
     writeIdea(p, "IDEA-002", "graduated");
     const bad = p.run(["idea", "set-status", "IDEA-002", "rejected"]);
     assert.equal(bad.code, 3);
+    // v4 spellings: capture -> assessing -> parked -> captured; promote to an epic
+    writeEpic(p, "E001");
+    writeIdea(p, "IDEA-003", "captured");
+    for (const to of ["assessing", "parked", "captured"]) assert.equal(p.run(["idea", "set-status", "IDEA-003", to]).code, 0, to);
+    const toEpic = p.run(["idea", "set-status", "IDEA-003", "promoted", "--to", "E001"]);
+    assert.equal(toEpic.code, 0, toEpic.stderr);
+    assert.match(readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-003-test.md"), "utf8"), /promoted_to: E001/);
+    assert.equal(p.run(["idea", "set-status", "IDEA-003", "parked", "--to", "E001"]).code, 3, "--to only with promoted");
   } finally {
     p.cleanup();
   }
@@ -472,7 +491,7 @@ test("idea set-status: legal transitions to graduated/rejected, illegal refused"
 test("idea repair: audit reports invalid records without mutating them", () => {
   const p = makeProject();
   try {
-    writeIdea(p, "IDEA-001", "captured");
+    writeIdea(p, "IDEA-001", "open");
     const before = readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-001-test.md"), "utf8");
     const r = p.run(["idea", "repair", "--json"]);
     assert.equal(r.code, 3);
@@ -493,8 +512,8 @@ test("idea repair --fix normalizes legacy and missing statuses", () => {
     const r = p.run(["idea", "repair", "--fix", "--json"]);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(JSON.parse(r.stdout).fixed, 2);
-    assert.match(readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-001-test.md"), "utf8"), /status: proposed/);
-    assert.match(readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-002-test.md"), "utf8"), /status: proposed/);
+    assert.match(readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-001-test.md"), "utf8"), /status: captured/);
+    assert.match(readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-002-test.md"), "utf8"), /status: captured/);
     assert.match(readEvents(p), /ideas_repaired/);
   } finally {
     p.cleanup();
@@ -510,7 +529,7 @@ test("idea repair --fix creates frontmatter and IDs slug-named files", () => {
     const name = readdirSync(join(p.dataDir, "spec", "ideas")).find((f) => /^IDEA-\d{3}-bulk-export\.md$/.test(f));
     assert.ok(name);
     const content = readFileSync(join(p.dataDir, "spec", "ideas", name), "utf8");
-    assert.match(content, /^---\nid: IDEA-\d{3}\ntitle: "Bulk Export"\ntype: idea\nstatus: proposed/m);
+    assert.match(content, /^---\nid: IDEA-\d{3}\ntitle: "Bulk Export"\ntype: idea\nstatus: captured/m);
     assert.match(content, /Keep this body\./);
   } finally {
     p.cleanup();
@@ -555,8 +574,8 @@ test("every mutation command appends its named event", () => {
     p.run(["idea", "set-status", "IDEA-001", "graduated", "--to", "F001"]);
     const events = readEvents(p);
     for (const type of [
-      "feature_status_changed",
-      "feature_field_set",
+      "story_status_changed",
+      "story_field_set",
       "backlog_added",
       "backlog_ranked",
       "backlog_groomed",
@@ -572,16 +591,54 @@ test("every mutation command appends its named event", () => {
 
 // --- feature add-dep / remove-dep (wave 2) ----------------------------------
 
-test("feature add-dep: writes both sides atomically and emits one event", () => {
+test("add-dep A B means A waits for B: B records A as a dependent, never as a dependency; a link that closes a loop is refused", () => {
   const p = makeProject();
   try {
     writeFeature(p, "F001");
     writeFeature(p, "F002");
     const r = p.run(["feature", "add-dep", "F001", "F002"]);
     assert.equal(r.code, 0);
+    assert.match(r.stdout, /F001 waits for F002/);
     assert.match(readFeature(p, "F001"), /dependencies: \[F002\]/);
-    assert.match(readFeature(p, "F002"), /dependencies: \[F001\]/);
-    assert.match(readEvents(p), /feature_dep_added/);
+    assert.match(readFeature(p, "F002"), /dependents: \[F001\]/);
+    assert.doesNotMatch(readFeature(p, "F002"), /dependencies: \[F001\]/, "the reverse side must not make F002 wait for F001");
+    assert.match(readEvents(p), /story_dep_added/);
+    const loop = p.run(["feature", "add-dep", "F002", "F001"]);
+    assert.equal(loop.code, 3);
+    assert.match(loop.stderr, /would make a loop: F001 already waits for F002/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("story add-dep: a story may depend on a task (debug spike), never on a builder step (F025 AC-4)", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001");
+    writeFileSync(join(p.dataDir, "spec", "tasks", "T010-spike.md"), "---\nid: \"T010\"\ntitle: \"Find the root cause\"\ntype: task\nkind: debug\nstatus: open\ndependencies: []\n---\n\n# Spike\n");
+    writeTask(p, "T011"); // a builder step (kind feature, feature: F001)
+    const r = p.run(["story", "add-dep", "F001", "T010"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFeature(p, "F001"), /dependencies: \[T010\]/);
+    assert.match(readFileSync(join(p.dataDir, "spec", "tasks", "T010-spike.md"), "utf8"), /dependents: \[F001\]/);
+    assert.match(readFileSync(join(p.dataDir, "spec", "tasks", "T010-spike.md"), "utf8"), /dependencies: \[\]/, "the spike waits for nothing");
+    assert.match(readEvents(p), /"story_dep_added".*"b_kind":"task"/);
+    const bad = p.run(["story", "add-dep", "F001", "T011"]);
+    assert.equal(bad.code, 3);
+    assert.match(bad.stderr, /builder step, not a task/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("story set-status: an unrefined story (refined: false) cannot be approved (F027 AC-3)", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001", { status: "proposed", refined: "false" });
+    const r = p.run(["story", "set-status", "F001", "approved"]);
+    assert.equal(r.code, 3);
+    assert.match(r.stderr, /unrefined/);
+    assert.equal(p.run(["story", "set-status", "F001", "deferred"]).code, 0, "other transitions are unaffected");
   } finally {
     p.cleanup();
   }
@@ -621,8 +678,13 @@ test("feature remove-dep: strips both sides", () => {
     const r = p.run(["feature", "remove-dep", "F001", "F002"]);
     assert.equal(r.code, 0);
     assert.match(readFeature(p, "F001"), /dependencies: \[\]/);
-    assert.match(readFeature(p, "F002"), /dependencies: \[\]/);
-    assert.match(readEvents(p), /feature_dep_removed/);
+    assert.match(readFeature(p, "F002"), /dependents: \[\]/);
+    assert.match(readEvents(p), /story_dep_removed/);
+    // a pair written by the old symmetric form is cleared in both directions
+    writeFeature(p, "F003", { dependencies: "[F004]" }); writeFeature(p, "F004", { dependencies: "[F003]" });
+    assert.equal(p.run(["feature", "remove-dep", "F003", "F004"]).code, 0);
+    assert.match(readFeature(p, "F003"), /dependencies: \[\]/);
+    assert.match(readFeature(p, "F004"), /dependencies: \[\]/);
   } finally {
     p.cleanup();
   }
@@ -648,7 +710,7 @@ test("feature clear-tasks: empties tasks: and emits count", () => {
     const r = p.run(["feature", "clear-tasks", "F001"]);
     assert.equal(r.code, 0);
     assert.match(readFeature(p, "F001"), /tasks: \[\]/);
-    assert.match(readEvents(p), /"feature_tasks_cleared".*"feature":"F001".*"count":2/);
+    assert.match(readEvents(p), /"story_steps_cleared".*"story":"F001".*"count":2/);
   } finally {
     p.cleanup();
   }
@@ -663,7 +725,7 @@ test("feature set-tasks: writes deduped task membership through the CLI-owned pa
     const r = p.run(["feature", "set-tasks", "F001", "T001,T002"]);
     assert.equal(r.code, 0);
     assert.match(readFeature(p, "F001"), /tasks: \[T001, T002\]/);
-    assert.match(readEvents(p), /feature_tasks_set/);
+    assert.match(readEvents(p), /story_steps_set/);
     const dup = p.run(["feature", "set-tasks", "F001", "T001,T001"]);
     assert.equal(dup.code, 3);
   } finally {
@@ -677,7 +739,7 @@ test("feature set-tasks: refuses missing task references", () => {
     writeFeature(p, "F001", { tasks: "[]" });
     const r = p.run(["feature", "set-tasks", "F001", "T999"]);
     assert.equal(r.code, 4);
-    assert.match(r.stderr, /refuses missing task T999/);
+    assert.match(r.stderr, /refuses missing step T999/);
     assert.match(readFeature(p, "F001"), /tasks: \[\]/);
   } finally {
     p.cleanup();
@@ -692,7 +754,7 @@ test("feature set-tasks: refuses tasks owned by another feature", () => {
     writeTask(p, "T001", { feature: "F002" });
     const r = p.run(["feature", "set-tasks", "F001", "T001"]);
     assert.equal(r.code, 3);
-    assert.match(r.stderr, /task feature is "F002", not "F001"/);
+    assert.match(r.stderr, /step story is "F002", not "F001"/);
     assert.match(readFeature(p, "F001"), /tasks: \[\]/);
   } finally {
     p.cleanup();
@@ -848,7 +910,8 @@ test("feature set-status / set: accept a child feature id", () => {
 test("feature id validation still rejects genuinely malformed ids", () => {
   const p = makeProject();
   try {
-    for (const bad of ["F71d", "F071dd", "F071D", "F0711", "NOT-AN-ID"]) {
+    // F0711 (4 digits) is now a valid id shape: counters pass 999 (\d{3,}).
+    for (const bad of ["F71d", "F071dd", "F071D", "F07a1", "NOT-AN-ID"]) {
       const r = p.run(["backlog", "add", bad]);
       assert.equal(r.code, 2, `${bad} should be a usage error, got ${r.code}`);
     }
@@ -895,7 +958,7 @@ test("feature set-status: an unknown status is refused even with --force", () =>
     // This used to write `status: bogus` into the feature file and exit 0.
     const r = p.run(["feature", "set-status", "F001", "bogus", "--force"]);
     assert.equal(r.code, 2);
-    assert.match(r.stderr, /unknown feature status "bogus"/);
+    assert.match(r.stderr, /unknown story status "bogus"/);
     assert.match(readFeature(p, "F001"), /status: proposed/);
   } finally {
     p.cleanup();
@@ -937,4 +1000,67 @@ test("backlog remove: exits non-zero when NONE of the named ids were present", (
   } finally {
     p.cleanup();
   }
+});
+
+test("an approved story is retired in one move, with the reason and what replaced it on the record (4.0)", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001", { status: "approved" });
+    p.run(["backlog", "add", "F001"]);
+    const r = p.run(["story", "set-status", "F001", "--reason", "replaced by the map redesign epic", "rejected", "--replaced-by", "S052, S055"]);
+    assert.equal(r.code, 0, r.stderr);
+    const text = readFeature(p, "F001");
+    assert.match(text, /^status: rejected$/m);
+    assert.match(text, /^status_reason: "replaced by the map redesign epic"$/m);
+    assert.match(text, /^replaced_by: \[S052, S055\]$/m);
+    assert.deepEqual(readBacklogIds(p), [], "a retired story leaves the backlog");
+    assert.match(readEvents(p), /"to":"rejected"[^\n]*"reason":"replaced by the map redesign epic"[^\n]*"replaced_by":"S052,S055"/);
+  } finally { p.cleanup(); }
+});
+
+test("an idea marked landed by mistake can go back to captured (4.0)", () => {
+  const p = makeProject();
+  try {
+    writeIdea(p, "IDEA-001", "captured");
+    assert.equal(p.run(["idea", "set-status", "IDEA-001", "landed"]).code, 0);
+    assert.equal(p.run(["idea", "set-status", "IDEA-001", "captured"]).code, 0);
+  } finally { p.cleanup(); }
+});
+
+test("retiring a story says where the project still names it (4.0, seen live)", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F047", { status: "approved" });
+    mkdirSync(join(p.repo, "src"), { recursive: true });
+    writeFileSync(join(p.repo, "src", "screen_lobby.c"), "/* Placeholder face (F047 replaces it). */\n");
+    writeFileSync(join(p.repo, "src", "other.c"), "/* F0471 is another id */\n");
+    execFileSync("git", ["add", "-A"], { cwd: p.repo });
+    execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "code"], { cwd: p.repo });
+    const r = p.run(["story", "set-status", "F047", "rejected", "--reason", "replaced by S041"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stderr, /note: the project still names F047 in 1 file\(s\): src\/screen_lobby\.c/);
+    assert.match(readEvents(p), /"retired_story_still_named"[^\n]*"count":1/);
+    // nothing names it: no note
+    writeFeature(p, "F048", { status: "approved" });
+    assert.doesNotMatch(p.run(["story", "set-status", "F048", "rejected"]).stderr, /still names/);
+  } finally { p.cleanup(); }
+});
+
+test("step set-deps: sets what a step waits for; refuses an unknown step, itself and a loop (4.0)", () => {
+  const p = makeProject();
+  try {
+    mkdirSync(join(p.dataDir, "spec", "steps"), { recursive: true });
+    const step = (id, deps) => writeFileSync(join(p.dataDir, "spec", "steps", `${id}-x.md`), `---\nid: "${id}"\ntype: step\nkind: feature\nstory: S001\nstatus: approved\ndependencies: [${deps.join(", ")}]\n---\n`);
+    step("P001", []); step("P002", ["P001"]); step("P003", ["P002"]);
+    let r = p.run(["step", "set-deps", "P003", "none"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /P003: waits for nothing \(was P002\)/);
+    assert.match(readFileSync(join(p.dataDir, "spec", "steps", "P003-x.md"), "utf8"), /^dependencies: \[\]$/m);
+    assert.equal(p.run(["step", "set-deps", "P003", "P001,P002"]).code, 0);
+    assert.match(readFileSync(join(p.dataDir, "spec", "steps", "P003-x.md"), "utf8"), /^dependencies: \[P001, P002\]$/m);
+    assert.match(p.run(["step", "set-deps", "P001", "P003"]).stderr, /already waits for P001/);
+    assert.match(p.run(["step", "set-deps", "P001", "P001"]).stderr, /cannot wait for itself/);
+    assert.match(p.run(["step", "set-deps", "P001", "P999"]).stderr, /P999 is not a step that exists/);
+    assert.match(readEvents(p), /"step_dependencies_set"[^\n]*"step":"P003"/);
+  } finally { p.cleanup(); }
 });

@@ -40,8 +40,8 @@
  *
  * COUNT SEMANTICS
  *
- * "Undispositioned" means an `IDEA-*.md` whose frontmatter `status` is neither
- * `graduated` nor `rejected`. This is a LIFETIME count over `spec/ideas/`, not
+ * "Undispositioned" means an `IDEA-*.md` whose frontmatter `status` is none of
+ * `promoted` (legacy `graduated`), `rejected`, `parked`. This is a LIFETIME count over `spec/ideas/`, not
  * a per-sprint one — which is why the config key is
  * `execution.max_undispositioned_ideas`. The legacy `max_ideas_per_sprint`
  * name described a scoping that was never implemented and read as a
@@ -51,12 +51,13 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { IDEA_DISPOSITIONED } from "./spec-lifecycle.mjs";
 
 /** Matches an idea file: IDEA-<anything>.md */
 const IDEA_FILE_RE = /^IDEA-.*\.md$/;
 
-/** Statuses that mean an idea has been dealt with and no longer counts. */
-const DISPOSITIONED = new Set(["graduated", "rejected"]);
+/** Statuses that mean an idea has been dealt with and no longer counts (v4: promoted|parked too; graduated read as promoted). */
+const DISPOSITIONED = new Set(IDEA_DISPOSITIONED);
 
 /**
  * Count `IDEA-*.md` files under `<dataDir>/spec/ideas` that are still awaiting

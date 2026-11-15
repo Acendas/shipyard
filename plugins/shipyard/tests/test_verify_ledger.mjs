@@ -25,9 +25,15 @@ import { join } from "node:path";
 
 import {
   LEDGER_BASENAME,
+  listVerifications,
   checkVerification,
   evaluateFreshness,
   recordVerification,
+  recordByCommand,
+  reuseByCommand,
+  commandKey,
+  inLedgerCheckout,
+  chainParts,
 } from "../bin/verify-ledger.mjs";
 
 function git(args, cwd) {
@@ -54,10 +60,10 @@ function makeFixture() {
 
 // --- record: refuses on a dirty tree ---------------------------------------
 
-test("record refuses when the working tree is dirty (never records)", () => {
+test("record refuses when a tracked file is changed (never records)", () => {
   const f = makeFixture();
   try {
-    writeFileSync(join(f.repo, "dirty.txt"), "uncommitted\n");
+    writeFileSync(join(f.repo, "a.txt"), "edited, not committed\n");
     const r = recordVerification(f.dataDir, {
       key: "unit",
       command: "run tests",
@@ -155,7 +161,7 @@ test("dirty tree at check time => stale, even though record was clean", () => {
   const f = makeFixture();
   try {
     recordVerification(f.dataDir, { key: "unit", command: "run tests", exitCode: 0, capturePath: f.capturePath });
-    writeFileSync(join(f.repo, "dirty.txt"), "uncommitted\n");
+    writeFileSync(join(f.repo, "a.txt"), "edited after the proof\n");
     const chk = checkVerification(f.dataDir, { key: "unit", command: "run tests" });
     assert.equal(chk.ok, false);
     assert.equal(chk.code, 3);
@@ -325,4 +331,185 @@ test("evaluateFreshness never returns fresh when project root cannot be resolved
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// --- a project that lives in a sub-folder of a larger repository (4.11.2) ----
+
+test("monorepo sub-project: untracked sibling folders do not block a proof; dirt inside the project still does, at record and at check", () => {
+  const f = makeFixture();
+  try {
+    // the repository holds two projects; only game/ is tracked, the sibling is somebody else's untracked work
+    mkdirSync(join(f.repo, "game"), { recursive: true });
+    writeFileSync(join(f.repo, "game", "main.c"), "int main(void){return 0;}\n");
+    git(["add", "-A"], f.repo);
+    git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "game"], f.repo);
+    mkdirSync(join(f.repo, "other-project"), { recursive: true });
+    writeFileSync(join(f.repo, "other-project", "notes.txt"), "untracked\n");
+    const args = { key: "full-suite", command: "make test", exitCode: 0, capturePath: f.capturePath };
+    // from the repository root the sibling's files are part of the fingerprint (4.13.1)
+    assert.equal(recordVerification(f.dataDir, { ...args, projectDir: f.repo }).ok, true);
+    assert.equal(JSON.parse(readFileSync(join(f.dataDir, "sprints", "current", LEDGER_BASENAME), "utf8"))["full-suite"].untrackedCount, 1);
+    // from the project's own folder the proof records, scoped to it
+    const rec = recordVerification(f.dataDir, { ...args, projectDir: join(f.repo, "game") });
+    assert.equal(rec.ok, true, rec.message);
+    const entry = JSON.parse(readFileSync(join(f.dataDir, "sprints", "current", LEDGER_BASENAME), "utf8"))["full-suite"];
+    assert.equal(entry.scope, "game");
+    assert.equal(entry.untrackedCount, 0, "scoped to the project: the sibling's files are not its business");
+    assert.equal(evaluateFreshness(f.dataDir, { key: "full-suite", command: "make test" }).fresh, true, "the check uses the recorded folder, wherever it is run from");
+    // a tracked file edited inside the project is still dirt
+    writeFileSync(join(f.repo, "game", "main.c"), "int main(void){return 1;}\n");
+    const stale = evaluateFreshness(f.dataDir, { key: "full-suite", command: "make test" });
+    assert.equal(stale.fresh, false); assert.match(stale.reason, /dirty right now \(under game\/\)/);
+    const again = recordVerification(f.dataDir, { ...args, projectDir: join(f.repo, "game") });
+    assert.equal(again.ok, false); assert.match(again.message, /a tracked file is changed under game\//);
+  } finally { f.cleanup(); }
+});
+
+// --- untracked files: a fingerprint, not a refusal (4.13.1) -------------------
+
+test("untracked files do not block a proof: it holds for the committed tree plus exactly those files, and goes stale when they change", () => {
+  const f = makeFixture();
+  try {
+    // a tool left a scratch folder in the project
+    mkdirSync(join(f.repo, ".tool-scratch"), { recursive: true });
+    writeFileSync(join(f.repo, ".tool-scratch", "page.yml"), "a snapshot\n");
+    const args = { key: "unit", command: "run tests", exitCode: 0, capturePath: f.capturePath };
+    const rec = recordVerification(f.dataDir, args);
+    assert.equal(rec.ok, true, rec.message);
+    const entry = JSON.parse(readFileSync(join(f.dataDir, "sprints", "current", LEDGER_BASENAME), "utf8")).unit;
+    assert.equal(entry.untrackedCount, 1); assert.match(entry.untracked, /^[0-9a-f]{64}$/);
+    assert.equal(evaluateFreshness(f.dataDir, { key: "unit", command: "run tests" }).fresh, true);
+    // a new untracked file could change what the build sees: the proof no longer applies
+    writeFileSync(join(f.repo, "new_source.c"), "int x;\n");
+    let stale = evaluateFreshness(f.dataDir, { key: "unit", command: "run tests" });
+    assert.equal(stale.fresh, false); assert.match(stale.reason, /untracked files changed since the proof was recorded/);
+    rmSync(join(f.repo, "new_source.c"));
+    assert.equal(evaluateFreshness(f.dataDir, { key: "unit", command: "run tests" }).fresh, true, "back to the recorded set");
+    // the same file with different content
+    writeFileSync(join(f.repo, ".tool-scratch", "page.yml"), "a different, longer snapshot\n");
+    stale = evaluateFreshness(f.dataDir, { key: "unit", command: "run tests" });
+    assert.equal(stale.fresh, false);
+    // an entry recorded before 4.13.1 (no fingerprint) was recorded with no untracked files at all
+    const lp = join(f.dataDir, "sprints", "current", LEDGER_BASENAME);
+    const ledger = JSON.parse(readFileSync(lp, "utf8")); delete ledger.unit.untracked; delete ledger.unit.untrackedCount;
+    writeFileSync(lp, JSON.stringify(ledger));
+    assert.equal(evaluateFreshness(f.dataDir, { key: "unit", command: "run tests" }).fresh, false);
+    rmSync(join(f.repo, ".tool-scratch"), { recursive: true });
+    assert.equal(evaluateFreshness(f.dataDir, { key: "unit", command: "run tests" }).fresh, true);
+  } finally { f.cleanup(); }
+});
+
+test("verify list: every recorded proof with its state now, and the full suite's key is named", () => {
+  const f = makeFixture();
+  try {
+    assert.deepEqual(listVerifications(f.dataDir), []);
+    recordVerification(f.dataDir, { key: "sprint_full_tests", command: "make test", exitCode: 0, capturePath: f.capturePath });
+    let rows = listVerifications(f.dataDir);
+    assert.equal(rows.length, 1);
+    assert.deepEqual([rows[0].key, rows[0].fresh, rows[0].command], ["sprint_full_tests", true, "make test"]);
+    writeFileSync(join(f.repo, "a.txt"), "edited after the proof\n");
+    rows = listVerifications(f.dataDir);
+    assert.equal(rows[0].fresh, false); assert.match(rows[0].reason, /dirty/);
+  } finally { f.cleanup(); }
+});
+
+// --- 4.0: evidence instead of a second run ----------------------------------
+
+const commit = (repo, files, msg) => {
+  for (const [f, c] of Object.entries(files)) { mkdirSync(join(repo, f, ".."), { recursive: true }); writeFileSync(join(repo, f), c); }
+  git(["add", "-A"], repo);
+  git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", msg], repo);
+};
+
+test("a proof is found by its command, whatever name it was recorded under", () => {
+  const f = makeFixture();
+  try {
+    recordVerification(f.dataDir, { key: "wave_2_tests", command: "make -k test", exitCode: 0, capturePath: f.capturePath });
+    const chk = checkVerification(f.dataDir, { key: "test_commands.unit", command: "make -k test" });
+    assert.equal(chk.code, 0, chk.message);
+    assert.equal(checkVerification(f.dataDir, { key: "test_commands.unit", command: "make test" }).code, 3, "another command is not proven");
+    assert.equal(evaluateFreshness(f.dataDir, { key: "test_commands.unit" }).fresh, false, "no command named: only the key counts");
+    assert.deepEqual(listVerifications(f.dataDir).map((r) => r.key), ["wave_2_tests"], "the command twin is not listed twice");
+    commit(f.repo, { "a.txt": "two\n" }, "change");
+    assert.equal(checkVerification(f.dataDir, { key: "test_commands.unit", command: "make -k test" }).code, 3);
+  } finally { f.cleanup(); }
+});
+
+test("a project in a folder of a larger repository: a commit in a sibling folder keeps the proof", () => {
+  const f = makeFixture();
+  try {
+    commit(f.repo, { "game/src/a.c": "a\n", "other/x.txt": "x\n" }, "two projects");
+    const projectDir = join(f.repo, "game");
+    recordVerification(f.dataDir, { key: "unit", command: "run tests", exitCode: 0, capturePath: f.capturePath, projectDir });
+    commit(f.repo, { "other/x.txt": "changed\n" }, "sibling project");
+    assert.equal(checkVerification(f.dataDir, { key: "unit", command: "run tests" }).code, 0, "nothing under game/ changed");
+    commit(f.repo, { "game/src/a.c": "b\n" }, "the project itself");
+    assert.equal(checkVerification(f.dataDir, { key: "unit", command: "run tests" }).code, 3);
+  } finally { f.cleanup(); }
+});
+
+test("verify_ignore: a commit that touches only listed paths keeps the proof; changing the list drops it", () => {
+  const f = makeFixture();
+  try {
+    writeFileSync(join(f.dataDir, "config.md"), "---\nverify_ignore: [CHANGELOG.md, docs/]\n---\n");
+    commit(f.repo, { "CHANGELOG.md": "v1\n", "docs/design.md": "d\n" }, "docs");
+    recordVerification(f.dataDir, { key: "unit", command: "run tests", exitCode: 0, capturePath: f.capturePath });
+    commit(f.repo, { "CHANGELOG.md": "v2\n", "docs/design.md": "d2\n" }, "only documents");
+    assert.equal(checkVerification(f.dataDir, { key: "unit", command: "run tests" }).code, 0);
+    commit(f.repo, { "a.txt": "code\n", "CHANGELOG.md": "v3\n" }, "code too");
+    assert.equal(checkVerification(f.dataDir, { key: "unit", command: "run tests" }).code, 3);
+    recordVerification(f.dataDir, { key: "unit", command: "run tests", exitCode: 0, capturePath: f.capturePath });
+    writeFileSync(join(f.dataDir, "config.md"), "---\nverify_ignore: [CHANGELOG.md]\n---\n");
+    const chk = checkVerification(f.dataDir, { key: "unit", command: "run tests" });
+    assert.equal(chk.code, 3);
+    assert.match(chk.message, /verify_ignore list changed/);
+  } finally { f.cleanup(); }
+});
+
+test("a green run is proof only in the checkout the ledger is about: a builder's worktree records nothing and reuses nothing", () => {
+  const f = makeFixture();
+  const cwd = process.cwd();
+  try {
+    const wt = join(f.root, "wt");
+    git(["worktree", "add", "-q", "-b", "shipyard/wt-P001", wt], f.repo);
+    process.chdir(wt);
+    assert.equal(inLedgerCheckout(f.dataDir), false);
+    assert.equal(recordByCommand(f.dataDir, { command: "make -k test", capturePath: f.capturePath }), false);
+    process.chdir(f.repo);
+    assert.equal(reuseByCommand(f.dataDir, "make -k test"), null, "nothing was recorded from the worktree");
+    assert.equal(recordByCommand(f.dataDir, { command: "make -k test", capturePath: f.capturePath }), true);
+    assert.equal(reuseByCommand(f.dataDir, "make -k test")?.key, commandKey("make -k test"));
+    process.chdir(wt);
+    assert.equal(reuseByCommand(f.dataDir, "make -k test"), null, "the main checkout's proof says nothing about the worktree's code");
+  } finally { process.chdir(cwd); f.cleanup(); }
+});
+
+test("an entry recorded before 4.0 (whole-repository tree, no idKind) is still honoured", () => {
+  const f = makeFixture();
+  try {
+    recordVerification(f.dataDir, { key: "unit", command: "run tests", exitCode: 0, capturePath: f.capturePath });
+    const p = join(f.dataDir, "sprints", "current", LEDGER_BASENAME);
+    const led = JSON.parse(readFileSync(p, "utf8"));
+    delete led.unit.idKind; delete led.unit.ignore;
+    led.unit.treeId = git(["rev-parse", "HEAD^{tree}"], f.repo).trim();
+    writeFileSync(p, JSON.stringify(led));
+    assert.equal(checkVerification(f.dataDir, { key: "unit", command: "run tests" }).code, 0);
+  } finally { f.cleanup(); }
+});
+
+test("a green `a && b && c` run proves each part; anything fancier is not split (4.0)", () => {
+  assert.deepEqual(chainParts("zsh -c make && make -k -j8 test && make ui-check"), ["make", "make -k -j8 test", "make ui-check"]);
+  assert.deepEqual(chainParts("make -k -j8 test"), []);
+  assert.deepEqual(chainParts("sh -c cd src && make test"), [], "a cd changes what the next part means");
+  assert.deepEqual(chainParts("make test >/dev/null && make check"), []);
+  assert.deepEqual(chainParts("make test | tee log && make check"), []);
+  assert.deepEqual(chainParts("make test; make check && make x"), []);
+  const f = makeFixture();
+  const cwd = process.cwd();
+  try {
+    process.chdir(f.repo);
+    assert.equal(recordByCommand(f.dataDir, { command: "zsh -c make && make -k -j8 test && make ui-check", capturePath: f.capturePath }), true);
+    assert.equal(checkVerification(f.dataDir, { key: "test_commands.unit", command: "make -k -j8 test" }).code, 0, "the test tier is proven by the step's chain");
+    assert.equal(checkVerification(f.dataDir, { key: "test_commands.unit", command: "make -j8 test" }).code, 3);
+  } finally { process.chdir(cwd); f.cleanup(); }
 });

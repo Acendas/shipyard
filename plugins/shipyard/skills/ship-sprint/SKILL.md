@@ -4,7 +4,7 @@ description: "Plan a new sprint or cancel an active one."
 allowed-tools: [Read, Write, Edit, Grep, Glob, LSP, Agent, AskUserQuestion, WebSearch, WebFetch, TaskCreate, TaskUpdate, TaskList, "Bash(shipyard-context:*)", "Bash(shipyard-data:*)"]
 model: opus
 effort: low
-argument-hint: "[--cancel]"
+argument-hint: "[--cancel] [--hours <n> | --until <time>]"
 ---
 
 # Shipyard: Sprint Planning
@@ -15,15 +15,13 @@ Plan a new sprint by pulling features from the backlog and decomposing into wave
 
 !`shipyard-context sprint-planning`
 
-**Paths.** All Shipyard file ops use the absolute SHIPYARD_DATA prefix from the context block (no `~`, `$HOME`, or shell variables). Shipyard binaries you may invoke from Bash: `shipyard-data archive-sprint <id>`, `shipyard-data metrics ...`, `shipyard-data init-sprint <id>` (Step 12), `shipyard-data draft set-sprint-status ...`, `shipyard-data sprint set <key> <value>` and `shipyard-data sprint check` (Step 12). **Never `cd` into the data directory before running `shipyard-data` commands** — they resolve the data directory internally via git and env vars; `cd`-ing into a non-git directory breaks the resolver. Just run the command bare from the project root. **Never use `echo`, `printf`, or shell redirects (`>`) to write state files.** SPRINT.md and PROGRESS.md are created by the `init-sprint` CLI (template-canonical); **SPRINT.md frontmatter is thereafter mutated only via `shipyard-data sprint set`, never a hand Edit** (hand-editing frontmatter is the corruption class that welds keys together). **PROGRESS.md and the pipeline cursors are CLI/render-owned — the model never writes them** (a PreToolUse hook denies such writes). Metrics are CLI-owned: `memory/metrics.json` is authoritative and `memory/metrics.md` is generated; never Write/Edit either metrics file by hand. Use the Write tool (auto-approved for SHIPYARD_DATA) for arbitrary *narrative* artifacts (feature files, task files, SPRINT-DRAFT.md); the SPRINT.md *body* (Goal, `### Wave N`, Critical Path, Risks, Swap Log) stays a model Edit on the CLI-created file. When passing paths into spawned Agent prompts, substitute the literal SHIPYARD_DATA path.
+**Shell.** Shipyard binaries you may invoke from Bash: `shipyard-data archive-sprint <id>`, `shipyard-data metrics ...`, `shipyard-data init-sprint <id>` (Step 12), `shipyard-data draft set-sprint-status ...`, `shipyard-data sprint set <key> <value>` and `shipyard-data sprint check` (Step 12). Run commands bare from the project root. SPRINT.md and PROGRESS.md are created by the `init-sprint` CLI; **SPRINT.md frontmatter is thereafter mutated only via `shipyard-data sprint set`, never a hand Edit** (hand-editing frontmatter is the corruption class that welds keys together). **PROGRESS.md and the pipeline cursors are CLI/render-owned — the model never writes them** (a PreToolUse hook denies such writes). Metrics are CLI-owned: `memory/metrics.json` is authoritative and `memory/metrics.md` is generated; never Write/Edit either metrics file by hand. Use the Write tool for arbitrary *narrative* artifacts (story files, step files, SPRINT-DRAFT.md); the SPRINT.md *body* (Goal, `### Wave N`, Critical Path, Risks, Swap Log) stays a model Edit on the CLI-created file.
 
-**Onboarding gate.** If the bundled context contains `SHIPYARD_ONBOARDING_REQUIRED=true`, run the exact `SHIPYARD_ONBOARDING_COMMAND` once with Bash, report the CLI output to the user, and STOP. Do not infer setup state by reading or writing Shipyard state files; onboarding decisions are CLI-owned.
+**Render before asking.** Follow SHIPYARD_STARTUP_RULES and SHIPYARD_ONBOARDING_INSTRUCTION from startup.
 
-**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, an analyst report, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — if the user needs it to decide, quote or summarize it as assistant chat text immediately above the ask.
+**Quiet by default.** Between user-input gates work quietly; render feature lists, wave breakdowns, and quality-gate results in full only at a gate (render-before-ask). **No running commentary** ("Now I'll…", "Let me…"). Doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
 
-**Quiet by default.** Between user-input gates, work quietly — run analysis, dispatch analysts, and write draft files without narrating each step. Only three things reach the chat outside a gate: a one-line transition marker per boundary (step), the compact projection/wave-timeline blocks, and a one-line banner when launching or receiving background analysis. Feature lists, wave breakdowns, and quality-gate results are rendered in full ONLY at a gate (render-before-ask — e.g. Step 2 selection, Step 11 plan approval) — between gates, analysis collapses to a one-line result. **No running commentary** ("Now I'll…", "Let me…", explaining a no-input step). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
-
-**Capability-skill playbooks.** Where a step says *"follow the `X` playbook"* or "dispatch `X`", X is a capability skill — **Read** `${CLAUDE_PLUGIN_ROOT}/skills/<X>/SKILL.md` and execute it inline; never hand it to the `Skill` tool (capability skills are `disable-model-invocation: true`, so `Skill` refuses them). There is no legacy loop skill fallback; command skills are driven by their CLI state and `/goal` where autonomous re-entry is needed.
+**Capability-skill playbooks.** Where a step says *"follow the `X` playbook"* or "dispatch `X`", X is a capability skill — **Read** `${CLAUDE_PLUGIN_ROOT}/skills/<X>/SKILL.md` and execute it inline; never hand it to the `Skill` tool (capability skills are `disable-model-invocation: true`, so `Skill` refuses them).
 
 ## Input
 
@@ -31,19 +29,20 @@ $ARGUMENTS
 
 ## Session Mutex Check
 
-**Absolute first context action — before mode detection, before any manual reads.** The `shipyard-context sprint-planning` pre-exec block above acquires the planning lock and returns the planning context bundle in one CLI call. If that context contains `SHIPYARD_LOCK_ACQUIRED=false`, echo the `SHIPYARD_LOCK_BLOCKED:` `⛔` block text verbatim as the entire response and STOP — do not continue with any other instructions, do not call any other tools. If it contains `SHIPYARD_LOCK_NOTICE:`, echo that stale/corrupt-lock recovery line once, then proceed. Do not run a separate lock-acquire call; the bundled context command already did it (see the `acquiring-skill-lock` capability skill for the full contract — locks are CLI-owned as of v3.7.0, never Read or Write either lock file by hand).
+**Absolute first context action — before mode detection, before any manual reads.** The `shipyard-context sprint-planning` pre-exec block above acquires the planning lock and returns the planning context bundle in one CLI call. If that context contains `SHIPYARD_LOCK_ACQUIRED=false`, echo the `SHIPYARD_LOCK_BLOCKED:` `⛔` block text verbatim as the entire response and STOP — do not continue with any other instructions, do not call any other tools. If it contains `SHIPYARD_LOCK_NOTICE:`, echo that stale/corrupt-lock recovery line once, then proceed. Do not run a separate lock-acquire call; the bundled context command already did it (see the `acquiring-skill-lock` capability skill for the full contract — locks are CLI-owned; never Read or Write either lock file by hand).
 
 ## Detect Mode
 
 - If `--cancel` → CANCEL mode
-- If active sprint exists and is not complete:
-  Read current sprint state — features, tasks per wave, progress (`current_wave` from PROGRESS.md), remaining capacity (capacity minus completed story points).
+- `--hours <n>` / `--until <ISO time | HH:MM>` → an optional TIME budget for PLAN mode (points stay the default). Carry the flag verbatim into Step 1's `shipyard-data capacity` call; never convert hours to points yourself. Both flags, or a time flag plus a points answer, is a usage error the CLI reports — relay it and ask the user to pick one.
+- If the context has `SHIPYARD_NEXT_SPRINT_READY=<id>` → an approved sprint is waiting and nothing is running: **Read and follow** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/draft-ahead.md` § "Promote".
+- If the context has `SHIPYARD_SPRINT_PLAN_MODE=draft-ahead` (a sprint is running or waiting for its review; planning is never blocked by it):
+  Read current sprint state — stories, steps per wave, progress, remaining capacity. Write one short summary in chat, then ask one question:
 
-  AskUserQuestion: "Sprint [ID] is active ([N]/[M] tasks done, wave [W], [X] pts remaining of [Y] capacity). What would you like to do? (add features / cancel and replan / finish current first)"
-
-  - **add features** → EXTEND mode
-  - **cancel and replan** → CANCEL mode, then PLAN mode
-  - **finish current first** → abort, suggest `/ship-execute`
+  - **Draft the next sprint (Recommended)** → PLAN mode, drafted ahead: **Read and follow** `references/draft-ahead.md` § "Draft ahead" on top of PLAN mode. The running sprint is not touched.
+  - **Add stories to the running sprint** → EXTEND mode. Offer only when `SHIPYARD_RUNNING_BESIDE` names neither `ship-execute` nor `ship-review`.
+  - **Cancel it and replan** → CANCEL mode, then PLAN mode. Same condition.
+  - **Wait** → stop; suggest `/ship-execute` or `/ship-review`.
 
 - If completed sprint exists in `current/` (status: `completed` but not archived):
   Show what was found:
@@ -55,7 +54,9 @@ $ARGUMENTS
   ```
 
   Handle cleanup transparently:
-  1. Archive by running `shipyard-data archive-sprint sprint-NNN` from Bash (substitute the real sprint ID). This atomically records velocity from delivered features, renames `<SHIPYARD_DATA>/sprints/current/` → `<SHIPYARD_DATA>/sprints/sprint-NNN/`, and recreates an empty `current/`. Do NOT synthesize raw `cp`/`mv`/`mkdir` commands against the plugin data dir — they're not portable and not atomic. The `shipyard-data archive-sprint` invocation works because this skill has `Bash(shipyard-data:*)` in its allowlist.
+  1. Archive by running `shipyard-data archive-sprint sprint-NNN` from Bash (substitute the real sprint ID). This atomically records velocity from delivered features, renames `<SHIPYARD_DATA>/sprints/current/` → `<SHIPYARD_DATA>/sprints/sprint-NNN/`, and recreates an empty `current/`. Do NOT synthesize raw `cp`/`mv`/`mkdir` commands against the plugin data dir — they're not portable and not atomic.
+  <!-- AC-6 -->
+  If `archive-sprint` exits non-zero (the CLI refuses a completed sprint that `/ship-review` never processed), show the CLI's reason, tell the user review is pending, and AskUserQuestion: **Run /ship-review first (Recommended)** → stop and tell the user to run `/ship-review`; **Archive anyway** → run `shipyard-data archive-sprint sprint-NNN --unreviewed`.
   2. Report: "Archived sprint [ID]. Velocity recorded for the next sprint."
   3. Then proceed to PLAN mode
 
@@ -63,451 +64,22 @@ $ARGUMENTS
 
 ---
 
-### Compaction Recovery
-
-If you lose context mid-planning (e.g., after auto-compaction):
-
-0. **Call `TaskList()` first.** If the step-checklist tasks from PLAN mode Step 0 are present, the last `in_progress` (or first non-`completed`) task names the step to resume — a structured position anchor. Confirm against the file evidence below before resuming (tasks are a mirror, not authority; if tasks and files disagree, the files win).
-
-1. Run `shipyard-context draft-state sprint` to inspect the draft checkpoint state, then use the Read tool on `<SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md` for the narrative plan body only (substitute the literal SHIPYARD_DATA path).
-   - If draft exists, check staleness: read `created` from frontmatter. If the draft is from a previous session (more than a few hours old) → AskUserQuestion with options labeled by their content, never abstract keep/discard verbs: **"Resume the draft with [F009, F011]"** / **"Discard it and replan from the backlog"** (choosing discard overwrites the existing draft). Naming the features makes the choice concrete.
-   - If current/resumed → load it, skip to Step 11 (Present Plan and Confirm)
-   - If "start fresh" → use the Write tool to overwrite SPRINT-DRAFT.md with the new draft content (no separate delete step needed; Write replaces).
-2. If no draft, use Grep with `pattern: ^status: approved`, `path: <SHIPYARD_DATA>/spec/tasks`, `glob: T*.md`, `output_mode: files_with_matches` to find recently-created task files
-   - Group by parent feature (each task has `feature:` in frontmatter)
-   - **Verify completeness**: confirm all selected features have at least one task file. If any features have no tasks, those were not yet decomposed — fall through to branch 3 (restart from Step 1) rather than presenting an incomplete plan
-   - These are the features selected in Step 2, decomposed in Step 4
-   - Re-derive wave structure from task dependency fields (Steps 5-9)
-   - Write SPRINT-DRAFT.md, proceed to Step 10
-3. If no draft and no new task files → planning hadn't progressed past Step 3; restart from Step 1
-
-The draft captures the full sprint plan (waves, critical path, execution mode). Task files capture the decomposition. Between these two, full state reconstructs from files.
-
----
-
 ## PLAN Mode
 
-**Communication design:** Follow the 3-layer explanation pattern and hard targets from `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` for all user-facing questions. Frame velocity as what's achievable, not limiting: "Based on past sprints, you can comfortably deliver ~20 points" not "Your velocity limits you to 20 points." When capacity is exceeded, name the tradeoff: "Ambitious (proceed, risk overrun)" vs "Focused (drop F-005, clean finish)" vs "Flexible (you pick what to drop)."
+**Read** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/plan-mode.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/plan-shared-steps.md` then follow.
 
-### Step 0: Create the Step Checklist (task list)
-
-On entering PLAN mode, `TaskCreate` one task per step so the user can watch the plan take shape and no step gets silently skipped:
-
-| # | Subject |
-|---|---------|
-| 1 | Step 0.5: Idea Backlog Gate |
-| 2 | Step 1: Determine Capacity |
-| 3 | Step 1.5: Carry-Over Scan |
-| 4 | Step 2: Select Features |
-| 5 | Step 3: Research Before Planning |
-| 6 | Step 3.5: Rules Compliance Check |
-| 7 | Step 3.55: Terminology Alignment Check |
-| 8 | Step 3.6: Definition of Ready Gate |
-| 9 | Step 3.7: Surface Implementation Decisions |
-| 10 | Step 3.75: Simplification Scan |
-| 11 | Step 4: Decompose Tasks (5-stage protocol) |
-| 12 | Step 5: Build Task Dependency Graph |
-| 13 | Step 6: Find the Bottleneck |
-| 14 | Step 7: Wave Assignment |
-| 15 | Step 8: Determine Execution Mode |
-| 16 | Step 9: Prepare Sprint Plan |
-| 17 | Step 9.5: Quality Gate (self-review loop) |
-| 18 | Step 9.7: Adversarial Critique |
-| 19 | Step 10: Generate Quality Gate Manifest |
-| 20 | Step 11: Present Sprint Plan |
-| 21 | Step 12: Create Sprint (after approval) |
-
-Create all 21 in one batch (subjects prefixed with a plan slug, e.g. `[sprint-plan] Step 7: Wave Assignment`). `TaskUpdate` to `in_progress` when a step starts, `completed` when it ends. A legitimately-skipped step (nothing to carry over, no data-model concern) is marked `completed` with `skipped: <reason>` in the description — never deleted silently.
-
-**Guardrail (load-bearing): the task list is a progress surface and a recovery anchor, NEVER authority.** Do not gate any behavior on TaskList state, do not cite task status as evidence a step ran, and never mark a step's task completed before its file artifacts exist (task files, SPRINT-DRAFT.md, the manifest). SPRINT-DRAFT.md, the task files, and the event log remain the record; tasks are the user-visible mirror. (Note: /ship-execute track mode also uses the task system for *build* tasks — the `[sprint-plan] Step N:` subject prefix keeps the planning checklist distinguishable.)
-
-### Step 0.5: Idea Backlog Gate
-
-Run `shipyard-data check-idea-backlog`. **Exit 0 → proceed to Step 1 silently** (do not report a passing gate). **Exit 3 → the undispositioned idea backlog is over cap and you must stop before spending any planning work.**
-
-This gate exists because capture is deliberately unblockable: `next-id ideas` always allocates, so builders and reviewers never lose a finding to a full backlog. The cost of that is paid here — at the one moment where an ungroomed backlog is genuinely a decision to defer rather than a bookkeeping lag.
-
-On exit 3, echo the CLI's stderr text, then AskUserQuestion with exactly three options:
-
-1. **Groom now** (recommended) — stop planning and hand off to `/ship-backlog`. Most over-cap backlogs are dominated by ideas that are already stale, duplicated, or fixed; a grooming pass usually clears the cap in one sitting.
-2. **Raise the cap** — run `shipyard-data config set max-undispositioned-ideas <n>`. The honest choice when the project genuinely runs a large idea pool and the old number was wrong.
-3. **Accept and plan anyway** — run `shipyard-data events emit idea_backlog_accepted count=<current count>` (take the count from the CLI's message), then proceed. The event covers the backlog only while it stays at or below that count, so this is a one-time acknowledgement, not a permanent bypass.
-
-**Never emit `idea_backlog_accepted` without the user picking option 3.** It is the logged escape hatch, not a way past a gate you found inconvenient.
-
-### Step 1: Determine Capacity
-
-Use the Read tool on `<SHIPYARD_DATA>/memory/metrics.json` when it exists; otherwise read `<SHIPYARD_DATA>/memory/metrics.md` as the legacy fallback. For capacity, prefer the last 3 entries in `velocity.recent[].points` from metrics.json. Legacy fallback: look for `Velocity: N pts` lines from prior sprints and average the last 3.
-
-For projections, prefer the last 3 entries in `throughput.recent[].points_per_hour` from metrics.json. Legacy fallback: scan metrics.md for `Throughput:` lines (format: `Throughput: X.X pts/hr (N pts in M.M hrs active)  # Sprint NNN`). Extract the float value before `pts/hr` from each line. Average the last 3 values (or all available if fewer than 3 exist) → `avg_throughput`. If no throughput data exists, `avg_throughput` is null.
-
-**Decide-and-inform when velocity data exists** (evidence converges, two-way door — capacity is re-litigated at feature selection and by the >10% overage rule, so it's never a one-way commit). State one line and proceed — do NOT ask:
-
-```
-Capacity ~[N] pts (rolling velocity, last 3 sprints) — say 'change' to adjust.
-```
-
-If the user says 'change', take the new figure for the rest of this session. **First sprint / no velocity data** is the one genuine unknown → keep ONE AskUserQuestion: "No prior velocity data. How many story points for this sprint? (Recommended: 20 for solo dev)". Use the answer for the rest of the session.
-
-**Do not ask "save as default" here** — that decision folds into the Step 11 plan-approval AskUserQuestion as one of its questions, so capacity costs zero extra interruptions on a returning project.
-
-### Step 1.5: Carry-Over Scan
-
-Before selecting features, scan for unfinished work from previous cycles. These items take priority over new features — they represent commitments already made.
-
-See `references/carry-over-scan.md` for the full scan procedure (six scan locations: open bugs, blocked tasks, carried-over ideas with recency filter, in-progress features, silent-pass suspects, needs-attention escalations), the canonical display block, and the disposition prompt (all / pick / skip).
-
-### Step 2: Select Features
-
-Read BACKLOG.md (which contains only feature IDs and rank order). For each ID, read the feature file to get title, RICE, points, status, complexity.
-
-If no approved features exist in the backlog and no carry-over items were selected → AskUserQuestion: "No approved features in the backlog. Would you like to: (1) run /ship-discuss to define features, (2) run /ship-backlog to groom existing items, or (3) pull a specific feature ID?"
-
-**Display the actual features with real data before asking the user to choose.** Never ask "which features?" without showing them first.
-
-Output the feature list as formatted text:
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- AVAILABLE FEATURES (sorted by RICE)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- 1. F009 — Maintenance Requests
-    Points: 8 | RICE: 32.1 | Complexity: medium
-
- 2. F011 — Payment Reminders
-    Points: 5 | RICE: 28.4 | Complexity: low
-
- 3. F004 — Bulk Fee Import
-    Points: 13 | RICE: 24.0 | Complexity: high
-
- Capacity: ~20 pts (from velocity)
- Suggested: F009 + F011 = 13 pts (7 pts room)
-
- PROJECTIONS
- ⏱ Time:   ~1.6 hrs (8.2 pts/hr avg, last 3 sprints)
- 🎟 Tokens: ~650K estimated (F009: ~250K, F011: ~400K)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-**Projection display rules:**
-
-**Time projection:**
-- Read `avg_throughput` from metrics.json when present, falling back to metrics.md (average pts/hr from last 3 sprints)
-- If available: `Time: ~M.M hrs (X.X pts/hr avg, last N sprints)` — computed as `selected_pts / avg_throughput`
-- If not available (first sprint): `Time: unknown (will appear after first sprint completes)`
-
-**Token projection:**
-- Sum `token_estimate` from each selected feature file's frontmatter
-- Show per-feature breakdown and total: `Tokens: ~NNK estimated (F001: ~250K, F002: ~400K)`
-- If `token_estimate` is 0 on any feature, note: `Tokens: partially estimated — F003 has no token estimate yet`
-
-**As features are selected and total points change**, update both projections:
-```
-Selected: 13 pts | ~1.6 hrs | ~650K tokens
-```
-
-These projections help the user answer "Do I have enough time?" and "Will I exhaust my token quota?".
-
-Then AskUserQuestion: "Which features for this sprint? (list IDs, or 'suggested' to accept)"
-
-### Step 3: Research Before Planning
-
-Apply the planning checklists from `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/planning-checklists.md` throughout Steps 3-9 (Definition of Ready, cross-cutting concerns, risk register, MoSCoW, three-point estimation, test strategy).
-
-**Delegate per-feature research to `general-purpose` subagents in sprint-analyst mode — one per selected feature, all spawned in parallel** (single message, N tool calls). Each analyst returns a structured `SPRINT ANALYST REPORT`.
-
-See `references/sprint-analyst-report.md` for the full analyst-dispatch prompt template and report schema. Use the analyst output directly in Step 4 task decomposition. If a report flags low-confidence findings, the orchestrator validates them inline (LSP first, then Grep / WebSearch).
-
-### Planning-decisions round (Steps 3.5–3.75) — confidence-gated, batched
-
-Steps 3.5 (rule violations), 3.55 (terminology), 3.7 (implementation decisions), and 3.75 (simplification routing) all surface *decisions*. Run them through the confidence gate + kill-list from `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/question-design.md` before asking anything:
-
-- **HIGH tier** (evidence converges AND two-way door) → **decide and inform.** Print one line — `Going with X — [≤10-word why]. (say 'change' to override)` — and log an `ASSUMED: <decision> — <evidence> — reversible: yes` entry in the relevant feature's `## Decision Log`. Never for one-way doors (schema shapes, external/API contracts, auth, migrations — those stay asks).
-- **MEDIUM / LOW** → batch into ONE `AskUserQuestion` call across all four steps (≤4 questions, recommended option first + labeled; a 2nd call only on genuine overflow where the first answers fork the design).
-
-Before firing the batched call, render each batched decision as chat text — options, tradeoffs, what the codebase/research found, and the recommendation for every question in the batch. Detection output sitting in an analyst report, a Read result, or the reference files does not count as rendered, and packing tradeoffs into the option strings does not count — the AskUserQuestion card is too small to carry them.
-
-The audit point is the **ASSUMPTIONS MADE** list in the Step 11 plan summary — one cheap veto surface instead of N interruptions. Each step below still does its detection work; the gate only governs what reaches the user.
-
-### Step 3.5: Rules Compliance Check
-
-Verify selected features comply with current project rules — rules may have been added or updated AFTER features were discussed. See `references/spec-validation.md` § "Step 3.5" for the contradiction-detection process and the per-violation AskUserQuestion options (update spec / send back to discuss / override rule / remove scenario). Features sent back to discuss are removed from this sprint's selection.
-
-### Step 3.55: Terminology Alignment Check
-
-Verify spec language matches what the codebase actually calls things. See `references/spec-validation.md` § "Step 3.55" for term-extraction, codebase search, mismatch-table format, and the per-mismatch AskUserQuestion (update spec / update code / keep both). Skip on greenfield. Update feature files with resolved terminology before decomposing tasks.
-
-### Step 3.6: Definition of Ready Gate
-
-Before decomposing, verify each feature is ready. Run the DoR checks, Cross-Cutting Concerns Audit, and Knowledge Gap Assessment from `planning-checklists.md`. See `references/spec-validation.md` § "Step 3.6" for details and the auto-generate-SME-skill subagent dispatch prompt for clustered knowledge gaps.
-
-### Step 3.7: Surface Implementation Decisions
-
-After research, identify every point where there's a meaningful choice — don't silently pick one. Score each through the confidence gate (Planning-decisions round, above): HIGH-tier two-way-door calls become one-line `Going with X` inform + `ASSUMED:` log entries; MEDIUM/LOW join the batched AskUserQuestion. If research can't resolve a decision, offer a POC spike (options: spike it / pick one / defer).
-
-See `references/implementation-decisions.md` for the full catalogue of decision-point types, the explanation/AskUserQuestion templates, the POC spike subagent dispatch (`isolation: "worktree"`, throwaway), and Decision Log recording. Write findings into each task file's `## Technical Notes` after Step 4 creates them — do not echo the template back into conversation.
-
-### Step 3.75: Simplification Opportunity Scan
-
-Now that research has identified libraries, patterns, and utilities this sprint will introduce, scan the codebase for simplification opportunities. See `references/implementation-decisions.md` § "Step 3.75" and the full protocol at `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/simplification-scan.md`.
-
-Skip if no selected feature introduces new libraries/utilities/patterns. Routing: trivial → extend existing task; small → new cleanup task in final wave; medium/large → IDEA file. Scope guard: trivial+small ≤ 20% of sprint capacity. Then AskUserQuestion: "Apply these simplification opportunities? (all / pick / skip)".
-
-### Steps 4-7: Decomposition Deep-Dive (dispatched to a think-tier agent)
-
-Steps 4-7 (task decomposition via the 5-stage protocol, dependency graph, bottleneck, wave assignment) are the heaviest analytical work in planning. Dispatch them as **ONE** deep-dive agent so the shell's context isn't burned holding every feature tree, the full splitting-pattern catalogue, and the decomposition reasoning. The shell keeps the user gates (Steps 3.5-3.7, 8-12), all validation, final task-file writes, and CLI-owned feature `tasks:` updates; the agent owns the decompose-and-wave analysis and returns draft task specs.
-
-**Model tier (think)** — read `models.think` from `<SHIPYARD_DATA>/config.md` (the context block above already carries config, or Read it). If non-empty, pass `model: <value>` on the `Agent(...)` call; if empty or absent, OMIT `model:` so the agent inherits the session model. Never hardcode a literal.
-
-**Effort tier (think)** — read `agent_effort.think` from config.md; default `high`. If non-empty, pass `effort: <value>` on the `Agent(...)` call; if empty or absent, OMIT `effort:`.
-
-**Dispatch** a single `Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, effort: <agent_effort.think — omit if empty>)` with a prompt that inlines:
-
-- The selected features (their file paths under `<SHIPYARD_DATA>/spec/features/`, plus any Step 3 analyst reports / Step 3.7 decisions already gathered).
-- Capacity (the story-point budget from Step 1).
-- Config knobs: `max_parallel_agents` and the execution-mode thresholds (from the config block).
-- The literal SHIPYARD_DATA path (substitute it — the agent may Read from it, but final task writes happen in the shell after gates resolve).
-- The reference path `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/wave-decomposition.md`, which the agent **Reads and follows** — it is the full protocol for all four steps (Stage 1 map AC → drafts; Stage 2 walking-skeleton foundation → Wave 1; Stage 3 splitting patterns via `splitting-stories`; Stage 4 Red step + acceptance probe via `authoring-acceptance-probe` + write task file; Stage 5 effort; then Steps 5-7 dependency graph / bottleneck / wave assignment). The agent also reads `references/task-decomposition-patterns.md`, `references/task-kinds.md`, and `references/task-tech-notes-template.md` as that protocol directs, applies the kind auto-classifier, the >8-item task-size guard, and the wave-width caps (read `execution.max_tasks_per_wave`, `execution.merge_independent_layers`, and `execution.max_tasks_per_wave_merged` from config; keep a mutually-independent layer intact up to the merged cap rather than splitting it into waves that have no dependency on each other yet execute in series, and split beyond it along track boundaries per the protocol — wave COUNT is never capped), and runs the INVEST output check.
-
-**Draft-first handoff.** The deep-dive returns draft task specs, gate flags, the wave plan, the critical path, and bottleneck; it does **not** write final task files and does **not** run `shipyard-data feature set-tasks`. The shell resolves any required AskUserQuestion gates before writing final task files. After all gates resolve, the shell allocates IDs with `shipyard-data next-id tasks`, Writes each `<SHIPYARD_DATA>/spec/tasks/TNNN-<slug>.md` from the template, then updates each parent feature's CLI-owned `tasks:` frontmatter array with `shipyard-data feature set-tasks <FID> <TID,TID,...>` after the final task files exist; never hand-Edit `tasks:`.
-
-**Return contract (the agent's final text):** draft task specs grouped by parent feature (title, kind candidate, acceptance probe or verify/research fields, effort, dependencies, Technical Notes including `First failing test:` for feature tasks), the gate flags requiring shell AskUserQuestion, the draft wave plan, the critical path, the bottleneck, and points per wave. Use provisional labels (`draft-1`, `draft-2`) in the wave plan; the shell maps them to real TIDs after gates resolve.
-
-**Shell structural verification (on return).** Before trusting the plan: (1) resolve all gate flags with the user, (2) allocate final task IDs and write the task files, (3) run `shipyard-data feature set-tasks` only after every referenced task file exists and belongs to that feature, (4) confirm each selected feature has ≥1 task file (Grep `feature:` frontmatter, or check the feature's `tasks:` array is non-empty), and (5) **normalize acceptance-criteria ids**: run `shipyard-data feature assign-ac-ids <FID>` for each selected feature. This idempotently tags every Gherkin scenario in the feature with a stable `@AC-<n>` id so the sprint-complete AC-coverage gate (`verify-ac-coverage`) has something to key on and builders know which `// AC-<n>` markers to emit. Idempotent and safe on already-tagged features. If these hold, mark checklist rows for Steps 4-7 `completed` and proceed to Step 8. This is a structural check only — the deep-dive owns the semantic decomposition quality; Step 9.5's quality gate and Step 9.7's critique are where the plan is challenged.
-
-**Fallback.** On dispatch failure, or if the structural verification fails (missing task files, a selected feature with no task), fall back to running Steps 4-7 **inline** in the shell, following `references/wave-decomposition.md` directly (§ "Step 4" 5-stage protocol, § "Step 5" dependency graph, § "Step 7" wave assignment). Note the fallback in the user-facing text so the slower inline path is visible.
-
-Any AskUserQuestion the protocol would raise (operational-kind classification, `effort: L` split confirmation) is surfaced by the **shell** after the deep-dive returns and **before** final task files or feature `tasks:` arrays are written. The dispatched agent flags candidates in its return, and the shell runs the user gate. Never run AskUserQuestion inside the dispatched agent. When surfacing a flagged candidate, first render as chat text what the agent found — the task in question, the signal that fired, and the split suggestions or inferred `verify_command` — the agent's return exists only in this context and the user has seen none of it; then ask.
-
-### Step 8: Determine Execution Mode
-
-Based on wave structure, never on raw task count alone — this mirrors `/ship-execute` Step 2's own per-wave rule, which decides the same way and would otherwise be contradicted by a sprint-level count threshold:
-- 1-3 tasks total → Solo mode
-- 4+ tasks → Task mode
-
-**Track mode is OPT-IN and is never auto-selected.** Choose it only when the user explicitly asks, via `--mode track` or a hand-set `execution_mode: track`. Track mode delivers **no additional build throughput** over Task mode — build concurrency is capped by `execution.max_parallel_agents` in both shapes — while costing one extra agent per track (a coordinator plus its active builder, ≈ `2 × tracks` live agents). What it buys is informed briefs (the TRACK NOTES block carried into each successive builder) and centralised per-track triage: real, but unproven until a soak demonstrates it. When a wave has a track (that wave's tasks sharing a parent feature — group by each task's `feature:` frontmatter) of 2+ tasks, you may mention in one line that track mode is available and what it would buy — then default to Task.
-
-### Step 9: Prepare Sprint Plan
-
-Generate next sprint ID (sprint-NNN). Compute the full plan in memory:
-- SPRINT.md content: sprint goal, capacity, wave structure (task IDs only), critical path, execution mode
-- PROGRESS.md content: empty current wave tracker and session log
-
-Use the Write tool to write `<SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md` as a compaction checkpoint:
-
-```yaml
----
-id: sprint-NNN
-status: draft
-goal: [sprint goal]
-capacity: [N] pts
-features: [F001, F005]
-execution_mode: [solo|task|track]
-created: [ISO date]
----
-```
-
-Body: wave structure (task IDs per wave), critical path, risk register. This is NOT the approved sprint — it's recoverable state. The user must still approve before the sprint is created. Step 12 overwrites this with the approved SPRINT.md.
-
-Include a `## Risks` section derived from: critical path tasks, external deps, knowledge gaps, spec uncertainty, and technical debt (format from `planning-checklists.md`).
-
-### Step 9.5: Quality Gate (self-review loop)
-
-Before presenting the plan, review your own output. Re-read each task file and the sprint draft against a 24-check table covering files-to-modify, architecture, dependency integrity, prescriptive strategy, cleanup, no-cycles, AC clarity, effort, critical path, wave/dep alignment, wave size (no wave exceeds its applicable width cap — `execution.max_tasks_per_wave`, or `execution.max_tasks_per_wave_merged` for an intact independent layer; wider layers split along track boundaries), test strategy, cross-cutting, risks, MoSCoW, PERT, kind-specific required fields (`verify_command`, `research_scope`, `First failing test:`), no nested operational loops, no "and"-titles in feature tasks, Technical Notes deliverable → task mapping, data-model decomposition (gated — data features only), and `user_flow_probe` coverage for every in-scope feature.
-
-See `references/spec-validation.md` § "Step 9.5" for the full 24-row checklist with fail criteria. **Check 21 (Technical Notes → task mapping)** is load-bearing: a feature's Technical Notes section can name concrete artifacts that never become anyone's deliverable — F002's "Author must write a Playwright spec covering the demo-schema golden path" was such an artifact in the v2.5.0 confedit incident; the sprint shipped with `tests/e2e/` empty because no task owned the deliverable. **Check 24 (`user_flow_probe`) is a hard CLI gate, not an eyeball:** run `shipyard-data feature check-probes <all in-scope feature IDs>` — a non-zero exit names features with no user-facing proof and is a **planning blocker**, not a deferrable "gap" (the old model-eyeball version passed them through, and the omission only surfaced at `/ship-execute` pre-flight after the sprint had already built). Route those to `/ship-discuss <feature-id>` and re-run until it exits 0. Iterate the rest up to 3 times, fixing failures and re-running. **The self-review is a no-input loop — run it quietly: do NOT narrate each pass or print the table. Surface only a one-line result** (`→ Quality gate: passed` or `→ Quality gate: N gaps flagged`); the gaps themselves ride into the Step 11 plan summary as "Planning gaps — review during execution" — **except a Check 24 failure, which halts planning rather than riding along as a gap.** Then proceed to Step 9.7.
-
-### Step 9.7: Adversarial Critique
-
-After the self-review quality gate passes, spawn the critic agent to challenge the plan from angles the self-review doesn't cover. **Determine stakes level:** `high` if sprint has 10+ tasks, total story_points >= 20, any feature touches auth/payments/data, or critical path has 4+ tasks; `standard` otherwise.
-
-See `references/spec-validation.md` § "Step 9.7" for the full critic dispatch prompt and the findings-processing rules (the critic emits PRIORITY_ACTIONS, TASK_GAPS, WAVE_CONFLICTS, ESTIMATE_RISKS, ASSUMPTION_RISKS — process each by fix-shape, routing genuine scope/priority calls and load-bearing assumptions through AskUserQuestion). **Do NOT re-run the critic after fixes.** One round only.
-
-### Step 10: Generate Quality Gate Manifest
-
-**Read the full protocol:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/quality-manifest.md`
-
-Generate `<SHIPYARD_DATA>/sprints/current/QUALITY-GATE.md` from two sources: Standing Gates (from `config.md` `quality_gates.standing`) and Sprint-Specific Gates (from sprint features' E2E AC categories, deduplicated across features). Add Integration Gates for any epic integration AC referencing this sprint's features.
-
-**Skip if:** config has no standing gates AND no selected feature has E2E AC AND no epic integration AC reference this sprint's features.
-
-### Step 11: Present Sprint Plan
-
-Output the complete sprint plan as text. SPRINT-DRAFT.md and task files are already written as compaction checkpoints — no statuses change and no features move from backlog until the user approves.
-
-**SPRINT [NNN] — [Goal]**
-- Features: list with IDs and titles
-- Tasks: [N] across [M] waves
-- Critical path: [T001 → T003 → T007]
-- Execution mode: solo/task/track
-
-**PROJECTIONS**
-- Time: ~M.M hrs (X.X pts/hr avg from past sprints)
-- Tokens: ~NNNK estimated (per-feature breakdown)
-
-**WAVE BREAKDOWN** — show as a visual timeline followed by per-wave detail:
-```
-  Wave 1  ████████░░░░░░░░░░░░  T001, T002           (8 pts)
-  Wave 2  ░░░░░░░░████████░░░░  T003, T004, T005     (12 pts)
-  Wave 3  ░░░░░░░░░░░░░░░░████  T006                 (5 pts)
-```
-Then for each wave: task IDs + titles, execution (sequential/parallel), dependencies satisfied by previous waves.
-
-**DEPENDENCY GRAPH** — if tasks have cross-wave dependencies, show a DAG:
-```
-  T001 ─┬─▶ T003 ─▶ T006
-        │
-  T002 ─┘   T004
-             T005
-```
-
-**RISKS** — from the risk register: risk, likelihood, impact, mitigation
-**DECISIONS MADE** — from Step 3.7: key implementation choices and reasoning
-**ASSUMPTIONS MADE** — every HIGH-tier decide-and-inform from the planning-decisions round (the `ASSUMED:` Decision Log entries), listed with "flag any to change before approval". This is the single audit point for everything the gate decided without asking.
-**QUALITY GATE RESULTS** — from Step 9.5: all checks passed, or flagged gaps
-
-**QUALITY GATES** (if QUALITY-GATE.md was generated):
-- Standing: [N] gates ([M] probe, [K] manual)
-- Sprint-specific: [N] gates from [M] E2E categories
-- Integration: [N] gates from epic seams
-
-Then use `AskUserQuestion` for approval:
-- **Approve (Recommended)** — create the sprint and proceed to Step 12
-- **Refine** — give feedback on specific tasks/waves, iterate
-- **Cancel** — cancel the sprint draft via CLI: `shipyard-data draft set-sprint-status cancelled --data-dir <SHIPYARD_DATA>`, then `shipyard-data task set-status <TID> needs-attention --reason "sprint_draft_cancelled"` for created task files and `shipyard-data feature clear-tasks <FID>` for affected feature frontmatter; the soft-deleted draft record stays in place.
-
-**If a new capacity was set this session** (Step 1 'change', or the first-sprint ask), add a second question item to this same call: "Save [N] pts as the new default velocity in config.md? (yes / no, just this sprint)". This is the only place the save-default decision is asked — folding it here keeps capacity at zero extra rounds.
-
-### Step 12: Create Sprint (after approval)
-
-If approved:
-
-1. Run `shipyard-data draft set-sprint-status superseded --data-dir <SHIPYARD_DATA>` to set `status: superseded` in SPRINT-DRAFT.md frontmatter (the soft-deleted record stays in place; physical removal is manual for now — do not physically delete). Run `shipyard-data init-sprint <sprint-id> --data-dir <SHIPYARD_DATA>` (Bash) to atomically create SPRINT.md and PROGRESS.md from the canonical templates at `project-files/templates/`. The `--data-dir` flag bypasses the git-based resolver — use it with the literal SHIPYARD_DATA path from the context block. **If init-sprint fails, STOP and surface the error to the user — do NOT fall back to Write.** Writing SPRINT.md or PROGRESS.md from memory causes schema drift (missing `started_at: null` comments, wrong default `status`, extra sections not in the template) that breaks downstream invariants. The CLI substitutes `id:` and `created:` only; everything else stays at template defaults and gets filled in via `shipyard-data sprint set` (frontmatter) and a model Edit of the body, below.
-2. Fill SPRINT.md from the approved plan in two parts:
-   - **Frontmatter fields** — set each via `shipyard-data sprint set <key> <value>` (typed atomic frontmatter mutation): `sprint set goal "<goal>"`, `sprint set capacity <N>`, `sprint set features "<F001,F005>"`, `sprint set execution_mode <solo|task|track>`. Do NOT Edit SPRINT.md frontmatter by hand — hand-edits are the corruption class that welds frontmatter keys together; the CLI merges atomically.
-   - **Body sections** — the narrative body (Goal, `### Wave N` sections, Critical Path, Risks, Swap Log) stays a model Edit on SPRINT.md. After writing the wave body, run `shipyard-data sprint check` to validate the `### Wave N` structure parses. If it exits 3, fix the wave formatting and re-run until it passes — the terminal gate parses this structure later, so unparseable waves would block sprint completion.
-3. Update feature statuses to `in-progress` in feature frontmatter.
-4. Remove pulled feature IDs from BACKLOG.md.
-5. **Record working branch** — capture the user's current branch: `git branch --show-current`. Set it via `shipyard-data sprint set branch <current branch>` (not a hand Edit of SPRINT.md frontmatter). Shipyard works on whatever branch the user is already on — it does not create sprint branches.
-
-**Clean up active-skill mutex:** run `shipyard-data lock release planning --skill ship-sprint` (soft-delete sentinel — CLI-owned, never a hand Write). Planning is complete.
-
-Then show:
-```
-▶ NEXT UP: Start building
-  /ship-execute
-  (tip: /clear first for a fresh context window)
-```
+**Read** `references/quality-manifest.md`; on-demand (inline fallback, final step-file write): `references/task-decomposition-patterns.md`, `references/task-kinds.md`, `references/task-tech-notes-template.md`. Also: `references/carry-over-scan.md`, `references/implementation-decisions.md`, `references/planning-checklists.md`, `references/spec-validation.md`, `references/sprint-analyst-report.md`, `references/wave-decomposition.md`.
 
 ---
 
 ## EXTEND Mode (add features to active sprint)
 
-Add features to an in-progress sprint without cancelling. This is a mid-sprint scope extension.
+Add features to an in-progress sprint without cancelling.
 
-### Step E1: Show Current Sprint + Available Features
-
-Display side by side:
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- CURRENT SPRINT [NNN]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- Progress: Wave [W] of [M] | [N]/[T] tasks done
- Capacity: [used]/[total] pts ([remaining] pts remaining)
-
- Current features:
-   F007 — Auth Login (3/4 tasks done)
-   F009 — Maintenance (0/3 tasks done)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- AVAILABLE TO ADD (from backlog, sorted by RICE)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- 1. F011 — Payment Reminders
-    Points: 5 | RICE: 28.4 | Fits remaining capacity: yes
-
- 2. F004 — Bulk Fee Import
-    Points: 13 | RICE: 24.0 | Fits remaining capacity: no (8 pts over)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-AskUserQuestion: "Which features to add? (list IDs)"
-
-### Step E2: Capacity Check
-
-Sum new points + existing used points. If over capacity by >10%:
-AskUserQuestion: "Adding [features] puts sprint at [N]/[M] pts ([X]% over capacity). Proceed anyway, or drop something? (proceed / drop [ID] from sprint / cancel)"
-
-### Step E3: Decompose New Features
-
-Same as PLAN mode Steps 3-4: research each new feature, create task files, update feature `tasks:` arrays.
-
-### Step E4: Slot Into Waves
-
-New tasks go into the wave structure:
-1. Read current wave from PROGRESS.md (`current_wave`)
-2. Tasks with no dependencies on existing work → add to the current wave (if it hasn't started) or the next wave
-3. Tasks that depend on in-progress work → add to the wave after their dependency completes
-4. Tasks that depend on each other → chain into sequential waves as normal
-
-Never reorder or modify already-completed waves. Only add to the current wave (if unstarted tasks exist) or append new waves.
-
-### Step E5: Update Sprint Files
-
-1. Add new task IDs to SPRINT.md wave structure (body Edit), then run `shipyard-data sprint check` to confirm the `### Wave N` structure still parses
-2. Update SPRINT.md frontmatter via `shipyard-data sprint set features "<full updated list>"` (not a hand Edit of frontmatter). If the total capacity budget changes, also `shipyard-data sprint set capacity <N>`; used-capacity is derived and not a stored frontmatter field.
-3. Update feature statuses to `in-progress` in feature frontmatter
-4. Remove new feature IDs from BACKLOG.md
-5. Log in SPRINT.md swap log: `| [date] | [added IDs] | — | Mid-sprint extension |`
-6. After extending scope, regenerate QUALITY-GATE.md to reflect updated features (see `references/quality-manifest.md` § EXTEND Mode).
-
-Then show:
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- SPRINT UPDATED
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- Added: [feature list]
- New tasks: [N] across [M] waves
- Capacity: [used]/[total] pts
-
- Updated wave structure:
-   Wave 1: ✅ done
-   Wave 2: [existing + new task IDs] (current)
-   Wave 3: [new task IDs] (added)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-▶ NEXT UP: Continue building
-  /ship-execute
-  (tip: /clear first for a fresh context window)
-```
+**Read** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/extend-mode.md` and `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/plan-shared-steps.md` then follow.
 
 ---
 
 ## CANCEL Mode
 
-1. AskUserQuestion: "Why are you cancelling this sprint? (This feeds the retro — 'skip' is fine.)"
-2. For each task in the sprint:
-   - **Done tasks** → keep commits, status stays `done`
-   - **In-progress tasks** → commit work-in-progress with `wip(cancel):` prefix, then per task `shipyard-data task set-status <TID> approved`; per parent feature `shipyard-data feature set-status <FID> approved` followed by `shipyard-data backlog add <FID>`
-   - **Not started tasks** → per task `shipyard-data task set-status <TID> approved`; per parent feature `shipyard-data feature set-status <FID> approved` followed by `shipyard-data backlog add <FID>`
-   - For all cancelled features (not done): `shipyard-data feature clear-tasks <FID>` so the next sprint planning re-decomposes them fresh
-3. Sprint status → `cancelled` via `shipyard-data sprint set status cancelled` (not a hand Edit of SPRINT.md frontmatter)
-4. Git cleanup:
-   - Any uncommitted work is committed as WIP
-   - Clean up any isolated working copies (worktrees)
-   - Stay on current branch (user handles branch switching)
-5. Archive the cancelled sprint: run `shipyard-data archive-sprint sprint-NNN` (substitute the real sprint ID). This atomically renames `current/` → `sprint-NNN/` and recreates an empty `current/` in a single allowlisted call. Do NOT fall back to raw `cp`/`mv`/`mkdir` against the data dir — those prompt for permission because the plugin data dir is outside the project root.
-6. Report: "Sprint cancelled. [N] tasks done (kept), [M] returned to backlog."
-
-## Rules
-
-- Capacity is a hard constraint. If selected features exceed capacity by >10% → AskUserQuestion: "Selected features total [N] pts, which exceeds capacity ([M] pts) by [X]%. Proceed anyway, or drop a feature? (proceed / drop [ID] / adjust capacity)"
-- Check cross-feature dependencies — if F009 depends on F001 which isn't done → AskUserQuestion: "[Feature] depends on [dependency] which isn't done yet. Include [dependency] in this sprint, defer [feature], or proceed anyway? (include / defer / proceed)"
-- Circular dependencies → reject, explain why.
-- Never auto-carry-over from previous sprint — user must explicitly re-select.
-- When something is ambiguous, run the confidence gate + kill-list from `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/question-design.md` first: derive what's derivable, decide-and-inform HIGH-tier two-way-door calls (one-line "Going with X — [why]", logged `ASSUMED:`), and only genuinely MEDIUM/LOW decisions reach `AskUserQuestion` (options + recommendation). "Ambiguous → ask" is retired — resolve the ambiguity before reaching for a prompt.
+**Read** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/cancel-mode.md` and follow it.

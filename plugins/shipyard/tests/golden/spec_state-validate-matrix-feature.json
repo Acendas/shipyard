@@ -1,0 +1,497 @@
+{
+  "proposed->proposed": {
+    "ok": false,
+    "validNext": [
+      "approved",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "proposed->approved": {
+    "ok": true,
+    "validNext": [
+      "approved",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "proposed->in-progress": {
+    "ok": false,
+    "validNext": [
+      "approved",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "proposed->done": {
+    "ok": false,
+    "validNext": [
+      "approved",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "proposed->deployed": {
+    "ok": false,
+    "validNext": [
+      "approved",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "proposed->deferred": {
+    "ok": true,
+    "validNext": [
+      "approved",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "proposed->rejected": {
+    "ok": true,
+    "validNext": [
+      "approved",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "proposed->released": {
+    "ok": false,
+    "validNext": [
+      "approved",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "proposed->bogus": {
+    "ok": false,
+    "validNext": [
+      "approved",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "approved->proposed": {
+    "ok": false,
+    "validNext": [
+      "in-progress",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "approved->approved": {
+    "ok": false,
+    "validNext": [
+      "in-progress",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "approved->in-progress": {
+    "ok": true,
+    "validNext": [
+      "in-progress",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "approved->done": {
+    "ok": false,
+    "validNext": [
+      "in-progress",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "approved->deployed": {
+    "ok": false,
+    "validNext": [
+      "in-progress",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "approved->deferred": {
+    "ok": true,
+    "validNext": [
+      "in-progress",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "approved->rejected": {
+    "ok": true,
+    "validNext": [
+      "in-progress",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "approved->released": {
+    "ok": false,
+    "validNext": [
+      "in-progress",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "approved->bogus": {
+    "ok": false,
+    "validNext": [
+      "in-progress",
+      "deferred",
+      "rejected"
+    ]
+  },
+  "in-progress->proposed": {
+    "ok": false,
+    "validNext": [
+      "done",
+      "approved"
+    ]
+  },
+  "in-progress->approved": {
+    "ok": true,
+    "validNext": [
+      "done",
+      "approved"
+    ]
+  },
+  "in-progress->in-progress": {
+    "ok": false,
+    "validNext": [
+      "done",
+      "approved"
+    ]
+  },
+  "in-progress->done": {
+    "ok": true,
+    "validNext": [
+      "done",
+      "approved"
+    ]
+  },
+  "in-progress->deployed": {
+    "ok": false,
+    "validNext": [
+      "done",
+      "approved"
+    ]
+  },
+  "in-progress->deferred": {
+    "ok": false,
+    "validNext": [
+      "done",
+      "approved"
+    ]
+  },
+  "in-progress->rejected": {
+    "ok": false,
+    "validNext": [
+      "done",
+      "approved"
+    ]
+  },
+  "in-progress->released": {
+    "ok": false,
+    "validNext": [
+      "done",
+      "approved"
+    ]
+  },
+  "in-progress->bogus": {
+    "ok": false,
+    "validNext": [
+      "done",
+      "approved"
+    ]
+  },
+  "done->proposed": {
+    "ok": false,
+    "validNext": [
+      "deployed",
+      "released"
+    ]
+  },
+  "done->approved": {
+    "ok": false,
+    "validNext": [
+      "deployed",
+      "released"
+    ]
+  },
+  "done->in-progress": {
+    "ok": false,
+    "validNext": [
+      "deployed",
+      "released"
+    ]
+  },
+  "done->done": {
+    "ok": false,
+    "validNext": [
+      "deployed",
+      "released"
+    ]
+  },
+  "done->deployed": {
+    "ok": true,
+    "validNext": [
+      "deployed",
+      "released"
+    ]
+  },
+  "done->deferred": {
+    "ok": false,
+    "validNext": [
+      "deployed",
+      "released"
+    ]
+  },
+  "done->rejected": {
+    "ok": false,
+    "validNext": [
+      "deployed",
+      "released"
+    ]
+  },
+  "done->released": {
+    "ok": true,
+    "validNext": [
+      "deployed",
+      "released"
+    ]
+  },
+  "done->bogus": {
+    "ok": false,
+    "validNext": [
+      "deployed",
+      "released"
+    ]
+  },
+  "deployed->proposed": {
+    "ok": false,
+    "validNext": [
+      "released"
+    ]
+  },
+  "deployed->approved": {
+    "ok": false,
+    "validNext": [
+      "released"
+    ]
+  },
+  "deployed->in-progress": {
+    "ok": false,
+    "validNext": [
+      "released"
+    ]
+  },
+  "deployed->done": {
+    "ok": false,
+    "validNext": [
+      "released"
+    ]
+  },
+  "deployed->deployed": {
+    "ok": false,
+    "validNext": [
+      "released"
+    ]
+  },
+  "deployed->deferred": {
+    "ok": false,
+    "validNext": [
+      "released"
+    ]
+  },
+  "deployed->rejected": {
+    "ok": false,
+    "validNext": [
+      "released"
+    ]
+  },
+  "deployed->released": {
+    "ok": true,
+    "validNext": [
+      "released"
+    ]
+  },
+  "deployed->bogus": {
+    "ok": false,
+    "validNext": [
+      "released"
+    ]
+  },
+  "deferred->proposed": {
+    "ok": true,
+    "validNext": [
+      "proposed"
+    ]
+  },
+  "deferred->approved": {
+    "ok": false,
+    "validNext": [
+      "proposed"
+    ]
+  },
+  "deferred->in-progress": {
+    "ok": false,
+    "validNext": [
+      "proposed"
+    ]
+  },
+  "deferred->done": {
+    "ok": false,
+    "validNext": [
+      "proposed"
+    ]
+  },
+  "deferred->deployed": {
+    "ok": false,
+    "validNext": [
+      "proposed"
+    ]
+  },
+  "deferred->deferred": {
+    "ok": false,
+    "validNext": [
+      "proposed"
+    ]
+  },
+  "deferred->rejected": {
+    "ok": false,
+    "validNext": [
+      "proposed"
+    ]
+  },
+  "deferred->released": {
+    "ok": false,
+    "validNext": [
+      "proposed"
+    ]
+  },
+  "deferred->bogus": {
+    "ok": false,
+    "validNext": [
+      "proposed"
+    ]
+  },
+  "rejected->proposed": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->approved": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->in-progress": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->done": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->deployed": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->deferred": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->rejected": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->released": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->bogus": {
+    "ok": false,
+    "validNext": []
+  },
+  "released->proposed": {
+    "ok": false,
+    "validNext": []
+  },
+  "released->approved": {
+    "ok": false,
+    "validNext": []
+  },
+  "released->in-progress": {
+    "ok": false,
+    "validNext": []
+  },
+  "released->done": {
+    "ok": false,
+    "validNext": []
+  },
+  "released->deployed": {
+    "ok": false,
+    "validNext": []
+  },
+  "released->deferred": {
+    "ok": false,
+    "validNext": []
+  },
+  "released->rejected": {
+    "ok": false,
+    "validNext": []
+  },
+  "released->released": {
+    "ok": false,
+    "validNext": []
+  },
+  "released->bogus": {
+    "ok": false,
+    "validNext": []
+  },
+  "bogus->proposed": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->approved": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->in-progress": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->done": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->deployed": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->deferred": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->rejected": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->released": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->bogus": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  }
+}

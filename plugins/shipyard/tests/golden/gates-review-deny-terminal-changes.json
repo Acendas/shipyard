@@ -1,0 +1,5 @@
+{
+  "code": 1,
+  "stdout": "DENY — terminal cursor write would be refused. Missing evidence:\n  - Terminal stage terminal_changes requires at least one patch_step_created or story_created event (legacy names patch_task_created / bug_created also count) in this review window",
+  "stderr": ""
+}

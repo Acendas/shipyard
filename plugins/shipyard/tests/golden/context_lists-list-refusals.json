@@ -1,0 +1,37 @@
+{
+  "unknown": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "unknown list name: bogus. Known: epics, stories, features, ideas, debug-sessions"
+  },
+  "missing": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "unknown list name: (missing). Known: epics, stories, features, ideas, debug-sessions"
+  },
+  "emptyName": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "unknown list name: (missing). Known: epics, stories, features, ideas, debug-sessions"
+  },
+  "upperCase": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "unknown list name: Epics. Known: epics, stories, features, ideas, debug-sessions"
+  },
+  "bugsNotListable": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "unknown list name: bugs. Known: epics, stories, features, ideas, debug-sessions"
+  },
+  "tasksNotListable": {
+    "code": 1,
+    "stdout": "",
+    "stderr": "unknown list name: tasks. Known: epics, stories, features, ideas, debug-sessions"
+  },
+  "stories": {
+    "code": 0,
+    "stdout": "No stories yet",
+    "stderr": ""
+  }
+}

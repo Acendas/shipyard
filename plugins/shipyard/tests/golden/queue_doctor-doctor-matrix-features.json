@@ -1,0 +1,91 @@
+{
+  "code": 1,
+  "stderr": "",
+  "other": [
+    "  [state-drift] orphan-in-progress: F001 is in-progress but no current sprint holds it\n    → Run `shipyard-data reconcile --fix` (repairs it through the typed verbs and logs state_reconciled)."
+  ],
+  "cases": {
+    "valid-base": [],
+    "missing-id": [
+      "missing/empty field: id"
+    ],
+    "missing-title": [
+      "missing/empty field: title"
+    ],
+    "missing-type": [
+      "missing/empty field: type"
+    ],
+    "missing-epic": [
+      "missing/empty field: epic"
+    ],
+    "missing-status": [
+      "missing/empty field: status"
+    ],
+    "missing-story_points": [
+      "missing/empty field: story_points"
+    ],
+    "missing-complexity": [
+      "missing/empty field: complexity"
+    ],
+    "missing-token_estimate": [
+      "missing/empty field: token_estimate"
+    ],
+    "missing-rice_reach": [
+      "missing/empty field: rice_reach"
+    ],
+    "missing-rice_impact": [
+      "missing/empty field: rice_impact"
+    ],
+    "missing-rice_confidence": [
+      "missing/empty field: rice_confidence"
+    ],
+    "missing-rice_effort": [
+      "missing/empty field: rice_effort"
+    ],
+    "missing-rice_score": [
+      "missing/empty field: rice_score"
+    ],
+    "missing-dependencies": [
+      "missing/empty field: dependencies"
+    ],
+    "missing-references": [
+      "missing/empty field: references"
+    ],
+    "missing-created": [
+      "missing/empty field: created"
+    ],
+    "status-ok-proposed": [],
+    "status-ok-approved": [],
+    "status-ok-in_progress": [],
+    "status-ok-done": [],
+    "status-ok-deployed": [],
+    "status-ok-deferred": [],
+    "status-ok-rejected": [],
+    "status-ok-released": [],
+    "status-invalid": [
+      "invalid status: \"bogus\""
+    ],
+    "id-ok-F1": [],
+    "id-ok-F001": [],
+    "id-ok-F036a": [],
+    "id-ok-F071d": [],
+    "id-bad-FXX": [
+      "id \"FXX\" does not match the expected pattern"
+    ],
+    "id-bad-F": [
+      "id \"F\" does not match the expected pattern"
+    ],
+    "id-bad-F1A": [
+      "id \"F1A\" does not match the expected pattern"
+    ],
+    "id-bad-F1ab": [
+      "id \"F1ab\" does not match the expected pattern"
+    ],
+    "id-bad-f001": [
+      "id \"f001\" does not match the expected pattern"
+    ],
+    "id-bad-F_1": [
+      "id \"F-1\" does not match the expected pattern"
+    ]
+  }
+}

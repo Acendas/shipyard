@@ -2,7 +2,7 @@
  * SessionEnd hook: release skill-mutex locks held by the ending session.
  *
  * A Shipyard command skill (`/ship-discuss`, `/ship-sprint`, `/ship-execute`,
- * `/ship-quick`) acquires a planning/execution lock at start and is supposed
+ * `/ship-execute --task`) acquires a planning/execution lock at start and is supposed
  * to release it at its finalize step. A skill that aborts on an error or a
  * gate halt never reaches that step, so the lock lingers until the 2-hour
  * stale threshold or a manual `/ship-status`. This hook is the "on exit,

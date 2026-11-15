@@ -27,15 +27,15 @@ generated: YYYY-MM-DDTHH:MM:SSZ
 
 | # | Gate | Source | Verification | Status |
 |---|------|--------|-------------|--------|
-| SSG-1 | Timeout handling verified | F009 (timeout) | probe | pending |
-| SSG-2 | Idempotency under retry | F009, F011 (idempotency) | probe | pending |
-| SSG-3 | Graceful degradation | F011 (graceful-degradation) | manual | pending |
+| SSG-1 | Timeout handling verified | S009 (timeout) | probe | pending |
+| SSG-2 | Idempotency under retry | S009, S011 (idempotency) | probe | pending |
+| SSG-3 | Graceful degradation | S011 (graceful-degradation) | manual | pending |
 
 ## Integration Gates
 
 | # | Gate | Epic | Features | Verification | Status |
 |---|------|------|----------|-------------|--------|
-| IG-1 | User data flows signup→profile | E001 | F001, F003 | probe | pending |
+| IG-1 | User data flows signup→profile | E001 | S001, S003 | probe | pending |
 ```
 
 ## Generation Procedure
@@ -56,7 +56,7 @@ generated: YYYY-MM-DDTHH:MM:SSZ
 3. For each unique category that appears across all sprint features:
    - Create one gate row referencing the category and all source feature IDs
    - `Verification` comes from the AC's `verification_type` field (use the most automatable type if features differ: probe > tool > manual)
-4. Deduplicate: if F009 and F011 both have `timeout` E2E AC, create one timeout gate referencing both
+4. Deduplicate: if S009 and S011 both have `timeout` E2E AC, create one timeout gate referencing both
 
 ### Integration Gates
 
@@ -75,7 +75,7 @@ In this case, do not create QUALITY-GATE.md. Ship-review Stage 1.5 handles the a
 
 ## EXTEND Mode
 
-When `/ship-sprint` EXTEND mode adds or removes features, regenerate QUALITY-GATE.md to reflect the updated scope. Standing Gates remain unchanged; Sprint-Specific and Integration Gates are re-derived from the new feature set.
+When `/ship-sprint` EXTEND mode adds or removes features, regenerate QUALITY-GATE.md to reflect the updated scope. Standing Gates remain unchanged; Sprint-Specific and Integration Gates are re-derived from the new story set.
 
 ## Edge Cases
 

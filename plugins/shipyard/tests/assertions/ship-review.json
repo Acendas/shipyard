@@ -1,1003 +1,2391 @@
 [
-  {
-    "name": "no_git_push",
-    "type": "not_contains",
-    "pattern": "\\bgit\\s+push\\b"
-  },
-  {
-    "name": "no_sprint_branch_merge",
-    "type": "not_contains",
-    "pattern": "git merge.*sprint/"
-  },
-  {
-    "name": "no_pr_merge",
-    "type": "not_contains",
-    "pattern": "gh pr merge"
-  },
-  {
-    "name": "no_integration_branch",
-    "type": "not_contains",
-    "pattern": "integration_branch"
-  },
-  {
-    "name": "no_git_tag_create",
-    "type": "not_contains",
-    "pattern": "git tag -a|git tag v"
-  },
-  {
-    "name": "no_ship_retro_ref",
-    "type": "not_contains",
-    "pattern": "/ship-retro"
-  },
-  {
-    "name": "no_ship_release_ref",
-    "type": "not_contains",
-    "pattern": "/ship-release"
-  },
-  {
-    "name": "has_spec_verification",
-    "type": "contains",
-    "pattern": "acceptance scenario|acceptance criteria"
-  },
-  {
-    "name": "has_code_review_orchestration",
-    "type": "contains",
-    "pattern": "code-review-orchestration\\.md"
-  },
-  {
-    "name": "has_code_review_stage",
-    "type": "contains",
-    "pattern": "Stage 0.*Code Review",
-    "dotall": true
-  },
-  {
-    "name": "has_goal_contract",
-    "type": "contains",
-    "pattern": "Goal driver contract"
-  },
-  {
-    "name": "has_flat_worker_contract",
-    "type": "contains",
-    "pattern": "Flat-worker contract"
-  },
-  {
-    "name": "review_uses_worker_queue",
-    "type": "contains",
-    "pattern": "shipyard-data queue (enqueue|claim|requeue-stale)"
-  },
-  {
-    "name": "no_legacy_reviewer",
-    "type": "not_contains",
-    "pattern": "shipyard-reviewer\\b"
-  },
-  {
-    "name": "has_visual_verification",
-    "type": "contains",
-    "pattern": "[Ss]creenshot|[Vv]isual"
-  },
-  {
-    "name": "checks_working_branch",
-    "type": "contains",
-    "pattern": "git branch --show-current"
-  },
-  {
-    "name": "has_retro_section",
-    "type": "contains",
-    "pattern": "Sprint Retrospective"
-  },
-  {
-    "name": "has_velocity_analysis",
-    "type": "contains",
-    "pattern": "[Vv]elocity"
-  },
-  {
-    "name": "has_anti_patterns",
-    "type": "contains",
-    "pattern": "anti.pattern|Anti.Pattern"
-  },
-  {
-    "name": "has_retro_only_flag",
-    "type": "contains",
-    "pattern": "retro-only"
-  },
-  {
-    "name": "has_improvement_items",
-    "type": "contains",
-    "pattern": "improvement|action item"
-  },
-  {
-    "name": "has_archive_sprint",
-    "type": "contains",
-    "pattern": "Archive|archive sprint"
-  },
-  {
-    "name": "uses_atomic_archive_sprint_command",
-    "type": "contains",
-    "pattern": "shipyard-data archive-sprint"
-  },
-  {
-    "name": "has_changelog_file",
-    "type": "contains",
-    "pattern": "CHANGELOG\\.md"
-  },
-  {
-    "name": "has_frontmatter_name",
-    "type": "frontmatter_field",
-    "field": "name",
-    "value": "ship-review"
-  },
-  {
-    "name": "has_demo_flag",
-    "type": "contains",
-    "pattern": "--demo|demo"
-  },
-  {
-    "name": "has_hotfix_review_mode",
-    "type": "contains",
-    "pattern": "--hotfix"
-  },
-  {
-    "name": "has_verdict_file",
-    "type": "contains",
-    "pattern": "verdict|complete.*false|complete.*true"
-  },
-  {
-    "name": "has_gap_analysis",
-    "type": "contains",
-    "pattern": "[Gg]ap [Aa]nalysis|[Ss]imple.*[Cc]omplex"
-  },
-  {
-    "name": "gap_analysis_uses_registered_agent_wrapper",
-    "type": "contains",
-    "pattern": "dispatching-gap-analysis"
-  },
-  {
-    "name": "gap_analysis_no_general_purpose_dispatch",
-    "type": "not_contains",
-    "pattern": "Agent\\(subagent_type:\\s*\"general-purpose\".*gap",
-    "dotall": true
-  },
-  {
-    "name": "has_quality_gate",
-    "type": "contains",
-    "pattern": "Quality Gate|self-review"
-  },
-  {
-    "name": "has_final_review_pass",
-    "type": "contains",
-    "pattern": "Final Review Pass|blind spot|false positive"
-  },
-  {
-    "name": "approval_uses_ask_user",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "has_retro_data_file",
-    "type": "contains",
-    "pattern": "RETRO-DATA\\.md"
-  },
-  {
-    "name": "has_retro_compaction_recovery",
-    "type": "contains",
-    "pattern": "[Cc]ompaction [Rr]ecovery"
-  },
-  {
-    "name": "has_throughput_tracking",
-    "type": "contains",
-    "pattern": "throughput|pts.*hr|pts/hr"
-  },
-  {
-    "name": "has_release_step",
-    "type": "contains",
-    "pattern": "released_at|status.*released"
-  },
-  {
-    "name": "has_feature_status_to_done",
-    "type": "contains",
-    "pattern": "status.*done|done.*status"
-  },
-  {
-    "name": "uses_ask_user_question",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "uses_shipyard_data_path",
-    "type": "contains",
-    "pattern": "shipyard-data|shipyard-context"
-  },
-  {
-    "name": "wraps_verification_in_logcap",
-    "type": "contains",
-    "pattern": "shipyard-logcap"
-  },
-  {
-    "name": "links_logcap_bounds_reference",
-    "type": "contains",
-    "pattern": "context-management\\.md"
-  },
-  {
-    "name": "prefers_grep_before_rerun",
-    "type": "contains",
-    "pattern": "grep the existing capture|grep.*before.*re-run"
-  },
-  {
-    "name": "no_shell_sd_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-data"
-  },
-  {
-    "name": "no_shell_sc_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-context"
-  },
-  {
-    "name": "no_sd_shell_var_assignment",
-    "type": "not_contains",
-    "pattern": "SD=\\$\\(shipyard-data"
-  },
-  {
-    "name": "operational_evidence_check_stage3",
-    "type": "contains",
-    "pattern": "Operational Task Evidence Check|kind: operational.*verify_output",
-    "dotall": true
-  },
-  {
-    "name": "operational_review_flags_silent_pass",
-    "type": "contains",
-    "pattern": "SILENT-PASS|silent-pass"
-  },
-  {
-    "name": "operational_review_checks_capture_bytes",
-    "type": "contains",
-    "pattern": "byte|bytes|shipyard-logcap"
-  },
-  {
-    "name": "retro_uses_atomic_idea_allocator",
-    "type": "contains",
-    "pattern": "shipyard-data next-id ideas"
-  },
-  {
-    "name": "retro_source_tag_slash_convention",
-    "type": "contains",
-    "pattern": "source: retro/"
-  },
-  {
-    "name": "retro_forbids_manual_idea_numbering",
-    "type": "contains",
-    "pattern": "Do NOT `ls spec/ideas|Do NOT ls spec/ideas|allocator is the only safe way",
-    "dotall": true
-  },
-  {
-    "name": "stage4_captures_out_of_scope_as_ideas",
-    "type": "contains",
-    "pattern": "Capture Out-of-Scope Gaps as IDEAs"
-  },
-  {
-    "name": "stage4_uses_review_gap_source_tag",
-    "type": "contains",
-    "pattern": "source: review-gap/"
-  },
-  {
-    "name": "stage4_idea_cap_five_per_stage",
-    "type": "contains",
-    "pattern": "5 IDEAs per review stage|5 per stage",
-    "dotall": true
-  },
-  {
-    "name": "stage4_out_of_scope_only",
-    "type": "contains",
-    "pattern": "out-of-scope only|Out-of-scope \\(real|EXCLUSIVELY for observations",
-    "dotall": true
-  },
-  {
-    "name": "stage4_found_during_field",
-    "type": "contains",
-    "pattern": "found_during:.*surface-gap-stage-4|found_during:.*code-review-stage-0",
-    "dotall": true
-  },
-  {
-    "name": "stage0_out_of_scope_ideas_cross_ref",
-    "type": "contains",
-    "pattern": "Out-of-scope findings in Stage 0|code-review-stage-0",
-    "dotall": true
-  },
-  {
-    "name": "simplification_stage_exists",
-    "type": "contains",
-    "pattern": "Stage 0\\.5.*[Ss]implif"
-  },
-  {
-    "name": "simplification_uses_general_purpose_simplifier",
-    "type": "contains",
-    "pattern": "general-purpose simplifier|simplifier subagent"
-  },
-  {
-    "name": "simplification_scope_guard",
-    "type": "contains",
-    "pattern": "scope guard|only touches files in the sprint diff"
-  },
-  {
-    "name": "prohibits_bash_redirect_for_state",
-    "type": "contains",
-    "pattern": "Never use .?`?echo`?.*(redirect|shell|state)|Never use `echo`, `printf`, or shell redirects"
-  },
-  {
-    "name": "code_review_loop_goal_mode",
-    "type": "contains",
-    "pattern": "Goal-mode default|/goal-shaped"
-  },
-  {
-    "name": "code_review_emits_iteration_event",
-    "type": "contains",
-    "pattern": "code_review_iteration"
-  },
-  {
-    "name": "code_review_no_mid_loop_pause",
-    "type": "not_contains",
-    "pattern": "diminishing-returns AskUserQuestion at iteration 2"
-  },
-  {
-    "name": "cursor_schema_referenced",
-    "type": "contains",
-    "pattern": "REVIEW-CURSOR\\.md"
-  },
-  {
-    "name": "cursor_reference_loaded",
-    "type": "contains",
-    "pattern": "pipeline-cursor\\.md"
-  },
-  {
-    "name": "cursor_read_at_entry",
-    "type": "contains",
-    "pattern": "SHIPYARD_CURSOR_\\*|shipyard-context cursor-state review"
-  },
-  {
-    "name": "cursor_not_read_directly",
-    "type": "not_contains",
-    "pattern": "Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md`|Read <SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md|REVIEW-CURSOR\\.md.*Read tool",
-    "why": "Cursor reads are now CLI-owned via shipyard-context; skill bodies should not parse cursor frontmatter directly."
-  },
-  {
-    "name": "terminal_marker_text",
-    "type": "contains",
-    "pattern": "CYCLE COMPLETE"
-  },
-  {
-    "name": "terminal_marker_loop_should_stop",
-    "type": "contains",
-    "pattern": "/goal should stop"
-  },
-  {
-    "name": "tick_marker_loop_continues",
-    "type": "contains",
-    "pattern": "TICK COMPLETE.*[Ll]oop continues|/goal continues"
-  },
-  {
-    "name": "emits_pipeline_terminal_event",
-    "type": "contains",
-    "pattern": "pipeline_terminal"
-  },
-  {
-    "name": "emits_pipeline_tick_started",
-    "type": "contains",
-    "pattern": "pipeline_tick_started"
-  },
-  {
-    "name": "emits_pipeline_tick_completed",
-    "type": "contains",
-    "pattern": "pipeline_tick_completed"
-  },
-  {
-    "name": "emits_pipeline_stuck",
-    "type": "contains",
-    "pattern": "pipeline_stuck"
-  },
-  {
-    "name": "stuck_threshold_five",
-    "type": "contains",
-    "pattern": "stuck_counter.*5|5 ticks without|5 times without"
-  },
-  {
-    "name": "hard_ceiling_fifty",
-    "type": "contains",
-    "pattern": "hard_ceiling.*50|50 iterations|hard ceiling.*50"
-  },
-  {
-    "name": "stage_id_preflight",
-    "type": "contains",
-    "pattern": "stage.*preflight|preflight stage"
-  },
-  {
-    "name": "stage_id_code_review_iter",
-    "type": "contains",
-    "pattern": "code_review_iter"
-  },
-  {
-    "name": "stage_id_review_scan",
-    "type": "contains",
-    "pattern": "review_scan"
-  },
-  {
-    "name": "stage_id_review_plan",
-    "type": "contains",
-    "pattern": "review_plan"
-  },
-  {
-    "name": "stage_id_review_fix_wave",
-    "type": "contains",
-    "pattern": "review_fix_wave"
-  },
-  {
-    "name": "stage_id_review_validation",
-    "type": "contains",
-    "pattern": "review_validation"
-  },
-  {
-    "name": "review_uses_deterministic_fix_planner",
-    "type": "contains",
-    "pattern": "shipyard-data review plan"
-  },
-  {
-    "name": "review_batches_findings_before_fixes",
-    "type": "contains",
-    "pattern": "REVIEW-FIX-PLAN\\.json|fix batches|validation_ladder"
-  },
-  {
-    "name": "stage_id_terminal",
-    "type": "contains",
-    "pattern": "stage.*terminal|terminal stage"
-  },
-  {
-    "name": "noop_already_archived_handled",
-    "type": "contains",
-    "pattern": "sprint_already_archived|already complete and archived|already archived"
-  },
-  {
-    "name": "direct_vs_loop_invocation_documented",
-    "type": "contains",
-    "pattern": "Direct invocation vs|/goal driver|single-tick"
-  },
-  {
-    "name": "no_stage_zero_three_iter_cap_authoritative",
-    "type": "not_contains",
-    "pattern": "max 3 iterations|cap of 3|3-iteration cap"
-  },
-  {
-    "name": "code_review_escalated_event_documented",
-    "type": "contains",
-    "pattern": "code_review_escalated"
-  },
-  {
-    "name": "scheduled_wakeup_not_invented",
-    "type": "not_contains",
-    "pattern": "ScheduleWakeup.*REVIEW-CURSOR|ScheduleWakeup.*ship-review"
-  },
-  {
-    "name": "direct_invocation_runs_bounded_goal_tick",
-    "type": "contains",
-    "pattern": "goal tick runs the same stage handler|run exactly one handler"
-  },
-  {
-    "name": "direct_invocation_budget_no_longer_3_min",
-    "type": "not_contains",
-    "pattern": "~3 minutes? per invocation|~3-minute wall-clock budget|approximately 3 minutes"
-  },
-  {
-    "name": "wakeup_leak_protection_noop_terminal_sweep_documented",
-    "type": "contains",
-    "pattern": "No-op terminal sweep \\(MANDATORY"
-  },
-  {
-    "name": "wakeup_leak_protection_three_conditions_named",
-    "type": "contains",
-    "pattern": "all THREE conditions"
-  },
-  {
-    "name": "wakeup_leak_protection_sprint_md_completed_checked",
-    "type": "contains",
-    "pattern": "SPRINT\\.md.*frontmatter.*has .status: completed.|status: completed"
-  },
-  {
-    "name": "wakeup_leak_protection_archived_current_checked",
-    "type": "contains",
-    "pattern": "no active sprint in"
-  },
-  {
-    "name": "wakeup_leak_protection_emits_pipeline_terminal_on_noop",
-    "type": "contains",
-    "pattern": "cursor noop review sprint=<[^>]+> reason=sprint_already_archived",
-    "why": "v2.9.0: the noop emit routes through `shipyard-data cursor noop` (emit-first pinned in test_cursor_cli.mjs)"
-  },
-  {
-    "name": "wakeup_leak_protection_prints_cycle_complete_marker",
-    "type": "contains",
-    "pattern": "prints the stop marker|CYCLE COMPLETE",
-    "why": "v2.9.0: the CLI prints the stop marker; the skill echoes it"
-  },
-  {
-    "name": "noop_repeated_detection_documented",
-    "type": "contains",
-    "pattern": "pipeline_repeated_noop_detected|REPEATED NOOP"
-  },
-  {
-    "name": "has_quality_gate_stage",
-    "type": "contains",
-    "pattern": "Stage 1\\.5.*[Qq]uality|quality_gates"
-  },
-  {
-    "name": "quality_gate_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-review/references/quality-gate-enforcement.md"
-  },
-  {
-    "name": "has_manual_gate_checklist",
-    "type": "contains",
-    "pattern": "[Mm]anual.*checklist|[Mm]anual.*verification"
-  },
-  {
-    "name": "has_gate_failure_handling",
-    "type": "contains",
-    "pattern": "gate.*[Ff]ail|[Ff]ail.*gate"
-  },
-  {
-    "name": "review_critic_is_data_aware",
-    "type": "contains",
-    "pattern": "data-modeling failure modes",
-    "target": "ref:critic-prompt.md"
-  },
-  {
-    "name": "review_critic_data_is_gated",
-    "type": "contains",
-    "pattern": "[Ss]kip this entirely for features",
-    "dotall": true,
-    "target": "ref:critic-prompt.md"
-  },
-  {
-    "name": "code_review_orchestration_lists_data",
-    "type": "contains",
-    "pattern": "data` \\(auto-gating|exactly one subagent",
-    "target": "ref:code-review-orchestration.md"
-  },
-  {
-    "name": "terminal_stop_marker_is_final_signal",
-    "type": "contains",
-    "pattern": "reads the LAST line as its continue-or-stop signal|MUST be the final line"
-  },
-  {
-    "name": "noop_emit_is_non_optional",
-    "type": "contains",
-    "pattern": "non-optional|[Ee]mitting (it )?is mandatory"
-  },
-  {
-    "name": "loop_leak_detection_repeat_noop",
-    "type": "contains",
-    "pattern": "pipeline_repeated_noop_detected"
-  },
-  {
-    "name": "loop_leak_hard_marker",
-    "type": "contains",
-    "pattern": "REPEATED NOOP"
-  },
-  {
-    "name": "loop_leak_detection_is_cli_owned",
-    "type": "contains",
-    "pattern": "repeat-leak|pipeline_repeated_noop_detected",
-    "why": "v2.9.0: repeat-leak detection runs inside `cursor noop`"
-  },
-  {
-    "name": "loop_leak_event_in_vocabulary",
-    "type": "contains",
-    "target": "ref:pipeline-cursor.md",
-    "pattern": "pipeline_repeated_noop_detected"
-  },
-  {
-    "name": "gap_analysis_deepdive_reads_models_think",
-    "type": "contains",
-    "pattern": "models\\.think",
-    "why": "v3.0.0: the gap-analysis dispatch reads models.think and passes model: only when non-empty"
-  },
-  {
-    "name": "gap_analysis_dispatched_to_think_agent",
-    "type": "contains",
-    "pattern": "gap-analysis agent|Dispatch the analytical body",
-    "dotall": true,
-    "why": "v3.0.0: Stage 4 + 4.5 analytical body runs in one dispatched think-tier agent per gap_analysis tick"
-  },
-  {
-    "name": "gap_analysis_agent_is_read_only",
-    "type": "contains",
-    "pattern": "READ-ONLY analysis",
-    "why": "v3.0.0: the gap-analysis agent only analyzes; the shell owns all writes/dispatches"
-  },
-  {
-    "name": "gap_analysis_shell_keeps_cursor_and_stuck",
-    "type": "contains",
-    "pattern": "shell.*cursor advance.*stuck_counter|cursor advance, the .stuck_counter",
-    "dotall": true,
-    "why": "v3.0.0: cursor advance + stuck_counter computation stay shell-side, never in the dispatched agent"
-  },
-  {
-    "name": "gap_analysis_has_inline_fallback",
-    "type": "contains",
-    "pattern": "On dispatch failure.*inline|run the Stage 4 \\+ 4.5 analysis inline",
-    "dotall": true,
-    "why": "v3.0.0: on dispatch failure the shell evaluates gap analysis + self-review inline"
-  },
-  {
-    "name": "pause_before_ask_rule_stated",
-    "type": "contains",
-    "pattern": "a tick never exits with a pending question and no stop marker",
-    "why": "v3.4.0: the load-bearing pause-before-ask rule is stated once"
-  },
-  {
-    "name": "pause_before_ask_at_demo_user",
-    "type": "contains",
-    "pattern": "cursor pause review --note \"awaiting user: sprint approval",
-    "why": "v3.4.0: demo_user (Stage 5 approval) pauses before AskUserQuestion"
-  },
-  {
-    "name": "pause_before_ask_at_retro_step_2",
-    "type": "contains",
-    "pattern": "cursor pause review --note \"awaiting user: retro discussion",
-    "why": "v3.4.0: retro_step_2 pauses before AskUserQuestion"
-  },
-  {
-    "name": "pause_before_ask_at_retro_decision",
-    "type": "contains",
-    "pattern": "cursor pause review --note \"awaiting user: retro decision",
-    "why": "Retro run/skip choice is a blocking ask, so it must use the same pause-before-ask safety protocol."
-  },
-  {
-    "name": "pause_before_ask_at_release_step_1",
-    "type": "contains",
-    "pattern": "cursor pause review --note \"awaiting user: release approval",
-    "why": "v3.4.0: release_step_1 pauses before AskUserQuestion"
-  },
-  {
-    "name": "paused_goal_inert_entry",
-    "type": "contains",
-    "pattern": "paused is goal-inert",
-    "why": "a goal tick on a paused cursor no-ops (awaiting_user_paused), never resumes"
-  },
-  {
-    "name": "paused_noop_reason_awaiting_user",
-    "type": "contains",
-    "pattern": "awaiting_user_paused",
-    "why": "v3.4.0: paused no-op emits reason=awaiting_user_paused"
-  },
-  {
-    "name": "resume_is_user_decision_not_wakeup",
-    "type": "contains",
-    "pattern": "cursor resume review|resume is a user decision|resume.*user re-engagement",
-    "dotall": true,
-    "why": "v3.4.0: resume only on explicit user re-engagement, never a wakeup"
-  },
-  {
-    "name": "retro_step_2_single_ask_call",
-    "type": "contains",
-    "pattern": "all three in \\*\\*ONE\\*\\*",
-    "why": "v3.4.0: retro discussion is ONE AskUserQuestion call with three questions, not three sequential"
-  },
-  {
-    "name": "retro_step_2_not_three_sequential",
-    "type": "not_contains",
-    "pattern": "Three sequential AskUserQuestion calls",
-    "why": "v3.4.0: the three-sequential-calls drip was replaced by a single batched call"
-  },
-  {
-    "name": "manual_gates_batched_single_call",
-    "type": "contains",
-    "pattern": "batch ALL manual gates",
-    "why": "v3.4.0: manual quality gates go into one AskUserQuestion call, not a per-gate drip"
-  },
-  {
-    "name": "manual_gates_no_per_gate_drip",
-    "type": "not_contains",
-    "pattern": "for each manual gate:\\s*\\n\\s*Present via AskUserQuestion",
-    "why": "v3.4.0: the old per-gate serial AskUserQuestion drip is gone"
-  },
-  {
-    "name": "hotfix_reports_statement_not_ask",
-    "type": "contains",
-    "pattern": "Merge when ready — Shipyard doesn't touch your branches",
-    "why": "v3.4.0: hotfix verification is a statement, not a merge-permission question Shipyard can't act on"
-  },
-  {
-    "name": "hotfix_not_merge_permission_ask",
-    "type": "not_contains",
-    "pattern": "AskUserQuestion: \"Hotfix B-HOT-NNN verified. Merge to",
-    "why": "v3.4.0: removed the misleading merge-permission ask"
-  },
-  {
-    "name": "plugin_issue_detection_plain_text_not_ask",
-    "type": "contains",
-    "pattern": "Print this as plain text and continue the retro — do not `AskUserQuestion`",
-    "why": "v3.4.0: plugin-issue detection is a plain-text report, not a blocking question"
-  },
-  {
-    "name": "archive_then_terminal_advance_order",
-    "type": "contains",
-    "target": "ref:pipeline-cursor.md",
-    "pattern": "archive-sprint.*terminal advance|terminal advance.*archive-sprint",
-    "dotall": true,
-    "why": "v3.4.0: the no-cursor terminal advance handles the archive seam; run archive then terminal advance"
-  },
-  {
-    "name": "archive_seam_no_noop_or_force_fallback",
-    "type": "not_contains",
-    "target": "ref:pipeline-cursor.md",
-    "pattern": "cursor directory itself is gone",
-    "why": "v3.4.0: removed the old 'if current/ is gone use cursor noop' workaround"
-  },
-  {
-    "name": "stage6_approved_uses_feature_set_status_done",
-    "type": "contains",
-    "pattern": "feature set-status.*done",
-    "why": "v3.6.0 wave 2: Stage 6 Approved branch routes the feature-done transition through the CLI instead of a generic 'update feature statuses' hand-Edit instruction."
-  },
-  {
-    "name": "render_provenance_negation",
-    "type": "contains",
-    "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
-  },
-  {
-    "name": "stage_task_checklist_created_at_preflight",
-    "type": "contains",
-    "pattern": "Stage Task Checklist \\(created at preflight\\)"
-  },
-  {
-    "name": "stage_task_subject_prefix",
-    "type": "contains",
-    "pattern": "\\[review-NNN\\] <stage>"
-  },
-  {
-    "name": "stage_task_mode_aware_table",
-    "type": "contains",
-    "pattern": "Pick the stage set by mode"
-  },
-  {
-    "name": "stage_task_self_loop_one_task",
-    "type": "contains",
-    "pattern": "get \\*\\*ONE\\*\\* task each"
-  },
-  {
-    "name": "stage_task_completion_gated_on_cursor_advance",
-    "type": "contains",
-    "pattern": "only when the cursor actually advances past it"
-  },
-  {
-    "name": "stage_task_never_completed_on_subagent_claim",
-    "type": "contains",
-    "pattern": "never on a subagent/agent return's claim"
-  },
-  {
-    "name": "stage_task_skipped_marked_not_deleted",
-    "type": "contains",
-    "pattern": "marked `completed` with `skipped: <reason>`"
-  },
-  {
-    "name": "stage_task_never_authority_guardrail",
-    "type": "contains",
-    "pattern": "the stage task list is a progress surface and a recovery anchor, NEVER authority"
-  },
-  {
-    "name": "stage_task_recovery_anchor_tasklist_first",
-    "type": "contains",
-    "pattern": "Call `TaskList\\(\\)` first"
-  },
-  {
-    "name": "stage_task_recovery_cursor_wins_on_disagreement",
-    "type": "contains",
-    "pattern": "if tasks and cursor disagree, the cursor wins"
-  },
-  {
-    "name": "stage_task_tools_in_allowed_tools",
-    "type": "contains",
-    "pattern": "allowed-tools:.*TaskCreate, TaskUpdate, TaskList"
-  },
-  {
-    "name": "quiet_by_default",
-    "type": "contains",
-    "pattern": "Quiet by default"
-  },
-  {
-    "name": "review_does_not_paste_subagent_chatter",
-    "type": "contains",
-    "pattern": "Subagent returns are internal contracts"
-  },
-  {
-    "name": "stage1a_check_first_ledger",
-    "type": "contains",
-    "pattern": "shipyard-data verify check --key test_commands",
-    "why": "perf plan fix 1.1: Stage 1a must consult the verification ledger before re-running a tier /ship-execute already ran on this commit (measured 7m 9s cost of blindly re-running)"
-  },
-  {
-    "name": "stage1a_verify_record_on_stale_pass",
-    "type": "contains",
-    "pattern": "shipyard-data verify record --key test_commands",
-    "why": "fix 1.1: when a tier is stale and re-run, Stage 1a records the fresh pass so a later tick or the release gate can reuse it"
-  },
-  {
-    "name": "stage1a_not_a_blanket_skip",
-    "type": "contains",
-    "pattern": "never a blanket skip",
-    "why": "fix 1.1: Stage 0/0.5 commit before Stage 1a, so a dirty tree must correctly re-run tiers — the check-first change must not silently skip on every invocation"
-  },
-  {
-    "name": "stage1a_renders_skip_decision",
-    "type": "contains",
-    "pattern": "Render the decision as chat text",
-    "why": "fix 1.1: a skip the user can't see is indistinguishable from a stage that silently didn't happen"
-  },
-  {
-    "name": "stage4_8_ledger_predicate_not_event_window",
-    "type": "contains",
-    "pattern": "shipyard-data verify check --key demo_probe",
-    "why": "fix 5.2: Stage 4.8's freshness preflight was judged by event-log presence within a prose-level sprint window (no sha/tree/timestamp comparison); replaced with the tree-id-backed ledger predicate"
-  },
-  {
-    "name": "stage4_8_verify_record_on_pass",
-    "type": "contains",
-    "pattern": "shipyard-data verify record --key demo_probe",
-    "why": "fix 5.2: a freshly-passed demo probe is recorded into the ledger so a later tick or resumed review can reuse it"
-  },
-  {
-    "name": "quality_gate_satisfied_by_evidence",
-    "type": "contains",
-    "target": "ref:quality-gate-enforcement.md",
-    "pattern": "[Ss]atisfied by evidence",
-    "why": "fix 1.2: a quality gate whose text names a test_commands key must be satisfiable by ledger evidence instead of dispatching a third execution of tiers already run twice"
-  },
-  {
-    "name": "quality_gate_evidence_column_never_dropped",
-    "type": "contains",
-    "target": "ref:quality-gate-enforcement.md",
-    "pattern": "Never drop a gate row",
-    "why": "fix 1.2: satisfied-by-evidence gates must still write a row (with an Evidence column) so the audit trail gets richer, not thinner — an absent row reads as a gate that was never evaluated"
-  },
-  {
-    "name": "quality_gate_evidence_column_named",
-    "type": "contains",
-    "target": "ref:quality-gate-enforcement.md",
-    "pattern": "\\*\\*Evidence\\*\\* column",
-    "why": "fix 1.2: QUALITY-GATE.md gains an Evidence column naming tree-id, capture path, and producing stage"
-  },
-  {
-    "name": "pinned_ledger_key_test_commands_unit",
-    "type": "contains",
-    "pattern": "test_commands\\.unit",
-    "why": "cross-agent contract (perf plan P1): the ledger key literal `test_commands.unit` must match exactly between ship-execute's recorder and ship-review's Stage 1a checker — a rename on either side silently disables the skip and quietly restores the slow re-run path"
-  },
-  {
-    "name": "pinned_ledger_key_test_commands_integration",
-    "type": "contains",
-    "pattern": "test_commands\\.integration",
-    "why": "cross-agent contract (perf plan P1): pinned ledger key literal, must match ship-execute's recorder exactly"
-  },
-  {
-    "name": "pinned_ledger_key_test_commands_e2e",
-    "type": "contains",
-    "pattern": "test_commands\\.e2e",
-    "why": "cross-agent contract (perf plan P1): pinned ledger key literal, must match ship-execute's recorder exactly"
-  },
-  {
-    "name": "pinned_ledger_key_demo_probe",
-    "type": "contains",
-    "pattern": "verify (check|record) --key demo_probe\\.",
-    "why": "cross-agent contract (perf plan P1/5.2): the ledger key literal `demo_probe.<FID>` must match exactly between ship-execute's sprint_demo_probes recorder and ship-review's Stage 4.8 checker, or Stage 4.8 regresses to always re-running probes it currently skips"
-  },
-  {
-    "name": "stage4_8_still_emits_acceptance_probe_completed",
-    "type": "contains",
-    "pattern": "acceptance_probe_completed",
-    "why": "cross-agent contract note: evaluating-sprint-complete Invariant 8 depends on this event independently of the ledger check — the ledger check-first change must not replace or remove this emit"
-  },
-  {
-    "name": "user_flow_probe_human_verdict_carried_forward",
-    "type": "contains",
-    "pattern": "do not re-ask",
-    "why": "v3.17.0: an assisted/manual confirmation whose commit is an ancestor of HEAD is proof; re-asking a person to re-walk an unchanged flow is the interrupt this stage must not add."
-  },
-  {
-    "name": "user_flow_probe_reconfirm_on_ancestry_break",
-    "type": "contains",
-    "pattern": "merge-base --is-ancestor",
-    "why": "v3.17.0: Stage 0/0.5 commit before this stage, so a confirmation against pre-fix code must not count — same soundness argument as the ledger-predicate preflight."
-  },
-  {
-    "name": "stage_id_and_ledger_key_unchanged",
-    "type": "contains",
-    "pattern": "stage id and ledger key stay `demo_probe`",
-    "why": "v3.17.0 compat: renaming the stage id would strand in-flight cursors and renaming the ledger key would invalidate every recorded entry. Only the frontmatter field was renamed."
-  },
-  {
-    "name": "review_auto_fix_before_asking",
-    "type": "contains",
-    "pattern": "Auto-fix before asking",
-    "why": "Review should repair routine findings by dispatching fixers instead of asking whether findings should be fixed."
-  },
-  {
-    "name": "review_asks_only_for_severe_risky_or_blocked",
-    "type": "contains",
-    "pattern": "severe/risky.*BLOCKED.*hard-ceiling|BLOCKED.*severe/risky.*product-decision",
-    "dotall": true,
-    "why": "User interrupts are reserved for severe/risky/product decisions, BLOCKED states, or hard-ceiling escalation."
-  },
-  {
-    "name": "stage0_no_iteration2_user_ask",
-    "type": "contains",
-    "target": "ref:scanner-dispatch.md",
-    "pattern": "do not ask the user at iteration 2",
-    "why": "Stage 0 must keep fixing until clean/stuck/hard-ceiling, not ask after early non-convergence."
-  },
-  {
-    "name": "stage4_patch_tasks_auto_dispatch",
-    "type": "contains",
-    "pattern": "patch task \\+ auto-dispatch",
-    "why": "Simple in-scope review gaps should become patch tasks that are dispatched immediately, not deferred to the user by default."
-  },
-  {
-    "name": "demo_fail_auto_dispatch_before_ask",
-    "type": "contains",
-    "pattern": "On any FAIL/TIMEOUT: create/dispatch",
-    "why": "User-flow failures should trigger an automatic fix attempt before asking the user."
-  },
-  {
-    "name": "has_skip_retro_flag",
-    "type": "contains",
-    "pattern": "--skip-retro",
-    "why": "Users need an explicit fast path from approved review to release/archive without running the retrospective."
-  },
-  {
-    "name": "has_retro_decision_stage",
-    "type": "contains",
-    "pattern": "Retro Decision \\(stage_id: retro_decision\\)",
-    "why": "Default review should ask once whether to run or skip retro before asking any retro questions."
-  },
-  {
-    "name": "retro_questions_only_after_yes",
-    "type": "contains",
-    "pattern": "Do not ask the three retro questions unless the user chose \\*\\*Run retro\\*\\*",
-    "why": "The retro discussion prompts should only appear after the user opts into the retrospective."
-  },
-  {
-    "name": "skip_retro_routes_to_release_step_1",
-    "type": "contains",
-    "pattern": "skip-retro.*release_step_1",
-    "dotall": true,
-    "why": "The skip-retro flag must route to release planning, not silently terminal or archive without release approval."
-  },
-  {
-    "name": "retro_agentic_quality_bar",
-    "type": "contains",
-    "pattern": "Agentic retrospective quality bar",
-    "why": "Shipyard retros should be data-first learning loops for an agentic build framework, not generic meeting prompts."
-  },
-  {
-    "name": "retro_action_items_capped",
-    "type": "contains",
-    "pattern": "Cap this at 5 IDEAs per retrospective",
-    "why": "Retros should not flood the backlog; only high-leverage improvements become IDEAs."
-  },
-  {
-    "name": "retro_collects_agentic_delivery_signals",
-    "type": "contains",
-    "pattern": "agentic delivery signals",
-    "why": "The retro should inspect build/test reruns, ledger reuse, review iterations, salvage/timeouts and plugin issue candidates."
-  },
-  {
-    "name": "review_fix_workers_set_fixer_effort",
-    "type": "contains",
-    "pattern": "agent_effort\\.fixer",
-    "why": "Flat review fix workers should use the configurable fixer effort tier instead of inheriting orchestration effort."
-  },
-  {
-    "name": "review_critic_sets_think_effort",
-    "type": "contains",
-    "pattern": "agent_effort\\.think",
-    "why": "Critic/reasoning subagents should keep the high-effort tier unless project config overrides it."
-  }
+ {
+  "name": "no_git_push",
+  "type": "not_contains",
+  "pattern": "\\bgit\\s+push\\b"
+ },
+ {
+  "name": "no_sprint_branch_merge",
+  "type": "not_contains",
+  "pattern": "git merge.*sprint/"
+ },
+ {
+  "name": "no_pr_merge",
+  "type": "not_contains",
+  "pattern": "gh pr merge"
+ },
+ {
+  "name": "no_integration_branch",
+  "type": "not_contains",
+  "pattern": "integration_branch"
+ },
+ {
+  "name": "no_git_tag_create",
+  "type": "not_contains",
+  "pattern": "git tag -a|git tag v"
+ },
+ {
+  "name": "no_ship_retro_ref",
+  "type": "not_contains",
+  "pattern": "/ship-retro"
+ },
+ {
+  "name": "no_ship_release_ref",
+  "type": "not_contains",
+  "pattern": "/ship-release"
+ },
+ {
+  "name": "has_spec_verification",
+  "type": "contains",
+  "pattern": "acceptance scenario|acceptance criteria"
+ },
+ {
+  "name": "has_code_review_orchestration",
+  "type": "contains",
+  "pattern": "code-review-orchestration\\.md"
+ },
+ {
+  "name": "has_code_review_stage",
+  "type": "contains",
+  "pattern": "Stage 0.*Code Review",
+  "dotall": true
+ },
+ {
+  "name": "has_goal_contract",
+  "type": "contains",
+  "pattern": "Goal driver contract"
+ },
+ {
+  "name": "has_flat_worker_contract",
+  "type": "contains",
+  "pattern": "Flat-worker contract"
+ },
+ {
+  "name": "review_uses_worker_queue",
+  "type": "contains",
+  "pattern": "shipyard-data queue (enqueue|claim|requeue-stale)"
+ },
+ {
+  "name": "no_legacy_reviewer",
+  "type": "not_contains",
+  "pattern": "shipyard-reviewer\\b"
+ },
+ {
+  "name": "has_visual_verification",
+  "type": "contains",
+  "pattern": "[Ss]creenshot|[Vv]isual"
+ },
+ {
+  "name": "checks_working_branch",
+  "type": "contains",
+  "pattern": "git branch --show-current"
+ },
+ {
+  "name": "has_retro_section",
+  "type": "contains",
+  "pattern": "Sprint Retrospective"
+ },
+ {
+  "name": "has_velocity_analysis",
+  "type": "contains",
+  "pattern": "[Vv]elocity"
+ },
+ {
+  "name": "has_anti_patterns",
+  "type": "contains",
+  "pattern": "anti.pattern|Anti.Pattern"
+ },
+ {
+  "name": "has_retro_only_flag",
+  "type": "contains",
+  "pattern": "retro-only"
+ },
+ {
+  "name": "has_improvement_items",
+  "type": "contains",
+  "pattern": "improvement|action item"
+ },
+ {
+  "name": "has_archive_sprint",
+  "type": "contains",
+  "pattern": "Archive|archive sprint"
+ },
+ {
+  "name": "uses_atomic_archive_sprint_command",
+  "type": "contains",
+  "pattern": "shipyard-data archive-sprint",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-6 (S018/P068): retargeted to retro-and-release.md after the move."
+ },
+ {
+  "name": "has_changelog_file",
+  "type": "contains",
+  "pattern": "CHANGELOG\\.md"
+ },
+ {
+  "name": "has_frontmatter_name",
+  "type": "frontmatter_field",
+  "field": "name",
+  "value": "ship-review"
+ },
+ {
+  "name": "has_demo_flag",
+  "type": "contains",
+  "pattern": "--demo|demo"
+ },
+ {
+  "name": "has_hotfix_review_mode",
+  "type": "contains",
+  "pattern": "--hotfix"
+ },
+ {
+  "name": "has_verdict_file",
+  "type": "contains",
+  "pattern": "verdict|complete.*false|complete.*true"
+ },
+ {
+  "name": "has_gap_analysis",
+  "type": "contains",
+  "pattern": "[Gg]ap [Aa]nalysis|[Ss]imple.*[Cc]omplex"
+ },
+ {
+  "name": "gap_analysis_uses_registered_agent_wrapper",
+  "type": "contains",
+  "pattern": "dispatching-gap-analysis",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-6 (S018/P070): retargeted to review-stages-approval.md after the move."
+ },
+ {
+  "name": "gap_analysis_no_general_purpose_dispatch",
+  "type": "not_contains",
+  "pattern": "Agent\\(subagent_type:\\s*\"general-purpose\".*gap",
+  "dotall": true
+ },
+ {
+  "name": "has_quality_gate",
+  "type": "contains",
+  "pattern": "Quality Gate|self-review"
+ },
+ {
+  "name": "has_final_review_pass",
+  "type": "contains",
+  "pattern": "Final Review Pass|blind spot|false positive"
+ },
+ {
+  "name": "approval_uses_ask_user",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "has_retro_data_file",
+  "type": "contains",
+  "pattern": "RETRO-DATA\\.md"
+ },
+ {
+  "name": "has_retro_compaction_recovery",
+  "type": "contains",
+  "pattern": "[Cc]ompaction [Rr]ecovery"
+ },
+ {
+  "name": "has_throughput_tracking",
+  "type": "contains",
+  "pattern": "throughput|pts.*hr|pts/hr"
+ },
+ {
+  "name": "has_release_step",
+  "type": "contains",
+  "pattern": "released_at|status.*released",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-6 (S018/P068): retargeted to retro-and-release.md after the move."
+ },
+ {
+  "name": "has_feature_status_to_done",
+  "type": "contains",
+  "pattern": "status.*done|done.*status"
+ },
+ {
+  "name": "uses_ask_user_question",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "uses_shipyard_data_path",
+  "type": "contains",
+  "pattern": "shipyard-data|shipyard-context"
+ },
+ {
+  "name": "wraps_verification_in_logcap",
+  "type": "contains",
+  "pattern": "shipyard-logcap",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-6 (S018/P069): retargeted to review-stages-verify.md after the move."
+ },
+ {
+  "name": "links_logcap_bounds_reference",
+  "type": "contains",
+  "pattern": "context-management\\.md",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-6 (S018/P069): retargeted to review-stages-verify.md after the move."
+ },
+ {
+  "name": "prefers_grep_before_rerun",
+  "type": "contains",
+  "pattern": "grep the existing capture|grep.*before.*re-run",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-6 (S018/P069): retargeted to review-stages-verify.md after the move."
+ },
+ {
+  "name": "no_shell_sd_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data"
+ },
+ {
+  "name": "no_shell_sc_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context"
+ },
+ {
+  "name": "no_sd_shell_var_assignment",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data"
+ },
+ {
+  "name": "operational_evidence_check_stage3",
+  "type": "contains",
+  "pattern": "Operational Task Evidence Check|kind: operational.*verify_output",
+  "dotall": true,
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-6 (S018/P069): retargeted to review-stages-verify.md after the move."
+ },
+ {
+  "name": "operational_review_flags_silent_pass",
+  "type": "contains",
+  "pattern": "SILENT-PASS|silent-pass",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-6 (S018/P069): retargeted to review-stages-verify.md after the move."
+ },
+ {
+  "name": "operational_review_checks_capture_bytes",
+  "type": "contains",
+  "pattern": "byte|bytes|shipyard-logcap",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-6 (S018/P069): retargeted to review-stages-verify.md after the move."
+ },
+ {
+  "name": "retro_uses_atomic_idea_allocator",
+  "type": "contains",
+  "pattern": "shipyard-data next-id ideas"
+ },
+ {
+  "name": "retro_source_tag_slash_convention",
+  "type": "contains",
+  "pattern": "source: retro/",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-6 (S018/P068): retargeted to retro-and-release.md after the move."
+ },
+ {
+  "name": "retro_forbids_manual_idea_numbering",
+  "type": "contains",
+  "pattern": "Do NOT `ls spec/ideas|Do NOT ls spec/ideas|allocator is the only safe way",
+  "dotall": true
+ },
+ {
+  "name": "stage4_captures_out_of_scope_as_ideas",
+  "type": "contains",
+  "pattern": "Capture Out-of-Scope Observations as IDEAs",
+  "target": "ref:review-stages-approval.md",
+  "why": "F025 AC-6: only non-defect observations become ideas; concrete defects become bug stories or tasks"
+ },
+ {
+  "name": "stage4_uses_review_gap_source_tag",
+  "type": "contains",
+  "pattern": "source: review-gap/",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-6 (S018/P070): retargeted to review-stages-approval.md after the move."
+ },
+ {
+  "name": "stage4_idea_cap_five_per_stage",
+  "type": "contains",
+  "pattern": "5 IDEAs per review stage|5 per stage",
+  "dotall": true,
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-6 (S018/P070): retargeted to review-stages-approval.md after the move."
+ },
+ {
+  "name": "stage4_out_of_scope_only",
+  "type": "contains",
+  "pattern": "out-of-scope observations only|never a concrete defect|EXCLUSIVELY for non-defect observations",
+  "dotall": true,
+  "target": "ref:review-stages-approval.md",
+  "why": "F025 AC-6"
+ },
+ {
+  "name": "stage4_found_during_field",
+  "type": "contains",
+  "pattern": "found_during:.*surface-gap-stage-4|found_during:.*code-review-stage-0",
+  "dotall": true,
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-6 (S018/P070): retargeted to review-stages-approval.md after the move."
+ },
+ {
+  "name": "stage0_out_of_scope_ideas_cross_ref",
+  "type": "contains",
+  "pattern": "Out-of-scope findings in Stage 0|code-review-stage-0",
+  "dotall": true,
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-6 (S018/P070): retargeted to review-stages-approval.md after the move."
+ },
+ {
+  "name": "simplification_stage_exists",
+  "type": "contains",
+  "pattern": "Stage 0\\.5.*[Ss]implif"
+ },
+ {
+  "name": "simplification_uses_general_purpose_simplifier",
+  "type": "contains",
+  "pattern": "general-purpose simplifier|simplifier subagent",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-6 (S018/P069): retargeted to review-stages-fix.md after the move."
+ },
+ {
+  "name": "simplification_scope_guard",
+  "type": "contains",
+  "pattern": "scope guard|only touches files in the sprint diff"
+ },
+ {
+  "name": "prohibits_bash_redirect_for_state",
+  "type": "contains",
+  "pattern": "never use echo, printf, or shell redirects",
+  "target": "plugin:bin/shipyard-context.mjs",
+  "why": "S016/P061: canonical home is CANONICAL_STARTUP_RULES in the startup CLI."
+ },
+ {
+  "name": "code_review_loop_goal_mode",
+  "type": "contains",
+  "pattern": "Goal-mode default|/goal-shaped"
+ },
+ {
+  "name": "code_review_emits_iteration_event",
+  "type": "contains",
+  "pattern": "code_review_iteration",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-6 (S018/P069): retargeted to review-stages-fix.md after the move."
+ },
+ {
+  "name": "code_review_no_mid_loop_pause",
+  "type": "not_contains",
+  "pattern": "diminishing-returns AskUserQuestion at iteration 2"
+ },
+ {
+  "name": "cursor_schema_referenced",
+  "type": "contains",
+  "pattern": "REVIEW-CURSOR\\.md"
+ },
+ {
+  "name": "cursor_reference_loaded",
+  "type": "contains",
+  "pattern": "pipeline-cursor\\.md"
+ },
+ {
+  "name": "cursor_read_at_entry",
+  "type": "contains",
+  "pattern": "SHIPYARD_CURSOR_\\*|shipyard-context cursor-state review"
+ },
+ {
+  "name": "cursor_not_read_directly",
+  "type": "not_contains",
+  "pattern": "Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md`|Read <SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md|REVIEW-CURSOR\\.md.*Read tool",
+  "why": "Cursor reads are now CLI-owned via shipyard-context; skill bodies should not parse cursor frontmatter directly."
+ },
+ {
+  "name": "terminal_marker_text",
+  "type": "contains",
+  "pattern": "CYCLE COMPLETE"
+ },
+ {
+  "name": "terminal_marker_loop_should_stop",
+  "type": "contains",
+  "pattern": "/goal should stop"
+ },
+ {
+  "name": "tick_marker_loop_continues",
+  "type": "contains",
+  "pattern": "TICK COMPLETE.*[Ll]oop continues|/goal continues"
+ },
+ {
+  "name": "emits_pipeline_terminal_event",
+  "type": "contains",
+  "pattern": "pipeline_terminal"
+ },
+ {
+  "name": "emits_pipeline_tick_started",
+  "type": "contains",
+  "pattern": "pipeline_tick_started"
+ },
+ {
+  "name": "emits_pipeline_tick_completed",
+  "type": "contains",
+  "pattern": "pipeline_tick_completed"
+ },
+ {
+  "name": "emits_pipeline_stuck",
+  "type": "contains",
+  "pattern": "pipeline_stuck"
+ },
+ {
+  "name": "stuck_threshold_five",
+  "type": "contains",
+  "pattern": "stuck_counter.*5|5 ticks without|5 times without"
+ },
+ {
+  "name": "hard_ceiling_fifty",
+  "type": "contains",
+  "pattern": "hard_ceiling.*50|50 iterations|hard ceiling.*50"
+ },
+ {
+  "name": "stage_id_preflight",
+  "type": "contains",
+  "pattern": "stage.*preflight|preflight stage"
+ },
+ {
+  "name": "stage_id_code_review_iter",
+  "type": "contains",
+  "pattern": "code_review_iter"
+ },
+ {
+  "name": "stage_id_review_scan",
+  "type": "contains",
+  "pattern": "review_scan"
+ },
+ {
+  "name": "stage_id_review_plan",
+  "type": "contains",
+  "pattern": "review_plan"
+ },
+ {
+  "name": "stage_id_review_fix_wave",
+  "type": "contains",
+  "pattern": "review_fix_wave"
+ },
+ {
+  "name": "stage_id_review_validation",
+  "type": "contains",
+  "pattern": "review_validation"
+ },
+ {
+  "name": "review_uses_deterministic_fix_planner",
+  "type": "contains",
+  "pattern": "shipyard-data review plan",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-6 (S018/P069): retargeted to review-stages-fix.md after the move."
+ },
+ {
+  "name": "review_batches_findings_before_fixes",
+  "type": "contains",
+  "pattern": "REVIEW-FIX-PLAN\\.json|fix batches|validation_ladder"
+ },
+ {
+  "name": "stage_id_terminal",
+  "type": "contains",
+  "pattern": "stage.*terminal|terminal stage"
+ },
+ {
+  "name": "noop_already_archived_handled",
+  "type": "contains",
+  "pattern": "sprint_already_archived|already complete and archived|already archived"
+ },
+ {
+  "name": "direct_vs_loop_invocation_documented",
+  "type": "contains",
+  "pattern": "Direct invocation vs|/goal driver|single-tick"
+ },
+ {
+  "name": "no_stage_zero_three_iter_cap_authoritative",
+  "type": "not_contains",
+  "pattern": "max 3 iterations|cap of 3|3-iteration cap"
+ },
+ {
+  "name": "code_review_escalated_event_documented",
+  "type": "contains",
+  "pattern": "code_review_escalated",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-6 (S018/P069): retargeted to review-stages-fix.md after the move."
+ },
+ {
+  "name": "scheduled_wakeup_not_invented",
+  "type": "not_contains",
+  "pattern": "ScheduleWakeup.*REVIEW-CURSOR|ScheduleWakeup.*ship-review"
+ },
+ {
+  "name": "direct_invocation_runs_bounded_goal_tick",
+  "type": "contains",
+  "pattern": "goal tick runs the same stage handler|run exactly one handler"
+ },
+ {
+  "name": "direct_invocation_budget_no_longer_3_min",
+  "type": "not_contains",
+  "pattern": "~3 minutes? per invocation|~3-minute wall-clock budget|approximately 3 minutes"
+ },
+ {
+  "name": "wakeup_leak_protection_noop_terminal_sweep_documented",
+  "type": "contains",
+  "pattern": "No-op terminal sweep \\(MANDATORY"
+ },
+ {
+  "name": "wakeup_leak_protection_two_conditions_named",
+  "type": "contains",
+  "pattern": "checking BOTH conditions"
+ },
+ {
+  "name": "sprint_md_completed_is_not_a_noop_condition",
+  "type": "contains",
+  "pattern": "status: completed. is NOT a no-op condition",
+  "why": "status: completed is the post-execute state review must handle; treating it as dead made executed sprints un-reviewable"
+ },
+ {
+  "name": "wakeup_leak_protection_archived_current_checked",
+  "type": "contains",
+  "pattern": "no active sprint in"
+ },
+ {
+  "name": "wakeup_leak_protection_emits_pipeline_terminal_on_noop",
+  "type": "contains",
+  "pattern": "cursor noop review sprint=<[^>]+> reason=sprint_already_archived",
+  "why": "v2.9.0: the noop emit routes through `shipyard-data cursor noop` (emit-first pinned in test_cursor_cli.mjs)"
+ },
+ {
+  "name": "wakeup_leak_protection_prints_cycle_complete_marker",
+  "type": "contains",
+  "pattern": "prints the stop marker|CYCLE COMPLETE",
+  "why": "v2.9.0: the CLI prints the stop marker; the skill echoes it"
+ },
+ {
+  "name": "noop_repeated_detection_documented",
+  "type": "contains",
+  "pattern": "pipeline_repeated_noop_detected|REPEATED NOOP"
+ },
+ {
+  "name": "has_quality_gate_stage",
+  "type": "contains",
+  "pattern": "Stage 1\\.5.*[Qq]uality|quality_gates"
+ },
+ {
+  "name": "quality_gate_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-review/references/quality-gate-enforcement.md"
+ },
+ {
+  "name": "has_manual_gate_checklist",
+  "type": "contains",
+  "pattern": "[Mm]anual.*checklist|[Mm]anual.*verification"
+ },
+ {
+  "name": "has_gate_failure_handling",
+  "type": "contains",
+  "pattern": "gate.*[Ff]ail|[Ff]ail.*gate"
+ },
+ {
+  "name": "review_critic_is_data_aware",
+  "type": "contains",
+  "pattern": "data-modeling failure modes",
+  "target": "ref:critic-prompt.md"
+ },
+ {
+  "name": "review_critic_data_is_gated",
+  "type": "contains",
+  "pattern": "[Ss]kip this entirely for features",
+  "dotall": true,
+  "target": "ref:critic-prompt.md"
+ },
+ {
+  "name": "code_review_orchestration_lists_data",
+  "type": "contains",
+  "pattern": "data` \\(auto-gating|exactly one subagent",
+  "target": "ref:code-review-orchestration.md"
+ },
+ {
+  "name": "terminal_stop_marker_is_final_signal",
+  "type": "contains",
+  "pattern": "reads the LAST line as its continue-or-stop signal|MUST be the final line"
+ },
+ {
+  "name": "noop_emit_is_non_optional",
+  "type": "contains",
+  "pattern": "non-optional|[Ee]mitting (it )?is mandatory"
+ },
+ {
+  "name": "loop_leak_detection_repeat_noop",
+  "type": "contains",
+  "pattern": "pipeline_repeated_noop_detected"
+ },
+ {
+  "name": "loop_leak_hard_marker",
+  "type": "contains",
+  "pattern": "REPEATED NOOP"
+ },
+ {
+  "name": "loop_leak_detection_is_cli_owned",
+  "type": "contains",
+  "pattern": "repeat-leak|pipeline_repeated_noop_detected",
+  "why": "v2.9.0: repeat-leak detection runs inside `cursor noop`"
+ },
+ {
+  "name": "loop_leak_event_in_vocabulary",
+  "type": "contains",
+  "target": "ref:pipeline-cursor.md",
+  "pattern": "pipeline_repeated_noop_detected"
+ },
+ {
+  "name": "gap_analysis_deepdive_reads_models_think",
+  "type": "contains",
+  "pattern": "resolve-model think",
+  "why": "v3.0.0 + S003: the gap-analysis dispatch resolves the think tier via shipyard-data resolve-model and passes model: only when non-empty AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "gap_analysis_dispatched_to_think_agent",
+  "type": "contains",
+  "pattern": "gap-analysis agent|Dispatch the analytical body",
+  "dotall": true,
+  "why": "v3.0.0: Stage 4 + 4.5 analytical body runs in one dispatched think-tier agent per gap_analysis tick"
+ },
+ {
+  "name": "gap_analysis_agent_is_read_only",
+  "type": "contains",
+  "pattern": "READ-ONLY analysis",
+  "why": "v3.0.0: the gap-analysis agent only analyzes; the shell owns all writes/dispatches AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "gap_analysis_shell_keeps_cursor_and_stuck",
+  "type": "contains",
+  "pattern": "shell.*cursor advance.*stuck_counter|cursor advance, the .stuck_counter",
+  "dotall": true,
+  "why": "v3.0.0: cursor advance + stuck_counter computation stay shell-side, never in the dispatched agent"
+ },
+ {
+  "name": "gap_analysis_has_inline_fallback",
+  "type": "contains",
+  "pattern": "On dispatch failure.*inline|run the Stage 4 \\+ 4.5 analysis inline",
+  "dotall": true,
+  "why": "v3.0.0: on dispatch failure the shell evaluates gap analysis + self-review inline"
+ },
+ {
+  "name": "pause_before_ask_rule_stated",
+  "type": "contains",
+  "pattern": "a tick never exits with a pending question and no stop marker",
+  "why": "v3.4.0: the load-bearing pause-before-ask rule is stated once"
+ },
+ {
+  "name": "pause_before_ask_at_demo_user",
+  "type": "contains",
+  "pattern": "cursor pause review --note \"awaiting user: sprint approval",
+  "why": "v3.4.0: demo_user (Stage 5 approval) pauses before AskUserQuestion AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "pause_before_ask_at_retro_step_2",
+  "type": "contains",
+  "pattern": "cursor pause review --note \"awaiting user: retro discussion",
+  "why": "v3.4.0: retro_step_2 pauses before AskUserQuestion AC-6 (S018/P068): retargeted to retro-and-release.md after the move.",
+  "target": "ref:retro-and-release.md"
+ },
+ {
+  "name": "pause_before_ask_at_retro_decision",
+  "type": "contains",
+  "pattern": "Retro Decision is a decide-and-inform tick",
+  "why": "4.4: the retro runs by default; 'run a retro?' was a zero-information question",
+  "target": "ref:retro-and-release.md"
+ },
+ {
+  "name": "pause_before_ask_at_release_step_1",
+  "type": "contains",
+  "pattern": "cursor pause review --note \"awaiting user: release approval",
+  "why": "v3.4.0: release_step_1 pauses before AskUserQuestion AC-6 (S018/P068): retargeted to retro-and-release.md after the move.",
+  "target": "ref:retro-and-release.md"
+ },
+ {
+  "name": "paused_goal_inert_entry",
+  "type": "contains",
+  "pattern": "paused is goal-inert",
+  "why": "a goal tick on a paused cursor no-ops (awaiting_user_paused), never resumes"
+ },
+ {
+  "name": "paused_noop_reason_awaiting_user",
+  "type": "contains",
+  "pattern": "awaiting_user_paused",
+  "why": "v3.4.0: paused no-op emits reason=awaiting_user_paused"
+ },
+ {
+  "name": "resume_is_user_decision_not_wakeup",
+  "type": "contains",
+  "pattern": "cursor resume review|resume is a user decision|resume.*user re-engagement",
+  "dotall": true,
+  "why": "v3.4.0: resume only on explicit user re-engagement, never a wakeup"
+ },
+ {
+  "name": "retro_step_2_single_ask_call",
+  "type": "contains",
+  "pattern": "all three in \\*\\*ONE\\*\\*",
+  "why": "v3.4.0: retro discussion is ONE AskUserQuestion call with three questions, not three sequential AC-6 (S018/P068): retargeted to retro-and-release.md after the move.",
+  "target": "ref:retro-and-release.md"
+ },
+ {
+  "name": "retro_step_2_not_three_sequential",
+  "type": "not_contains",
+  "pattern": "Three sequential AskUserQuestion calls",
+  "why": "v3.4.0: the three-sequential-calls drip was replaced by a single batched call"
+ },
+ {
+  "name": "manual_gates_one_card_per_gate",
+  "type": "contains",
+  "pattern": "one card per gate",
+  "why": "4.16 owner rule, hook-enforced: one question per card. The fallback review path still told the reviewer to put up to four gates on one card, which the hook refuses.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "manual_gates_no_per_gate_drip",
+  "type": "not_contains",
+  "pattern": "for each manual gate:\\s*\\n\\s*Present via AskUserQuestion",
+  "why": "v3.4.0: the old per-gate serial AskUserQuestion drip is gone"
+ },
+ {
+  "name": "hotfix_reports_statement_not_ask",
+  "type": "contains",
+  "pattern": "Merge when ready — Shipyard doesn't touch your branches",
+  "why": "v3.4.0: hotfix verification is a statement, not a merge-permission question Shipyard can't act on"
+ },
+ {
+  "name": "hotfix_not_merge_permission_ask",
+  "type": "not_contains",
+  "pattern": "AskUserQuestion: \"Hotfix S### verified. Merge to",
+  "why": "v3.4.0: removed the misleading merge-permission ask"
+ },
+ {
+  "name": "plugin_issue_detection_plain_text_not_ask",
+  "type": "contains",
+  "pattern": "Do not ask a question about it; continue the retro",
+  "why": "v3.4.0: plugin-issue detection is a plain-text report, not a blocking question AC-6 (S018/P068): retargeted to retro-and-release.md after the move. 4.0: the plain-text block became the output of `plugin-issue add`; still never a question",
+  "target": "ref:retro-and-release.md"
+ },
+ {
+  "name": "archive_then_terminal_advance_order",
+  "type": "contains",
+  "target": "ref:pipeline-cursor.md",
+  "pattern": "archive-sprint.*terminal advance|terminal advance.*archive-sprint",
+  "dotall": true,
+  "why": "v3.4.0: the no-cursor terminal advance handles the archive seam; run archive then terminal advance"
+ },
+ {
+  "name": "archive_seam_no_noop_or_force_fallback",
+  "type": "not_contains",
+  "target": "ref:pipeline-cursor.md",
+  "pattern": "cursor directory itself is gone",
+  "why": "v3.4.0: removed the old 'if current/ is gone use cursor noop' workaround"
+ },
+ {
+  "name": "stage6_approved_uses_feature_set_status_done",
+  "type": "contains",
+  "pattern": "story set-status.*done",
+  "why": "v3.6.0 wave 2: Stage 6 Approved branch routes the feature-done transition through the CLI instead of a generic 'update feature statuses' hand-Edit instruction. AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "render_provenance_negation",
+  "type": "contains",
+  "pattern": "does not count as rendered",
+  "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P061: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+  "target": "plugin:bin/shipyard-context.mjs"
+ },
+ {
+  "name": "stage_task_checklist_created_at_preflight",
+  "type": "contains",
+  "pattern": "Stage Task Checklist \\(created at preflight\\)"
+ },
+ {
+  "name": "stage_task_subject_prefix",
+  "type": "contains",
+  "pattern": "\\[review-NNN\\] <stage>"
+ },
+ {
+  "name": "stage_task_mode_aware_table",
+  "type": "contains",
+  "pattern": "Pick the stage set by mode"
+ },
+ {
+  "name": "stage_task_self_loop_one_task",
+  "type": "contains",
+  "pattern": "get \\*\\*ONE\\*\\* task each"
+ },
+ {
+  "name": "stage_task_completion_gated_on_cursor_advance",
+  "type": "contains",
+  "pattern": "only when the cursor actually advances past it"
+ },
+ {
+  "name": "stage_task_never_completed_on_subagent_claim",
+  "type": "contains",
+  "pattern": "never on a subagent/agent return's claim"
+ },
+ {
+  "name": "stage_task_skipped_marked_not_deleted",
+  "type": "contains",
+  "pattern": "marked `completed` with `skipped: <reason>`"
+ },
+ {
+  "name": "stage_task_never_authority_guardrail",
+  "type": "contains",
+  "pattern": "the stage task list is a progress surface and a recovery anchor, NEVER authority"
+ },
+ {
+  "name": "stage_task_recovery_anchor_tasklist_first",
+  "type": "contains",
+  "pattern": "Call `TaskList\\(\\)` first"
+ },
+ {
+  "name": "stage_task_recovery_cursor_wins_on_disagreement",
+  "type": "contains",
+  "pattern": "if tasks and cursor disagree, the cursor wins"
+ },
+ {
+  "name": "stage_task_tools_in_allowed_tools",
+  "type": "contains",
+  "pattern": "allowed-tools:.*TaskCreate, TaskUpdate, TaskList"
+ },
+ {
+  "name": "quiet_by_default",
+  "type": "contains",
+  "pattern": "Quiet by default"
+ },
+ {
+  "name": "review_does_not_paste_subagent_chatter",
+  "type": "contains",
+  "pattern": "Subagent returns are internal contracts"
+ },
+ {
+  "name": "stage1a_check_first_ledger",
+  "type": "contains",
+  "pattern": "shipyard-data verify check --key test_commands",
+  "why": "perf plan fix 1.1: Stage 1a must consult the verification ledger before re-running a tier /ship-execute already ran on this commit (measured 7m 9s cost of blindly re-running) AC-6 (S018/P069): retargeted to review-stages-verify.md after the move.",
+  "target": "ref:review-stages-verify.md"
+ },
+ {
+  "name": "stage1a_verify_record_on_stale_pass",
+  "type": "contains",
+  "pattern": "shipyard-data verify record --key test_commands",
+  "why": "fix 1.1: when a tier is stale and re-run, Stage 1a records the fresh pass so a later tick or the release gate can reuse it AC-6 (S018/P069): retargeted to review-stages-verify.md after the move.",
+  "target": "ref:review-stages-verify.md"
+ },
+ {
+  "name": "stage1a_not_a_blanket_skip",
+  "type": "contains",
+  "pattern": "never a blanket skip",
+  "why": "fix 1.1: Stage 0/0.5 commit before Stage 1a, so a dirty tree must correctly re-run tiers — the check-first change must not silently skip on every invocation AC-6 (S018/P069): retargeted to review-stages-verify.md after the move.",
+  "target": "ref:review-stages-verify.md"
+ },
+ {
+  "name": "stage1a_renders_skip_decision",
+  "type": "contains",
+  "pattern": "Render the decision as chat text",
+  "why": "fix 1.1: a skip the user can't see is indistinguishable from a stage that silently didn't happen AC-6 (S018/P069): retargeted to review-stages-verify.md after the move.",
+  "target": "ref:review-stages-verify.md"
+ },
+ {
+  "name": "stage4_8_ledger_predicate_not_event_window",
+  "type": "contains",
+  "pattern": "shipyard-data verify check --key demo_probe",
+  "why": "fix 5.2: Stage 4.8's freshness preflight was judged by event-log presence within a prose-level sprint window (no sha/tree/timestamp comparison); replaced with the tree-id-backed ledger predicate AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "stage4_8_verify_record_on_pass",
+  "type": "contains",
+  "pattern": "shipyard-data verify record --key demo_probe",
+  "why": "fix 5.2: a freshly-passed demo probe is recorded into the ledger so a later tick or resumed review can reuse it AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "quality_gate_satisfied_by_evidence",
+  "type": "contains",
+  "target": "ref:quality-gate-enforcement.md",
+  "pattern": "[Ss]atisfied by evidence",
+  "why": "fix 1.2: a quality gate whose text names a test_commands key must be satisfiable by ledger evidence instead of dispatching a third execution of tiers already run twice"
+ },
+ {
+  "name": "quality_gate_evidence_column_never_dropped",
+  "type": "contains",
+  "target": "ref:quality-gate-enforcement.md",
+  "pattern": "Never drop a gate row",
+  "why": "fix 1.2: satisfied-by-evidence gates must still write a row (with an Evidence column) so the audit trail gets richer, not thinner — an absent row reads as a gate that was never evaluated"
+ },
+ {
+  "name": "quality_gate_evidence_column_named",
+  "type": "contains",
+  "target": "ref:quality-gate-enforcement.md",
+  "pattern": "\\*\\*Evidence\\*\\* column",
+  "why": "fix 1.2: QUALITY-GATE.md gains an Evidence column naming tree-id, capture path, and producing stage"
+ },
+ {
+  "name": "pinned_ledger_key_test_commands_unit",
+  "type": "contains",
+  "pattern": "test_commands\\.unit",
+  "why": "cross-agent contract (perf plan P1): the ledger key literal `test_commands.unit` must match exactly between ship-execute's recorder and ship-review's Stage 1a checker — a rename on either side silently disables the skip and quietly restores the slow re-run path AC-6 (S018/P069): retargeted to review-stages-verify.md after the move.",
+  "target": "ref:review-stages-verify.md"
+ },
+ {
+  "name": "pinned_ledger_key_test_commands_integration",
+  "type": "contains",
+  "pattern": "test_commands\\.integration",
+  "why": "cross-agent contract (perf plan P1): pinned ledger key literal, must match ship-execute's recorder exactly AC-6 (S018/P069): retargeted to review-stages-verify.md after the move.",
+  "target": "ref:review-stages-verify.md"
+ },
+ {
+  "name": "pinned_ledger_key_test_commands_e2e",
+  "type": "contains",
+  "pattern": "test_commands\\.e2e",
+  "why": "cross-agent contract (perf plan P1): pinned ledger key literal, must match ship-execute's recorder exactly AC-6 (S018/P069): retargeted to review-stages-verify.md after the move.",
+  "target": "ref:review-stages-verify.md"
+ },
+ {
+  "name": "pinned_ledger_key_demo_probe",
+  "type": "contains",
+  "pattern": "verify (check|record) --key demo_probe\\.",
+  "why": "cross-agent contract (perf plan P1/5.2): the ledger key literal `demo_probe.<SID>` must match exactly between ship-execute's sprint_demo_probes recorder and ship-review's Stage 4.8 checker, or Stage 4.8 regresses to always re-running probes it currently skips AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "stage4_8_still_emits_acceptance_probe_completed",
+  "type": "contains",
+  "pattern": "acceptance_probe_completed",
+  "why": "cross-agent contract note: evaluating-sprint-complete Invariant 8 depends on this event independently of the ledger check — the ledger check-first change must not replace or remove this emit AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "user_flow_probe_human_verdict_carried_forward",
+  "type": "contains",
+  "pattern": "do not re-ask",
+  "why": "v3.17.0: an assisted/manual confirmation whose commit is an ancestor of HEAD is proof; re-asking a person to re-walk an unchanged flow is the interrupt this stage must not add. AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "user_flow_probe_reconfirm_on_ancestry_break",
+  "type": "contains",
+  "pattern": "merge-base --is-ancestor",
+  "why": "v3.17.0: Stage 0/0.5 commit before this stage, so a confirmation against pre-fix code must not count — same soundness argument as the ledger-predicate preflight. AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "stage_id_and_ledger_key_unchanged",
+  "type": "contains",
+  "pattern": "stage id and ledger key stay `demo_probe`",
+  "why": "v3.17.0 compat: renaming the stage id would strand in-flight cursors and renaming the ledger key would invalidate every recorded entry. Only the frontmatter field was renamed. AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "review_auto_fix_before_asking",
+  "type": "contains",
+  "pattern": "Auto-fix before asking",
+  "why": "Review should repair routine findings by dispatching fixers instead of asking whether findings should be fixed. AC-6 (S018/P069): retargeted to review-autofix.md after the move. AC-6 (S018/P070): moved again to review-autofix.md.",
+  "target": "ref:review-autofix.md"
+ },
+ {
+  "name": "review_asks_only_for_severe_risky_or_blocked",
+  "type": "contains",
+  "pattern": "severe/risky.*BLOCKED.*hard-ceiling|BLOCKED.*severe/risky.*product-decision",
+  "dotall": true,
+  "why": "User interrupts are reserved for severe/risky/product decisions, BLOCKED states, or hard-ceiling escalation. AC-6 (S018/P069): retargeted to review-autofix.md after the move. AC-6 (S018/P070): moved again to review-autofix.md.",
+  "target": "ref:review-autofix.md"
+ },
+ {
+  "name": "stage0_no_iteration2_user_ask",
+  "type": "contains",
+  "target": "ref:scanner-dispatch.md",
+  "pattern": "do not ask the user at iteration 2",
+  "why": "Stage 0 must keep fixing until clean/stuck/hard-ceiling, not ask after early non-convergence."
+ },
+ {
+  "name": "stage4_patch_tasks_auto_dispatch",
+  "type": "contains",
+  "pattern": "patch task \\+ auto-dispatch",
+  "why": "Simple in-scope review gaps should become patch tasks that are dispatched immediately, not deferred to the user by default. AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "demo_fail_auto_dispatch_before_ask",
+  "type": "contains",
+  "pattern": "On any FAIL/TIMEOUT: create/dispatch",
+  "why": "User-flow failures should trigger an automatic fix attempt before asking the user. AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "has_skip_retro_flag",
+  "type": "contains",
+  "pattern": "--skip-retro",
+  "why": "Users need an explicit fast path from approved review to release/archive without running the retrospective."
+ },
+ {
+  "name": "has_retro_decision_stage",
+  "type": "contains",
+  "pattern": "Retro Decision \\(stage_id: retro_decision\\)",
+  "why": "Default review should ask once whether to run or skip retro before asking any retro questions. AC-6 (S018/P068): retargeted to retro-and-release.md after the move.",
+  "target": "ref:retro-and-release.md"
+ },
+ {
+  "name": "retro_questions_only_after_yes",
+  "type": "contains",
+  "pattern": "Default \\(`execution.unattended: true`\\): no question",
+  "why": "4.4: retro answers are data-derived; the three questions are asked only when execution.unattended is false",
+  "target": "ref:retro-and-release.md"
+ },
+ {
+  "name": "skip_retro_routes_to_release_step_1",
+  "type": "contains",
+  "pattern": "skip-retro.*release_step_1",
+  "dotall": true,
+  "why": "The skip-retro flag must route to release planning, not silently terminal or archive without release approval."
+ },
+ {
+  "name": "retro_agentic_quality_bar",
+  "type": "contains",
+  "pattern": "Agentic retrospective quality bar",
+  "why": "Shipyard retros should be data-first learning loops for an agentic build framework, not generic meeting prompts. AC-6 (S018/P068): retargeted to retro-and-release.md after the move.",
+  "target": "ref:retro-and-release.md"
+ },
+ {
+  "name": "retro_action_items_capped",
+  "type": "contains",
+  "pattern": "Cap this at 5 IDEAs per retrospective",
+  "why": "Retros should not flood the backlog; only high-leverage improvements become IDEAs. AC-6 (S018/P068): retargeted to retro-and-release.md after the move.",
+  "target": "ref:retro-and-release.md"
+ },
+ {
+  "name": "retro_collects_agentic_delivery_signals",
+  "type": "contains",
+  "pattern": "agentic delivery signals",
+  "why": "The retro should inspect build/test reruns, ledger reuse, review iterations, salvage/timeouts and plugin issue candidates. AC-6 (S018/P068): retargeted to retro-and-release.md after the move.",
+  "target": "ref:retro-and-release.md"
+ },
+ {
+  "name": "review_fix_workers_set_fixer_effort",
+  "type": "contains",
+  "pattern": "resolve-model fixer",
+  "why": "Flat review fix workers should use the configurable fixer effort tier instead of inheriting orchestration effort. AC-6 (S018/P069): retargeted to review-stages-fix.md after the move.",
+  "target": "ref:review-stages-fix.md"
+ },
+ {
+  "name": "review_critic_sets_think_effort",
+  "type": "contains",
+  "pattern": "resolve-model think",
+  "why": "Critic/reasoning subagents should keep the high-effort tier unless project config overrides it. AC-6 (S018/P070): retargeted to review-stages-approval.md after the move.",
+  "target": "ref:review-stages-approval.md"
+ },
+ {
+  "name": "ship_review_uses_resolve_model",
+  "type": "contains",
+  "pattern": "resolve-model",
+  "why": "S003/P019: model+effort for dispatches come from `shipyard-data resolve-model <role>` (one deterministic answer), not prose re-derivation from config.md."
+ },
+ {
+  "name": "render_before_ask_short_reminder_present",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "S016/P061: the command keeps only the short reminder; the full doctrine is printed at startup (CANONICAL_STARTUP_RULES)."
+ },
+ {
+  "name": "no_git_push__retro-and-release",
+  "type": "not_contains",
+  "pattern": "\\bgit\\s+push\\b",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "no_sprint_branch_merge__retro-and-release",
+  "type": "not_contains",
+  "pattern": "git merge.*sprint/",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "no_pr_merge__retro-and-release",
+  "type": "not_contains",
+  "pattern": "gh pr merge",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "no_integration_branch__retro-and-release",
+  "type": "not_contains",
+  "pattern": "integration_branch",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "no_git_tag_create__retro-and-release",
+  "type": "not_contains",
+  "pattern": "git tag -a|git tag v",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "no_ship_retro_ref__retro-and-release",
+  "type": "not_contains",
+  "pattern": "/ship-retro",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "no_ship_release_ref__retro-and-release",
+  "type": "not_contains",
+  "pattern": "/ship-release",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "no_legacy_reviewer__retro-and-release",
+  "type": "not_contains",
+  "pattern": "shipyard-reviewer\\b",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "gap_analysis_no_general_purpose_dispatch__retro-and-release",
+  "type": "not_contains",
+  "pattern": "Agent\\(subagent_type:\\s*\"general-purpose\".*gap",
+  "dotall": true,
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "no_shell_sd_substitution__retro-and-release",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "no_shell_sc_substitution__retro-and-release",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "no_sd_shell_var_assignment__retro-and-release",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "code_review_no_mid_loop_pause__retro-and-release",
+  "type": "not_contains",
+  "pattern": "diminishing-returns AskUserQuestion at iteration 2",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "cursor_not_read_directly__retro-and-release",
+  "type": "not_contains",
+  "pattern": "Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md`|Read <SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md|REVIEW-CURSOR\\.md.*Read tool",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "no_stage_zero_three_iter_cap_authoritative__retro-and-release",
+  "type": "not_contains",
+  "pattern": "max 3 iterations|cap of 3|3-iteration cap",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "scheduled_wakeup_not_invented__retro-and-release",
+  "type": "not_contains",
+  "pattern": "ScheduleWakeup.*REVIEW-CURSOR|ScheduleWakeup.*ship-review",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "direct_invocation_budget_no_longer_3_min__retro-and-release",
+  "type": "not_contains",
+  "pattern": "~3 minutes? per invocation|~3-minute wall-clock budget|approximately 3 minutes",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "retro_step_2_not_three_sequential__retro-and-release",
+  "type": "not_contains",
+  "pattern": "Three sequential AskUserQuestion calls",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "manual_gates_no_per_gate_drip__retro-and-release",
+  "type": "not_contains",
+  "pattern": "for each manual gate:\\s*\\n\\s*Present via AskUserQuestion",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "hotfix_not_merge_permission_ask__retro-and-release",
+  "type": "not_contains",
+  "pattern": "AskUserQuestion: \"Hotfix S### verified. Merge to",
+  "target": "ref:retro-and-release.md",
+  "why": "AC-4/AC-6 (S018/P068): ban copied to the moved reference."
+ },
+ {
+  "name": "router_reads_retro_release_reference_retro",
+  "type": "contains",
+  "pattern": "Read `references/retro-and-release\\.md` § Sprint Retrospective and follow it",
+  "why": "S018: retrospective path loads the moved reference through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_retro_release_reference_release",
+  "type": "contains",
+  "pattern": "Read `references/retro-and-release\\.md` § Release and follow it",
+  "why": "S018: release path loads the moved reference through an explicit Read line. AC-3"
+ },
+ {
+  "name": "retro_release_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-review/references/retro-and-release.md",
+  "why": "S018: reference exists AC-3"
+ },
+ {
+  "name": "no_git_push__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "\\bgit\\s+push\\b",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_sprint_branch_merge__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "git merge.*sprint/",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_pr_merge__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "gh pr merge",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_integration_branch__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "integration_branch",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_git_tag_create__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "git tag -a|git tag v",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_ship_retro_ref__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "/ship-retro",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_ship_release_ref__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "/ship-release",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_legacy_reviewer__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "shipyard-reviewer\\b",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "gap_analysis_no_general_purpose_dispatch__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "Agent\\(subagent_type:\\s*\"general-purpose\".*gap",
+  "dotall": true,
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_shell_sd_substitution__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_shell_sc_substitution__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_sd_shell_var_assignment__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "code_review_no_mid_loop_pause__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "diminishing-returns AskUserQuestion at iteration 2",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "cursor_not_read_directly__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md`|Read <SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md|REVIEW-CURSOR\\.md.*Read tool",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_stage_zero_three_iter_cap_authoritative__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "max 3 iterations|cap of 3|3-iteration cap",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "scheduled_wakeup_not_invented__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "ScheduleWakeup.*REVIEW-CURSOR|ScheduleWakeup.*ship-review",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "direct_invocation_budget_no_longer_3_min__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "~3 minutes? per invocation|~3-minute wall-clock budget|approximately 3 minutes",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "retro_step_2_not_three_sequential__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "Three sequential AskUserQuestion calls",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "manual_gates_no_per_gate_drip__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "for each manual gate:\\s*\\n\\s*Present via AskUserQuestion",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "hotfix_not_merge_permission_ask__review-stages-fix",
+  "type": "not_contains",
+  "pattern": "AskUserQuestion: \"Hotfix S### verified. Merge to",
+  "target": "ref:review-stages-fix.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_git_push__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "\\bgit\\s+push\\b",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_sprint_branch_merge__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "git merge.*sprint/",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_pr_merge__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "gh pr merge",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_integration_branch__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "integration_branch",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_git_tag_create__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "git tag -a|git tag v",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_ship_retro_ref__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "/ship-retro",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_ship_release_ref__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "/ship-release",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_legacy_reviewer__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "shipyard-reviewer\\b",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "gap_analysis_no_general_purpose_dispatch__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "Agent\\(subagent_type:\\s*\"general-purpose\".*gap",
+  "dotall": true,
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_shell_sd_substitution__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_shell_sc_substitution__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_sd_shell_var_assignment__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "code_review_no_mid_loop_pause__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "diminishing-returns AskUserQuestion at iteration 2",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "cursor_not_read_directly__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md`|Read <SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md|REVIEW-CURSOR\\.md.*Read tool",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "no_stage_zero_three_iter_cap_authoritative__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "max 3 iterations|cap of 3|3-iteration cap",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "scheduled_wakeup_not_invented__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "ScheduleWakeup.*REVIEW-CURSOR|ScheduleWakeup.*ship-review",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "direct_invocation_budget_no_longer_3_min__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "~3 minutes? per invocation|~3-minute wall-clock budget|approximately 3 minutes",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "retro_step_2_not_three_sequential__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "Three sequential AskUserQuestion calls",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "manual_gates_no_per_gate_drip__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "for each manual gate:\\s*\\n\\s*Present via AskUserQuestion",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "hotfix_not_merge_permission_ask__review-stages-verify",
+  "type": "not_contains",
+  "pattern": "AskUserQuestion: \"Hotfix S### verified. Merge to",
+  "target": "ref:review-stages-verify.md",
+  "why": "AC-4/AC-6 (S018/P069): ban copied to the moved reference."
+ },
+ {
+  "name": "router_reads_review_stages_fix_stage_0b",
+  "type": "contains",
+  "pattern": "references/review-stages-fix\\.md` § Stage 0b and follow it",
+  "why": "S018/P069: the router loads the moved Stage 0b text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_fix_stage_0c",
+  "type": "contains",
+  "pattern": "references/review-stages-fix\\.md` § Stage 0c and follow it",
+  "why": "S018/P069: the router loads the moved Stage 0c text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_fix_stage_0d",
+  "type": "contains",
+  "pattern": "references/review-stages-fix\\.md` § Stage 0d and follow it",
+  "why": "S018/P069: the router loads the moved Stage 0d text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_fix_legacy_stage_0",
+  "type": "contains",
+  "pattern": "references/review-stages-fix\\.md` § Legacy Stage 0 and follow it",
+  "why": "S018/P069: the router loads the moved Legacy Stage 0 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_fix_stage_0_5",
+  "type": "contains",
+  "pattern": "references/review-stages-fix\\.md` § Stage 0\\.5 and follow it",
+  "why": "S018/P069: the router loads the moved Stage 0.5 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_verify_stage_1",
+  "type": "contains",
+  "pattern": "references/review-stages-verify\\.md` § Stage 1 and follow it",
+  "why": "S018/P069: the router loads the moved Stage 1 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_verify_stage_1_5",
+  "type": "contains",
+  "pattern": "references/review-stages-verify\\.md` § Stage 1\\.5 and follow it",
+  "why": "S018/P069: the router loads the moved Stage 1.5 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_verify_stage_2",
+  "type": "contains",
+  "pattern": "references/review-stages-verify\\.md` § Stage 2 and follow it",
+  "why": "S018/P069: the router loads the moved Stage 2 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_verify_stage_3",
+  "type": "contains",
+  "pattern": "references/review-stages-verify\\.md` § Stage 3 and follow it",
+  "why": "S018/P069: the router loads the moved Stage 3 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "review_stages_fix_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-review/references/review-stages-fix.md",
+  "why": "S018/P069: reference exists AC-3"
+ },
+ {
+  "name": "review_stages_verify_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-review/references/review-stages-verify.md",
+  "why": "S018/P069: reference exists AC-3"
+ },
+ {
+  "name": "fix_planner_text_not_in_router",
+  "type": "not_contains",
+  "pattern": "Run the deterministic planner",
+  "why": "S018/P069 AC-4: Stage 0b text lives once, in review-stages-fix.md."
+ },
+ {
+  "name": "fix_wave_worker_text_not_in_router",
+  "type": "not_contains",
+  "pattern": "identical fixer workers",
+  "why": "S018/P069 AC-4: Stage 0c text lives once, in review-stages-fix.md."
+ },
+ {
+  "name": "goal_verify_text_not_in_router",
+  "type": "not_contains",
+  "pattern": "Tests passing is necessary but not sufficient",
+  "why": "S018/P069 AC-4: Stage 3 text lives once, in review-stages-verify.md."
+ },
+ {
+  "name": "no_git_push__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "\\bgit\\s+push\\b",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_sprint_branch_merge__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "git merge.*sprint/",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_pr_merge__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "gh pr merge",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_integration_branch__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "integration_branch",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_git_tag_create__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "git tag -a|git tag v",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_ship_retro_ref__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "/ship-retro",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_ship_release_ref__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "/ship-release",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_legacy_reviewer__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "shipyard-reviewer\\b",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "gap_analysis_no_general_purpose_dispatch__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "Agent\\(subagent_type:\\s*\"general-purpose\".*gap",
+  "dotall": true,
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_shell_sd_substitution__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_shell_sc_substitution__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_sd_shell_var_assignment__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "code_review_no_mid_loop_pause__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "diminishing-returns AskUserQuestion at iteration 2",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "cursor_not_read_directly__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md`|Read <SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md|REVIEW-CURSOR\\.md.*Read tool",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_stage_zero_three_iter_cap_authoritative__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "max 3 iterations|cap of 3|3-iteration cap",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "scheduled_wakeup_not_invented__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "ScheduleWakeup.*REVIEW-CURSOR|ScheduleWakeup.*ship-review",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "direct_invocation_budget_no_longer_3_min__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "~3 minutes? per invocation|~3-minute wall-clock budget|approximately 3 minutes",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "retro_step_2_not_three_sequential__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "Three sequential AskUserQuestion calls",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "manual_gates_no_per_gate_drip__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "for each manual gate:\\s*\\n\\s*Present via AskUserQuestion",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "hotfix_not_merge_permission_ask__review-stages-approval",
+  "type": "not_contains",
+  "pattern": "AskUserQuestion: \"Hotfix S### verified. Merge to",
+  "target": "ref:review-stages-approval.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_git_push__review-autofix",
+  "type": "not_contains",
+  "pattern": "\\bgit\\s+push\\b",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_sprint_branch_merge__review-autofix",
+  "type": "not_contains",
+  "pattern": "git merge.*sprint/",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_pr_merge__review-autofix",
+  "type": "not_contains",
+  "pattern": "gh pr merge",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_integration_branch__review-autofix",
+  "type": "not_contains",
+  "pattern": "integration_branch",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_git_tag_create__review-autofix",
+  "type": "not_contains",
+  "pattern": "git tag -a|git tag v",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_ship_retro_ref__review-autofix",
+  "type": "not_contains",
+  "pattern": "/ship-retro",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_ship_release_ref__review-autofix",
+  "type": "not_contains",
+  "pattern": "/ship-release",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_legacy_reviewer__review-autofix",
+  "type": "not_contains",
+  "pattern": "shipyard-reviewer\\b",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "gap_analysis_no_general_purpose_dispatch__review-autofix",
+  "type": "not_contains",
+  "pattern": "Agent\\(subagent_type:\\s*\"general-purpose\".*gap",
+  "dotall": true,
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_shell_sd_substitution__review-autofix",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_shell_sc_substitution__review-autofix",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_sd_shell_var_assignment__review-autofix",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "code_review_no_mid_loop_pause__review-autofix",
+  "type": "not_contains",
+  "pattern": "diminishing-returns AskUserQuestion at iteration 2",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "cursor_not_read_directly__review-autofix",
+  "type": "not_contains",
+  "pattern": "Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md`|Read <SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md|REVIEW-CURSOR\\.md.*Read tool",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "no_stage_zero_three_iter_cap_authoritative__review-autofix",
+  "type": "not_contains",
+  "pattern": "max 3 iterations|cap of 3|3-iteration cap",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "scheduled_wakeup_not_invented__review-autofix",
+  "type": "not_contains",
+  "pattern": "ScheduleWakeup.*REVIEW-CURSOR|ScheduleWakeup.*ship-review",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "direct_invocation_budget_no_longer_3_min__review-autofix",
+  "type": "not_contains",
+  "pattern": "~3 minutes? per invocation|~3-minute wall-clock budget|approximately 3 minutes",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "retro_step_2_not_three_sequential__review-autofix",
+  "type": "not_contains",
+  "pattern": "Three sequential AskUserQuestion calls",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "manual_gates_no_per_gate_drip__review-autofix",
+  "type": "not_contains",
+  "pattern": "for each manual gate:\\s*\\n\\s*Present via AskUserQuestion",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "hotfix_not_merge_permission_ask__review-autofix",
+  "type": "not_contains",
+  "pattern": "AskUserQuestion: \"Hotfix S### verified. Merge to",
+  "target": "ref:review-autofix.md",
+  "why": "AC-4/AC-6 (S018/P070): ban copied to the moved reference."
+ },
+ {
+  "name": "router_reads_review_stages_approval_stage_4",
+  "type": "contains",
+  "pattern": "references/review-stages-approval\\.md` § Stage 4 and follow it",
+  "why": "S018/P070: the router loads the moved Stage 4 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_approval_stage_4_5",
+  "type": "contains",
+  "pattern": "references/review-stages-approval\\.md` § Stage 4\\.5 and follow it",
+  "why": "S018/P070: the router loads the moved Stage 4.5 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_approval_stage_4_6",
+  "type": "contains",
+  "pattern": "references/review-stages-approval\\.md` § Stage 4\\.6 and follow it",
+  "why": "S018/P070: the router loads the moved Stage 4.6 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_approval_stage_4_7",
+  "type": "contains",
+  "pattern": "references/review-stages-approval\\.md` § Stage 4\\.7 and follow it",
+  "why": "S018/P070: the router loads the moved Stage 4.7 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_approval_stage_4_8",
+  "type": "contains",
+  "pattern": "references/review-stages-approval\\.md` § Stage 4\\.8 and follow it",
+  "why": "S018/P070: the router loads the moved Stage 4.8 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_approval_stage_5",
+  "type": "contains",
+  "pattern": "references/review-stages-approval\\.md` § Stage 5 and follow it",
+  "why": "S018/P070: the router loads the moved Stage 5 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_stages_approval_stage_6",
+  "type": "contains",
+  "pattern": "references/review-stages-approval\\.md` § Stage 6 and follow it",
+  "why": "S018/P070: the router loads the moved Stage 6 text through an explicit Read line. AC-3"
+ },
+ {
+  "name": "router_reads_review_autofix_stage_1_5",
+  "type": "contains",
+  "pattern": "references/review-autofix\\.md` § Auto-fix before asking and follow it before dispatching a fixer",
+  "why": "S018/P070: Stage 1.5 FAIL loads the Auto-fix doctrine through an explicit Read line, not at the top of the pipeline. AC-3"
+ },
+ {
+  "name": "approval_ref_reads_autofix_stage_4",
+  "type": "contains",
+  "pattern": "review-autofix\\.md` § Auto-fix before asking and follow it\\.\\n\\nFor each gap, classify",
+  "dotall": true,
+  "target": "ref:review-stages-approval.md",
+  "why": "S018/P070: Stage 4 classification reads the Auto-fix doctrine. AC-3"
+ },
+ {
+  "name": "approval_ref_reads_autofix_stage_4_7",
+  "type": "contains",
+  "pattern": "## Stage 4\\.7: Final Review Pass\\n\\n\\*\\*Read\\*\\* `[^`]*review-autofix\\.md`",
+  "target": "ref:review-stages-approval.md",
+  "why": "S018/P070: Stage 4.7 reads the Auto-fix doctrine. AC-3"
+ },
+ {
+  "name": "approval_ref_reads_autofix_stage_4_8_fail",
+  "type": "contains",
+  "pattern": "\\*\\*Approval gate\\.\\*\\* \\*\\*Read\\*\\* `[^`]*review-autofix\\.md`",
+  "target": "ref:review-stages-approval.md",
+  "why": "S018/P070: Stage 4.8 FAIL reads the Auto-fix doctrine. AC-3"
+ },
+ {
+  "name": "approval_ref_reads_stuck_warning_stage_4_5",
+  "type": "contains",
+  "pattern": "review-autofix\\.md` § Stuck warning and follow it for the ≥5 protocol",
+  "target": "ref:review-stages-approval.md",
+  "why": "S018/P070: the >=5 stuck-counter protocol still resolves from Stage 4.5. AC-3"
+ },
+ {
+  "name": "fix_ref_reads_stuck_warning_stage_0c",
+  "type": "contains",
+  "pattern": "review-autofix\\.md` § Stuck warning and follow it",
+  "target": "ref:review-stages-fix.md",
+  "why": "S018/P070: Stage 0c stuck protocol resolves to the new reference. AC-3"
+ },
+ {
+  "name": "autofix_ref_has_stuck_warning_protocol",
+  "type": "contains",
+  "pattern": "stuck_counter >= 5.*repeated_fix_failure.*pipeline_stuck",
+  "dotall": true,
+  "target": "ref:review-autofix.md",
+  "why": "S018/P070: the >=5 stuck protocol text lives in review-autofix.md. AC-3"
+ },
+ {
+  "name": "approval_ref_points_at_self_looping_section",
+  "type": "contains",
+  "pattern": "\"Self-looping stages\" section of SKILL\\.md",
+  "target": "ref:review-stages-approval.md",
+  "why": "S018/P070: the moved Stage 4.5 pointer resolves to the SKILL.md section that stays in the router. AC-3"
+ },
+ {
+  "name": "router_self_looping_reads_stuck_warning",
+  "type": "contains",
+  "pattern": "\\*\\*Read\\*\\* `[^`]*review-autofix\\.md` § Stuck warning and follow it for the ≥5 protocol",
+  "why": "S018/P070 AC-3: the >=5 protocol is loaded from the router's Self-looping stages section, so every self-looping stage resolves it."
+ },
+ {
+  "name": "router_stuck_protocol_covers_legacy_code_review_iter",
+  "type": "contains",
+  "pattern": "### Self-looping stages: stuck detection.*review-autofix\\.md` § Stuck warning.*including legacy `code_review_iter_N`",
+  "dotall": true,
+  "why": "S018/P070 AC-3: the legacy code_review_iter_N route (and tests/release_step_1 self-loops) reaches the stuck-warning protocol via the router section."
+ },
+ {
+  "name": "review_stages_approval_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-review/references/review-stages-approval.md",
+  "why": "S018/P070: reference exists AC-3"
+ },
+ {
+  "name": "review_autofix_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-review/references/review-autofix.md",
+  "why": "S018/P070: reference exists AC-3"
+ },
+ {
+  "name": "autofix_text_not_in_router",
+  "type": "not_contains",
+  "pattern": "is expected to repair review findings",
+  "why": "S018/P070 AC-4: Auto-fix text lives once, in review-autofix.md."
+ },
+ {
+  "name": "autofix_text_not_in_fix_ref",
+  "type": "not_contains",
+  "pattern": "is expected to repair review findings",
+  "target": "ref:review-stages-fix.md",
+  "why": "S018/P070 AC-4: Auto-fix text lives once, in review-autofix.md."
+ },
+ {
+  "name": "stuck_warning_text_not_in_router",
+  "type": "not_contains",
+  "pattern": "has run \\[N\\] times without state change",
+  "why": "S018/P070 AC-4: Stuck warning text lives once, in review-autofix.md."
+ },
+ {
+  "name": "stuck_warning_text_not_in_fix_ref",
+  "type": "not_contains",
+  "pattern": "has run \\[N\\] times without state change",
+  "target": "ref:review-stages-fix.md",
+  "why": "S018/P070 AC-4: Stuck warning text lives once, in review-autofix.md."
+ },
+ {
+  "name": "gap_analysis_text_not_in_router",
+  "type": "not_contains",
+  "pattern": "Dispatch the analytical body via",
+  "why": "S018/P070 AC-4: Stage 4 text lives once, in review-stages-approval.md."
+ },
+ {
+  "name": "self_review_table_not_in_router",
+  "type": "not_contains",
+  "pattern": "Every acceptance scenario has a test",
+  "why": "S018/P070 AC-4: Stage 4.5 table lives once, in review-stages-approval.md."
+ },
+ {
+  "name": "critic_stage_text_not_in_router",
+  "type": "not_contains",
+  "pattern": "Anti-sycophancy \\+ pre-mortem framing",
+  "why": "S018/P070 AC-4: Stage 4.6 text lives once, in review-stages-approval.md."
+ },
+ {
+  "name": "final_pass_text_not_in_router",
+  "type": "not_contains",
+  "pattern": "surgical pass on the critic",
+  "why": "S018/P070 AC-4: Stage 4.7 text lives once, in review-stages-approval.md."
+ },
+ {
+  "name": "user_flow_preflight_text_not_in_router",
+  "type": "not_contains",
+  "pattern": "ledger predicate, not event-window",
+  "why": "S018/P070 AC-4: Stage 4.8 text lives once, in review-stages-approval.md."
+ },
+ {
+  "name": "demo_summary_text_not_in_router",
+  "type": "not_contains",
+  "pattern": "Per-feature summary",
+  "why": "S018/P070 AC-4: Stage 5 text lives once, in review-stages-approval.md."
+ },
+ {
+  "name": "process_decision_text_not_in_router",
+  "type": "not_contains",
+  "pattern": "Create bug entries via /ship-bug logic",
+  "why": "S018/P070 AC-4: Stage 6 outcomes live once, in review-stages-approval.md."
+ },
+ {
+  "name": "verdict_gate_not_duplicated_in_approval_ref",
+  "type": "not_contains",
+  "pattern": "recommendation: approve\\|issues\\|changes",
+  "target": "ref:review-stages-approval.md",
+  "why": "S018/P070 AC-4: the verdict-file gate lives once, in SKILL.md."
+ },
+ {
+  "name": "terminal_gate_not_duplicated_in_approval_ref",
+  "type": "not_contains",
+  "pattern": "Terminal-gate enforcement\\.\\*\\* The two",
+  "target": "ref:review-stages-approval.md",
+  "why": "S018/P070 AC-4: the terminal gate text lives once, in SKILL.md."
+ },
+ {
+  "name": "release_archive_passes_via_review",
+  "type": "contains",
+  "pattern": "archive-sprint sprint-NNN --via-review",
+  "target": "ref:retro-and-release.md"
+ },
+ {
+  "name": "skip_release_archive_passes_via_review",
+  "type": "contains",
+  "pattern": "--via-review"
+ },
+ {
+  "name": "retro_release_ref_no_stale_run_status_pointer",
+  "type": "not_contains",
+  "pattern": "Final: Run[ ]Status",
+  "target": "ref:retro-and-release.md",
+  "why": "RF-03: that SKILL.md section was deleted on purpose (broke stop-marker-last); the ref must not point at it."
+ },
+ {
+  "name": "f025_review_defects_become_bug_stories",
+  "type": "contains",
+  "pattern": "Out-of-scope, concrete defect[\\s\\S]*bug story",
+  "dotall": true,
+  "target": "ref:review-stages-approval.md",
+  "why": "F025 AC-6: a concrete defect found in review becomes a bug or task, not an idea"
+ },
+ {
+  "name": "f028_sprint_review_skips_settled_stories",
+  "type": "contains",
+  "pattern": "do NOT repeat its spec review here",
+  "target": "ref:review-stages-verify.md",
+  "why": "F028 AC-3: the sprint-level review covers cross-story checks, full build, demo and retro and does not repeat per-story findings"
+ },
+ {
+  "name": "f028_gap_analysis_sprint_slice",
+  "type": "contains",
+  "pattern": "Never re-list a per-story finding that is already recorded and dispositioned",
+  "target": "ref:review-stages-approval.md",
+  "why": "F028 AC-3"
+ },
+ {
+  "name": "f031_code_review_behind_flag",
+  "type": "contains",
+  "pattern": "Read `review.code_review` from config.md[\\s\\S]*`off` \\(default\\) → skip",
+  "dotall": true,
+  "target": "ref:scanner-dispatch.md",
+  "why": "F031 AC-2: runs only when enabled, off by default"
+ },
+ {
+  "name": "f031_findings_use_existing_path",
+  "type": "contains",
+  "pattern": "Normalize each prose line into a REVIEW-FINDINGS.json entry",
+  "target": "ref:scanner-dispatch.md",
+  "why": "F031 AC-3: findings go through the existing review plan → patch-step / bug-story path"
+ },
+ {
+  "name": "f031_shipyard_review_kept",
+  "type": "contains",
+  "pattern": "Spec review, gap analysis, AC coverage and the disposition rule still run",
+  "target": "ref:scanner-dispatch.md",
+  "why": "F031 AC-4"
+ },
+ {
+  "name": "f031_level_bounded_never_ultra",
+  "type": "contains",
+  "pattern": "never choose `ultra` or `max`",
+  "target": "ref:scanner-dispatch.md",
+  "why": "F031 AC-5: modest default level; ultra is user-triggered and billed"
+ },
+ {
+  "name": "f031_never_fix_or_comment",
+  "type": "contains",
+  "pattern": "Never pass `--fix` or `--comment`",
+  "target": "ref:scanner-dispatch.md",
+  "why": "F031: the integration never edits code or posts on the user's behalf"
+ },
+ {
+  "name": "f033_workflow_opt_in_only",
+  "type": "contains",
+  "pattern": "Never call `Workflow` when the key is off",
+  "target": "ref:workflow-fanout.md",
+  "why": "F033 AC-1"
+ },
+ {
+  "name": "f033_cli_is_the_ledger",
+  "type": "contains",
+  "pattern": "The CLI is the ledger \\(AC-3\\)",
+  "target": "ref:workflow-fanout.md",
+  "why": "F033 AC-3: every workflow result is recorded through the CLI"
+ },
+ {
+  "name": "f033_fallback_is_plain_dispatch",
+  "type": "contains",
+  "pattern": "Fallback is the current dispatch \\(AC-4\\)",
+  "target": "ref:workflow-fanout.md",
+  "why": "F033 AC-4"
+ },
+ {
+  "name": "f033_no_builders",
+  "type": "contains",
+  "pattern": "builders never run in a workflow",
+  "target": "ref:workflow-fanout.md",
+  "why": "F033 AC-2/AC-5: read-only scope"
+ },
+ {
+  "name": "f033_resume_probe_recorded",
+  "type": "contains",
+  "pattern": "same-session only",
+  "target": "ref:workflow-fanout.md",
+  "why": "F033: resume behavior probed/recorded before relying on it"
+ },
+ {
+  "name": "e004_sprint_risk_floors_scanner_effort",
+  "type": "contains",
+  "pattern": "shipyard-data risk score --base <sprint base> --head HEAD --cap",
+  "target": "ref:scanner-dispatch.md",
+  "why": "E004-S2: the sprint review level comes from the CLI risk score"
+ },
+ {
+  "name": "e004_drift_recorded",
+  "type": "contains",
+  "pattern": "shipyard-data risk drift",
+  "target": "ref:scanner-dispatch.md",
+  "why": "E004-S1: coverage drift (risky files with no harm area) is surfaced for the retro"
+ },
+ {
+  "name": "e005_three_level_visual_verification",
+  "type": "contains",
+  "pattern": "--level component[\\s\\S]*--level screen[\\s\\S]*--level flow",
+  "target": "ref:review-stages-verify.md",
+  "why": "E005-S4: component, screen and flow verification run deterministically through the CLI"
+ },
+ {
+  "name": "e005_model_flags_never_approves",
+  "type": "contains",
+  "pattern": "a model may flag, never approve",
+  "target": "ref:review-stages-verify.md",
+  "why": "E005-S4: the CLI's verdict is the verdict"
+ },
+ {
+  "name": "e005_visual_skipped_not_faked",
+  "type": "contains",
+  "pattern": "skipped with one line\\*\\*, never faked",
+  "target": "ref:review-stages-verify.md",
+  "why": "E005-S5: adapter none or no Playwright skips the stage honestly"
+ },
+ {
+  "name": "renders_decisions_made_for_you",
+  "type": "contains",
+  "pattern": "Decisions made for you",
+  "target": "ref:review-stages-approval.md",
+  "why": "the review is where the user sees what execute decided"
+ },
+ {
+  "name": "collects_pending_human_probes",
+  "type": "contains",
+  "pattern": "PENDING_HUMAN",
+  "target": "ref:review-stages-approval.md",
+  "why": "human probes deferred by execute are collected at the demo"
+ },
+ {
+  "name": "retro_runs_by_default",
+  "type": "contains",
+  "pattern": "There is no \"run a retro",
+  "target": "ref:retro-and-release.md",
+  "why": "the retro is data-derived; asking whether to run it buys nothing"
+ },
+ {
+  "name": "release_commits_changelog",
+  "type": "contains",
+  "pattern": "git add CHANGELOG.md && git commit",
+  "target": "ref:retro-and-release.md",
+  "why": "an uncommitted changelog dirties the next execute's readiness"
+ },
+ {
+  "name": "agent_hygiene_rule",
+  "type": "contains",
+  "pattern": "Agent hygiene \\(load-bearing, CLI-gated",
+  "why": "4.5: finished agents are stopped at once; the terminal gate refuses while any is unaccounted for"
+ },
+ {
+  "name": "sprint_review_by_default",
+  "type": "contains",
+  "pattern": "Sprint review by default \\(4.6\\)",
+  "why": "4.6: /ship-review presents; /ship-execute does the quality work"
+ },
+ {
+  "name": "review_pack_sections",
+  "type": "contains",
+  "pattern": "Found but not done",
+  "target": "ref:sprint-review.md",
+  "why": "the pack shows what was discovered and left, with reasons"
+ },
+ {
+  "name": "review_pack_facts_from_cli",
+  "type": "contains",
+  "pattern": "shipyard-data review-pack",
+  "target": "ref:sprint-review.md",
+  "why": "every number in the review comes from the CLI"
+ },
+ {
+  "name": "review_shows_design_beside_delivered",
+  "type": "contains",
+  "pattern": "Design beside delivered",
+  "target": "ref:sprint-review.md",
+  "why": "4.8: the sprint review shows the design next to what was delivered"
+ },
+ {
+  "name": "review_is_one_cli_written_document",
+  "type": "contains",
+  "pattern": "shipyard-data review-pack --write",
+  "target": "ref:sprint-review.md",
+  "why": "4.12: the review is one document the CLI writes with the facts in; the first real review dropped the retrospective half"
+ },
+ {
+  "name": "review_shown_whole",
+  "type": "contains",
+  "pattern": "whole, in order, unshortened",
+  "target": "ref:sprint-review.md",
+  "why": "4.12: the file is the review; it is not rewritten into a shorter report"
+ },
+ {
+  "name": "accepting_is_not_looking",
+  "type": "contains",
+  "pattern": "Accepting the sprint is not looking at a screen",
+  "target": "ref:sprint-review.md",
+  "why": "4.12: four device looks were recorded as confirmed by the owner because the owner accepted the sprint"
+ },
+ {
+  "name": "release_date_is_written_by_the_cli",
+  "type": "contains",
+  "pattern": "the CLI writes `released_at` itself",
+  "target": "ref:retro-and-release.md",
+  "why": "4.13.3: the step told the model to set a key the CLI refuses, so stories were released with no date"
+ },
+ {
+  "name": "review_reuses_recorded_proof_by_its_key",
+  "type": "contains",
+  "pattern": "shipyard-data verify list",
+  "target": "ref:sprint-review.md",
+  "why": "4.13.4: review looked up the suite under a key it invented and re-ran a suite execute had just recorded"
+ },
+ {
+  "name": "review_commits_what_it_wrote",
+  "type": "contains",
+  "pattern": "is refused while a file that became dirty during the review is uncommitted",
+  "target": "ref:retro-and-release.md",
+  "why": "4.15.1: two reviews ended with the owner's decisions uncommitted and 'say the word and I'll commit it'"
+ },
+ {
+  "name": "review_opens_with_summary_plain_words",
+  "type": "contains",
+  "pattern": "open with a 15-second summary",
+  "target": "ref:sprint-review.md",
+  "why": "4.16: the review is read by an owner who may not be an engineer"
+ },
+ {
+  "name": "plugin_issue_is_reported_by_the_owner",
+  "type": "contains",
+  "target": "ref:retro-and-release.md",
+  "pattern": "shipyard-data plugin-issue add",
+  "why": "4.0: two reviews ended with \"I am sending them to the maintainers\"; a local command with a fixed closing line replaces the improvised sentence"
+ },
+ {
+  "name": "person_checks_in_one_sitting",
+  "type": "contains",
+  "target": "ref:sprint-review.md",
+  "pattern": "one sitting",
+  "why": "4.0 (owner): everything else is pushed to the very end, done together"
+ },
+ {
+  "name": "quality_gates_checked_on_default_review",
+  "type": "contains",
+  "target": "ref:sprint-review.md",
+  "pattern": "a gate is never left unmentioned",
+  "why": "4.0: the planner wrote QUALITY-GATE.md for every sprint but the default review path never read it"
+ },
+ {
+  "name": "plugin_issue_never_sent",
+  "type": "contains",
+  "target": "ref:retro-and-release.md",
+  "pattern": "Nothing is sent anywhere",
+  "why": "4.0: posting outside is the owner's action"
+ }
 ]

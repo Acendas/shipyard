@@ -1,371 +1,534 @@
 [
-  {
-    "name": "brief_carries_isolation_line",
-    "type": "contains",
-    "pattern": "Isolation:"
-  },
-  {
-    "name": "has_in_place_mode",
-    "type": "contains",
-    "pattern": "In-place mode"
-  },
-  {
-    "name": "dispatches_registered_agent",
-    "type": "contains",
-    "pattern": "subagent_type: \"shipyard:shipyard-disciplined-builder\"",
-    "why": "Phase 3 of the agent-extraction plan: the wrapper dispatches the registered agent, not a hand-rolled general-purpose prompt."
-  },
-  {
-    "name": "no_general_purpose",
-    "type": "not_contains",
-    "pattern": "general-purpose",
-    "why": "The whole point of the split is that the builder no longer hand-rolls a general-purpose subagent."
-  },
-  {
-    "name": "has_iron_laws_block",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "Iron Laws"
-  },
-  {
-    "name": "states_no_production_code",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"
-  },
-  {
-    "name": "states_no_completion_claims",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION"
-  },
-  {
-    "name": "states_no_stubs",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "NO STUBS IN CODE YOU CLAIM IS COMPLETE"
-  },
-  {
-    "name": "has_status_complete_return",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "STATUS: COMPLETE"
-  },
-  {
-    "name": "has_status_blocked_return",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "STATUS: BLOCKED"
-  },
-  {
-    "name": "has_probe_output_tail",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "PROBE_OUTPUT_TAIL"
-  },
-  {
-    "name": "builder_return_is_machine_contract",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "machine contract, not a progress update"
-  },
-  {
-    "name": "builder_forbids_return_chatter",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "no preamble, epilogue, apology, status narration"
-  },
-  {
-    "name": "builder_captures_diagnostics_on_first_run",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "Capture every executed diagnostic command on the first run"
-  },
-  {
-    "name": "builder_probe_runs_through_logcap",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "shipyard-logcap run <task_id>-probe-<iteration>"
-  },
-  {
-    "name": "builder_forbids_bare_first_probe",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "Never run the probe bare first"
-  },
-  {
-    "name": "has_iteration_cap",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "5 internal iterations"
-  },
-  {
-    "name": "no_dead_reference_links",
-    "type": "not_contains",
-    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
-  },
-  {
-    "name": "documents_goal_mode_default",
-    "type": "contains",
-    "pattern": "Goal-mode default|/goal-shaped"
-  },
-  {
-    "name": "emits_task_loop_iteration_event",
-    "type": "contains",
-    "pattern": "task_loop_iteration"
-  },
-  {
-    "name": "documents_escalation_code_enum",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "ESCALATION_CODE.*design_ambiguity",
-    "dotall": true
-  },
-  {
-    "name": "escalation_routing_design_ambiguity",
-    "type": "contains",
-    "pattern": "design_ambiguity.*AskUserQuestion",
-    "dotall": true
-  },
-  {
-    "name": "v250_dispatch_mode_input_documented",
-    "type": "contains",
-    "pattern": "dispatch_mode. .{1,5} .sync. or .background"
-  },
-  {
-    "name": "v250_sprint_id_input_documented",
-    "type": "contains",
-    "pattern": "sprint_id.+?id:.+?SPRINT\\.md"
-  },
-  {
-    "name": "v250_wave_number_input_documented",
-    "type": "contains",
-    "pattern": "wave_number.+?wave number for event-log scoping"
-  },
-  {
-    "name": "v250_subagent_writes_capture_file",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "Persist the structured return via the CLI \\(MANDATORY\\)",
-    "why": "v2.9.0: the builder persists its return via `shipyard-data task-return` (JSON), not a hand-written capture file"
-  },
-  {
-    "name": "v250_capture_file_path_canonical",
-    "type": "contains",
-    "pattern": "sprints/current/\\.subagent-returns"
-  },
-  {
-    "name": "v250_subagent_emits_completion_event",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "shipyard-data events emit subagent_completed"
-  },
-  {
-    "name": "v250_completion_event_includes_capture_file",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "capture_file=.+?\\.subagent-returns"
-  },
-  {
-    "name": "v250_background_dispatch_section_exists",
-    "type": "contains",
-    "pattern": "## Background dispatch \\(v2\\.5\\.0\\+\\)"
-  },
-  {
-    "name": "v250_background_mode_preserves_iron_laws",
-    "type": "contains",
-    "pattern": "Iron Laws inside the agent body are identical"
-  },
-  {
-    "name": "v250_background_mode_preserves_gate",
-    "type": "contains",
-    "pattern": "orchestrator-side gate is identical"
-  },
-  {
-    "name": "data_implementation_guide_exists",
-    "type": "file_exists",
-    "path": "project-files/references/data-implementation-guide.md"
-  },
-  {
-    "name": "builder_reads_data_impl_guide",
-    "type": "contains",
-    "pattern": "data-implementation-guide\\.md"
-  },
-  {
-    "name": "builder_data_guide_is_gated",
-    "type": "contains",
-    "pattern": "ONLY if this task touches the database"
-  },
-  {
-    "name": "accepts_return_via_bundled_cli",
-    "type": "contains",
-    "pattern": "shipyard-data task accept-return"
-  },
-  {
-    "name": "emits_real_sha_return",
-    "type": "contains",
-    "pattern": "task_dispatch_returned[\\s\\S]*commit_sha=|commit_sha=<sha>"
-  },
-  {
-    "name": "complete_path_avoids_separate_anchor_emit_status_sequence",
-    "type": "not_contains",
-    "pattern": "anchor-commit <task_id> <sha>[\\s\\S]*events emit task_dispatch_returned[\\s\\S]*task set-status",
-    "dotall": true,
-    "why": "The accepted complete return is one CLI operation now; the orchestrator still runs gates first, but no longer hand-rolls anchor + event + done as separate commands."
-  },
-  {
-    "name": "no_phantom_task_loop_completed",
-    "type": "not_contains",
-    "pattern": "task_loop_completed",
-    "why": "task_loop_completed has no emitter anywhere; consumers key off task_dispatch_returned status=complete instead"
-  },
-  {
-    "name": "template_branch_self_check",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "git branch --show-current",
-    "why": "builder's first action must confirm it is on a shipyard/wt-* branch"
-  },
-  {
-    "name": "template_isolation_failure_code",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "isolation_failure"
-  },
-  {
-    "name": "template_kind_refusal",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "misrouted_kind"
-  },
-  {
-    "name": "template_portability_block",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "mktemp",
-    "why": "the builder prompt must forbid non-portable shell tokens for any shell it writes"
-  },
-  {
-    "name": "template_base_ref_input",
-    "type": "contains",
-    "pattern": "base_ref",
-    "why": "step-6 self-scan needs diff bounds (git diff {{base_ref}}...HEAD)"
-  },
-  {
-    "name": "no_precreated_worktree_option",
-    "type": "not_contains",
-    "pattern": "orchestrator pre-creates the worktree",
-    "why": "isolation: worktree is the only path; pre-creation bypasses the WorktreeCreate hook"
-  },
-  {
-    "name": "timeout_salvage_protocol",
-    "type": "contains",
-    "pattern": "timeout salvage protocol",
-    "why": "presumed-dead handling must TaskStop the zombie and salvage the branch without merging"
-  },
-  {
-    "name": "gate_does_not_reexecute_probe",
-    "type": "not_contains",
-    "pattern": "probe re-execution",
-    "why": "the orchestrator gate reads the captured exit code; it cannot re-run the probe pre-merge"
-  },
-  {
-    "name": "needs_attention_uses_task_state_cli",
-    "type": "contains",
-    "pattern": "task set-status.*needs-attention --reason",
-    "why": "v3.6.0 wave 2 follow-up: dispatch_loop_repeated / persistent-failure / presumed_dead paths route the needs-attention transition through the task-state CLI instead of a hand-Edit."
-  },
-  {
-    "name": "has_silent_return_gate",
-    "type": "contains",
-    "pattern": "[Ss]ilent return",
-    "why": "Phase 3 anti-silence class: a return with no STATUS line or an empty body is a named, audited outcome (needs-attention reason=silent_return), not a hang."
-  },
-  {
-    "name": "render_provenance_negation",
-    "type": "contains",
-    "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
-  },
-  {
-    "name": "render_before_ask_rule",
-    "type": "contains",
-    "pattern": "Render before asking",
-    "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule."
-  },
-  {
-    "name": "references_quality_standards",
-    "type": "contains",
-    "pattern": "code-quality-standards\\.md",
-    "why": "v3.13.0 shift-left: the builder's brief carries the shared construction digest, same shape as data_impl_guide."
-  },
-  {
-    "name": "quality_standards_gated",
-    "type": "contains",
-    "pattern": "quality_standards_digest.{0,400}effort:\\s*M\\|L\\|XL",
-    "dotall": true,
-    "why": "v3.13.0: the digest is included only for effort: M|L|XL tasks, matching dispatching-code-review's own effort-S skip at the post-task review site."
-  },
-  {
-    "name": "builder_construction_standards_section",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "# Construction Standards",
-    "why": "v3.13.0: a dedicated section between the Iron Laws and The Cycle carries the Construct-half discipline and the OVER-BUILT scope bound."
-  },
-  {
-    "name": "construction_not_review",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "do not score confidence, classify findings, or\\s+self-review",
-    "why": "v3.13.0 non-transfer boundary: construction guidance never becomes a second adjudication pass — the builder writes, the reviewer reviews."
-  },
-  {
-    "name": "task_return_passes_data_dir",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "shipyard-data task-return[\\s\\S]*?--data-dir",
-    "dotall": true,
-    "why": "A builder worktree can hash to a different project data dir than the orchestrator when the orchestrator itself runs in a user worktree of the same repo. Passing the brief's literal data_dir skips re-resolution entirely instead of risking the mismatch."
-  },
-  {
-    "name": "orchestrator_calls_pass_data_dir",
-    "type": "contains",
-    "pattern": "task accept-return.*--data-dir \\{\\{data_dir\\}\\}",
-    "why": "The orchestrator already holds the literal data dir it dispatched in the brief; the bundled accept-return path should use it rather than re-resolving."
-  },
-  {
-    "name": "builder_allocates_idea_id_via_cli",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "next-id ideas",
-    "why": "Confirmed race: two parallel builders (T487/T468) both hand-picked IDEA-149 and collided. The builder is the most parallel-dispatched IDEA-writing caller in the system, so it must allocate via the CLI like every other IDEA-writing site, never ls-and-guess."
-  },
-  {
-    "name": "builder_idea_allocation_forbids_guessing",
-    "type": "contains",
-    "target": "agent:shipyard-disciplined-builder",
-    "pattern": "do NOT `ls spec/ideas/` and pick a number manually",
-    "why": "Match the imperative phrasing already used in ship-review's IDEA-allocation rule so the codebase reads consistently across every IDEA-writing site."
-  },
-  {
-    "name": "dispatch_site_states_idea_allocation_requirement",
-    "type": "contains",
-    "pattern": "next-id ideas.{0,80}--data-dir \\{\\{data_dir\\}\\}",
-    "dotall": true,
-    "why": "The dispatch site (this skill) must make the allocation requirement visible too, not bury it only in the agent body — and confirm data_dir is available to the builder for this call."
-  },
-  {
-    "name": "background_dispatch_names_builder",
-    "type": "contains",
-    "pattern": "name: \"builder-<task_id>\"",
-    "why": "Background builders need deterministic names so timeout recovery can TaskStop the exact presumed-dead subagent."
-  },
-  {
-    "name": "builder_dispatch_sets_effort_tier",
-    "type": "contains",
-    "pattern": "agent_effort\\.build_trivial.*agent_effort\\.build",
-    "dotall": true,
-    "why": "Builder agents must get explicit effort tiers: low for effort:S tasks, medium by default for normal build work."
-  }
+ {
+  "name": "brief_carries_isolation_line",
+  "type": "contains",
+  "pattern": "Isolation:"
+ },
+ {
+  "name": "has_in_place_mode",
+  "type": "contains",
+  "pattern": "In-place mode"
+ },
+ {
+  "name": "dispatches_registered_agent",
+  "type": "contains",
+  "pattern": "subagent_type: \"shipyard:shipyard-disciplined-builder\"",
+  "why": "Phase 3 of the agent-extraction plan: the wrapper dispatches the registered agent, not a hand-rolled general-purpose prompt."
+ },
+ {
+  "name": "no_general_purpose",
+  "type": "not_contains",
+  "pattern": "general-purpose",
+  "why": "The whole point of the split is that the builder no longer hand-rolls a general-purpose subagent."
+ },
+ {
+  "name": "has_iron_laws_block",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "Iron Laws"
+ },
+ {
+  "name": "states_no_production_code",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"
+ },
+ {
+  "name": "states_no_completion_claims",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION"
+ },
+ {
+  "name": "states_no_stubs",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "NO STUBS IN CODE YOU CLAIM IS COMPLETE"
+ },
+ {
+  "name": "has_status_complete_return",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "STATUS: COMPLETE"
+ },
+ {
+  "name": "has_status_blocked_return",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "STATUS: BLOCKED"
+ },
+ {
+  "name": "has_probe_output_tail",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "PROBE_OUTPUT_TAIL"
+ },
+ {
+  "name": "builder_return_is_machine_contract",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "machine contract, not a progress update"
+ },
+ {
+  "name": "builder_forbids_return_chatter",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "no preamble, epilogue, apology, status narration"
+ },
+ {
+  "name": "builder_captures_diagnostics_on_first_run",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "Capture every executed diagnostic command on the first run"
+ },
+ {
+  "name": "builder_probe_runs_through_logcap",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "shipyard-logcap run <task_id>-probe-<iteration>"
+ },
+ {
+  "name": "builder_forbids_bare_first_probe",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "Never run the probe bare first"
+ },
+ {
+  "name": "has_iteration_cap",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "5 internal iterations"
+ },
+ {
+  "name": "no_dead_reference_links",
+  "type": "not_contains",
+  "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+ },
+ {
+  "name": "documents_goal_mode_default",
+  "type": "contains",
+  "pattern": "Goal-mode default|/goal-shaped"
+ },
+ {
+  "name": "emits_task_loop_iteration_event",
+  "type": "contains",
+  "pattern": "task_loop_iteration"
+ },
+ {
+  "name": "documents_escalation_code_enum",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "ESCALATION_CODE.*design_ambiguity",
+  "dotall": true
+ },
+ {
+  "name": "escalation_routing_design_ambiguity",
+  "type": "contains",
+  "pattern": "design_ambiguity.*AskUserQuestion",
+  "dotall": true
+ },
+ {
+  "name": "v250_dispatch_mode_input_documented",
+  "type": "contains",
+  "pattern": "dispatch_mode. .{1,5} .sync. or .background"
+ },
+ {
+  "name": "v250_sprint_id_input_documented",
+  "type": "contains",
+  "pattern": "sprint_id.+?id:.+?SPRINT\\.md"
+ },
+ {
+  "name": "v250_wave_number_input_documented",
+  "type": "contains",
+  "pattern": "wave_number.+?wave number for event-log scoping"
+ },
+ {
+  "name": "v250_subagent_writes_capture_file",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "Persist the structured return via the CLI \\(MANDATORY\\)",
+  "why": "v2.9.0: the builder persists its return via `shipyard-data task-return` (JSON), not a hand-written capture file"
+ },
+ {
+  "name": "v250_capture_file_path_canonical",
+  "type": "contains",
+  "pattern": "sprints/current/\\.subagent-returns"
+ },
+ {
+  "name": "v250_subagent_emits_completion_event",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "shipyard-data events emit subagent_completed"
+ },
+ {
+  "name": "v250_completion_event_includes_capture_file",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "capture_file=.+?\\.subagent-returns"
+ },
+ {
+  "name": "v250_background_dispatch_section_exists",
+  "type": "contains",
+  "pattern": "## Background dispatch"
+ },
+ {
+  "name": "v250_background_mode_preserves_iron_laws",
+  "type": "contains",
+  "pattern": "Iron Laws inside the agent body are identical"
+ },
+ {
+  "name": "v250_background_mode_preserves_gate",
+  "type": "contains",
+  "pattern": "orchestrator-side gate is identical"
+ },
+ {
+  "name": "data_implementation_guide_exists",
+  "type": "file_exists",
+  "path": "project-files/references/data-implementation-guide.md"
+ },
+ {
+  "name": "builder_reads_data_impl_guide",
+  "type": "contains",
+  "pattern": "data-implementation-guide\\.md"
+ },
+ {
+  "name": "builder_data_guide_is_gated",
+  "type": "contains",
+  "pattern": "ONLY if this task touches the database"
+ },
+ {
+  "name": "accepts_return_via_bundled_cli",
+  "type": "contains",
+  "pattern": "shipyard-data step accept-return"
+ },
+ {
+  "name": "emits_real_sha_return",
+  "type": "contains",
+  "pattern": "task_dispatch_returned[\\s\\S]*commit_sha=|commit_sha=<sha>"
+ },
+ {
+  "name": "complete_path_avoids_separate_anchor_emit_status_sequence",
+  "type": "not_contains",
+  "pattern": "anchor-commit <task_id> <sha>[\\s\\S]*events emit task_dispatch_returned[\\s\\S]*step set-status",
+  "dotall": true,
+  "why": "The accepted complete return is one CLI operation now; the orchestrator still runs gates first, but no longer hand-rolls anchor + event + done as separate commands."
+ },
+ {
+  "name": "no_phantom_task_loop_completed",
+  "type": "not_contains",
+  "pattern": "task_loop_completed",
+  "why": "task_loop_completed has no emitter anywhere; consumers key off task_dispatch_returned status=complete instead"
+ },
+ {
+  "name": "template_branch_self_check",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "git branch --show-current",
+  "why": "builder's first action must confirm it is on a shipyard/wt-* branch"
+ },
+ {
+  "name": "template_isolation_failure_code",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "isolation_failure"
+ },
+ {
+  "name": "template_kind_refusal",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "misrouted_kind"
+ },
+ {
+  "name": "template_portability_block",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "mktemp",
+  "why": "the builder prompt must forbid non-portable shell tokens for any shell it writes"
+ },
+ {
+  "name": "template_base_ref_input",
+  "type": "contains",
+  "pattern": "base_ref",
+  "why": "step-6 self-scan needs diff bounds (git diff {{base_ref}}...HEAD)"
+ },
+ {
+  "name": "no_precreated_worktree_option",
+  "type": "not_contains",
+  "pattern": "orchestrator pre-creates the worktree",
+  "why": "isolation: worktree is the only path; pre-creation bypasses the WorktreeCreate hook"
+ },
+ {
+  "name": "timeout_salvage_protocol",
+  "type": "contains",
+  "pattern": "timeout salvage protocol",
+  "why": "presumed-dead handling must TaskStop the zombie and salvage the branch without merging"
+ },
+ {
+  "name": "gate_does_not_reexecute_probe",
+  "type": "not_contains",
+  "pattern": "probe re-execution",
+  "why": "the orchestrator gate reads the captured exit code; it cannot re-run the probe pre-merge"
+ },
+ {
+  "name": "needs_attention_uses_task_state_cli",
+  "type": "contains",
+  "pattern": "step set-status.*needs-attention --reason",
+  "why": "v3.6.0 wave 2 follow-up: dispatch_loop_repeated / persistent-failure / presumed_dead paths route the needs-attention transition through the task-state CLI instead of a hand-Edit."
+ },
+ {
+  "name": "has_silent_return_gate",
+  "type": "contains",
+  "pattern": "[Ss]ilent return",
+  "why": "Phase 3 anti-silence class: a return with no STATUS line or an empty body is a named, audited outcome (needs-attention reason=silent_return), not a hang."
+ },
+ {
+  "name": "render_provenance_negation",
+  "type": "contains",
+  "pattern": "does not count as rendered",
+  "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P063: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+  "target": "plugin:bin/shipyard-context.mjs"
+ },
+ {
+  "name": "render_before_ask_rule",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule. S016/P063: skill keeps only the short reminder."
+ },
+ {
+  "name": "references_quality_standards",
+  "type": "contains",
+  "pattern": "code-quality-standards\\.md",
+  "why": "v3.13.0 shift-left: the builder's brief carries the shared construction digest, same shape as data_impl_guide."
+ },
+ {
+  "name": "quality_standards_gated",
+  "type": "contains",
+  "pattern": "quality_standards_digest.{0,400}effort:\\s*M\\|L\\|XL",
+  "dotall": true,
+  "why": "v3.13.0: the digest is included only for effort: M|L|XL tasks, matching dispatching-code-review's own effort-S skip at the post-task review site."
+ },
+ {
+  "name": "builder_construction_standards_section",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "# Construction Standards",
+  "why": "v3.13.0: a dedicated section between the Iron Laws and The Cycle carries the Construct-half discipline and the OVER-BUILT scope bound."
+ },
+ {
+  "name": "construction_not_review",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "do not score confidence, classify findings, or\\s+self-review",
+  "why": "v3.13.0 non-transfer boundary: construction guidance never becomes a second adjudication pass — the builder writes, the reviewer reviews."
+ },
+ {
+  "name": "task_return_passes_data_dir",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "shipyard-data task-return[\\s\\S]*?--data-dir",
+  "dotall": true,
+  "why": "A builder worktree can hash to a different project data dir than the orchestrator when the orchestrator itself runs in a user worktree of the same repo. Passing the brief's literal data_dir skips re-resolution entirely instead of risking the mismatch."
+ },
+ {
+  "name": "orchestrator_calls_pass_data_dir",
+  "type": "contains",
+  "pattern": "step accept-return.*--data-dir \\{\\{data_dir\\}\\}",
+  "why": "The orchestrator already holds the literal data dir it dispatched in the brief; the bundled accept-return path should use it rather than re-resolving."
+ },
+ {
+  "name": "builder_allocates_idea_id_via_cli",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "next-id ideas",
+  "why": "Confirmed race: two parallel builders (P487/P468) both hand-picked IDEA-149 and collided. The builder is the most parallel-dispatched IDEA-writing caller in the system, so it must allocate via the CLI like every other IDEA-writing site, never ls-and-guess."
+ },
+ {
+  "name": "builder_idea_allocation_forbids_guessing",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "do NOT `ls spec/ideas/` and pick a number manually",
+  "why": "Match the imperative phrasing already used in ship-review's IDEA-allocation rule so the codebase reads consistently across every IDEA-writing site."
+ },
+ {
+  "name": "dispatch_site_states_idea_allocation_requirement",
+  "type": "contains",
+  "pattern": "next-id ideas.{0,80}--data-dir \\{\\{data_dir\\}\\}",
+  "dotall": true,
+  "why": "The dispatch site (this skill) must make the allocation requirement visible too, not bury it only in the agent body — and confirm data_dir is available to the builder for this call."
+ },
+ {
+  "name": "background_dispatch_names_builder",
+  "type": "contains",
+  "pattern": "name: \"builder-<task_id>\"",
+  "why": "Background builders need deterministic names so timeout recovery can TaskStop the exact presumed-dead subagent."
+ },
+ {
+  "name": "builder_dispatch_sets_effort_tier",
+  "type": "contains",
+  "pattern": "resolve-model build.*build_trivial",
+  "dotall": true,
+  "why": "Builder agents must get explicit effort tiers: low for effort:S tasks, medium by default for normal build work."
+ },
+ {
+  "name": "model_resolved_via_cli",
+  "type": "contains",
+  "pattern": "shipyard-data resolve-model",
+  "why": "S003 AC-8: model/effort come from the CLI resolver, not prose derivation of config.md."
+ },
+ {
+  "name": "no_prose_model_derivation",
+  "type": "not_contains",
+  "pattern": "Read `(models\\.(think|build)|agent_effort\\.\\w+)` from config\\.md",
+  "why": "S003 AC-8: prose config reads for model/effort are replaced by resolve-model."
+ },
+ {
+  "name": "wrapper_emits_dispatch_model_resolved",
+  "type": "contains",
+  "pattern": "dispatch_model_resolved",
+  "why": "S003 AC-9: the wrapper (not the resolver) logs the resolution."
+ },
+ {
+  "name": "builder_emits_task_loop_iteration_with_data_dir",
+  "target": "agent:shipyard-disciplined-builder",
+  "type": "contains",
+  "pattern": "task_loop_iteration.{0,300}--data-dir",
+  "dotall": true,
+  "why": "S015 AC-2/AC-4: the builder is the producer of the task_loop_iteration heartbeat that requeue-stale liveness and claim renewal read; it must pass --data-dir <data_dir> verbatim so the event lands in the orchestrator's log."
+ },
+ {
+  "name": "has_dispatch_attempt",
+  "type": "contains",
+  "pattern": "dispatch_attempt",
+  "why": "S004/P025: wrappers emit dispatch_attempt and redispatch with --subject."
+ },
+ {
+  "name": "has_subject",
+  "type": "contains",
+  "pattern": "--subject",
+  "why": "S004/P025: wrappers emit dispatch_attempt and redispatch with --subject."
+ },
+ {
+  "name": "accept_return_passes_attribution",
+  "type": "contains",
+  "pattern": "role=builder\\ model=<resolved\\ models\\.build,\\ omit\\ if\\ unset>\\ effort=<resolved\\ effort,\\ omit\\ if\\ unset>\\ attempt=",
+  "why": "S010 AC-1: wrapper must pass attribution args to accept-return."
+ },
+ {
+  "name": "brief_carries_attribution_lines",
+  "type": "contains",
+  "pattern": "`Model:`\\ /\\ `Effort:`\\ /\\ `Attempt:`\\ brief\\ lines",
+  "why": "S010 AC-1: builder gets attribution from brief for subagent_completed."
+ },
+ {
+  "name": "builder_passes_attribution_on_completed",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "role=builder\\ model=<model\\-from\\-brief\\-if\\-given>",
+  "why": "S010 AC-1: subagent_completed carries role/model/effort/attempt."
+ },
+ {
+  "name": "tokens_only_if_transcript_read",
+  "type": "contains",
+  "pattern": "ONLY if you actually read the transcript"
+ },
+ {
+  "name": "render_before_ask_short_reminder_present",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "S016/P063: capability skill keeps only the short reminder; full doctrine printed at startup (CANONICAL_STARTUP_RULES)."
+ },
+ {
+  "name": "e004_resolve_model_with_subject_routes",
+  "type": "contains",
+  "pattern": "shipyard-data resolve-model build --subject <step_id>",
+  "why": "E004-S3: the builder's tier and effort come from rules-first routing over the step's kind, effort and risk"
+ },
+ {
+  "name": "e004_route_decision_logged",
+  "type": "contains",
+  "pattern": "shipyard-data route --step <step_id> --role build",
+  "why": "E004-S3: every routing decision is logged with inputs and reasons"
+ },
+ {
+  "name": "e005_brief_carries_ui_and_design",
+  "type": "contains",
+  "pattern": "UI:\\s+\\{\\{on when the story has ui: true[\\s\\S]*Design snapshot:",
+  "why": "E005-S2: the builder brief names the approved design for a UI story"
+ },
+ {
+  "name": "warm_fix_before_cold_redispatch",
+  "type": "contains",
+  "pattern": "Warm fix before a cold redispatch",
+  "why": "4.5: findings on finished work go back to the builder that holds the context via SendMessage"
+ },
+ {
+  "name": "gate_handles_weakened_tests",
+  "type": "contains",
+  "pattern": "weakened test",
+  "why": "4.9: the per-step gate reads scan-stubs' test-weakening flags; a loosened check goes back to the builder"
+ },
+ {
+  "name": "builder_never_loosens_a_check",
+  "type": "contains",
+  "pattern": "NEVER LOOSEN A CHECK TO MAKE IT PASS",
+  "target": "agent:shipyard-disciplined-builder",
+  "why": "4.9: in one real sprint builders loosened two checks; the rule is now an iron rule with a BLOCKED code"
+ },
+ {
+  "name": "blocked_routes_do_not_ask_unattended",
+  "type": "contains",
+  "pattern": "Unattended sprints do not ask.",
+  "why": "4.9: the blocked-code routes named AskUserQuestion; under unattended execution they follow the ladder and park"
+ },
+ {
+  "name": "check_needs_owner_route",
+  "type": "contains",
+  "pattern": "`check_needs_owner` →",
+  "why": "4.9: a check the builder cannot meet is parked for the owner, never lowered"
+ },
+ {
+  "name": "ladder_is_one_dispatch_per_rung",
+  "type": "contains",
+  "pattern": "one dispatch per rung, light → build → think",
+  "why": "4.10: the failure ladder starts where routing put the step; a light-tier step climbs to build, then think"
+ },
+ {
+  "name": "model_enforced_at_spawn",
+  "type": "contains",
+  "pattern": "enforced at spawn",
+  "why": "4.11.1: the orchestrator reused a model from memory and small steps kept running on Sonnet; the agent-ledger hook now refuses a mismatch"
+ },
+ {
+  "name": "builder_idea_status_is_captured",
+  "type": "contains",
+  "pattern": "status: captured",
+  "target": "agent:shipyard-disciplined-builder",
+  "why": "4.12.1: builders wrote status: new, which the idea verbs refused; the body now names the word"
+ },
+ {
+  "name": "reviewers_do_not_run_unread_scripts",
+  "type": "contains",
+  "pattern": "A script is not read-only because you only wanted its help",
+  "target": "agent:shipyard-code-reviewer",
+  "why": "4.13: tool --help ran a generator that rewrote a tracked file"
+ },
+ {
+  "name": "warm_fix_only_before_merge_same_probe",
+  "type": "contains",
+  "pattern": "Only before the merge",
+  "why": "4.14.1: in three sprints no warm fix ever happened (the worktree is gone after the merge), and a redispatch was accepted on a probe the orchestrator wrote and that could not pass"
+ },
+ {
+  "name": "spec_disagrees_route",
+  "type": "contains",
+  "pattern": "`spec_disagrees`",
+  "why": "4.15: a builder that believes the scenario is wrong returns SPEC_FIX; the orchestrator fixes spec and code in the same step"
+ },
+ {
+  "name": "builder_tests_from_the_spec",
+  "type": "contains",
+  "pattern": "before reading the code it will",
+  "target": "agent:shipyard-disciplined-builder",
+  "why": "4.15: test first, from the scenario's words"
+ }
 ]

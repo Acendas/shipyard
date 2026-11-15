@@ -22,6 +22,7 @@ IMPL_GUIDE = os.path.join(REFS_DIR, "data-implementation-guide.md")
 
 PHASE_1_RESEARCH = os.path.join(SKILLS_DIR, "ship-discuss", "references", "phase-1-research.md")
 SHIP_DISCUSS = os.path.join(SKILLS_DIR, "ship-discuss", "SKILL.md")
+NEW_MODE = os.path.join(SKILLS_DIR, "ship-discuss", "references", "new-mode.md")
 WAVE_DECOMP = os.path.join(SKILLS_DIR, "ship-sprint", "references", "wave-decomposition.md")
 TASK_LOOP = os.path.join(SKILLS_DIR, "dispatching-task-loop", "SKILL.md")
 CODE_REVIEW = os.path.join(SKILLS_DIR, "dispatching-code-review", "SKILL.md")
@@ -89,8 +90,8 @@ class TestConsumersWired:
             "Phase 1.5 must tell the model to skip the guide for non-data features"
 
     def test_discuss_skill_body_points_to_guide(self):
-        c = read(SHIP_DISCUSS)
-        assert "data-modeling-guide.md" in c, "ship-discuss SKILL.md summary must point to the modeling guide"
+        c = read(NEW_MODE)
+        assert "data-modeling-guide.md" in c, "ship-discuss new-mode.md must point to the modeling guide"
 
     def test_sprint_decomposition_gated_modeling_read(self):
         c = read(WAVE_DECOMP)

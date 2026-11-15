@@ -14,7 +14,7 @@ Describe the behavior you'd want. Be as specific as possible — command names, 
 
 **Which part of Shipyard does this affect?**
 - [ ] A specific command (which one?)
-- [ ] An agent (builder, reviewer, critic, researcher, test-runner, skill-writer)
+- [ ] An agent (code-reviewer, disciplined-builder, gap-analyst, operational-task, researcher, spec-reviewer, track-coordinator)
 - [ ] A hook or rule
 - [ ] The data model or project structure
 - [ ] Something new entirely

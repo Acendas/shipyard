@@ -1,6 +1,6 @@
 # Question Design — how /ship-discuss asks (and when it doesn't)
 
-The discovery frameworks (JTBD, ATAM, EARS, ISO 25010) structure the ANALYSIS. This file governs what actually reaches the user: few questions, in bulk, scenario-framed, and only when the recommendation is genuinely uncertain. Sourced from product-discovery practice (The Mom Test, Teresa Torres story-based interviewing, JTBD timeline interviews), form-design research (NN/g cognitive-load principles, GOV.UK one-thing-per-page), spec-driven AI tooling (GitHub Spec Kit's ≤5-question /clarify), and the two-way-door reversibility framework.
+The discovery frameworks (JTBD, ATAM, EARS, ISO 25010) structure the ANALYSIS. This file governs what actually reaches the user: few questions, in bulk, scenario-framed, and only when the recommendation is genuinely uncertain.
 
 ## The confidence gate (run BEFORE composing any question)
 
@@ -18,10 +18,10 @@ Score every pending decision on two axes:
 Hard rules:
 - **One-way doors are never HIGH** — at minimum a MEDIUM ask.
 - **User-value questions are never HIGH** (whether it's worth building, who it's for) — the Phase 2 viability echo stays mandatory.
-- **Question budget: ≤5 total asks across Phases 1–2** for a typical feature. Overflow items are promoted to HIGH assumptions, not asked.
+- **Question budget: the question list holds it** (`discuss-questions start --budget <n>`, 12 unless the lane says otherwise). Past the budget the smaller questions that are left are shown together as one table and one card ("use the recommended answers?"). Decide and log ASSUMED what the confidence gate lets you decide; that is how the count stays low.
 - **Estimates, scores, and process mechanics never enter the gate — they are not decisions to be tiered (kill-list #9/#10).** The gate scores product decisions only.
 
-**Assumption logging.** Every HIGH decision appends to the feature file's `## Decision Log` as:
+**Assumption logging.** Every HIGH decision appends to the story file's `## Decision Log` as:
 
 ```
 ASSUMED: <decision> — <evidence one-liner> — reversible: yes
@@ -32,21 +32,18 @@ ASSUMED: <decision> — <evidence one-liner> — reversible: yes
 ## The rulebook (every user-facing question passes all ten)
 
 **Q1. Scenarios, not frameworks.** Framework vocabulary (JTBD, ATAM, EARS, ISO 25010, "quality attributes", "NFRs", "functional/emotional/social dimensions") never appears in a question. Translate every probe into a concrete situation with named actors, times, and consequences.
-> Before: "What functional/emotional/social dimensions of the job?"
 > After: "When a payment fails at 2am, what does the on-call person actually need — a page right away, or a summary when they sit down in the morning?"
 
 **Q2. Past behavior, not hypothetical futures.** "The last time this came up, what did you do?" produces facts; "would you use X?" produces confabulation.
-> Before: "What triggers usage? What's the full before/during/after flow?"
 > After: "Walk me through the last time this came up — what were you doing right before, and what did you do instead, since the feature doesn't exist yet?"
 
-**Q3. One decision per question item.** Never fuse "who uses it AND what happens on error". Batches of related items in one AskUserQuestion call are good (that's the bulk rule); fused items are not — each must be independently answerable.
+**Q3. One decision per question item.** Never fuse "who uses it AND what happens on error". Each decision is its own card, asked after its own explanation in chat; fused items are never acceptable — each must be independently answerable.
 
-**Q4. Options are outcomes, not mechanisms.** Label options by what the user experiences; tradeoff in parentheses; implementation nouns only if the user introduced them. "Survives restarts (adds Redis)" / "Simpler, resets on deploy (in-memory)". Mechanism detail goes in Layer 3.
+**Q4. Options are outcomes, not mechanisms.** Label options by what the user experiences; tradeoff in parentheses; implementation nouns only if the user introduced them. Mechanism detail goes in Layer 3.
 
-**Q5. Answerable in one breath.** If a correct answer needs more than ~10 seconds of thought or a paragraph, the question is doing the model's job — split it, or convert it to a HIGH assumption with a veto line. Question text <100 words; option labels ≤12 words. The same applies in reverse: a question asking the user to PRODUCE a number, score, or estimate is also doing the model's job — compute it and show it instead (kill-list #9).
+**Q5. Answerable in one breath.** If a correct answer needs more than ~10 seconds of thought or a paragraph, the question is doing the model's job — split it, or convert it to a HIGH assumption with a veto line. Question text <100 words; option labels ≤12 words.
 
 **Q6. Every open question carries an example answer.**
-> Before: "Any constraints, compliance, or technical requirements?"
 > After: "Anything that limits how we build this — e.g. 'must stay on Postgres', 'EU data can't leave EU', 'no new services'? If nothing comes to mind, there probably isn't one."
 
 **Q7. Explicit cheap exit on every open question** — "nothing", "don't know", or "you decide" must be a legitimate answer. "You decide" answers get logged as ASSUMED.
@@ -54,17 +51,16 @@ ASSUMED: <decision> — <evidence one-liner> — reversible: yes
 **Q8. Never ask what the record already answers.** Before composing any question, check: the codebase/config, the spec + Decision Logs + constitution, git history, and the user's own words this session. If found, STATE it ("You're on Postgres with row-level tenancy, so I'll scope this per-tenant") — never confirm it as a question.
 
 **Q9. Edge cases are mini-stories with a recommended ruling.**
-> Before: "Concurrency: optimistic vs pessimistic locking?"
 > After: "Two people edit the same draft at once — last save silently wins today. I recommend showing 'someone else edited this' with a merge offer. OK, or is silent-last-write fine for v1?"
 
-**Q10. Formal syntax is output format, never input format.** Write acceptance criteria in EARS/Given-When-Then internally; when asking the user to confirm one, read it back as a plain scenario sentence: "So: someone pastes a 10MB file → we reject with 'max 5MB' before uploading anything. Right?" (The Phase 5 verbatim-AC gate keeps the formal text in the spec; the question framing stays plain.)
+**Q10. Formal syntax is output format, never input format.** Write acceptance criteria in EARS/Given-When-Then internally; when asking the user to confirm one, read it back as a plain scenario sentence: "So: someone pastes a 10MB file → we reject with 'max 5MB' before uploading anything. Right?"
 
 ## The kill-list (MUST NOT ask — check before every AskUserQuestion call)
 
 1. **Derivable from code/config**: stack, framework, DB, existing auth, test framework, deployment shape, naming conventions → state what you found instead.
 2. **Derivable from the spec data dir**: existing features, Decision Log entries, constitution rules, backlog priorities → Grep first.
 3. **Restating what the user said this session** ("So you want retry logic?" after they asked for webhook retry) → reflect as a statement; ask only the genuinely open part.
-4. **Universal-yes questions**: "should errors be user-friendly?", "should it be secure/tested/fast?"
+4. **Universal-yes questions** ("should it be secure/tested/fast?").
 5. **Framework-vocabulary questions**: anything containing JTBD / ATAM / EARS / ISO 25010 / NFR / "quality attribute" aimed at the user.
 6. **Hypothetical-opinion questions**: "would you use…", "do you think users would want…" → replace with past-behavior/scenario asks (Q2).
 7. **Two-way-door implementation minutiae with a conventional answer** → HIGH tier: decide, inform, log.
@@ -74,26 +70,24 @@ ASSUMED: <decision> — <evidence one-liner> — reversible: yes
 
 ## Bulk-ask discipline (perceived speed)
 
-- **Think first, ask once.** Derive everything derivable, run the confidence gate over every open item, THEN compose one AskUserQuestion call with up to 4 questions (each with up to 4 options + Other). A second call in the same phase only when the first call's answers genuinely fork the design.
-- **Target interruption budget for a full feature discussion: 4–5 rounds total** (bulk understanding → challenge+viability → post-spec decisions → consolidated approval). Round 4 is a SINGLE gate: the acceptance scenarios (verbatim), the scope-drift check, and the spec are approved together. Every ask-round beyond that needs a reason.
-- **Never leave silence.** Long-running work (research deep-dive, critic) gets a one-line dispatch banner with an expected duration, runs concurrently with the user's thinking time wherever possible, and announces its return with a one-line summary. Between rounds, narrate transitions in one line ("→ Impact analysis: 2 ripples found"). A status line while waiting is chat text, never an AskUserQuestion — the ask tool is for decisions, not for pausing. Sequencing background work is the skill's decision, never a question (kill-list #10).
+- **Think first, then add each question to the list.** Derive everything derivable and run the confidence gate over every open item BEFORE adding, so the person is asked only what is truly theirs. Questions are asked one card at a time, as soon as they exist: a question that unblocks background research goes first, a hard-to-undo choice next, then the oldest (`async-questions.md`).
+- **No rounds.** Research never waits for the person and the person never waits for research: a question is shown as soon as it is raised, and the approval is a single card shown last, after every decision is in and no research is running.
+- **Never leave silence.** Long-running work (research deep-dive, critic) gets a one-line dispatch banner with an expected duration, runs concurrently with the user's thinking time wherever possible, and announces its return with a one-line summary. A status line while waiting is chat text, never an AskUserQuestion — the ask tool is for decisions, not for pausing. Sequencing background work is the skill's decision, never a question (kill-list #10).
 
 ## Render before asking (applies to every skill, not just discuss)
 
-**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as assistant chat text; the tool call then carries only the short question and option labels. Content that exists only in your context — a Read result, a subagent/Agent return, a dossier file, a SendMessage payload — **does not count as rendered**; restate it as chat text first. Packing the tradeoff into the question/option strings does not count either (the UI renders a compact card). A bare AskUserQuestion with no rendered context above it is a bug.
+**One question per card, written in the chat first.** For each question: the explanation and the question itself as chat text, then the tool call for that question alone. A hook refuses a card with more than one question inside any Shipyard command.
 
-**Provenance rule — what counts as rendered.** Content counts as rendered ONLY when it appears as assistant chat text in this conversation. A Read tool result, a subagent/Agent return, a SendMessage payload, and a dossier file (`.research-draft.md` or any file on disk) are all invisible to the user — "it's in my context" never counts. Before an ask that consumes delegated or Read content, re-emit the decision-relevant part as chat text; referencing "the tradeoff laid out" or "that table" that only exists in a tool result is the blind-ask bug.
+**The card holds the question and the choices, nothing else.** Explanations, examples, reasons and trade-offs are chat text above the card, where there is room to read them. Limits, enforced by a hook inside any Shipyard command: the question 160 characters, a choice's label 40, its description 110. A card that needs more is a sign the explanation has not been written yet.
 
-**The tool call is not a rendering surface.** AskUserQuestion question and option strings display as a compact card — they cannot hold a scenario, a diff, a table, or a block of acceptance criteria. Packing the decision context into question/option text is the same blind ask; the card carries only the short question and outcome-labeled options.
+**Shape of what you render:** a 15-second summary first (40 words or fewer: what is going on, what it means for them, what you recommend), then show it with a picture, a table or a real example, in plain words a non-expert follows (`communication-design.md`, the 3-layer pattern).
 
-**Recovery rule.** A user reply of "explain", "show me", "I don't see X", or any indication they can't see referenced content means the render step was skipped: STOP, render the full content as chat text, and only then re-ask. No further AskUserQuestion may fire until the missing content is on screen.
-
-(The phrases "Render before asking", "does not count as rendered", and "compact card" are asserted by CI — do not reword.)
+Render before asking: render the decision context as chat text before every AskUserQuestion (rules printed at startup under SHIPYARD_STARTUP_RULES). The provenance and recovery rules live there, not here.
 
 ## Render an example scenario, not just a restated question
 
-**This is the /ship-discuss default, not a special case for hard questions.** For any question the user has to reason about, the context rendered above the ask includes at least one concrete example scenario — a named actor, a specific moment, and the consequence — showing what the question actually decides, in the same scenario form rules Q1/Q6/Q9 demand of the question text. The scenario is chat text; the tool card holds only the short question and options. A decision worth interrupting an architect for is worth one worked example, so they answer from a concrete picture instead of an abstract label.
+For any question the user has to reason about, the context rendered above the ask includes at least one concrete example scenario — a named actor, a specific moment, and the consequence — showing what the question actually decides, in the same scenario form rules Q1/Q6/Q9 demand of the question text. The scenario is chat text; the tool card holds only the short question and options.
 
 **Escalate the example with the stakes.** For LOW-tier / one-way-door decisions, and anything a non-expert can't answer from a label alone, the example scenario is MANDATORY and shows BOTH sides — what happens under each option, not just the situation. This is what keeps the consolidated Phase 5 approval safe: the acceptance scenarios are quoted verbatim on screen, so "Approve" means approve-having-read.
 
-**Skip the example only when the ask is genuinely self-evident:** a binary confirmation of content already rendered in full immediately above (e.g. "Approve everything?" after the verbatim summary), or a pick-from-a-list where every option is itself a concrete outcome. When unsure, render it — over-explaining a trivial ask costs a sentence; under-explaining a real one costs a wrong answer.
+**Skip the example only when the ask is genuinely self-evident:** a binary confirmation of content already rendered in full immediately above (e.g. "Approve everything?" after the verbatim summary), or a pick-from-a-list where every option is itself a concrete outcome. When unsure, render it.

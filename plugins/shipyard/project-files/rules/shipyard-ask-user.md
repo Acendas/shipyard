@@ -39,7 +39,7 @@ Recommended: [N] — [why in one sentence]
 
 ```
 I found 3 features ready. The sprint capacity is 20 points.
-Which features do you want? I'll go ahead and pick F001 and F002...
+Which features do you want? I'll go ahead and pick S001 and S002...
 ```
 
 Asked and answered itself. User never got to choose.
@@ -47,9 +47,9 @@ Asked and answered itself. User never got to choose.
 ### Also Wrong
 
 ```
-AskUserQuestion: "I found 3 features. F001 (8pts, auth), F002 (5pts, notifications),
-F003 (13pts, payments). Sprint capacity is 20pts. Your past velocity averages 18pts.
-F001+F002 fits at 13pts with room. F001+F003 is 21pts, slightly over.
+AskUserQuestion: "I found 3 features. S001 (8pts, auth), S002 (5pts, notifications),
+S003 (13pts, payments). Sprint capacity is 20pts. Your past velocity averages 18pts.
+S001+S002 fits at 13pts with room. S001+S003 is 21pts, slightly over.
 Which features? (list IDs or 'suggested')"
 ```
 
@@ -60,19 +60,19 @@ All the context is crammed into the tool prompt. Hard to read in a small input b
 ```
 [Plain text output:]
 Found 3 approved features in the backlog:
-  F001: Auth (8 pts) — RICE: 32.1
-  F002: Notifications (5 pts) — RICE: 28.4
-  F003: Payments (13 pts) — RICE: 24.0
+  S001: Auth (8 pts) — RICE: 32.1
+  S002: Notifications (5 pts) — RICE: 28.4
+  S003: Payments (13 pts) — RICE: 24.0
 
 Sprint capacity: 20 pts (based on last 3 sprints averaging 18 pts).
-F001 + F002 = 13 pts, fits comfortably with room for overflow.
-F001 + F003 = 21 pts, slightly over capacity.
+S001 + S002 = 13 pts, fits comfortably with room for overflow.
+S001 + S003 = 21 pts, slightly over capacity.
 
 [AskUserQuestion tool call:]
 "Which features for this sprint?
 
-1. F001 + F002 (13 pts) — safe, room for overflow
-2. F001 + F003 (21 pts) — slightly over, tight
+1. S001 + S002 (13 pts) — safe, room for overflow
+2. S001 + S003 (21 pts) — slightly over, tight
 3. All three (26 pts) — aggressive, likely won't finish
 4. Custom — list your own selection
 

@@ -12,7 +12,7 @@ After EP6 (Wrap Up) approves all epic changes, generate integration acceptance c
 
 ### Step 1: Read All Features in Epic
 
-Grep for `epic: E00N` across all feature files. For each approved/done feature, read:
+Grep for `epic: E00N` across all story files. For each approved/done feature, read:
 - Acceptance criteria (both Core AC and E2E AC tiers)
 - Dependencies array (which features depend on which)
 - Interface section (API endpoints, data contracts)
@@ -36,9 +36,9 @@ For each seam, write a Given/When/Then scenario with multi-feature scope. The Gi
 
 Format:
 ```markdown
-Given user signed up via F001 and verified email via F002,
-When they access profile setup (F003),
-Then their email is pre-populated from F001's signup data and verification status shows "confirmed" from F002.
+Given user signed up via S001 and verified email via S002,
+When they access profile setup (S003),
+Then their email is pre-populated from S001's signup data and verification status shows "confirmed" from S002.
 ```
 
 Each integration AC uses:
@@ -64,9 +64,9 @@ Write approved integration AC to the epic file body under:
 ```markdown
 ## Integration Acceptance Criteria
 
-**[F001 → F003: shared user entity]** Given user signed up via F001, When they access profile setup (F003), Then their email is pre-populated from signup data.
+**[S001 → S003: shared user entity]** Given user signed up via S001, When they access profile setup (S003), Then their email is pre-populated from signup data.
 
-**[F002 → F003: verification status]** Given user verified email via F002, When they access profile setup (F003), Then verification status shows "confirmed".
+**[S002 → S003: verification status]** Given user verified email via S002, When they access profile setup (S003), Then verification status shows "confirmed".
 ```
 
 If the section would push the epic file over 200 lines, extract to `<SHIPYARD_DATA>/spec/references/ENNN-integration-ac.md` and add to the epic's references.

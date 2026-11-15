@@ -10,6 +10,7 @@ user tmp and project state are never touched.
 """
 
 import os
+import sys
 import shutil
 import subprocess
 import tempfile
@@ -101,6 +102,54 @@ class TestRun(LogcapTestBase):
         self.assertTrue(os.path.exists(log_path), f'missing {log_path}')
         with open(log_path) as f:
             self.assertIn('hello world', f.read())
+
+    def test_run_records_its_time_in_the_event_log(self):
+        """4.0: each finished run leaves one command_run event (name, exit, seconds)."""
+        import json
+        project_hash = os.path.basename(self.capture_dir())
+        data_dir = os.path.join(self.plugin_data, 'projects', project_hash)
+        os.makedirs(data_dir, exist_ok=True)
+        _, _, rc = run_cli(['run', 'timed', '--', 'sh', '-c', 'echo hi; exit 3'], env_extra=self.env)
+        self.assertEqual(rc, 3)
+        with open(os.path.join(data_dir, '.shipyard-events.jsonl')) as f:
+            events = [json.loads(l) for l in f if l.strip()]
+        runs = [e for e in events if e.get('type') == 'command_run']
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]['name'], 'timed')
+        self.assertEqual(runs[0]['exit'], 3)
+        self.assertIsInstance(runs[0]['seconds'], int)
+        self.assertIn('echo hi', runs[0]['command'])
+
+    def test_reuse_skips_a_command_already_proven_on_this_code(self):
+        """4.0: a green run is recorded as proof; --reuse does not run it again
+        until the code changes; without --reuse it always runs."""
+        project_hash = os.path.basename(self.capture_dir())
+        data_dir = os.path.join(self.plugin_data, 'projects', project_hash)
+        os.makedirs(os.path.join(data_dir, 'sprints', 'current'), exist_ok=True)
+        with open(os.path.join(data_dir, '.project-root'), 'w') as f:
+            f.write(os.path.realpath(self.project_dir) + '\n')
+        marker = os.path.join(self.tmpdir, 'ran.txt')
+        cmd = ['sh', '-c', f'echo x >> {marker}; echo suite ok']
+        runs = lambda: len(open(marker).read().split()) if os.path.exists(marker) else 0
+        exit_file = os.path.join(self.tmpdir, 'e.exit')
+
+        _, _, rc = run_cli(['run', 'suite-1', '--reuse', '--'] + cmd, env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual((rc, runs()), (0, 1))
+        out, _, rc = run_cli(['run', 'suite-2', '--reuse', '--exit-file', exit_file, '--'] + cmd, env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual((rc, runs()), (0, 1), 'proven on this code: not run again')
+        self.assertIn('PROVEN, not run again', out)
+        self.assertEqual(open(exit_file).read().strip(), '0')
+        _, _, rc = run_cli(['run', 'suite-3', '--'] + cmd, env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(runs(), 2, 'without --reuse it always runs')
+        subprocess.run(['git', 'commit', '--allow-empty', '-m', 'same tree', '-q'], cwd=self.project_dir, check=True)
+        run_cli(['run', 'suite-4', '--reuse', '--'] + cmd, env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(runs(), 2, 'an empty commit changes no code')
+        with open(os.path.join(self.project_dir, 'new.c'), 'w') as f:
+            f.write('int x;\n')
+        subprocess.run(['git', 'add', '-A'], cwd=self.project_dir, check=True)
+        subprocess.run(['git', 'commit', '-m', 'code', '-q'], cwd=self.project_dir, check=True)
+        run_cli(['run', 'suite-5', '--reuse', '--'] + cmd, env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(runs(), 3, 'the code changed: run again')
 
     def test_run_propagates_nonzero_exit_code(self):
         _, _, rc = run_cli(
@@ -461,6 +510,29 @@ class TestDurationAndExitFile(LogcapTestBase):
         )
         self.assertEqual(rc, 0)
         self.assertIn('tick', stdout)
+
+    def test_stale_exit_file_is_removed_before_the_run_starts(self):
+        """A waiter polling for the sentinel must never read a previous run's exit code."""
+        exit_file = os.path.join(self.tmp_root, 'stale-exit.txt')
+        seen = os.path.join(self.tmp_root, 'seen.txt')
+        with open(exit_file, 'w') as f:
+            f.write('0\n')  # an earlier, green run
+        # the child records whether the sentinel exists while it runs, then fails
+        code = (
+            "import os,sys;"
+            f"open({seen!r},'w').write(str(os.path.exists({exit_file!r})));"
+            "sys.exit(7)"
+        )
+        _, _, rc = run_cli(
+            ['run', 'staleexit', '--exit-file', exit_file,
+             '--', sys.executable, '-c', code],
+            env_extra=self.env,
+        )
+        self.assertEqual(rc, 7)
+        with open(seen) as f:
+            self.assertEqual(f.read(), 'False', 'the stale sentinel was still there while the command ran')
+        with open(exit_file) as f:
+            self.assertEqual(f.read().strip(), '7')
 
     def test_exit_file_records_child_exit_code(self):
         exit_file = os.path.join(self.tmp_root, 'exit.txt')

@@ -1,0 +1,5 @@
+{
+  "code": 3,
+  "stdout": "",
+  "stderr": "shipyard-data verify-ac-coverage: no feature ids parsed from SPRINT.md features: \"[]\" — nothing would be checked"
+}

@@ -1,0 +1,5 @@
+{
+  "code": 2,
+  "stdout": "",
+  "stderr": "shipyard-data verify-ac-coverage: --base <sha> is required (pass sprint_base_sha)"
+}

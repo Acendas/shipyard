@@ -33,7 +33,7 @@
  *
  * Usage:
  *   shipyard-logcap run <name> [--max-size S] [--max-files N]
- *     [--filter <regex>] [--duration <duration>] [--exit-file <path>]
+ *     [--filter <regex>] [--duration <duration>] [--exit-file <path>] [--reuse]
  *     [--keep N] -- <command...>
  *   shipyard-logcap run <name> [options] --cmd-file <path>
  *   shipyard-logcap view <name|latest> [--filter <regex>] [--since TS]
@@ -472,7 +472,66 @@ function rotate(logPath, maxFiles) {
  * Spawn a command, tee its stdout+stderr to a rotating capture file and the
  * parent's corresponding streams, and exit with the child's exit code.
  */
+/**
+ * One line in the project's event log per finished run (4.0): name, exit code
+ * and how long it took. Why: build and test runs were the largest single cost
+ * of a real sprint (about 44 of 140 minutes) and nothing recorded their time,
+ * so the sprint review could not show it. Best effort: a capture never fails
+ * because the event could not be written.
+ */
+async function recordRun(name, exitCode, startedAt, cmdArgs) {
+  try {
+    const dataDir = getDataDir({ silent: true });
+    if (!dataDir || !existsSync(dataDir)) return;
+    const { logEvent } = await import("./_hook_lib.mjs");
+    logEvent(dataDir, "command_run", {
+      name,
+      exit: exitCode,
+      seconds: Math.round((Date.now() - startedAt) / 1000),
+      command: cmdArgs.join(" ").slice(0, 160),
+    });
+  } catch { /* best effort */ }
+}
+
+/** --reuse: true when a fresh proof exists and the run was skipped. Never throws. */
+async function reuseEarlierProof(opts, cmdArgs, logPath) {
+  try {
+    const dataDir = getDataDir({ silent: true });
+    if (!dataDir || !existsSync(dataDir)) return false;
+    const { reuseByCommand } = await import("./verify-ledger.mjs");
+    const entry = reuseByCommand(dataDir, cmdArgs.join(" "));
+    if (!entry) return false;
+    const line = `logcap: PROVEN, not run again: this exact command passed on this exact code at ${entry.recordedAt} (capture: ${entry.capturePath})\n`;
+    process.stdout.write(line);
+    // Leave a capture under this run's name that points at the proof, unless
+    // this name IS the proof's capture (writing there would spoil it).
+    if (entry.capturePath !== logPath) {
+      try { writeFileSync(logPath, line); } catch { /* the line above is the record */ }
+    }
+    if (opts.exitFile) {
+      try { mkdirSync(dirname(opts.exitFile), { recursive: true }); writeFileSync(opts.exitFile, "0\n"); } catch { /* same as a normal run: best effort */ }
+    }
+    writeBreadcrumb("run_reused", { name: opts.name, proof: entry.capturePath });
+    try {
+      const { logEvent } = await import("./_hook_lib.mjs");
+      logEvent(dataDir, "command_run_reused", { name: opts.name, command: cmdArgs.join(" ").slice(0, 160), recorded_at: entry.recordedAt });
+    } catch { /* best effort */ }
+    return true;
+  } catch { return false; }
+}
+
+/** After a green run: record it as proof of this command on this code (the ledger decides whether it can be one). */
+async function recordProof(cmdArgs, logPath) {
+  try {
+    const dataDir = getDataDir({ silent: true });
+    if (!dataDir || !existsSync(dataDir)) return;
+    const { recordByCommand } = await import("./verify-ledger.mjs");
+    recordByCommand(dataDir, { command: cmdArgs.join(" "), capturePath: logPath });
+  } catch { /* best effort */ }
+}
+
 async function cmdRun(args) {
+  const startedAt = Date.now();
   // Two ways to pass the wrapped command:
   //
   //   1. Trailing `-- <argv...>` (the classic form — use this on POSIX or
@@ -552,11 +611,30 @@ async function cmdRun(args) {
   }
 
   const opts = parseRunOptions(logcapArgs);
+  // A sentinel left by an earlier run with the same path must not look like
+  // THIS run's result: a waiter polling for the file (`until [ -f <exit-file> ]`)
+  // would return at once and read the old exit code. Seen live at a sprint's
+  // final suite: an agent reported green from a stale exit file while make was
+  // still running. So the file is removed before the command starts and is
+  // written only when it ends.
+  if (opts.exitFile) {
+    try { rmSync(opts.exitFile, { force: true }); } catch { /* unwritable path: the write at the end reports it */ }
+  }
 
   // Resolve paths. Fail-loud if resolver can't find project.
   const logPath = getLogPath(opts.name);
   mkdirSync(dirname(logPath), { recursive: true });
   writeLatestName(opts.name);
+
+  // --reuse (4.0): this exact command already passed on this exact code, so it
+  // is not run again. Only the caller knows the command has no side effect the
+  // next stage needs (a test tier, never a deploy or a device run), so reuse is
+  // asked for, never assumed. Any doubt (other checkout, changed file, old
+  // proof) means "run it".
+  if (opts.reuse) {
+    const reused = await reuseEarlierProof(opts, cmdArgs, logPath);
+    if (reused) process.exit(0);
+  }
 
   // Startup banner → stderr so it doesn't pollute the child's stdout.
   process.stderr.write(
@@ -834,7 +912,11 @@ async function cmdRun(args) {
     name: opts.name,
     exit: exitCode,
     bytes: written,
+    seconds: Math.round((Date.now() - startedAt) / 1000),
   });
+  await recordRun(opts.name, exitCode, startedAt, cmdArgs);
+  // A run cut short by --duration proved nothing, whatever it exits with.
+  if (exitCode === 0 && !durationElapsed) await recordProof(cmdArgs, logPath);
 
   if (opts.keep !== null) {
     pruneSessionKeep(getSessionDirFromLogPath(logPath), opts.keep);
@@ -856,6 +938,7 @@ function parseRunOptions(args) {
   let durationMs = null;
   let exitFile = null;
   let keep = null;
+  let reuse = false;
 
   // Env-var overrides come between defaults and CLI flags.
   if (process.env.SHIPYARD_LOGCAP_MAX_SIZE) {
@@ -883,6 +966,8 @@ function parseRunOptions(args) {
       const pattern = args[++i];
       if (!pattern) throw new LogcapError("shipyard-logcap run: --filter requires a regex.");
       filter = new RegExp(pattern);
+    } else if (arg === "--reuse") {
+      reuse = true;
     } else if (arg === "--duration") {
       durationMs = parseDuration(args[++i]);
     } else if (arg === "--exit-file") {
@@ -905,7 +990,7 @@ function parseRunOptions(args) {
     );
   }
 
-  return { name, maxSize, maxFiles, filter, durationMs, exitFile, keep };
+  return { name, maxSize, maxFiles, filter, durationMs, exitFile, keep, reuse };
 }
 
 // ─── Subcommand: tail ───────────────────────────────────────────────────────
@@ -1407,7 +1492,7 @@ function printHelp() {
       `   log[ca]t = Android device log stream.)\n\n` +
       `Usage:\n` +
       `  shipyard-logcap run <name> [--max-size S] [--max-files N]\n` +
-      `       [--filter <regex>] [--duration <duration>] [--exit-file <path>]\n` +
+      `       [--filter <regex>] [--duration <duration>] [--exit-file <path>] [--reuse]\n` +
       `       [--keep N] -- <command...>\n` +
       `  shipyard-logcap run <name> [options] --cmd-file <path>\n` +
       `       (--cmd-file reads newline-delimited argv tokens from a file — use this\n` +

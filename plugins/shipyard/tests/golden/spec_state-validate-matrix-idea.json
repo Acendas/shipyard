@@ -1,0 +1,338 @@
+{
+  "captured->captured": {
+    "ok": false,
+    "validNext": [
+      "assessing",
+      "promoted",
+      "rejected",
+      "parked",
+      "landed"
+    ]
+  },
+  "captured->assessing": {
+    "ok": true,
+    "validNext": [
+      "assessing",
+      "promoted",
+      "rejected",
+      "parked",
+      "landed"
+    ]
+  },
+  "captured->parked": {
+    "ok": true,
+    "validNext": [
+      "assessing",
+      "promoted",
+      "rejected",
+      "parked",
+      "landed"
+    ]
+  },
+  "captured->promoted": {
+    "ok": true,
+    "validNext": [
+      "assessing",
+      "promoted",
+      "rejected",
+      "parked",
+      "landed"
+    ]
+  },
+  "captured->rejected": {
+    "ok": true,
+    "validNext": [
+      "assessing",
+      "promoted",
+      "rejected",
+      "parked",
+      "landed"
+    ]
+  },
+  "captured->landed": {
+    "ok": true,
+    "validNext": [
+      "assessing",
+      "promoted",
+      "rejected",
+      "parked",
+      "landed"
+    ]
+  },
+  "captured->bogus": {
+    "ok": false,
+    "validNext": [
+      "assessing",
+      "promoted",
+      "rejected",
+      "parked",
+      "landed"
+    ]
+  },
+  "assessing->captured": {
+    "ok": true,
+    "validNext": [
+      "promoted",
+      "rejected",
+      "parked",
+      "captured",
+      "landed"
+    ]
+  },
+  "assessing->assessing": {
+    "ok": false,
+    "validNext": [
+      "promoted",
+      "rejected",
+      "parked",
+      "captured",
+      "landed"
+    ]
+  },
+  "assessing->parked": {
+    "ok": true,
+    "validNext": [
+      "promoted",
+      "rejected",
+      "parked",
+      "captured",
+      "landed"
+    ]
+  },
+  "assessing->promoted": {
+    "ok": true,
+    "validNext": [
+      "promoted",
+      "rejected",
+      "parked",
+      "captured",
+      "landed"
+    ]
+  },
+  "assessing->rejected": {
+    "ok": true,
+    "validNext": [
+      "promoted",
+      "rejected",
+      "parked",
+      "captured",
+      "landed"
+    ]
+  },
+  "assessing->landed": {
+    "ok": true,
+    "validNext": [
+      "promoted",
+      "rejected",
+      "parked",
+      "captured",
+      "landed"
+    ]
+  },
+  "assessing->bogus": {
+    "ok": false,
+    "validNext": [
+      "promoted",
+      "rejected",
+      "parked",
+      "captured",
+      "landed"
+    ]
+  },
+  "parked->captured": {
+    "ok": true,
+    "validNext": [
+      "captured",
+      "assessing",
+      "rejected",
+      "landed"
+    ]
+  },
+  "parked->assessing": {
+    "ok": true,
+    "validNext": [
+      "captured",
+      "assessing",
+      "rejected",
+      "landed"
+    ]
+  },
+  "parked->parked": {
+    "ok": false,
+    "validNext": [
+      "captured",
+      "assessing",
+      "rejected",
+      "landed"
+    ]
+  },
+  "parked->promoted": {
+    "ok": false,
+    "validNext": [
+      "captured",
+      "assessing",
+      "rejected",
+      "landed"
+    ]
+  },
+  "parked->rejected": {
+    "ok": true,
+    "validNext": [
+      "captured",
+      "assessing",
+      "rejected",
+      "landed"
+    ]
+  },
+  "parked->landed": {
+    "ok": true,
+    "validNext": [
+      "captured",
+      "assessing",
+      "rejected",
+      "landed"
+    ]
+  },
+  "parked->bogus": {
+    "ok": false,
+    "validNext": [
+      "captured",
+      "assessing",
+      "rejected",
+      "landed"
+    ]
+  },
+  "promoted->captured": {
+    "ok": false,
+    "validNext": []
+  },
+  "promoted->assessing": {
+    "ok": false,
+    "validNext": []
+  },
+  "promoted->parked": {
+    "ok": false,
+    "validNext": []
+  },
+  "promoted->promoted": {
+    "ok": false,
+    "validNext": []
+  },
+  "promoted->rejected": {
+    "ok": false,
+    "validNext": []
+  },
+  "promoted->landed": {
+    "ok": false,
+    "validNext": []
+  },
+  "promoted->bogus": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->captured": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->assessing": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->parked": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->promoted": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->rejected": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->landed": {
+    "ok": false,
+    "validNext": []
+  },
+  "rejected->bogus": {
+    "ok": false,
+    "validNext": []
+  },
+  "landed->captured": {
+    "ok": true,
+    "validNext": [
+      "captured"
+    ]
+  },
+  "landed->assessing": {
+    "ok": false,
+    "validNext": [
+      "captured"
+    ]
+  },
+  "landed->parked": {
+    "ok": false,
+    "validNext": [
+      "captured"
+    ]
+  },
+  "landed->promoted": {
+    "ok": false,
+    "validNext": [
+      "captured"
+    ]
+  },
+  "landed->rejected": {
+    "ok": false,
+    "validNext": [
+      "captured"
+    ]
+  },
+  "landed->landed": {
+    "ok": false,
+    "validNext": [
+      "captured"
+    ]
+  },
+  "landed->bogus": {
+    "ok": false,
+    "validNext": [
+      "captured"
+    ]
+  },
+  "bogus->captured": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->assessing": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->parked": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->promoted": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->rejected": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->landed": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  },
+  "bogus->bogus": {
+    "ok": false,
+    "validNext": [],
+    "unknownFrom": true
+  }
+}

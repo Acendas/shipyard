@@ -14,12 +14,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  readExecutionIsolation,
   readRefactorScope,
   readDispatchOrder,
   readMaxTasksPerWave,
   readMergeIndependentLayers,
   readMaxTasksPerWaveMerged,
   hasConfiguredCommand,
+  readModelTier,
+  readAgentEffort,
+  ROLE_TIER,
 } from "../bin/config-read.mjs";
 
 function withConfig(execBlock) {
@@ -36,9 +40,9 @@ test("absent config.md yields today's defaults for every speed knob", () => {
   try {
     assert.equal(readRefactorScope(d), "sprint");
     assert.equal(readDispatchOrder(d), "critical_path");
-    assert.equal(readMaxTasksPerWave(d), 6);
+    assert.equal(readMaxTasksPerWave(d), 100); // 4.19: a wave is as wide as execution.max_agents
     assert.equal(readMergeIndependentLayers(d), true);
-    assert.equal(readMaxTasksPerWaveMerged(d), 12);
+    assert.equal(readMaxTasksPerWaveMerged(d), 100);
   } finally {
     rmSync(d, { recursive: true, force: true });
   }
@@ -49,7 +53,7 @@ test("absent keys inside an existing execution block yield defaults", () => {
   try {
     assert.equal(readRefactorScope(d), "sprint");
     assert.equal(readDispatchOrder(d), "critical_path");
-    assert.equal(readMaxTasksPerWaveMerged(d), 12);
+    assert.equal(readMaxTasksPerWaveMerged(d), 100);
   } finally {
     rmSync(d, { recursive: true, force: true });
   }
@@ -101,8 +105,8 @@ test("malformed values fall back to the default rather than failing open", () =>
     assert.equal(readDispatchOrder(d), "critical_path");
     // Width caps never become Infinity: an uncapped merged wave is precisely
     // the unbounded merge surface max_tasks_per_wave exists to prevent.
-    assert.equal(readMaxTasksPerWave(d), 6);
-    assert.equal(readMaxTasksPerWaveMerged(d), 12);
+    assert.equal(readMaxTasksPerWave(d), 100); // 4.19: a wave is as wide as execution.max_agents
+    assert.equal(readMaxTasksPerWaveMerged(d), 100);
   } finally {
     rmSync(d, { recursive: true, force: true });
   }
@@ -146,4 +150,34 @@ test("hasConfiguredCommand still stops at a genuine sibling block", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("readModelTier / readAgentEffort / ROLE_TIER", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cfg-model-"));
+  try {
+    writeFileSync(
+      join(dir, "config.md"),
+      "---\nmodels:\n  think: claude-opus-4-8   # c\n  build: \"\"\n  orchestrate: inherit\nagent_effort:\n  build: high\n  fixer: inherit\n---\n",
+    );
+    assert.equal(readModelTier(dir, "think"), "opus"); // legacy claude-* id mapped to family tier
+    assert.equal(readModelTier(dir, "build"), "");
+    assert.equal(readModelTier(dir, "orchestrate"), "");
+    assert.equal(readAgentEffort(dir, "build"), "high");
+    assert.equal(readAgentEffort(dir, "fixer"), "");
+    assert.equal(readAgentEffort(dir, "operational"), "low"); // absent -> role default
+    assert.equal(readModelTier(join(dir, "nope"), "build"), "");
+    assert.equal(readAgentEffort(join(dir, "nope"), "think"), "high");
+    assert.equal(ROLE_TIER.think, "think");
+    assert.equal(ROLE_TIER.build, "build");
+    assert.equal(Object.keys(ROLE_TIER).length, 9); // + decide (4.10)
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readExecutionIsolation: a column-0 comment inside execution: does not hide isolation: none", () => {
+  const d = withConfig("# note about isolation\n  isolation: none");
+  try {
+    assert.equal(readExecutionIsolation(d), "none");
+  } finally { rmSync(d, { recursive: true, force: true }); }
 });

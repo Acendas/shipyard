@@ -29,10 +29,10 @@ git:
 
 | Format | Task commit |
 |---|---|
-| **conventional** | `feat(auth): implement login form T002` |
-| **gitmoji** | `:sparkles: implement login form T002` |
-| **jira** | `PROJ-42: implement login form T002` |
-| **freeform** | `Implement login form T002` |
+| **conventional** | `feat(auth): implement login form P002` |
+| **gitmoji** | `:sparkles: implement login form P002` |
+| **jira** | `PROJ-42: implement login form P002` |
+| **freeform** | `Implement login form P002` |
 
 Task IDs are always included in the commit message for traceability.
 
@@ -43,10 +43,10 @@ Work directly on the user's current branch. Each task gets one atomic commit.
 
 ```bash
 # User is on feature/auth (or main, or whatever they chose)
-# ... work on T001 ...
-git add -A && git commit -m "feat(T001): implement auth config"
-# ... work on T002 ...
-git add -A && git commit -m "feat(T002): build login page"
+# ... work on P001 ...
+git add -A && git commit -m "feat(P001): implement auth config"
+# ... work on P002 ...
+git add -A && git commit -m "feat(P002): build login page"
 ```
 
 ### Task Mode (parallel tasks)
@@ -54,35 +54,37 @@ Each subagent works in a worktree with its own temporary task branch.
 
 The WorktreeCreate hook ensures worktrees branch from the user's current local branch, not `origin/HEAD`.
 
+**Model + effort for every dispatch (builders, spikes):** Run `shipyard-data resolve-model <role>` — one line `model=<m> effort=<e>`; pass each value as a string on the Agent call and OMIT any empty field (inherit). Never hardcode a literal. Log it once: `shipyard-data events emit dispatch_model_resolved role=<role> model=<model or inherit> effort=<effort>` (a logging failure never blocks the dispatch).
+
 ```
 User's branch: feature/auth
 
 Wave 2 (parallel):
-  Subagent 1 → worktree branch: shipyard/wt-T002-login-page
-  Subagent 2 → worktree branch: shipyard/wt-T003-auth-middleware
-  Subagent 3 → worktree branch: shipyard/wt-T004-rls-policies
+  Subagent 1 → worktree branch: shipyard/wt-P002-login-page
+  Subagent 2 → worktree branch: shipyard/wt-P003-auth-middleware
+  Subagent 3 → worktree branch: shipyard/wt-P004-rls-policies
 ```
 
 After wave completes — **rebase and merge each task branch one at a time, sequentially**:
 ```bash
 # Process each branch IN ORDER (not parallel):
-git rebase [user-branch] shipyard/wt-T002-login-page   # replay onto current HEAD
+git rebase [user-branch] shipyard/wt-P002-login-page   # replay onto current HEAD
 git checkout [user-branch]
-git merge --ff-only shipyard/wt-T002-login-page         # always works after rebase
+git merge --ff-only shipyard/wt-P002-login-page         # always works after rebase
 git worktree remove <path>
-git branch -d shipyard/wt-T002-login-page
+git branch -d shipyard/wt-P002-login-page
 
 # HEAD has moved forward — next rebase starts from updated HEAD
-git rebase [user-branch] shipyard/wt-T003-auth-middleware
+git rebase [user-branch] shipyard/wt-P003-auth-middleware
 git checkout [user-branch]
-git merge --ff-only shipyard/wt-T003-auth-middleware
+git merge --ff-only shipyard/wt-P003-auth-middleware
 git worktree remove <path>
-git branch -d shipyard/wt-T003-auth-middleware
+git branch -d shipyard/wt-P003-auth-middleware
 
 # Repeat for each task branch...
 ```
 
-**Never fall back to regular merge** — that creates fork lines in the git graph. If rebase has conflicts, print the conflict details as chat text first — branch name, conflicting files, the relevant `git status` lines (git output is not shown to the user until printed) — then AskUserQuestion. The sequential order matters: each rebase starts from the updated HEAD after the previous merge, so ff-only always succeeds.
+**Never fall back to regular merge** — that creates fork lines in the git graph. If rebase has conflicts, print the conflict details as chat text first — branch name, conflicting files, the relevant `git status` lines (git output is not shown to the user until printed) — then resolve it without asking: `git rebase --abort`, send the conflict to the builder that wrote the branch (`SendMessage` to `builder-<step>`: rebase onto the working branch, keep both behaviours, re-run your step's tests, return the new sha — one attempt, it is still resumable until its wave's gate), and merge the result. If that fails, park the step (`needs-attention`, branch anchored as below) and log `execute_decision source=parked`. `AskUserQuestion` only when `execution.unattended: false`. The sequential order matters: each rebase starts from the updated HEAD after the previous merge, so ff-only always succeeds.
 
 ### Track Mode (wave-scoped track coordinators + nested per-task builders)
 Track mode nests the same one-task-one-branch shape as Task Mode under a wave-scoped coordinator per feature track — it does **not** stack multiple task commits onto one feature-wide branch. Every task still gets its own worktree, its own branch, and exactly one commit; the coordinator adds sequencing and cross-task briefing, not a different git shape.
@@ -90,37 +92,37 @@ Track mode nests the same one-task-one-branch shape as Task Mode under a wave-sc
 ```
 User's branch: feature/auth
 
-Track coordinator "F001" → worktree branch: shipyard/wt-F001-email-login
+Track coordinator "S001" → worktree branch: shipyard/wt-S001-email-login
   (isolated, but NEVER commits — the coordinator's own worktree stays at
   wave-start HEAD the whole wave; nothing to rebase or merge for it)
-    ├─ nested builder T001 → worktree branch: shipyard/wt-T001-auth-config
-    │     Commits while working: test(T001) / feat(T001)  — ONE commit
-    └─ nested builder T002 → worktree branch: shipyard/wt-T002-login-page
-          Commits while working: test(T002) / feat(T002)  — ONE commit
+    ├─ nested builder P001 → worktree branch: shipyard/wt-P001-auth-config
+    │     Commits while working: test(P001) / feat(P001)  — ONE commit
+    └─ nested builder P002 → worktree branch: shipyard/wt-P002-login-page
+          Commits while working: test(P002) / feat(P002)  — ONE commit
 ```
 
 **Each nested task branch integrates exactly like a Task Mode branch** — sequentially, one at a time, in task-ID order, at the wave boundary:
 ```bash
-git rebase [user-branch] shipyard/wt-T001-auth-config
+git rebase [user-branch] shipyard/wt-P001-auth-config
 git checkout [user-branch]
-git merge --ff-only shipyard/wt-T001-auth-config
+git merge --ff-only shipyard/wt-P001-auth-config
 git worktree remove <path>
-git branch -d shipyard/wt-T001-auth-config
+git branch -d shipyard/wt-P001-auth-config
 
-git rebase [user-branch] shipyard/wt-T002-login-page
+git rebase [user-branch] shipyard/wt-P002-login-page
 git checkout [user-branch]
-git merge --ff-only shipyard/wt-T002-login-page
+git merge --ff-only shipyard/wt-P002-login-page
 git worktree remove <path>
-git branch -d shipyard/wt-T002-login-page
+git branch -d shipyard/wt-P002-login-page
 ```
 
-**The coordinator's own branch (`shipyard/wt-F001-email-login`) is never rebased or merged** — it never advanced past wave-start HEAD, so it is trivially "merged" already (`git branch -d` succeeds with nothing to lose). Remove it like any other stale worktree once the coordinator itself has finished. See `references/track-mode.md` for the full protocol, including why nested builders don't chain onto each other's commits mid-wave (every nested builder forks from the coordinator's fixed HEAD, not a sibling's branch) and how the coordinator's running TRACK NOTES compensate for that.
+**The coordinator's own branch (`shipyard/wt-S001-email-login`) is never rebased or merged** — it never advanced past wave-start HEAD, so it is trivially "merged" already (`git branch -d` succeeds with nothing to lose). Remove it like any other stale worktree once the coordinator itself has finished. See `references/track-mode.md` for the full protocol, including why nested builders don't chain onto each other's commits mid-wave (every nested builder forks from the coordinator's fixed HEAD, not a sibling's branch) and how the coordinator's running TRACK NOTES compensate for that.
 
 ## Wave Boundary
 
 Between waves, the orchestrator:
 1. Rebases and merges every completed task branch onto the user's branch — one task, one branch, regardless of whether it was dispatched directly (task mode) or nested under a track coordinator (track mode); a track coordinator's own branch is removed, never merged (it never advanced)
-2. Resolves merge conflicts — for non-trivial conflicts, render the conflicting branch + file list as chat text, then AskUserQuestion
+2. Resolves merge conflicts — for non-trivial conflicts, render the conflicting branch + file list as chat text, then hand the conflict back to the builder that wrote the branch (one warm attempt) or park the step — `AskUserQuestion` only when `execution.unattended: false`
 3. Deletes merged task branches, cleans up worktrees
 4. Delegates **wave-scoped build + tests** to a test subagent
 5. Creates worktrees for next wave from updated user branch HEAD
@@ -132,7 +134,7 @@ Hotfixes follow the same principle — work on the user's current branch:
 ```bash
 # User creates their own hotfix branch (or works on main — their choice)
 # Execute TDD cycle (must include regression test)
-git commit -m "fix(B-HOT-001): handle null session on login"
+git commit -m "fix(S001): handle null session on login"
 ```
 
 Shipyard does not merge the hotfix anywhere. The user handles merge/PR.
@@ -189,7 +191,7 @@ Shipyard implements workarounds for several Claude Code bugs that affect worktre
 | Bug | Impact | Workaround |
 |-----|--------|------------|
 | **#32906** — Path-scoped rules don't load in subagents | TDD/execution rules missing | Critical rules inlined into spawn prompts (every builder and track-coordinator brief) |
-| **#39699** — Lead polling creates feedback loop + duplicate teammates | Token waste, duplicate work | Main never polls a coordinator or a builder for status via repeated `SendMessage`/`TaskList` calls — it waits on the event-log `Monitor` (armed once, per wave) for `subagent_completed`, and on each spawned agent's own background-completion notification. `TaskList` is a mirror main writes to, never a polling read main relies on for liveness (see `references/track-mode.md` § "Main's Monitoring Loop" and § "Liveness — no heartbeat file"). |
+| **#39699** — Lead polling creates feedback loop + duplicate teammates | Token waste, duplicate work | Main never polls a coordinator or a builder for status via repeated `SendMessage`/`TaskList` calls — it waits on the event-log `Monitor` (armed once, per wave) for `subagent_completed`, and on each spawned agent's own background-completion notification. `TaskList` is a mirror main writes to, never a polling read main relies on for liveness (see `references/track-mode.md` § "Main's Monitoring Loop" and § "Liveness"). |
 
 ### Edge Cases
 

@@ -1,751 +1,1465 @@
 [
-  {
-    "name": "normalizes_ac_ids_at_plan",
-    "type": "contains",
-    "pattern": "assign-ac-ids"
-  },
-  {
-    "name": "uses_atomic_archive_sprint_command",
-    "type": "contains",
-    "pattern": "shipyard-data archive-sprint"
-  },
-  {
-    "name": "allows_bash_shipyard_data",
-    "type": "contains",
-    "pattern": "Bash\\(shipyard-data:\\*\\)"
-  },
-  {
-    "name": "no_git_push",
-    "type": "not_contains",
-    "pattern": "\\bgit\\s+push\\b"
-  },
-  {
-    "name": "no_sprint_branch_creation",
-    "type": "not_contains",
-    "pattern": "git checkout -b sprint/"
-  },
-  {
-    "name": "no_integration_branch",
-    "type": "not_contains",
-    "pattern": "integration_branch"
-  },
-  {
-    "name": "records_working_branch",
-    "type": "contains",
-    "pattern": "git branch --show-current"
-  },
-  {
-    "name": "has_rice_scoring",
-    "type": "contains",
-    "pattern": "RICE"
-  },
-  {
-    "name": "has_wave_structure",
-    "type": "contains",
-    "pattern": "[Ww]ave"
-  },
-  {
-    "name": "has_capacity_planning",
-    "type": "contains",
-    "pattern": "[Cc]apacity"
-  },
-  {
-    "name": "has_velocity_reference",
-    "type": "contains",
-    "pattern": "[Vv]elocity"
-  },
-  {
-    "name": "has_cancel_mode",
-    "type": "contains",
-    "pattern": "CANCEL"
-  },
-  {
-    "name": "has_extend_mode",
-    "type": "contains",
-    "pattern": "EXTEND"
-  },
-  {
-    "name": "has_research_step",
-    "type": "contains",
-    "pattern": "WebSearch|Research"
-  },
-  {
-    "name": "has_eta_display",
-    "type": "contains",
-    "pattern": "ETA"
-  },
-  {
-    "name": "has_frontmatter_name",
-    "type": "frontmatter_field",
-    "field": "name",
-    "value": "ship-sprint"
-  },
-  {
-    "name": "has_simplification_scan_step",
-    "type": "contains",
-    "pattern": "Step 3\\.75.*[Ss]implification"
-  },
-  {
-    "name": "simplification_scan_reads_protocol",
-    "type": "contains",
-    "pattern": "simplification-scan\\.md"
-  },
-  {
-    "name": "simplification_scan_scope_guard",
-    "type": "contains",
-    "pattern": "20%.*capacity|capacity.*20%"
-  },
-  {
-    "name": "simplification_scan_before_decompose",
-    "type": "contains",
-    "pattern": "Step 3\\.75.*[Ss]implification.*Step 4.*Decompose",
-    "dotall": true
-  },
-  {
-    "name": "has_session_guard",
-    "type": "contains",
-    "pattern": "lock acquire planning|lock release planning"
-  },
-  {
-    "name": "has_compaction_recovery",
-    "type": "contains",
-    "pattern": "[Cc]ompaction [Rr]ecovery"
-  },
-  {
-    "name": "has_sprint_draft",
-    "type": "contains",
-    "pattern": "SPRINT-DRAFT\\.md"
-  },
-  {
-    "name": "approval_uses_ask_user",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "has_quality_gate",
-    "type": "contains",
-    "pattern": "Quality Gate|self-review loop"
-  },
-  {
-    "name": "has_carry_over_scan",
-    "type": "contains",
-    "pattern": "[Cc]arry.[Oo]ver [Ss]can"
-  },
-  {
-    "name": "has_rules_compliance_check",
-    "type": "contains",
-    "pattern": "[Rr]ules [Cc]ompliance"
-  },
-  {
-    "name": "has_terminology_alignment",
-    "type": "contains",
-    "pattern": "[Tt]erminology [Aa]lignment"
-  },
-  {
-    "name": "has_definition_of_ready",
-    "type": "contains",
-    "pattern": "[Dd]efinition of [Rr]eady"
-  },
-  {
-    "name": "has_implementation_decisions",
-    "type": "contains",
-    "pattern": "[Ii]mplementation [Dd]ecision"
-  },
-  {
-    "name": "has_poc_spike",
-    "type": "contains",
-    "pattern": "POC.*spike|spike.*POC"
-  },
-  {
-    "name": "has_token_projection",
-    "type": "contains",
-    "pattern": "token_estimate|[Tt]oken.*projection"
-  },
-  {
-    "name": "has_throughput_tracking",
-    "type": "contains",
-    "pattern": "throughput|pts.*hr|pts/hr"
-  },
-  {
-    "name": "planning_checklists_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-sprint/references/planning-checklists.md"
-  },
-  {
-    "name": "uses_ask_user_question",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "uses_shipyard_data_path",
-    "type": "contains",
-    "pattern": "shipyard-data|shipyard-context"
-  },
-  {
-    "name": "has_communication_design_ref",
-    "type": "contains",
-    "pattern": "communication-design\\.md"
-  },
-  {
-    "name": "has_3_layer_pattern",
-    "type": "contains",
-    "pattern": "3-layer.*pattern|3-layer explanation"
-  },
-  {
-    "name": "has_wave_timeline_visual",
-    "type": "contains",
-    "pattern": "visual timeline|Wave.*████"
-  },
-  {
-    "name": "has_dependency_dag",
-    "type": "contains",
-    "pattern": "DEPENDENCY GRAPH|DAG|─┬─▶"
-  },
-  {
-    "name": "has_lsp_in_tools",
-    "type": "contains",
-    "pattern": "LSP"
-  },
-  {
-    "name": "has_lsp_first_principle",
-    "type": "contains",
-    "pattern": "LSP first|LSP.*before.*Grep|[Uu]se LSP"
-  },
-  {
-    "name": "has_task_size_guard",
-    "type": "contains",
-    "pattern": "8 discrete items|task size guard|split the task"
-  },
-  {
-    "name": "no_shell_sd_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-data"
-  },
-  {
-    "name": "no_shell_sc_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-context"
-  },
-  {
-    "name": "no_sd_shell_var_assignment",
-    "type": "not_contains",
-    "pattern": "SD=\\$\\(shipyard-data"
-  },
-  {
-    "name": "has_session_mutex_check",
-    "type": "contains",
-    "pattern": "Session Mutex Check|session mutex check"
-  },
-  {
-    "name": "mutex_acquires_via_cli",
-    "type": "contains",
-    "pattern": "shipyard-context sprint-planning"
-  },
-  {
-    "name": "mutex_avoids_second_acquire_call",
-    "type": "not_contains",
-    "pattern": "Run `shipyard-data lock acquire planning --skill ship-sprint`|Run shipyard-data lock acquire planning --skill ship-sprint"
-  },
-  {
-    "name": "mutex_has_2hr_staleness",
-    "type": "contains",
-    "pattern": "stale.*recovery line|stale/corrupt-lock recovery",
-    "why": "v3.7.0 wave 3: the 2h threshold itself is defined once in skill-lock.mjs (pinned in acquiring-skill-lock.json) — the calling skill only needs to know it must echo the CLI's recovery line."
-  },
-  {
-    "name": "mutex_hard_blocks_active",
-    "type": "contains",
-    "pattern": "⛔.*STOP|exit 3",
-    "dotall": true
-  },
-  {
-    "name": "task_frontmatter_has_kind_field",
-    "type": "contains",
-    "pattern": "kind.*feature.*operational.*research",
-    "dotall": true
-  },
-  {
-    "name": "task_kinds_reference_linked",
-    "type": "contains",
-    "pattern": "references/task-kinds\\.md"
-  },
-  {
-    "name": "operational_requires_verify_command",
-    "type": "contains",
-    "pattern": "verify_command"
-  },
-  {
-    "name": "kind_classifier_uses_ask_user_question",
-    "type": "contains",
-    "pattern": "operational.*AskUserQuestion|AskUserQuestion.*operational",
-    "dotall": true
-  },
-  {
-    "name": "dor_gate_checks_operational_verify_command",
-    "type": "contains",
-    "pattern": "operational.*verify_command",
-    "dotall": true
-  },
-  {
-    "name": "dor_forbids_nested_operational",
-    "type": "contains",
-    "pattern": "operational.*operational|operational.*nested|Operational.*operational",
-    "dotall": true
-  },
-  {
-    "name": "carry_over_scans_silent_pass",
-    "type": "contains",
-    "pattern": "kind: operational|PREVIOUSLY MARKED DONE WITHOUT EVIDENCE|Silent-pass suspects",
-    "dotall": true
-  },
-  {
-    "name": "carry_over_display_silent_pass_section",
-    "type": "contains",
-    "pattern": "PREVIOUSLY MARKED DONE WITHOUT EVIDENCE"
-  },
-  {
-    "name": "task_kinds_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-sprint/references/task-kinds.md"
-  },
-  {
-    "name": "dor_gate_checks_research_scope",
-    "type": "contains",
-    "pattern": "research.*research_scope|research_scope.*research",
-    "dotall": true
-  },
-  {
-    "name": "task_kinds_ref_has_research_contract",
-    "type": "contains",
-    "pattern": "research_scope",
-    "target": "ref:task-kinds.md"
-  },
-  {
-    "name": "task_kinds_ref_research_no_longer_deferred",
-    "type": "not_contains",
-    "pattern": "Execution-path status.*not yet implemented|falls back.*feature",
-    "target": "ref:task-kinds.md",
-    "dotall": true
-  },
-  {
-    "name": "carry_over_check_needs_attention",
-    "type": "contains",
-    "pattern": "status: needs-attention|NEEDS ATTENTION"
-  },
-  {
-    "name": "carry_over_display_needs_attention_section",
-    "type": "contains",
-    "pattern": "NEEDS ATTENTION.*prior sprint escalation|prior sprint escalation",
-    "dotall": true
-  },
-  {
-    "name": "carry_over_needs_attention_no_auto_carry",
-    "type": "contains",
-    "pattern": "Do NOT auto-carry|not auto-carry|do not auto-carry",
-    "dotall": true
-  },
-  {
-    "name": "carryover_scans_all_idea_origins",
-    "type": "contains",
-    "pattern": "\\^source: \\(execute\\|review-gap\\|retro\\)"
-  },
-  {
-    "name": "carryover_dual_match_retro_legacy",
-    "type": "contains",
-    "pattern": "retro-sprint|hyphen-separated|retro[-/]",
-    "dotall": true
-  },
-  {
-    "name": "carryover_has_recency_filter",
-    "type": "contains",
-    "pattern": "last 2 sprint|14 days|Recency filter",
-    "dotall": true
-  },
-  {
-    "name": "carryover_has_idea_cap",
-    "type": "contains",
-    "pattern": "8 ideas|at most \\*\\*8\\*\\*|cap:.*8"
-  },
-  {
-    "name": "carryover_forbids_wildcard_source",
-    "type": "contains",
-    "pattern": "do NOT widen to|not auto-carry.*inline capture|inline capture.*not auto-carry",
-    "dotall": true
-  },
-  {
-    "name": "carryover_display_has_carried_over_ideas_section",
-    "type": "contains",
-    "pattern": "CARRIED-OVER IDEAS"
-  },
-  {
-    "name": "prohibits_bash_redirect_for_state",
-    "type": "contains",
-    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
-  },
-  {
-    "name": "step4_reads_decomposition_patterns_ref",
-    "type": "contains",
-    "pattern": "task-decomposition-patterns\\.md"
-  },
-  {
-    "name": "decomposition_patterns_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-sprint/references/task-decomposition-patterns.md"
-  },
-  {
-    "name": "step4_has_5stage_protocol",
-    "type": "contains",
-    "pattern": "Stage 1.*Stage 2|5-stage protocol",
-    "dotall": true
-  },
-  {
-    "name": "step4_maps_acceptance_criteria",
-    "type": "contains",
-    "pattern": "acceptance criteria.*task draft|Map acceptance criteria",
-    "dotall": true
-  },
-  {
-    "name": "step4_has_walking_skeleton",
-    "type": "contains",
-    "pattern": "[Ww]alking skeleton|Wave 1.*foundation only|foundation.*Wave 1",
-    "dotall": true
-  },
-  {
-    "name": "step4_has_and_test",
-    "type": "contains",
-    "pattern": "\"and\" test|and.*connecting two independent|independent behaviors"
-  },
-  {
-    "name": "step4_has_red_step_forcing",
-    "type": "contains",
-    "pattern": "First failing test|Red step.*task file|task file.*Red step",
-    "dotall": true
-  },
-  {
-    "name": "step4_has_adapted_8_80_rule",
-    "type": "contains",
-    "pattern": "1.4 hrs|1-4 hrs|4.8 hrs|4-8 hrs|1.2 days|1-2 days"
-  },
-  {
-    "name": "step4_no_task_exceeds_L",
-    "type": "contains",
-    "pattern": "No task exceeds L|task.*more than.*days.*feature"
-  },
-  {
-    "name": "step4_has_invest_output_check",
-    "type": "contains",
-    "pattern": "INVEST output check|I.*Independent.*T.*Testable|Independent.*same wave",
-    "dotall": true
-  },
-  {
-    "name": "quality_gate_has_red_step_check",
-    "type": "contains",
-    "pattern": "First failing test.*Technical Notes|Technical Notes.*First failing test",
-    "dotall": true
-  },
-  {
-    "name": "quality_gate_has_and_bundling_check",
-    "type": "contains",
-    "pattern": "\"and\" joining two independent|and.*independent behaviors.*split",
-    "dotall": true
-  },
-  {
-    "name": "step4_vertical_slicing_enforced",
-    "type": "contains",
-    "pattern": "vertical slicing|thin.*end-to-end slice|independently testable"
-  },
-  {
-    "name": "step4_traceability_requirement",
-    "type": "contains",
-    "pattern": "trace back.*acceptance criterion|infrastructure.*cleanup.*spike",
-    "dotall": true
-  },
-  {
-    "name": "uses_init_sprint_cli",
-    "type": "contains",
-    "pattern": "shipyard-data init-sprint"
-  },
-  {
-    "name": "step11_does_not_write_sprint_or_progress_from_memory",
-    "type": "not_contains",
-    "pattern": "Use Write to create SPRINT.md and PROGRESS.md"
-  },
-  {
-    "name": "quality_gate_has_24_checks",
-    "type": "contains",
-    "pattern": "24-check table|24-row checklist"
-  },
-  {
-    "name": "quality_gate_references_technical_notes_mapping",
-    "type": "contains",
-    "pattern": "Technical Notes.*deliverable|Technical Notes.*task mapping",
-    "dotall": true
-  },
-  {
-    "name": "has_quality_manifest_step",
-    "type": "contains",
-    "pattern": "Quality Gate Manifest|QUALITY-GATE"
-  },
-  {
-    "name": "quality_manifest_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-sprint/references/quality-manifest.md"
-  },
-  {
-    "name": "has_standing_gates",
-    "type": "contains",
-    "pattern": "[Ss]tanding [Gg]ate"
-  },
-  {
-    "name": "has_sprint_specific_gates",
-    "type": "contains",
-    "pattern": "[Ss]print.Specific [Gg]ate"
-  },
-  {
-    "name": "decomposition_consults_data_modeling_guide",
-    "type": "contains",
-    "pattern": "data-modeling-guide\\.md",
-    "target": "ref:wave-decomposition.md"
-  },
-  {
-    "name": "data_decomposition_is_gated",
-    "type": "contains",
-    "pattern": "Skip for features with no persistence concern|Data features \\(gated\\)",
-    "target": "ref:wave-decomposition.md"
-  },
-  {
-    "name": "sprint_critic_challenges_data_decomposition",
-    "type": "contains",
-    "pattern": "schema/migration/index/constraint|captures the data work",
-    "target": "ref:spec-validation.md"
-  },
-  {
-    "name": "spec_validation_has_data_model_check_22",
-    "type": "contains",
-    "pattern": "Data work is decomposed",
-    "target": "ref:spec-validation.md"
-  },
-  {
-    "name": "data_model_check_is_gated",
-    "type": "contains",
-    "pattern": "skip entirely for non-data sprints|data features only",
-    "target": "ref:spec-validation.md"
-  },
-  {
-    "name": "step_checklist_created",
-    "type": "contains",
-    "pattern": "Step 0: Create the Step Checklist",
-    "why": "PLAN mode creates the 20-step task checklist so skipped steps are visible"
-  },
-  {
-    "name": "task_list_never_authority",
-    "type": "contains",
-    "pattern": "NEVER authority",
-    "why": "tasks are a progress mirror + recovery anchor, never evidence a step ran"
-  },
-  {
-    "name": "recovery_uses_tasklist_anchor",
-    "type": "contains",
-    "pattern": "Call `TaskList\\(\\)` first",
-    "why": "compaction recovery anchors on the checklist, confirms against files"
-  },
-  {
-    "name": "checklist_distinguishable_from_track_tasks",
-    "type": "contains",
-    "pattern": "Step N:.*keeps the planning checklist distinguishable",
-    "why": "v3.16.0: renamed from checklist_distinguishable_from_team_tasks — ship-execute track mode shares the task system for build tasks (main is the sole Task* owner across every dispatch shape); prefixes prevent cross-contamination. Pattern unchanged (still matches — the SKILL.md text it pins already read 'track mode' post-rebuild), vocabulary-only rename for consistency."
-  },
-  {
-    "name": "decomposition_deepdive_reads_models_think",
-    "type": "contains",
-    "pattern": "models\\.think",
-    "why": "v3.0.0: Steps 4-7 dispatch reads models.think and passes model: only when non-empty"
-  },
-  {
-    "name": "decomposition_deepdive_dispatched",
-    "type": "contains",
-    "pattern": "Decomposition Deep-Dive|Steps 4-7.*[Dd]ispatch",
-    "dotall": true,
-    "why": "v3.0.0: Steps 4-7 run in one dispatched think-tier agent, not inline in the shell"
-  },
-  {
-    "name": "decomposition_deepdive_structural_verification",
-    "type": "contains",
-    "pattern": "structural verification|every returned task file path actually exists",
-    "dotall": true,
-    "why": "v3.0.0: shell verifies returned task files exist and each feature has >=1 task before trusting the plan"
-  },
-  {
-    "name": "decomposition_deepdive_has_inline_fallback",
-    "type": "contains",
-    "pattern": "[Ff]allback.*run.*Steps 4-7.*inline|fall back to running Steps 4-7",
-    "dotall": true,
-    "why": "v3.0.0: on dispatch failure or invalid return, fall back to inline decomposition"
-  },
-  {
-    "name": "decomposition_deepdive_no_askuser_in_agent",
-    "type": "contains",
-    "pattern": "Never run AskUserQuestion inside the dispatched agent",
-    "why": "v3.0.0: user gates stay shell-side; the deep-dive agent only analyzes and writes task files"
-  },
-  {
-    "name": "capacity_decide_and_inform",
-    "type": "contains",
-    "pattern": "Decide-and-inform when velocity data exists|say 'change' to adjust",
-    "why": "v3.4.0: capacity with velocity data is stated in one line and proceeds; no accept/adjust ask"
-  },
-  {
-    "name": "capacity_save_default_folds_into_approval",
-    "type": "contains",
-    "pattern": "folds into the Step 11 plan-approval|Save \\[N\\] pts as the new default velocity",
-    "why": "v3.4.0: the save-as-default question is asked only inside the Step 11 approval call"
-  },
-  {
-    "name": "planning_decisions_round_confidence_gated",
-    "type": "contains",
-    "pattern": "Planning-decisions round \\(Steps 3.5.3.75\\)",
-    "why": "v3.4.0: Steps 3.5-3.75 run the confidence gate; HIGH decide-and-inform, MEDIUM/LOW batch into one ask"
-  },
-  {
-    "name": "planning_decisions_assumed_logging",
-    "type": "contains",
-    "pattern": "ASSUMED: <decision>|ASSUMPTIONS MADE",
-    "why": "v3.4.0: HIGH-tier decisions log ASSUMED entries surfaced in the Step 11 ASSUMPTIONS MADE list"
-  },
-  {
-    "name": "rules_line_uses_confidence_gate",
-    "type": "contains",
-    "pattern": "resolve the ambiguity before reaching for a prompt",
-    "why": "v3.4.0: the blanket 'ambiguous -> ask' rule is replaced by the confidence gate + kill-list"
-  },
-  {
-    "name": "stale_draft_options_labeled_by_content",
-    "type": "contains",
-    "pattern": "Resume the draft with|Discard it and replan",
-    "why": "v3.4.0: stale-draft resume options are labeled by feature content, not abstract keep/discard verbs"
-  },
-  {
-    "name": "cancel_clears_tasks_via_cli",
-    "type": "contains",
-    "pattern": "feature clear-tasks",
-    "why": "v3.6.0 wave 2: sprint-cancel's per-feature tasks: array reset is a dedicated CLI verb, not a hand-Edit."
-  },
-  {
-    "name": "cancel_uses_task_set_status_approved",
-    "type": "contains",
-    "pattern": "task set-status.*approved",
-    "why": "v3.6.0 wave 2: sprint-cancel's task-frontmatter status reset routes through the task-state CLI."
-  },
-  {
-    "name": "uses_lock_acquire_planning",
-    "type": "contains",
-    "pattern": "acquires the planning lock|planning lock",
-    "why": "v3.7.0 wave 3 + CLI-call merge: the Session Mutex Check routes through the bundled shipyard-context sprint-planning call instead of hand-Read/Write or a second acquire call."
-  },
-  {
-    "name": "uses_lock_release",
-    "type": "contains",
-    "pattern": "lock release",
-    "why": "v3.7.0 wave 3: mutex cleanup routes through shipyard-data lock release instead of a hand Write."
-  },
-  {
-    "name": "no_hand_write_lock_file",
-    "type": "not_contains",
-    "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
-    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore."
-  },
-  {
-    "name": "wave_size_cap_in_deep_dive",
-    "type": "contains",
-    "pattern": "max_tasks_per_wave"
-  },
-  {
-    "name": "wave_count_never_capped",
-    "type": "contains",
-    "pattern": "Never cap the number of WAVES",
-    "target": "ref:wave-decomposition.md"
-  },
-  {
-    "name": "wave_size_cap_check_in_validation",
-    "type": "contains",
-    "pattern": "No wave exceeds its applicable width cap",
-    "target": "ref:spec-validation.md"
-  },
-  {
-    "name": "wave_size_cap_names_both_caps",
-    "type": "contains",
-    "pattern": "execution.max_tasks_per_wave_merged",
-    "target": "ref:spec-validation.md"
-  },
-  {
-    "name": "independent_layer_merge_default",
-    "type": "contains",
-    "pattern": "keep it as ONE wave",
-    "target": "ref:wave-decomposition.md"
-  },
-  {
-    "name": "independent_layer_merge_not_oversold",
-    "type": "contains",
-    "pattern": "does NOT raise build concurrency",
-    "target": "ref:wave-decomposition.md"
-  },
-  {
-    "name": "render_provenance_negation",
-    "type": "contains",
-    "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
-  },
-  {
-    "name": "quiet_by_default",
-    "type": "contains",
-    "pattern": "Quiet by default"
-  },
-  {
-    "name": "gates_user_flow_probe_at_plan_time",
-    "type": "contains",
-    "pattern": "user_flow_probe",
-    "why": "v3.17.0: a feature admitted to a sprint without a user-flow probe builds for hours before ship-execute Step 5.3 blocks on it."
-  },
-  {
-    "name": "probe_gate_is_cli_not_eyeball",
-    "type": "contains",
-    "pattern": "feature check-probes",
-    "why": "v3.22.2: Check 24 is now a hard CLI gate (`shipyard-data feature check-probes`) whose non-zero exit halts planning, not a model-eyeball checklist row that passed features through (sprint-034 F120/F121 slipped past the self-review and surfaced only at execute pre-flight)."
-  },
-  {
-    "name": "deep_dive_draft_first_handoff",
-    "type": "contains",
-    "pattern": "draft task specs.{0,260}before writing final task files",
-    "dotall": true,
-    "why": "Deep-dive decomposition must not write final task files before the shell resolves required AskUserQuestion gates."
-  },
-  {
-    "name": "feature_tasks_updated_after_files_exist",
-    "type": "contains",
-    "pattern": "feature set-tasks.{0,180}after every referenced task file exists",
-    "dotall": true,
-    "why": "Feature task arrays are CLI-owned and must only point at existing task files owned by the feature."
-  },
-  {
-    "name": "sprint_deep_dive_sets_think_effort",
-    "type": "contains",
-    "pattern": "agent_effort\\.think",
-    "why": "Sprint planning deep-dive/analyst agents should use the configurable think-effort tier."
-  },
-  {
-    "name": "wave_caps_resolved_by_cli",
-    "type": "contains",
-    "pattern": "shipyard-data resolve-wave-caps",
-    "target": "ref:wave-decomposition.md"
-  },
-  {
-    "name": "gates_sprint_open_on_idea_backlog",
-    "type": "contains",
-    "pattern": "check-idea-backlog"
-  },
-  {
-    "name": "idea_backlog_escape_hatch_is_explicit",
-    "type": "contains",
-    "pattern": "idea_backlog_accepted"
-  }
+ {
+  "name": "normalizes_ac_ids_at_plan",
+  "type": "contains",
+  "pattern": "assign-ac-ids",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "uses_atomic_archive_sprint_command",
+  "type": "contains",
+  "pattern": "shipyard-data archive-sprint"
+ },
+ {
+  "name": "allows_bash_shipyard_data",
+  "type": "contains",
+  "pattern": "Bash\\(shipyard-data:\\*\\)"
+ },
+ {
+  "name": "no_git_push",
+  "type": "not_contains",
+  "pattern": "\\bgit\\s+push\\b"
+ },
+ {
+  "name": "no_sprint_branch_creation",
+  "type": "not_contains",
+  "pattern": "git checkout -b sprint/"
+ },
+ {
+  "name": "no_integration_branch",
+  "type": "not_contains",
+  "pattern": "integration_branch"
+ },
+ {
+  "name": "records_working_branch",
+  "type": "contains",
+  "pattern": "git branch --show-current",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_rice_scoring",
+  "type": "contains",
+  "pattern": "RICE",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_wave_structure",
+  "type": "contains",
+  "pattern": "[Ww]ave"
+ },
+ {
+  "name": "has_capacity_planning",
+  "type": "contains",
+  "pattern": "[Cc]apacity"
+ },
+ {
+  "name": "has_velocity_reference",
+  "type": "contains",
+  "pattern": "[Vv]elocity"
+ },
+ {
+  "name": "has_cancel_mode",
+  "type": "contains",
+  "pattern": "CANCEL"
+ },
+ {
+  "name": "has_extend_mode",
+  "type": "contains",
+  "pattern": "EXTEND"
+ },
+ {
+  "name": "has_research_step",
+  "type": "contains",
+  "pattern": "WebSearch|Research"
+ },
+ {
+  "name": "has_eta_display",
+  "type": "contains",
+  "pattern": "ETA",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "has_frontmatter_name",
+  "type": "frontmatter_field",
+  "field": "name",
+  "value": "ship-sprint"
+ },
+ {
+  "name": "has_simplification_scan_step",
+  "type": "contains",
+  "pattern": "Step 3\\.75.*[Ss]implification",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "simplification_scan_reads_protocol",
+  "type": "contains",
+  "pattern": "simplification-scan\\.md",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "simplification_scan_scope_guard",
+  "type": "contains",
+  "pattern": "20%.*capacity|capacity.*20%",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "simplification_scan_before_decompose",
+  "type": "contains",
+  "pattern": "Step 3\\.75.*[Ss]implification.*Step 4.*Decompose",
+  "dotall": true,
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_session_guard",
+  "type": "contains",
+  "pattern": "lock acquire planning|lock release planning",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_compaction_recovery",
+  "type": "contains",
+  "pattern": "[Cc]ompaction [Rr]ecovery",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_sprint_draft",
+  "type": "contains",
+  "pattern": "SPRINT-DRAFT\\.md"
+ },
+ {
+  "name": "approval_uses_ask_user",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "has_quality_gate",
+  "type": "contains",
+  "pattern": "Quality Gate|self-review loop",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_carry_over_scan",
+  "type": "contains",
+  "pattern": "[Cc]arry.[Oo]ver [Ss]can",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_rules_compliance_check",
+  "type": "contains",
+  "pattern": "[Rr]ules [Cc]ompliance",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_terminology_alignment",
+  "type": "contains",
+  "pattern": "[Tt]erminology [Aa]lignment",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_definition_of_ready",
+  "type": "contains",
+  "pattern": "[Dd]efinition of [Rr]eady",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_implementation_decisions",
+  "type": "contains",
+  "pattern": "[Ii]mplementation [Dd]ecision",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_poc_spike",
+  "type": "contains",
+  "pattern": "POC.*spike|spike.*POC",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "has_token_projection",
+  "type": "contains",
+  "pattern": "token_estimate|[Tt]oken.*projection",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_throughput_tracking",
+  "type": "contains",
+  "pattern": "throughput|pts.*hr|pts/hr",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "planning_checklists_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-sprint/references/planning-checklists.md"
+ },
+ {
+  "name": "uses_ask_user_question",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "uses_shipyard_data_path",
+  "type": "contains",
+  "pattern": "shipyard-data|shipyard-context"
+ },
+ {
+  "name": "has_communication_design_ref",
+  "type": "contains",
+  "pattern": "communication-design\\.md"
+ },
+ {
+  "name": "has_3_layer_pattern",
+  "type": "contains",
+  "pattern": "3-layer.*pattern|3-layer explanation",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_wave_timeline_visual",
+  "type": "contains",
+  "pattern": "visual timeline|Wave.*████",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_dependency_dag",
+  "type": "contains",
+  "pattern": "DEPENDENCY GRAPH|DAG|─┬─▶",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_lsp_in_tools",
+  "type": "contains",
+  "pattern": "LSP"
+ },
+ {
+  "name": "has_lsp_first_principle",
+  "type": "contains",
+  "pattern": "LSP first|LSP.*before.*Grep|[Uu]se LSP",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "has_task_size_guard",
+  "type": "contains",
+  "pattern": "8 discrete items|task size guard|split the task"
+ },
+ {
+  "name": "no_shell_sd_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data"
+ },
+ {
+  "name": "no_shell_sc_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context"
+ },
+ {
+  "name": "no_sd_shell_var_assignment",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data"
+ },
+ {
+  "name": "has_session_mutex_check",
+  "type": "contains",
+  "pattern": "Session Mutex Check|session mutex check"
+ },
+ {
+  "name": "mutex_acquires_via_cli",
+  "type": "contains",
+  "pattern": "shipyard-context sprint-planning"
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-sprint`|Run shipyard-data lock acquire planning --skill ship-sprint"
+ },
+ {
+  "name": "mutex_has_2hr_staleness",
+  "type": "contains",
+  "pattern": "stale.*recovery line|stale/corrupt-lock recovery",
+  "why": "v3.7.0 wave 3: the 2h threshold itself is defined once in skill-lock.mjs (pinned in acquiring-skill-lock.json) — the calling skill only needs to know it must echo the CLI's recovery line."
+ },
+ {
+  "name": "mutex_hard_blocks_active",
+  "type": "contains",
+  "pattern": "⛔.*STOP|exit 3",
+  "dotall": true
+ },
+ {
+  "name": "task_frontmatter_has_kind_field",
+  "type": "contains",
+  "pattern": "kind.*feature.*operational.*research",
+  "dotall": true
+ },
+ {
+  "name": "task_kinds_reference_linked",
+  "type": "contains",
+  "pattern": "references/task-kinds\\.md"
+ },
+ {
+  "name": "operational_requires_verify_command",
+  "type": "contains",
+  "pattern": "verify_command",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "kind_classifier_uses_ask_user_question",
+  "type": "contains",
+  "pattern": "operational.*AskUserQuestion|AskUserQuestion.*operational",
+  "dotall": true,
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "dor_gate_checks_operational_verify_command",
+  "type": "contains",
+  "pattern": "operational.*verify_command",
+  "dotall": true,
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "dor_forbids_nested_operational",
+  "type": "contains",
+  "pattern": "operational.*operational|operational.*nested|Operational.*operational",
+  "dotall": true
+ },
+ {
+  "name": "carry_over_scans_silent_pass",
+  "type": "contains",
+  "pattern": "kind: operational|PREVIOUSLY MARKED DONE WITHOUT EVIDENCE|Silent-pass suspects",
+  "dotall": true,
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "carry_over_display_silent_pass_section",
+  "type": "contains",
+  "pattern": "PREVIOUSLY MARKED DONE WITHOUT EVIDENCE"
+ },
+ {
+  "name": "task_kinds_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-sprint/references/task-kinds.md"
+ },
+ {
+  "name": "dor_gate_checks_research_scope",
+  "type": "contains",
+  "pattern": "research.*research_scope|research_scope.*research",
+  "dotall": true,
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "task_kinds_ref_has_research_contract",
+  "type": "contains",
+  "pattern": "research_scope",
+  "target": "ref:task-kinds.md"
+ },
+ {
+  "name": "task_kinds_ref_research_no_longer_deferred",
+  "type": "not_contains",
+  "pattern": "Execution-path status.*not yet implemented|falls back.*feature",
+  "target": "ref:task-kinds.md",
+  "dotall": true
+ },
+ {
+  "name": "carry_over_check_needs_attention",
+  "type": "contains",
+  "pattern": "status: needs-attention|NEEDS ATTENTION"
+ },
+ {
+  "name": "carry_over_display_needs_attention_section",
+  "type": "contains",
+  "pattern": "NEEDS ATTENTION.*prior sprint escalation|prior sprint escalation",
+  "dotall": true
+ },
+ {
+  "name": "carry_over_needs_attention_no_auto_carry",
+  "type": "contains",
+  "pattern": "Do NOT auto-carry|not auto-carry|do not auto-carry",
+  "dotall": true
+ },
+ {
+  "name": "carryover_scans_all_idea_origins",
+  "type": "contains",
+  "pattern": "\\^source: \\(execute\\|review-gap\\|retro\\)"
+ },
+ {
+  "name": "carryover_dual_match_retro_legacy",
+  "type": "contains",
+  "pattern": "retro-sprint|hyphen-separated|retro[-/]",
+  "dotall": true
+ },
+ {
+  "name": "carryover_has_recency_filter",
+  "type": "contains",
+  "pattern": "last 2 sprint|14 days|Recency filter",
+  "dotall": true,
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "carryover_has_idea_cap",
+  "type": "contains",
+  "pattern": "8 ideas|at most \\*\\*8\\*\\*|cap:.*8"
+ },
+ {
+  "name": "carryover_forbids_wildcard_source",
+  "type": "contains",
+  "pattern": "do NOT widen to|not auto-carry.*inline capture|inline capture.*not auto-carry",
+  "dotall": true
+ },
+ {
+  "name": "carryover_display_has_carried_over_ideas_section",
+  "type": "contains",
+  "pattern": "CARRIED-OVER IDEAS",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "prohibits_bash_redirect_for_state",
+  "type": "contains",
+  "pattern": "never use echo, printf, or shell redirects",
+  "target": "plugin:bin/shipyard-context.mjs",
+  "why": "S016/P061: canonical home is CANONICAL_STARTUP_RULES in the startup CLI."
+ },
+ {
+  "name": "step4_reads_decomposition_patterns_ref",
+  "type": "contains",
+  "pattern": "task-decomposition-patterns\\.md"
+ },
+ {
+  "name": "decomposition_patterns_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-sprint/references/task-decomposition-patterns.md"
+ },
+ {
+  "name": "step4_has_5stage_protocol",
+  "type": "contains",
+  "pattern": "Stage 1.*Stage 2|5-stage protocol",
+  "dotall": true,
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "step4_maps_acceptance_criteria",
+  "type": "contains",
+  "pattern": "acceptance criteria.*task draft|Map acceptance criteria",
+  "dotall": true
+ },
+ {
+  "name": "step4_has_walking_skeleton",
+  "type": "contains",
+  "pattern": "[Ww]alking skeleton|Wave 1.*foundation only|foundation.*Wave 1",
+  "dotall": true,
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "step4_has_and_test",
+  "type": "contains",
+  "pattern": "\"and\" test|and.*connecting two independent|independent behaviors"
+ },
+ {
+  "name": "step4_has_red_step_forcing",
+  "type": "contains",
+  "pattern": "First failing test|Red step.*step file|step file.*Red step",
+  "dotall": true,
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "step4_has_adapted_8_80_rule",
+  "type": "contains",
+  "pattern": "1.4 hrs|1-4 hrs|4.8 hrs|4-8 hrs|1.2 days|1-2 days"
+ },
+ {
+  "name": "step4_no_task_exceeds_L",
+  "type": "contains",
+  "pattern": "No task exceeds L|task.*more than.*days.*feature"
+ },
+ {
+  "name": "step4_has_invest_output_check",
+  "type": "contains",
+  "pattern": "INVEST output check|I.*Independent.*T.*Testable|Independent.*same wave",
+  "dotall": true,
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "quality_gate_has_red_step_check",
+  "type": "contains",
+  "pattern": "First failing test.*Technical Notes|Technical Notes.*First failing test",
+  "dotall": true,
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "quality_gate_has_and_bundling_check",
+  "type": "contains",
+  "pattern": "\"and\" joining two independent|and.*independent behaviors.*split",
+  "dotall": true
+ },
+ {
+  "name": "step4_vertical_slicing_enforced",
+  "type": "contains",
+  "pattern": "vertical slicing|thin.*end-to-end slice|independently testable"
+ },
+ {
+  "name": "step4_traceability_requirement",
+  "type": "contains",
+  "pattern": "trace back.*acceptance criterion|infrastructure.*cleanup.*spike",
+  "dotall": true
+ },
+ {
+  "name": "uses_init_sprint_cli",
+  "type": "contains",
+  "pattern": "shipyard-data init-sprint"
+ },
+ {
+  "name": "step11_does_not_write_sprint_or_progress_from_memory",
+  "type": "not_contains",
+  "pattern": "Use Write to create SPRINT.md and PROGRESS.md"
+ },
+ {
+  "name": "quality_gate_has_24_checks",
+  "type": "contains",
+  "pattern": "24-check table|24-row checklist",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "quality_gate_references_technical_notes_mapping",
+  "type": "contains",
+  "pattern": "Technical Notes.*deliverable|Technical Notes.*task mapping",
+  "dotall": true,
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_quality_manifest_step",
+  "type": "contains",
+  "pattern": "Quality Gate Manifest|QUALITY-GATE"
+ },
+ {
+  "name": "quality_manifest_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-sprint/references/quality-manifest.md"
+ },
+ {
+  "name": "has_standing_gates",
+  "type": "contains",
+  "pattern": "[Ss]tanding [Gg]ate",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "has_sprint_specific_gates",
+  "type": "contains",
+  "pattern": "[Ss]print.Specific [Gg]ate",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "decomposition_consults_data_modeling_guide",
+  "type": "contains",
+  "pattern": "data-modeling-guide\\.md",
+  "target": "ref:wave-decomposition.md"
+ },
+ {
+  "name": "data_decomposition_is_gated",
+  "type": "contains",
+  "pattern": "Skip for features with no persistence concern|Data features \\(gated\\)",
+  "target": "ref:wave-decomposition.md"
+ },
+ {
+  "name": "sprint_critic_challenges_data_decomposition",
+  "type": "contains",
+  "pattern": "schema/migration/index/constraint|captures the data work",
+  "target": "ref:spec-validation.md"
+ },
+ {
+  "name": "spec_validation_has_data_model_check_22",
+  "type": "contains",
+  "pattern": "Data work is decomposed",
+  "target": "ref:spec-validation.md"
+ },
+ {
+  "name": "data_model_check_is_gated",
+  "type": "contains",
+  "pattern": "skip entirely for non-data sprints|data features only",
+  "target": "ref:spec-validation.md"
+ },
+ {
+  "name": "step_checklist_created",
+  "type": "contains",
+  "pattern": "Step 0: Create the Step Checklist",
+  "why": "PLAN mode creates the 20-step task checklist so skipped steps are visible",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "task_list_never_authority",
+  "type": "contains",
+  "pattern": "NEVER authority",
+  "why": "tasks are a progress mirror + recovery anchor, never evidence a step ran",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "recovery_uses_tasklist_anchor",
+  "type": "contains",
+  "pattern": "Call `TaskList\\(\\)` first",
+  "why": "compaction recovery anchors on the checklist, confirms against files",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "checklist_distinguishable_from_track_tasks",
+  "type": "contains",
+  "pattern": "Step N:.*keeps the planning checklist distinguishable",
+  "why": "v3.16.0: renamed from checklist_distinguishable_from_team_tasks — ship-execute track mode shares the task system for build tasks (main is the sole Task* owner across every dispatch shape); prefixes prevent cross-contamination. Pattern unchanged (still matches — the SKILL.md text it pins already read 'track mode' post-rebuild), vocabulary-only rename for consistency.",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "decomposition_deepdive_reads_models_think",
+  "type": "contains",
+  "pattern": "resolve-model think",
+  "why": "v3.0.0 + S003: Steps 4-7 dispatch resolves the think tier via shipyard-data resolve-model and passes model: only when non-empty",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "decomposition_deepdive_dispatched",
+  "type": "contains",
+  "pattern": "Decomposition Deep-Dive|Steps 4-7.*[Dd]ispatch",
+  "dotall": true,
+  "why": "v3.0.0: Steps 4-7 run in one dispatched think-tier agent, not inline in the shell",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "decomposition_deepdive_structural_verification",
+  "type": "contains",
+  "pattern": "structural verification|every returned step file path actually exists",
+  "dotall": true,
+  "why": "v3.0.0: shell verifies returned step files exist and each feature has >=1 task before trusting the plan",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "decomposition_deepdive_has_inline_fallback",
+  "type": "contains",
+  "pattern": "[Ff]allback.*run.*Steps 4-7.*inline|fall back to running Steps 4-7",
+  "dotall": true,
+  "why": "v3.0.0: on dispatch failure or invalid return, fall back to inline decomposition",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "decomposition_deepdive_no_askuser_in_agent",
+  "type": "contains",
+  "pattern": "Never run AskUserQuestion inside the dispatched agent",
+  "why": "v3.0.0: user gates stay shell-side; the deep-dive agent only analyzes and writes step files",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "capacity_decide_and_inform",
+  "type": "contains",
+  "pattern": "Decide-and-inform when velocity data exists|say 'change' to adjust",
+  "why": "v3.4.0: capacity with velocity data is stated in one line and proceeds; no accept/adjust ask",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "capacity_save_default_folds_into_approval",
+  "type": "contains",
+  "pattern": "never persisted from planning",
+  "why": "4.4: capacity is never persisted from planning (velocity comes from archive-sprint), so there is no save-as-default question anywhere",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "planning_decisions_round_confidence_gated",
+  "type": "contains",
+  "pattern": "Planning-decisions round \\(Steps 3.5.3.75\\)",
+  "why": "v3.4.0: Steps 3.5-3.75 run the confidence gate; HIGH decide-and-inform, MEDIUM/LOW batch into one ask",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "planning_decisions_assumed_logging",
+  "type": "contains",
+  "pattern": "ASSUMED: <decision>|ASSUMPTIONS MADE",
+  "why": "v3.4.0: HIGH-tier decisions log ASSUMED entries surfaced in the Step 11 ASSUMPTIONS MADE list",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "rules_line_uses_confidence_gate",
+  "type": "contains",
+  "pattern": "resolve the ambiguity before reaching for a prompt",
+  "why": "v3.4.0: the blanket 'ambiguous -> ask' rule is replaced by the confidence gate + kill-list",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "stale_draft_options_labeled_by_content",
+  "type": "contains",
+  "pattern": "Resume the draft with|Discard it and replan",
+  "why": "v3.4.0: stale-draft resume options are labeled by feature content, not abstract keep/discard verbs",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "cancel_refuses_completed_sprint",
+  "type": "contains",
+  "pattern": "status is `completed`, STOP.*--unreviewed",
+  "why": "S043: cancelling a completed sprint would bypass the archive review gate; the CLI refuses and the mode says so before touching features.",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "cancel_clears_tasks_via_cli",
+  "type": "contains",
+  "pattern": "story clear-steps",
+  "why": "v3.6.0 wave 2: sprint-cancel's per-feature tasks: array reset is a dedicated CLI verb, not a hand-Edit.",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "cancel_uses_task_set_status_approved",
+  "type": "contains",
+  "pattern": "step set-status.*approved",
+  "why": "v3.6.0 wave 2: sprint-cancel's task-frontmatter status reset routes through the task-state CLI.",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "uses_lock_acquire_planning",
+  "type": "contains",
+  "pattern": "acquires the planning lock|planning lock",
+  "why": "v3.7.0 wave 3 + CLI-call merge: the Session Mutex Check routes through the bundled shipyard-context sprint-planning call instead of hand-Read/Write or a second acquire call."
+ },
+ {
+  "name": "uses_lock_release",
+  "type": "contains",
+  "pattern": "lock release",
+  "why": "v3.7.0 wave 3: mutex cleanup routes through shipyard-data lock release instead of a hand Write.",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "no_hand_write_lock_file",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore."
+ },
+ {
+  "name": "wave_size_cap_in_deep_dive",
+  "type": "contains",
+  "pattern": "max_tasks_per_wave",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "wave_count_never_capped",
+  "type": "contains",
+  "pattern": "Never cap the number of WAVES",
+  "target": "ref:wave-decomposition.md"
+ },
+ {
+  "name": "plan_score_check_in_validation",
+  "type": "contains",
+  "pattern": "sprint plan-score --draft --check",
+  "target": "ref:spec-validation.md",
+  "why": "4.19 (owner): the plan is scored for parallel work by the CLI; the per-wave caps of 6 and 12 are retired"
+ },
+ {
+  "name": "plan_check_names_what_it_refuses",
+  "type": "contains",
+  "pattern": "two steps of one wave that touch the same file",
+  "target": "ref:spec-validation.md",
+  "why": "4.19: the checklist names the problems the CLI refuses, so the planner fixes the plan and not the check"
+ },
+ {
+  "name": "wave_is_as_wide_as_it_comes",
+  "type": "contains",
+  "pattern": "A wave is as wide as it comes",
+  "target": "ref:wave-decomposition.md",
+  "why": "4.19 (owner): maximize parallel work; the only ceiling is execution.max_agents"
+ },
+ {
+  "name": "steps_go_in_earliest_wave",
+  "type": "contains",
+  "pattern": "Put every step in the earliest wave its `dependencies:` allow",
+  "target": "ref:wave-decomposition.md",
+  "why": "4.19: a step later than its dependencies require is refused by the CLI (late)"
+ },
+ {
+  "name": "render_provenance_negation",
+  "type": "contains",
+  "pattern": "does not count as rendered",
+  "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P061: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+  "target": "plugin:bin/shipyard-context.mjs"
+ },
+ {
+  "name": "quiet_by_default",
+  "type": "contains",
+  "pattern": "Quiet by default"
+ },
+ {
+  "name": "gates_user_flow_probe_at_plan_time",
+  "type": "contains",
+  "pattern": "user_flow_probe",
+  "why": "v3.17.0: a feature admitted to a sprint without a user-flow probe builds for hours before ship-execute Step 5.3 blocks on it.",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "probe_gate_is_cli_not_eyeball",
+  "type": "contains",
+  "pattern": "story check-probes",
+  "why": "v3.22.2: Check 24 is now a hard CLI gate (`shipyard-data story check-probes`) whose non-zero exit halts planning, not a model-eyeball checklist row that passed features through (sprint-034 S120/S121 slipped past the self-review and surfaced only at execute pre-flight).",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "deep_dive_draft_first_handoff",
+  "type": "contains",
+  "pattern": "draft task specs.{0,260}before writing final step files",
+  "dotall": true,
+  "why": "Deep-dive decomposition must not write final step files before the shell resolves required AskUserQuestion gates.",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "feature_tasks_updated_after_files_exist",
+  "type": "contains",
+  "pattern": "story set-steps.{0,180}after every referenced step file exists",
+  "dotall": true,
+  "why": "Feature task arrays are CLI-owned and must only point at existing step files owned by the feature.",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "sprint_deep_dive_sets_think_effort",
+  "type": "contains",
+  "pattern": "agent_effort\\.think",
+  "why": "Sprint planning deep-dive/analyst agents should use the configurable think-effort tier.",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "wave_caps_resolved_by_cli",
+  "type": "contains",
+  "pattern": "shipyard-data resolve-wave-caps",
+  "target": "ref:wave-decomposition.md"
+ },
+ {
+  "name": "gates_sprint_open_on_idea_backlog",
+  "type": "contains",
+  "pattern": "check-idea-backlog",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "idea_backlog_escape_hatch_is_explicit",
+  "type": "contains",
+  "pattern": "idea_backlog_accepted",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "ship_sprint_uses_resolve_model",
+  "type": "contains",
+  "pattern": "resolve-model",
+  "why": "S003/P019: model+effort for dispatches come from `shipyard-data resolve-model <role>` (one deterministic answer), not prose re-derivation from config.md.",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "render_before_ask_short_reminder_present",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "S016/P061: the command keeps only the short reminder; the full doctrine is printed at startup (CANONICAL_STARTUP_RULES)."
+ },
+ {
+  "name": "no_git_push__cancel-mode",
+  "type": "not_contains",
+  "pattern": "\\bgit\\s+push\\b",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "no_sprint_branch_creation__cancel-mode",
+  "type": "not_contains",
+  "pattern": "git checkout -b sprint/",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "no_integration_branch__cancel-mode",
+  "type": "not_contains",
+  "pattern": "integration_branch",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "no_shell_sd_substitution__cancel-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "no_shell_sc_substitution__cancel-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "no_sd_shell_var_assignment__cancel-mode",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__cancel-mode",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-sprint`|Run shipyard-data lock acquire planning --skill ship-sprint",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "step11_does_not_write_sprint_or_progress_from_memory__cancel-mode",
+  "type": "not_contains",
+  "pattern": "Use Write to create SPRINT.md and PROGRESS.md",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "no_hand_write_lock_file__cancel-mode",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore.",
+  "target": "ref:cancel-mode.md"
+ },
+ {
+  "name": "cancel_router_reads_cancel_mode_reference",
+  "type": "contains",
+  "pattern": "Read\\*\\*.*skills/ship-sprint/references/cancel-mode\\.md",
+  "why": "P065: CANCEL procedure lives in cancel-mode.md; the router must tell the model to read it."
+ },
+ {
+  "name": "cancel_mode_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-sprint/references/cancel-mode.md"
+ },
+ {
+  "name": "no_git_push__extend-mode",
+  "type": "not_contains",
+  "pattern": "\\bgit\\s+push\\b",
+  "target": "ref:extend-mode.md"
+ },
+ {
+  "name": "no_sprint_branch_creation__extend-mode",
+  "type": "not_contains",
+  "pattern": "git checkout -b sprint/",
+  "target": "ref:extend-mode.md"
+ },
+ {
+  "name": "no_integration_branch__extend-mode",
+  "type": "not_contains",
+  "pattern": "integration_branch",
+  "target": "ref:extend-mode.md"
+ },
+ {
+  "name": "no_shell_sd_substitution__extend-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:extend-mode.md"
+ },
+ {
+  "name": "no_shell_sc_substitution__extend-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:extend-mode.md"
+ },
+ {
+  "name": "no_sd_shell_var_assignment__extend-mode",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:extend-mode.md"
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__extend-mode",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-sprint`|Run shipyard-data lock acquire planning --skill ship-sprint",
+  "target": "ref:extend-mode.md"
+ },
+ {
+  "name": "step11_does_not_write_sprint_or_progress_from_memory__extend-mode",
+  "type": "not_contains",
+  "pattern": "Use Write to create SPRINT.md and PROGRESS.md",
+  "target": "ref:extend-mode.md"
+ },
+ {
+  "name": "no_hand_write_lock_file__extend-mode",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore.",
+  "target": "ref:extend-mode.md"
+ },
+ {
+  "name": "extend_router_reads_extend_mode_reference",
+  "type": "contains",
+  "pattern": "Read\\*\\*.*skills/ship-sprint/references/extend-mode\\.md",
+  "why": "P066: EXTEND procedure lives in extend-mode.md; the router must tell the model to read it."
+ },
+ {
+  "name": "extend_mode_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-sprint/references/extend-mode.md"
+ },
+ {
+  "name": "no_git_push__plan-mode",
+  "type": "not_contains",
+  "pattern": "\\bgit\\s+push\\b",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "no_git_push__plan-shared-steps",
+  "type": "not_contains",
+  "pattern": "\\bgit\\s+push\\b",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "no_sprint_branch_creation__plan-mode",
+  "type": "not_contains",
+  "pattern": "git checkout -b sprint/",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "no_sprint_branch_creation__plan-shared-steps",
+  "type": "not_contains",
+  "pattern": "git checkout -b sprint/",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "no_integration_branch__plan-mode",
+  "type": "not_contains",
+  "pattern": "integration_branch",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "no_integration_branch__plan-shared-steps",
+  "type": "not_contains",
+  "pattern": "integration_branch",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "no_shell_sd_substitution__plan-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "no_shell_sd_substitution__plan-shared-steps",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "no_shell_sc_substitution__plan-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "no_shell_sc_substitution__plan-shared-steps",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "no_sd_shell_var_assignment__plan-mode",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "no_sd_shell_var_assignment__plan-shared-steps",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__plan-mode",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-sprint`|Run shipyard-data lock acquire planning --skill ship-sprint",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__plan-shared-steps",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-sprint`|Run shipyard-data lock acquire planning --skill ship-sprint",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "step11_does_not_write_sprint_or_progress_from_memory__plan-mode",
+  "type": "not_contains",
+  "pattern": "Use Write to create SPRINT.md and PROGRESS.md",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "step11_does_not_write_sprint_or_progress_from_memory__plan-shared-steps",
+  "type": "not_contains",
+  "pattern": "Use Write to create SPRINT.md and PROGRESS.md",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "no_hand_write_lock_file__plan-mode",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore.",
+  "target": "ref:plan-mode.md"
+ },
+ {
+  "name": "no_hand_write_lock_file__plan-shared-steps",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore.",
+  "target": "ref:plan-shared-steps.md"
+ },
+ {
+  "name": "plan_router_reads_plan_mode_and_shared_steps",
+  "type": "contains",
+  "pattern": "## PLAN Mode\\s+\\*\\*Read\\*\\*[^\\n]*skills/ship-sprint/references/plan-mode\\.md[^\\n]*skills/ship-sprint/references/plan-shared-steps\\.md",
+  "why": "P067 (S017 AC-4): PLAN procedure lives in plan-mode.md and the shared Steps 3-4 in plan-shared-steps.md; the PLAN router must tell the model to read both."
+ },
+ {
+  "name": "extend_router_reads_shared_steps",
+  "type": "contains",
+  "pattern": "## EXTEND Mode.{0,300}Read\\*\\*[^\\n]*skills/ship-sprint/references/plan-shared-steps\\.md",
+  "dotall": true,
+  "why": "P067 (S017 AC-4): extend-mode.md E3 follows the shared Steps 3-4 'loaded above', so the EXTEND router must Read plan-shared-steps.md."
+ },
+ {
+  "name": "extend_mode_does_not_point_at_plan_mode",
+  "type": "not_contains",
+  "pattern": "plan-mode\\.md",
+  "target": "ref:extend-mode.md",
+  "why": "P066 rule kept by P067 (S017 AC-4): extend-mode.md reaches the shared steps through the router Read, never by pointing back at plan-mode.md."
+ },
+ {
+  "name": "plan_mode_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-sprint/references/plan-mode.md",
+  "why": "P067 (S017 AC-4)"
+ },
+ {
+  "name": "plan_shared_steps_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-sprint/references/plan-shared-steps.md",
+  "why": "P067 (S017 AC-4)"
+ },
+ {
+  "name": "plan_mode_keeps_determine_capacity_step",
+  "type": "contains",
+  "pattern": "### Step 1: Determine Capacity",
+  "target": "ref:plan-mode.md",
+  "why": "P067 (S017 AC-5): Step 1 heading stays stable inside plan-mode.md."
+ },
+ {
+  "name": "plan_mode_has_idea_backlog_gate_once",
+  "type": "contains",
+  "pattern": "### Step 0\\.5: Idea Backlog Gate",
+  "target": "ref:plan-mode.md",
+  "why": "P067 (S017 AC-5): the CLI-backed Step 0.5 gate stays reachable on the plan path."
+ },
+ {
+  "name": "plan_shared_steps_has_rules",
+  "type": "contains",
+  "pattern": "## Rules\\n\\n- Capacity is a hard constraint",
+  "target": "ref:plan-shared-steps.md",
+  "why": "P067 (S017 AC-5): the Rules moved with the shared steps so both PLAN and EXTEND still load them."
+ },
+ {
+  "name": "shared_steps_exit_line_routes_plan_and_extend",
+  "type": "contains",
+  "pattern": "\\*\\*Exit\\.\\*\\* PLAN:[^\\n]*go to Step 8\\. EXTEND:[^\\n]*go to Step E4\\. Capacity: Step 1's in PLAN, E2's remaining in EXTEND\\.",
+  "target": "ref:plan-shared-steps.md",
+  "why": "P067 (S017 AC-4): the shared steps end with ONE exit line so an EXTEND reader leaves for Step E4 (not the PLAN-only Step 8) and knows which capacity applies."
+ },
+ {
+  "name": "shared_steps_verification_defers_to_exit_line",
+  "type": "contains",
+  "pattern": "If these hold, follow the \\*\\*Exit\\*\\* line at the end of these shared steps\\.",
+  "target": "ref:plan-shared-steps.md",
+  "why": "P067 (S017 AC-4): the structural-verification step no longer sends an EXTEND reader to the PLAN-only checklist/Step 8."
+ },
+ {
+  "name": "extend_e3_ends_at_shared_exit_line",
+  "type": "contains",
+  "pattern": "### Step E3: Decompose New Features.*take the shared steps' \\*\\*Exit\\*\\* line: go to Step E4\\.",
+  "dotall": true,
+  "target": "ref:extend-mode.md",
+  "why": "P067 (S017 AC-4): E3 says where the shared steps stop and that the next step is E4."
+ },
+ {
+  "name": "shell_line_keeps_run_bare_rule",
+  "type": "contains",
+  "pattern": "\\*\\*Shell\\.\\*\\*[^\\n]*Run commands bare from the project root\\.",
+  "why": "P067 (S017 AC-4): rule, not coaching: allowed-tools only matches Bash(shipyard-data:*) / Bash(shipyard-context:*), so cd-prefixed or absolute-path calls prompt for permission."
+ },
+ {
+  "name": "carry_over_scan_points_at_moved_ideas_paragraph",
+  "type": "contains",
+  "pattern": "skills/ship-review/references/review-stages-approval\\.md` → \"Capture Out-of-Scope Gaps as IDEAs\"",
+  "target": "ref:carry-over-scan.md",
+  "why": "P070 (S018 AC-4): the paragraph moved out of ship-review/SKILL.md; the cross-skill pointer follows it."
+ },
+ {
+  "name": "detect_mode_offers_unreviewed_archive",
+  "type": "contains",
+  "pattern": "--unreviewed"
+ },
+ {
+  "name": "detect_mode_offers_ship_review_first",
+  "type": "contains",
+  "pattern": "/ship-review"
+ },
+ {
+  "name": "plan_task_refs_not_labelled_agent_only",
+  "type": "contains",
+  "pattern": "on-demand \\(inline fallback, final step-file write\\): `references/task-decomposition-patterns.md`",
+  "why": "RF-06: shell reads these on inline fallback and the final step-file write, so they must not be labelled deep-dive-agent-only"
+ },
+ {
+  "name": "plan_task_refs_no_agent_only_label",
+  "type": "not_contains",
+  "pattern": "deep-dive-agent-only",
+  "why": "RF-06: stale label told the shell to skip references it needs"
+ },
+ {
+  "name": "f011_capacity_is_cli_output",
+  "type": "contains",
+  "pattern": "Run `shipyard-data capacity`",
+  "target": "ref:plan-mode.md",
+  "why": "S011 AC-5/AC-8: capacity, fit and calibration come from one CLI; the planner never estimates and fits in prose"
+ },
+ {
+  "name": "f011_fit_line_from_cli_at_selection",
+  "type": "contains",
+  "pattern": "shipyard-data capacity --points <suggested total>",
+  "target": "ref:plan-mode.md",
+  "why": "S011 AC-6/AC-8: the fit percentage is stated only with the CLI's calibration line beside it"
+ },
+ {
+  "name": "f011_time_budget_flags",
+  "type": "contains",
+  "pattern": "--hours <n> \\| --until <time>",
+  "why": "S011 AC-10/AC-11: optional time budget flags; points stay the default"
+ },
+ {
+  "name": "f011_never_convert_hours_in_prose",
+  "type": "contains",
+  "pattern": "never convert hours to points yourself",
+  "why": "S011 AC-12: a time budget converts only through a measured (or labeled assumed) rate the CLI holds"
+ },
+ {
+  "name": "f011_no_rate_falls_back_to_points",
+  "type": "contains",
+  "pattern": "the CLI has fallen back to points",
+  "target": "ref:plan-mode.md",
+  "why": "S011 AC-12: no rate means refuse and explain, never a guessed conversion"
+ },
+ {
+  "name": "e004_risk_profile_lazy_capture",
+  "type": "contains",
+  "pattern": "shipyard-data risk profile status",
+  "target": "ref:plan-mode.md",
+  "why": "E004-S1: the risk profile is captured lazily at the first sprint that needs it, through the CLI"
+ },
+ {
+  "name": "e004_risk_profile_cli_owned",
+  "type": "contains",
+  "pattern": "risk profile add-harm",
+  "target": "ref:plan-mode.md",
+  "why": "E004-S1: harms are recorded only through the CLI (risk-profile.json is hook-denied for the model)"
+ },
+ {
+  "name": "e004_floors_only_is_valid",
+  "type": "contains",
+  "pattern": "Floors only",
+  "target": "ref:plan-mode.md",
+  "why": "E004-S1: unconfigured fails safe — baseline floors apply and skipping the capture is allowed"
+ },
+ {
+  "name": "e005_design_check_is_a_planning_gate",
+  "type": "contains",
+  "pattern": "shipyard-data design check <all in-scope story IDs>",
+  "target": "ref:spec-validation.md",
+  "why": "E005-S3: UI steps need an approved, unchanged design — a CLI gate like check-probes"
+ },
+ {
+  "name": "capacity_default_decide_and_inform",
+  "type": "contains",
+  "pattern": "execution.default_capacity",
+  "target": "ref:plan-mode.md",
+  "why": "first-sprint capacity is stated, not asked"
+ },
+ {
+  "name": "features_forced_choice_not_asked",
+  "type": "contains",
+  "pattern": "Decide-and-inform when the choice is forced",
+  "target": "ref:plan-mode.md",
+  "why": "one approved story that fits is not a question"
+ },
+ {
+  "name": "no_save_default_question",
+  "type": "not_contains",
+  "pattern": "new default velocity in config.md",
+  "target": "ref:plan-mode.md",
+  "why": "capacity is never persisted from planning"
+ },
+ {
+  "name": "step_files_never_run_full_suite",
+  "type": "contains",
+  "pattern": "never tells its builder to run the project's full suite",
+  "target": "ref:planning-checklists.md",
+  "why": "4.5: the wave boundary runs the suite once; per-builder full runs wasted minutes per step in a real sprint"
+ },
+ {
+  "name": "plan_preclears_owner_gated_changes",
+  "type": "contains",
+  "pattern": "Pre-clear owner-gated changes",
+  "target": "ref:plan-mode.md",
+  "why": "4.5: execute is unattended, so owner-reserved rule changes are answered at plan approval"
+ },
+ {
+  "name": "plan_starts_from_reconciled_state",
+  "type": "contains",
+  "pattern": "shipyard-data reconcile --fix",
+  "target": "ref:plan-mode.md",
+  "why": "4.6: planning never trips over state a previous cycle left stale"
+ },
+ {
+  "name": "sprint_stops_its_helpers",
+  "type": "contains",
+  "pattern": "Stop your helpers, then clean up the mutex",
+  "target": "ref:plan-mode.md",
+  "why": "4.9.1: planning helpers are stopped before the lock is released; the lock CLI refuses otherwise"
+ },
+ {
+  "name": "planner_sizes_for_the_model",
+  "type": "contains",
+  "pattern": "Size is also the model",
+  "target": "ref:wave-decomposition.md",
+  "why": "4.10: step size routes the step to light/build/think, so S must mean straightforward"
+ },
+ {
+  "name": "outside_targets_checked_at_planning",
+  "type": "contains",
+  "pattern": "Everything a step needs outside the repository exists and is reachable",
+  "target": "ref:planning-checklists.md",
+  "why": "4.13.4: a step was planned to update a published page the session's account did not have; found only at the end of the sprint"
+ },
+ {
+  "name": "check_scenarios_gate_at_planning",
+  "type": "contains",
+  "pattern": "shipyard-data story check-scenarios",
+  "target": "ref:spec-validation.md",
+  "why": "4.15.2: stories written before the rule are brought to it when they enter a sprint, never mid-execute"
+ },
+ {
+  "name": "draft_ahead_mode_detected_from_context",
+  "type": "contains",
+  "pattern": "SHIPYARD_SPRINT_PLAN_MODE=draft-ahead",
+  "why": "4.17 (owner): the next sprint can be drafted while the current one executes"
+ },
+ {
+  "name": "draft_ahead_queue_next_only",
+  "type": "contains",
+  "pattern": "run only `shipyard-data sprint queue-next`",
+  "target": "ref:draft-ahead.md",
+  "why": "4.17: approving a sprint drafted ahead changes no story status and starts nothing"
+ },
+ {
+  "name": "promote_next_documented",
+  "type": "contains",
+  "pattern": "shipyard-data sprint promote-next",
+  "target": "ref:draft-ahead.md",
+  "why": "4.17: a waiting sprint moves into current/ once it is free"
+ },
+ {
+  "name": "chain_shortening_table",
+  "type": "contains",
+  "target": "ref:wave-decomposition.md",
+  "pattern": "is this a real wait\\?",
+  "why": "4.19 (owner asked whether planning maximizes parallel work): the planner must question every link of the longest chain"
+ },
+ {
+  "name": "step_declares_touches",
+  "type": "contains",
+  "target": "ref:wave-decomposition.md",
+  "pattern": "`touches`\\*\\* \\(4\\.19\\)",
+  "why": "4.19: same-wave steps must not change the same file; the CLI can only check what the step declares"
+ },
+ {
+  "name": "mode_from_widest_wave",
+  "type": "contains",
+  "target": "ref:plan-mode.md",
+  "pattern": "From the widest wave, never from the step count",
+  "why": "4.19: sprint-012 built three independent one-step stories one after another because 1-3 steps meant solo"
+ },
+ {
+  "name": "no_solo_by_step_count",
+  "type": "not_contains",
+  "target": "ref:plan-mode.md",
+  "pattern": "1-3 tasks total",
+  "why": "4.19: the retired rule must not come back"
+ },
+ {
+  "name": "score_shown_to_owner",
+  "type": "contains",
+  "target": "ref:wave-decomposition.md",
+  "pattern": "Show the score in the plan summary",
+  "why": "4.19: the owner sees how parallel the sprint is before approving it"
+ },
+ {
+  "name": "probes_run_on_todays_code",
+  "type": "contains",
+  "target": "ref:wave-decomposition.md",
+  "pattern": "shipyard-data sprint probes-at-base --draft",
+  "why": "4.21: in sprint-011 four of five probes passed before any work; 'fails today' was one line in a checklist"
+ },
+ {
+  "name": "probe_check_in_validation",
+  "type": "contains",
+  "target": "ref:spec-validation.md",
+  "pattern": "Every probe fails first",
+  "why": "4.21: the planner's self-review names the CLI check"
+ },
+ {
+  "name": "person_at_start_or_end",
+  "type": "contains",
+  "target": "ref:wave-decomposition.md",
+  "pattern": "a person is never needed in the middle of a sprint",
+  "why": "4.0 (owner): involved early or late, never frequently during the build"
+ },
+ {
+  "name": "plan_states_what_it_needs_from_person",
+  "type": "contains",
+  "target": "ref:plan-mode.md",
+  "pattern": "Can you do these right when the sprint starts\\?",
+  "why": "4.0 (owner): start items are settled at approval; a start item the owner cannot do leaves the sprint instead of parking halfway"
+ },
+ {
+  "name": "decomposition_one_agent_per_story_group",
+  "type": "contains",
+  "target": "ref:plan-shared-steps.md",
+  "pattern": "one agent per group, all dispatched in one message",
+  "why": "4.0: a seven-story plan spent 13 of 47 minutes waiting for one agent to decompose independent stories; the plan score is the cross-group check"
+ },
+ {
+  "name": "critic_one_per_story_group",
+  "type": "contains",
+  "target": "ref:spec-validation.md",
+  "pattern": "One critic per story group, in one message",
+  "why": "4.0: one critic over a seven-story plan took 12 of 47 minutes; wave collisions are the CLI's answer, so critics can work per group"
+ },
+ {
+  "name": "planning_decisions_one_card_each",
+  "type": "contains",
+  "target": "ref:plan-shared-steps.md",
+  "pattern": "one card at a time",
+  "why": "4.16 owner rule (one question per card, hook-enforced); the planner text still told it to batch up to four questions on one card"
+ },
+ {
+  "name": "planning_decisions_not_batched",
+  "type": "not_contains",
+  "target": "ref:plan-shared-steps.md",
+  "pattern": "batch into ONE `AskUserQuestion`",
+  "why": "the hook refuses a card with more than one question inside any Shipyard command"
+ },
+ {
+  "name": "critic_per_group_in_plan_mode",
+  "type": "contains",
+  "target": "ref:plan-mode.md",
+  "pattern": "one critic per story group, all in one message",
+  "why": "4.0: the first live plan after the change still sent one critic (11 minutes) because the step the orchestrator reads said 'the critic agent'; the detail file alone was not enough"
+ },
+ {
+  "name": "planner_sets_up_test_infra",
+  "type": "contains",
+  "target": "ref:plan-mode.md",
+  "pattern": "shipyard-data infra apply",
+  "why": "4.0 (owner: Shipyard should set up the test and build infrastructure at the best level): scoped and failed-only commands were left to the project and stayed empty, so every wave ran a 4 to 13 minute suite"
+ },
+ {
+  "name": "extend_mode_rechecks_plan_and_releases_lock",
+  "type": "contains",
+  "target": "ref:extend-mode.md",
+  "pattern": "Then release the planning lock",
+  "why": "4.0: a live extension pushed a start-of-sprint person step into wave 2 (only the wave structure was checked) and left the planning lock held"
+ },
+ {
+  "name": "extend_mode_sprint_check_is_plan_gate",
+  "type": "contains",
+  "target": "ref:extend-mode.md",
+  "pattern": "still passes the plan gate",
+  "why": "4.0: sprint check now also runs the plan's shape rules for the running sprint"
+ }
 ]

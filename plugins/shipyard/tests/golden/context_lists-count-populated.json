@@ -1,0 +1,27 @@
+{
+  "bugs": {
+    "code": 0,
+    "stdout": "2",
+    "stderr": ""
+  },
+  "features": {
+    "code": 0,
+    "stdout": "3",
+    "stderr": ""
+  },
+  "epics": {
+    "code": 0,
+    "stdout": "4",
+    "stderr": ""
+  },
+  "ideas": {
+    "code": 0,
+    "stdout": "5",
+    "stderr": ""
+  },
+  "tasks": {
+    "code": 0,
+    "stdout": "6",
+    "stderr": ""
+  }
+}

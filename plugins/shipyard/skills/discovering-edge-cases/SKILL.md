@@ -23,7 +23,7 @@ Do NOT invoke for trivial features (effort: S, single touchpoint). The discovery
 
 ## Inputs
 
-- `feature_draft` — the current spec text (markdown). May be a draft from `/ship-discuss` or an existing feature file.
+- `feature_draft` — the current spec text (markdown). May be a draft from `/ship-discuss` or an existing story file.
 - `acceptance_criteria` — the happy-path AC list, if separate from the draft.
 - `domain_hints` — optional list of domain tags (`["payments", "auth", "external-api", "user-input"]`) that activate domain-specific case categories.
 - `data_dir` — for reading `<SHIPYARD_DATA>/codebase-context.md` and prior learnings.
@@ -128,8 +128,6 @@ Sort by category, then "false" before "ambiguous" before "true".
 3. **Deduplicate against the existing spec.** A case the spec already covers is `currently_handled: true`; surface it briefly and move on.
 4. **Confidence: include a case only if you'd defend it under questioning.** Speculative ("maybe the user could be on a flaky network") only if there's a real failure mode the spec should address.
 
-The test of a good output: a reader can take the `currently_handled: false` cases and add them to the spec without further reasoning. If a case requires more reasoning to act on, it isn't ready to surface.
-
 ## Two Modes
 
 ### Mode 1 — broad sweep (default)
@@ -140,8 +138,6 @@ Walk all 7 categories with the probe questions activated by `domain_hints`. Suit
 
 Caller passes `target_categories: ["concurrency", "failure-mode"]` to focus. Suitable for `/ship-spec` audit of an existing feature where some categories are known-handled.
 
-The default is broad sweep; narrow only when the caller specifies.
-
 ## Read-Only Contract
 
 This skill produces findings; it does not edit the feature draft. The calling command skill folds findings into the spec after presenting to the user. Do not Write to the draft directly.
@@ -151,11 +147,3 @@ This skill produces findings; it does not edit the feature draft. The calling co
 - **`extracting-acceptance-criteria`** runs alongside this in `/ship-discuss`. Edge cases discovered here often become new ACs there.
 - **`authoring-acceptance-probe`** runs after — once an edge case becomes an AC, a probe is authored for it.
 - **`dispatching-spec-review`** later verifies the cases discovered here actually got coverage in the implementation.
-
-## Bottom Line
-
-- 7 categories × probe questions × domain hints = systematic happy-path divergence map.
-- Output is concrete cases, not warnings — testable, actionable, non-speculative.
-- Read-only; calling skill folds findings into the spec.
-- Replaces shipyard-discovery-scout agent and several discuss/references files.
-- A capability skill (`disable-model-invocation: true`), read and followed from `/ship-discuss` and `/ship-sprint`.

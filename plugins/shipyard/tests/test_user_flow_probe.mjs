@@ -122,7 +122,7 @@ user_flow_probe:
 
 test("records a human verdict as evidence and emits the event", () => {
   const d = fixture(ASSISTED);
-  const r = runCli(d, ["feature", "record-proof", "F001", "verdict=pass", "confirmed-by=mafahir", "commit=abc1234"]);
+  const r = runCli(d, ["feature", "record-proof", "F001", "verdict=pass", "confirmed-by=mafahir", "commit=abc1234", "answer=looks right on the device"]);
   assert.equal(r.code, 0);
 
   const written = readFileSync(join(d, "spec", "features", "F001-x.md"), "utf8");
@@ -141,14 +141,14 @@ test("the defining keys stay above the appended verdict record", () => {
   // Purely a readability contract, but feature files are hand-read: the
   // definition (kind/command/steps) must not get buried under the record.
   const d = fixture(ASSISTED);
-  runCli(d, ["feature", "record-proof", "F001", "verdict=pass", "confirmed-by=x", "commit=abc1234"]);
+  runCli(d, ["feature", "record-proof", "F001", "verdict=pass", "confirmed-by=x", "commit=abc1234", "answer=walked the flow"]);
   const w = readFileSync(join(d, "spec", "features", "F001-x.md"), "utf8");
   assert.ok(w.indexOf("kind: assisted") < w.indexOf("last_verdict"));
 });
 
 test("a trailing block scalar survives the write", () => {
   const d = fixture(ASSISTED);
-  runCli(d, ["feature", "record-proof", "F001", "verdict=fail", "confirmed-by=x", "commit=abc1234"]);
+  runCli(d, ["feature", "record-proof", "F001", "verdict=fail", "confirmed-by=x", "commit=abc1234", "answer=walked the flow"]);
   assert.match(readFileSync(join(d, "spec", "features", "F001-x.md"), "utf8"), /1\. Tap Create Account\./);
 });
 
@@ -156,14 +156,14 @@ test("refuses to hand-record a verdict for an auto probe", () => {
   // An auto probe's verdict IS its exit code; accepting a typed verdict here
   // would let a green claim bypass the run entirely.
   const d = fixture(`---\nid: F001\nupdated: 2026-01-01\ndemo_probe: |\n  ./x.sh\n---\n# X\n`);
-  const r = runCli(d, ["feature", "record-proof", "F001", "verdict=pass", "confirmed-by=x", "commit=abc1234"]);
+  const r = runCli(d, ["feature", "record-proof", "F001", "verdict=pass", "confirmed-by=x", "commit=abc1234", "answer=walked the flow"]);
   assert.equal(r.code, 3);
   assert.match(r.stderr, /kind: auto/);
 });
 
 test("refuses on skip-with-reason and points at kind: manual", () => {
   const d = fixture(`---\nid: F001\nupdated: 2026-01-01\nuser_flow_probe: skip-with-reason\nuser_flow_probe_skip_reason: "x"\n---\n# X\n`);
-  const r = runCli(d, ["feature", "record-proof", "F001", "verdict=pass", "confirmed-by=x", "commit=abc1234"]);
+  const r = runCli(d, ["feature", "record-proof", "F001", "verdict=pass", "confirmed-by=x", "commit=abc1234", "answer=walked the flow"]);
   assert.equal(r.code, 3);
   assert.match(r.stderr, /kind: manual/);
 });
@@ -182,7 +182,7 @@ test("refuses a non-sha commit", () => {
 
 test("refuses when no probe is authored at all", () => {
   const d = fixture(`---\nid: F001\nupdated: 2026-01-01\n---\n# X\n`);
-  const r = runCli(d, ["feature", "record-proof", "F001", "verdict=pass", "confirmed-by=x", "commit=abc1234"]);
+  const r = runCli(d, ["feature", "record-proof", "F001", "verdict=pass", "confirmed-by=x", "commit=abc1234", "answer=walked the flow"]);
   assert.equal(r.code, 3);
   assert.match(r.stderr, /ship-discuss/);
 });
@@ -299,13 +299,20 @@ test("leftover worktree branch is a derived switch, never an ask", () => {
   assert.deepEqual(r.actions.map((a) => a.code), ["switch_branch"]);
 });
 
-test("dirty tree on the right branch commits without asking", () => {
+test("dirty tree on the right branch: the user's own file asks (dirty_tree); Shipyard-written residue commits by path", () => {
   const { repo, data, g } = makeRepo();
   g("checkout", "-q", "feat/s8");
   writeFileSync(join(repo, "a.txt"), "changed\n");
-  const r = readinessCheck(repo, data);
+  let r = readinessCheck(repo, data);
+  assert.equal(r.must_ask, true);
+  assert.deepEqual(r.ask_reasons.map((x) => x.code), ["dirty_tree"]);
+  assert.ok(!r.actions.some((a) => a.code === "commit_dirty"));
+  g("checkout", "-q", "--", "a.txt");
+  writeFileSync(join(repo, "CHANGELOG.md"), "# Changelog\n");
+  r = readinessCheck(repo, data);
   assert.equal(r.must_ask, false);
   assert.deepEqual(r.actions.map((a) => a.code), ["commit_dirty"]);
+  assert.ok(!/add -A/.test(r.actions[0].command));
 });
 
 test("dirty tree AND wrong branch is genuinely ambiguous -> ask", () => {

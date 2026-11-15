@@ -70,7 +70,7 @@ Broader than ideal but won't go silent.
 PASS|✓     ← WRONG. A crash produces no events. Looks identical to "still running."
 ```
 
-The point of the rule is that the filter must surface failure modes. If the runner doesn't emit a clear failure marker, broaden the alternation or include `Error|Traceback|panic:` as defensive wildcards.
+If the runner has no clear failure marker, add `Error|Traceback|panic:` as defensive wildcards.
 
 ## Related: ScheduleWakeup discipline
 

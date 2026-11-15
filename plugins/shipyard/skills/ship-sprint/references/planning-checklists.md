@@ -12,6 +12,7 @@ For each selected feature, verify readiness:
 | 4 | Spec not stale (updated within 30 days, codebase hasn't changed in relevant areas) | → Quick refresh against current codebase |
 | 5 | Technical approach agreed (Step 3.5 decisions resolved) | → Resolve before decomposing |
 | 6 | Scope fits one sprint (points <= 50% of capacity) | → Split or plan focused sprint |
+| 7 | Everything a step needs outside the repository exists and is reachable from this session: a published page, an account, a device, a service, a file on another machine. Check it now (list it, ping it, open it) | → Change the step to produce a local result, or make it an owner-only step and say so in the plan |
 
 ## Cross-Cutting Concerns Audit
 
@@ -126,7 +127,9 @@ After estimating, cross-check against actuals:
 - If consistently longer → adjust upward
 - No history? Note: "No reference class — estimates lower confidence. Consider 20% buffer."
 
-## Test Strategy (add to each task file)
+## Test Strategy (add to each step file)
+
+**Scope the run, group the proof (4.5).** A step file never tells its builder to run the project's full suite: the builder runs its `acceptance_probe` and the test files it touched (the project's single-test command), and the wave boundary runs the full suite **once** on the merged code. One boilerplate "run the whole suite before returning" line cost a real sprint a five-minute cold-worktree suite per builder. Name each scenario's level tag (`@e2e` by default; `@component` or `@unit` only with the reason the journey cannot prove it) and which scenarios share a test (same `Given`) so the builder writes one proof per behaviour, grouped — the rules are in `${CLAUDE_PLUGIN_ROOT}/skills/tdd-cycle/references/test-economy.md`.
 
 ```
 ## Test Strategy

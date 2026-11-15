@@ -240,3 +240,61 @@ test("scan-stubs: malformed range exits 2", () => {
     p.cleanup();
   }
 });
+
+test("scan-stubs flags a weakened test: a changed number, a removed assertion and a deleted test file, in any language", () => {
+  const p = makeRepo();
+  try {
+    mkdirSync(join(p.repo, "tests"), { recursive: true });
+    writeFileSync(join(p.repo, "src.c"), "int f(void) { return 1; }\n");
+    writeFileSync(join(p.repo, "tests", "test_flash.c"), "#define FLASH_FLOOR 24\nvoid t(void) {\n  CHECK(flash() >= FLASH_FLOOR);\n  CHECK(margin() == 4);\n  CHECK(border() == 1);\n}\n");
+    writeFileSync(join(p.repo, "tests", "test_old.c"), "void t2(void) { CHECK(1); }\n");
+    const base = p.commit("init");
+    // the builder "fixes" the failure by halving the floor, dropping a check and deleting a test
+    writeFileSync(join(p.repo, "src.c"), "int f(void) { return 2; }\n");
+    writeFileSync(join(p.repo, "tests", "test_flash.c"), "#define FLASH_FLOOR 12\nvoid t(void) {\n  CHECK(flash() >= FLASH_FLOOR);\n  CHECK(border() == 1);\n}\n");
+    rmSync(join(p.repo, "tests", "test_old.c"));
+    const head = p.commit("make it pass");
+    const r = p.run(["scan-stubs", `${base}..${head}`]);
+    assert.equal(r.code, 0, "a flag for the reviewer, not a hard stop: " + r.stderr);
+    const f = JSON.parse(r.stdout).findings;
+    const by = (pat) => f.filter((x) => x.pattern === pat);
+    assert.equal(by("test-number-changed").length, 1);
+    assert.match(by("test-number-changed")[0].snippet, /FLASH_FLOOR 24\s+→\s+#define FLASH_FLOOR 12/);
+    assert.equal(by("test-number-changed")[0].file, "tests/test_flash.c");
+    assert.equal(by("test-assertion-removed").length, 1);
+    assert.match(by("test-assertion-removed")[0].snippet, /1 assertion\(s\) removed, e\.g\. CHECK\(margin\(\) == 4\);/);
+    assert.equal(by("test-file-deleted").length, 1);
+    assert.equal(by("test-file-deleted")[0].file, "tests/test_old.c");
+    assert.ok(f.every((x) => x.confidence === "MEDIUM"));
+    // the other range spelling
+    const r2 = p.run(["scan-stubs", "--base", base, "--head", head]);
+    assert.equal(JSON.parse(r2.stdout).findings.length, f.length);
+  } finally { p.cleanup(); }
+});
+
+test("scan-stubs does not flag honest test work: new tests, added assertions, a reworded assertion", () => {
+  const p = makeRepo();
+  try {
+    mkdirSync(join(p.repo, "tests"), { recursive: true });
+    writeFileSync(join(p.repo, "src.py"), "def f():\n    return 1\n");
+    writeFileSync(join(p.repo, "tests", "test_a.py"), "def test_a():\n    assert f() == 1\n");
+    const base = p.commit("init");
+    writeFileSync(join(p.repo, "src.py"), "def f():\n    return 1\n\ndef g():\n    return 2\n");
+    writeFileSync(join(p.repo, "tests", "test_a.py"), "def test_a():\n    assert f() == 1, 'f is one'\n    assert g() == 2\n");
+    writeFileSync(join(p.repo, "tests", "test_b.py"), "def test_b():\n    assert g() == 2\n");
+    const head = p.commit("more tests");
+    const f = JSON.parse(p.run(["scan-stubs", `${base}..${head}`]).stdout).findings;
+    assert.deepEqual(f.filter((x) => x.pattern.startsWith("test-")), []);
+  } finally { p.cleanup(); }
+});
+
+test("scan-stubs with no range prints both accepted forms", () => {
+  const p = makeRepo();
+  try {
+    writeFileSync(join(p.repo, "a.py"), "x = 1\n"); p.commit("init");
+    const r = p.run(["scan-stubs"]);
+    assert.equal(r.code, 2);
+    assert.match(r.stderr, /scan-stubs <base>\.\.<head>/);
+    assert.match(r.stderr, /scan-stubs --base <ref> --head <ref>/);
+  } finally { p.cleanup(); }
+});

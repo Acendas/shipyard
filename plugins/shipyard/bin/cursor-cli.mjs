@@ -47,9 +47,10 @@
  *       on the same sprint/reason. Never writes a cursor.
  */
 
+import { strayChanges } from "./stray.mjs";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { logEvent } from "./_hook_lib.mjs";
+import { logEvent, atomicWrite } from "./_hook_lib.mjs";
 import { releaseLock } from "./skill-lock.mjs";
 import {
   canonicalPipeline,
@@ -62,9 +63,17 @@ import {
   evaluateTerminalGate,
   parseFrontmatter,
   readEvents,
+  liveAgents,
+  parseWaves,
+  sprintStoryIds,
 } from "./terminal-gate.mjs";
 import { writeProgress } from "./progress-render.mjs";
-import { hasConfiguredCommand, readRefactorScope } from "./config-read.mjs";
+import { hasConfiguredCommand, readMaxSessionMinutes, readPresumedDeadMinutes, readRefactorScope, readPatchWaveTests, readOverlapWaves, readExecutionIsolation, readTriageSprintFindings } from "./config-read.mjs";
+import { sprintFindings } from "./sprint-findings.mjs";
+import { checkReviewDocument } from "./review-pack.mjs";
+import { detectPresumedDeadForDataDir } from "./presumed-dead.mjs";
+import { evaluateSessionBudget } from "./session-budget.mjs";
+import { reconcileSessionClock } from "./session-clock.mjs";
 
 const CURSOR_FILE = {
   "ship-execute": "EXECUTE-CURSOR.md",
@@ -99,6 +108,31 @@ function collapsibleKeys(dataDir) {
   return keys;
 }
 
+/**
+ * Is wave N made only of fix steps (4.0)? Then its build and its test run may
+ * be collapsed: each fix step's own check already ran in its builder, and the
+ * sprint's full build and full suite run once at the end over everything.
+ *
+ * Why: a one-story sprint grew five small fix steps, found at five different
+ * boundaries, so each became its own wave and each wave paid a full build and
+ * a five-minute suite. About 40 of 110 minutes went to re-proving one-line
+ * test and document changes. `execution.patch_wave_tests: wave` restores a
+ * run per fix wave. Any read failure means "not a fix wave" (run the suite).
+ */
+function fixOnlyWave(dataDir, n) {
+  try {
+    if (readPatchWaveTests(dataDir) !== "sprint") return false;
+    const text = readFileSync(join(dataDir, "sprints", "current", "SPRINT.md"), "utf8");
+    const wave = parseWaves(text).find((w) => w.wave === n);
+    if (!wave || !wave.tasks.length) return false;
+    const fixes = new Set();
+    for (const e of readEvents(dataDir, 20000)) {
+      if (e.type === "patch_step_created" || e.type === "patch_task_created") fixes.add(String(e.step ?? e.task_id ?? e.task ?? ""));
+    }
+    return wave.tasks.every((id) => fixes.has(id));
+  } catch { return false; }
+}
+
 const STOP_MARKER = "▶ CYCLE COMPLETE — pipeline terminal. /goal should stop.";
 
 /** Frontmatter keys the CLI accepts via k=v and their render order. */
@@ -109,6 +143,9 @@ const FIELD_ORDER = [
   "wave_number",
   "iteration",
   "last_advance_at",
+  "session_started_at",
+  "session_id",
+  "session_key",
   "status",
   "next_action",
   "terminal",
@@ -249,14 +286,26 @@ function writeCursorFile(dataDir, pipeline, content) {
   return path;
 }
 
+/** Why a wave entered redispatch (AC-18). Absent is logged as trigger_missing, never guessed (AC-20). */
+const REDISPATCH_TRIGGERS = ["verify_findings", "blocked", "gate_failure", "recovery"];
+
 /** Parse trailing `k=v` args + flags. Returns { fields, note, force }. */
 function parseArgs(rest) {
   const fields = {};
   const via = [];
   let note = null;
   let force = false;
+  let trigger = null;
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
+    if (a === "--trigger") {
+      const v = rest[++i];
+      if (!v || !REDISPATCH_TRIGGERS.includes(v)) {
+        usageFail(`cursor: --trigger must be one of ${REDISPATCH_TRIGGERS.join("|")} (got "${v ?? ""}")`);
+      }
+      trigger = v;
+      continue;
+    }
     if (a === "--force") {
       force = true;
       continue;
@@ -277,7 +326,7 @@ function parseArgs(rest) {
     const v = a.slice(eq + 1);
     fields[k] = v;
   }
-  return { fields, note, force, via };
+  return { fields, note, force, via, trigger };
 }
 
 function splitEventFields(fields) {
@@ -310,8 +359,28 @@ function clearExecutionLock(dataDir, pipeline) {
   releaseLock(dataDir, "execution", { force: true, bestEffort: true });
 }
 
+/** Reconcile the session clock against CLAUDE_CODE_SESSION_ID (see session-clock.mjs). */
+function sessionClockFor(priorFm, now) {
+  return reconcileSessionClock({
+    now,
+    envId: process.env.CLAUDE_CODE_SESSION_ID,
+    storedId: priorFm?.session_id,
+    storedStartedAt: priorFm?.session_started_at,
+  });
+}
+
 function buildProposed({ pipeline, stage, prior, cursorFields, note, terminal, nowIso, dataDir }) {
   const priorFm = prior?.fm ?? {};
+  const clock = sessionClockFor(priorFm, new Date(nowIso));
+  // Every reset outside preflight is observable (T093): a silently restarted
+  // clock disables the budget, so the log must show when and why.
+  if (clock.reset && stage !== "preflight" && dataDir) {
+    logEvent(dataDir, "session_clock_reset", {
+      key: clock.key,
+      prior_started_at: priorFm.session_started_at ?? "",
+      prior_session_id: priorFm.session_id ?? "",
+    });
+  }
 
   // F4: backfill from SPRINT.md when neither this call nor the prior
   // cursor carries a sprint id — see resolveSprintIdFromFile above.
@@ -328,6 +397,14 @@ function buildProposed({ pipeline, stage, prior, cursorFields, note, terminal, n
     wave_number: cursorFields.wave_number ?? deriveWave(pipeline, stage) ?? undefined,
     iteration: cursorFields.iteration ?? deriveIter(pipeline, stage) ?? 1,
     last_advance_at: nowIso,
+    // session_started_at is CLI-owned (not in SETTABLE_FIELDS): stamped on
+    // entering preflight (a new session), carried untouched otherwise. An
+    // absent field (pre-existing cursor) means the session budget is off.
+    // session_id/session_key: CLI-owned too (T033). Reconciled BEFORE the
+    // budget check below reads it; preflight always starts a fresh clock.
+    session_started_at: stage === "preflight" ? nowIso : clock.startedAt,
+    session_id: clock.sessionId,
+    session_key: clock.key,
     status: cursorFields.status ?? (terminal ? terminalDefaultStatus(stage) : "in_progress"),
     next_action: cursorFields.next_action ?? "",
     terminal: terminal,
@@ -415,6 +492,30 @@ function sprintIdOf(fields, prior) {
 }
 
 /**
+ * IDEA-009 helper: the type of the last wave_integration_verified /
+ * wave_integration_failed event emitted after the tick that entered
+ * `boundaryStage` for `sprint` (integration events carry no sprint field, so
+ * the window scopes them). null when no integration event is in the window.
+ */
+export function latestIntegrationVerdict(events, boundaryStage, sprint) {
+  let start = -1;
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (e.type === "pipeline_tick_completed" && e.next_stage === boundaryStage && (!e.sprint || !sprint || e.sprint === sprint || sprint === "unknown")) start = i;
+  }
+  // No tick into this boundary = no window: never scan the whole tail, where a
+  // stale failure from an earlier sprint/wave would lock the exit forever.
+  if (start === -1) return null;
+  let verdict = null;
+  for (let i = start + 1; i < events.length; i++) {
+    const e = events[i];
+    const t = e.type;
+    if ((t === "wave_integration_verified" || t === "wave_integration_failed") && (!e.sprint || !sprint || sprint === "unknown" || e.sprint === sprint)) verdict = t;
+  }
+  return verdict;
+}
+
+/**
  * F4: resolve a sprint id from SPRINT.md's own `id:` frontmatter when a
  * cursor advance carries no `sprint` field at all (neither passed on this
  * call nor already on the prior cursor). Without this a cursor can go a
@@ -443,9 +544,23 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
   if (!pipeline) usageFail(`cursor advance: unknown pipeline "${pipelineArg}" — expected execute|review`);
   if (!stage) usageFail("cursor advance: missing <stage>");
 
-  const { fields, note, force, via } = parseArgs(rest);
+  const { fields, note, force, via, trigger } = parseArgs(rest);
   const { outcome, reason, cursorFields } = splitEventFields(fields);
-  const prior = readCursor(dataDir, pipeline);
+  let prior = readCursor(dataDir, pipeline);
+  // A finished single task or hotfix is its own short run (4.0). Its terminal
+  // cursor sits in the folder the sprint's run reads, and the sprint's first
+  // step was refused as "already terminal": a live sprint start read the
+  // plugin source for two minutes and then forced its way past. A new run
+  // that begins at `preflight` replaces such a cursor.
+  const priorStage = String(prior?.fm?.stage ?? "");
+  const finishedShortRun = prior && String(prior.fm.terminal).toLowerCase() === "true"
+    && ["terminal_hotfix", "terminal_single_task"].includes(priorStage)
+    && String(prior.fm.status ?? "").toLowerCase() === "complete"
+    && stage === "preflight";
+  if (finishedShortRun) {
+    logEvent(dataDir, "finished_short_run_cursor_replaced", { pipeline, was: priorStage });
+    prior = null;
+  }
   const from = prior?.fm?.stage ?? null;
 
   // Multi-hop advance (v3.24.0). `--via <stage>` collapses pass-through
@@ -477,12 +592,14 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
       }
       const key = normalizeStage(pipeline, v)?.key;
       const allowed = collapsibleKeys(dataDir);
-      if (!key || !allowed.has(key)) {
+      const waveNo = Number((/^wave_(\d+)_/.exec(v) ?? [])[1]);
+      const fixWave = (key === "wave_tests" || key === "wave_build") && Number.isInteger(waveNo) && fixOnlyWave(dataDir, waveNo);
+      if (!key || (!allowed.has(key) && !fixWave)) {
         usageFail(
           `cursor advance: --via ${v} is not collapsible in this project. Collapsing emits its ` +
             `pipeline_tick_completed event — which downstream gates read as proof the stage ran — so a stage ` +
             `may only be chained when its command/agent is unconfigured and it genuinely does nothing. ` +
-            `Collapsible here: ${[...allowed].join(", ") || "(none)"}. Advance to ${v} on its own tick.`,
+            `Collapsible here: ${[...allowed].join(", ") || "(none)"}; and the build and tests of a wave made only of fix steps. Advance to ${v} on its own tick.`,
         );
       }
     }
@@ -589,6 +706,140 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
     );
   }
 
+  // IDEA-009: leaving wave_N_boundary is refused while the latest integration
+  // verdict in this boundary window is wave_integration_failed. The gate
+  // (verify-wave-integrated) only ever emitted the event; nothing stopped the
+  // advance, and sprint-002 wave 1 moved on past two failures with dangling
+  // commits. Like the evidence gates above, --force does not bypass it.
+  if (pipeline === "ship-execute" && prior && !terminal && normalizeStage(pipeline, from)?.key === "wave_boundary") {
+    const verdict = latestIntegrationVerdict(readEvents(dataDir, 5000), from, sprintIdOf(cursorFields, prior));
+    if (verdict === "wave_integration_failed") {
+      gateFail("cursor advance refused — wave integration gate failed in this boundary", [
+        `The latest wave_integration_* event since entering ${from} is wave_integration_failed (un-integrated shipyard/wt-* branch or dangling return commit).`,
+        "Integrate the named branches (or `shipyard-data anchor-commit <task> <sha>` a dangling return), then re-run `shipyard-data verify-wave-integrated` until it exits 0 — its wave_integration_verified event clears this gate.",
+        "Do not remove worktrees before the gate passes.",
+      ]);
+    }
+  }
+
+  // Overlap is enforced here, not requested in prose (4.7.1). With
+  // execution.overlap_waves on and builders isolated in worktrees, wave N's
+  // trailing lane (build → … → gate) may not start until wave N+1 has been
+  // dispatched: the wave is merged, so the next one has nothing to wait for.
+  // Found live: an orchestrator held wave 3 behind eleven fix-and-confirm
+  // suite runs of waves 1 and 2 because the rule was only a paragraph.
+  // In-place (isolation none) work is sequential by construction — exempt.
+  if (
+    pipeline === "ship-execute" && prior && !terminal &&
+    normalizeStage(pipeline, from)?.key === "wave_boundary" &&
+    normalizeStage(pipeline, stage)?.key === "wave_build" &&
+    readOverlapWaves(dataDir) && readExecutionIsolation(dataDir) !== "none"
+  ) {
+    const waveNo = normalizeStage(pipeline, from)?.wave;
+    let nextExists = false;
+    try {
+      const sprintText = readFileSync(join(dataDir, "sprints", "current", "SPRINT.md"), "utf8");
+      nextExists = !/^execution_mode:\s*solo\b/m.test(sprintText) && parseWaves(sprintText).some((w) => w.wave === waveNo + 1 && w.tasks.length > 0);
+    } catch { nextExists = false; }
+    if (nextExists) {
+      const dispatched = readEvents(dataDir, 5000).some((e) => e.pipeline === "ship-execute" && e.stage === `wave_${waveNo + 1}_dispatch` && (e.type === "pipeline_tick_started" || e.type === "pipeline_tick_completed"));
+      if (!dispatched) {
+        gateFail(`cursor advance refused — dispatch wave ${waveNo + 1} first (overlap)`, [
+          `Wave ${waveNo} is merged, so wave ${waveNo + 1}'s builders start now and wave ${waveNo}'s build, tests, review and fixes run beside them.`,
+          `Run: shipyard-data cursor advance execute wave_${waveNo + 1}_dispatch wave_number=${waveNo + 1} iteration=1 stuck_counter=0 — enqueue and spawn its builders — then: shipyard-data cursor advance execute wave_${waveNo}_build wave_number=${waveNo}`,
+          "To run waves strictly in series set execution.overlap_waves: false.",
+        ]);
+      }
+    }
+  }
+
+  // Agent ledger (4.5): a wave's builders are kept resumable until its gate
+  // (spec-verify and story-review findings go back to them as warm fixes), and
+  // no later. Leaving wave_N_gate with a wave-N agent still live is refused,
+  // so finished builders never pile up across waves.
+  if (pipeline === "ship-execute" && prior && normalizeStage(pipeline, from)?.key === "wave_gate") {
+    const waveNo = normalizeStage(pipeline, from)?.wave;
+    const stale = liveAgents(readEvents(dataDir, 5000)).filter((a) => a.wave === waveNo);
+    if (stale.length) {
+      gateFail(`cursor advance refused — wave ${waveNo} still has live agents`, [
+        `${stale.map((a) => `${a.name}${a.step ? ` (${a.step})` : ""}`).join(", ")} — the wave's gate has passed, so nothing can come back to them.`,
+        "TaskStop each one, then `shipyard-data agents stopped <name> ...` and retry the advance.",
+      ]);
+    }
+  }
+
+  // The sprint review is shown whole (4.12): leaving the pack stage for the
+  // owner's question is refused while the written review has a section
+  // missing or a FILL marker left. The first real review printed a status
+  // report and left what went badly, the actions and what is next unseen.
+  if (pipeline === "ship-review" && prior && normalizeStage(pipeline, from)?.key === "review_pack" && normalizeStage(pipeline, stage)?.key === "demo_user") {
+    let problems = ["sprints/current/REVIEW-PACK.md does not exist — run `shipyard-data review-pack --write`"];
+    try { problems = checkReviewDocument(readFileSync(join(dataDir, "sprints", "current", "REVIEW-PACK.md"), "utf8")); } catch { /* keep the missing-file problem */ }
+    if (problems.length) {
+      gateFail("cursor advance refused — the sprint review is not complete", [
+        ...problems,
+        "Write it with `shipyard-data review-pack --write`, fill every <!-- FILL: ... --> marker, run `shipyard-data review-pack check`, then show the file as the review, whole and in order.",
+      ]);
+    }
+  }
+
+  // Findings captured so far in the sprint are decided before the wave closes
+  // (4.7.2): each idea is triaged, and a defect above low severity names its
+  // fix step. The step need not have returned yet — the terminal checks that.
+  if (pipeline === "ship-execute" && prior && normalizeStage(pipeline, from)?.key === "wave_gate" && readTriageSprintFindings(dataDir)) {
+    let open = [];
+    try {
+      const sprintText = readFileSync(join(dataDir, "sprints", "current", "SPRINT.md"), "utf8");
+      open = sprintFindings({ dataDir, events: readEvents(dataDir, 20000), sprintId: String(parseFrontmatter(sprintText).id || "").trim() || null, sprintStoryIds: sprintStoryIds(sprintText), stepStatus: () => "complete" })
+        .filter((f) => f.state === "untriaged" || f.state === "needs-fix");
+    } catch { open = []; }
+    if (open.length) {
+      gateFail(`cursor advance refused — ${open.length} finding(s) captured in this sprint are undecided`, [
+        ...open.map((f) => f.detail),
+        "A defect found in the sprint is fixed in the sprint; only a low-severity one may wait in the backlog. To turn this check off: execution.triage_sprint_findings: false.",
+      ]);
+    }
+  }
+
+  // Session budget (F005): gate the DECISION to start another wave, never
+  // the recording of work. Only a transition INTO wave_N_dispatch is gated —
+  // mid-wave stages, boundary/verify and sprint_* stages never are. Like the
+  // gates above, --force does not bypass it. The outcome is a PAUSE with
+  // exit 0: a non-zero exit would make /goal retry the advance forever.
+  if (
+    pipeline === "ship-execute" &&
+    prior &&
+    !terminal &&
+    normalizeStage(pipeline, stage)?.key === "wave_dispatch"
+  ) {
+    const cfg = readMaxSessionMinutes(dataDir);
+    const verdict = evaluateSessionBudget({
+      now,
+      startedAt: merged.session_started_at,
+      maxMinutes: cfg.value,
+    });
+    if (verdict.exceeded) {
+      const elapsed = Math.round(verdict.elapsedMinutes);
+      logEvent(dataDir, "session_budget_reached", {
+        pipeline,
+        sprint: sprintIdOf(prior.fm, prior),
+        elapsed,
+        max: verdict.maxMinutes,
+        stage,
+      });
+      pauseCursorInternal(dataDir, pipeline, prior, {
+        now,
+        note: `Session budget reached (${elapsed} of ${verdict.maxMinutes} min) before ${stage}. Resume with \`shipyard-data cursor resume execute\` (resets the clock).`,
+      });
+      process.stdout.write(
+        `cursor: session budget reached (${elapsed} of ${verdict.maxMinutes} min, execution.max_session_minutes) — paused at stage ${prior.fm.stage} instead of starting ${stage}. Work in flight is unaffected.\n`,
+      );
+      process.stdout.write("▶ To continue: `shipyard-data cursor resume execute` (starts a fresh budget clock), then re-enter /ship-execute.\n");
+      process.stdout.write(STOP_MARKER + "\n");
+      return;
+    }
+  }
+
   // Stuck detection is CLI-owned: warn at 5, refuse at the hard ceiling.
   const stuck = parseInt(merged.stuck_counter, 10) || 0;
   const ceiling = parseInt(merged.hard_ceiling, 10) || 50;
@@ -643,6 +894,9 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
         next_stage: hopTo,
         ...(hopWave != null ? { wave: hopWave } : {}),
         ...(via.length > 0 ? { collapsed: true } : {}),
+        ...(isFinal && normalizeStage(pipeline, hopTo)?.key === "wave_redispatch_iter"
+          ? (trigger ? { trigger } : { trigger_missing: true })
+          : {}),
       });
       // The CLI also emits the next tick's started event — the last
       // pipeline-lifecycle event that used to be a model-side ritual
@@ -655,6 +909,19 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
         ...(isFinal && merged.iteration != null ? { iteration: merged.iteration } : {}),
         ...(via.length > 0 ? { collapsed: true } : {}),
       });
+      // What was already uncommitted when the cycle began (4.15.1): the review
+      // compares at its end, so only files IT changed must be committed.
+      if (hopTo === "preflight") {
+        try {
+          const st = strayChanges(dataDir);
+          const dir = join(dataDir, "sprints", "current");
+          if (st && existsSync(dir)) {
+            // a file, not an event field: event values are capped and scrubbed
+            atomicWrite(join(dir, `.tree-baseline-${pipeline}.json`), JSON.stringify({ at: new Date().toISOString(), dirty: st.tracked }) + "\n");
+            logEvent(dataDir, "tree_baseline", { pipeline, sprint, count: st.tracked.length });
+          }
+        } catch { /* best-effort */ }
+      }
       hopFrom = hopTo;
     }
   }
@@ -672,6 +939,26 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
     writeProgress(dataDir);
   } catch { /* rendering is best-effort; next advance retries */ }
   if (terminal) clearExecutionLock(dataDir, pipeline);
+
+  // F013: read-only stale-agent report. Quiet when nothing is stale; once per
+  // (pipeline, stage, task, attempt). Never mutates the queue or cursor.
+  try {
+    const dead = detectPresumedDeadForDataDir(dataDir, Date.now(), {
+      presumed_dead_minutes: readPresumedDeadMinutes(dataDir).value,
+    });
+    for (const d of dead) {
+      logEvent(dataDir, "subagent_presumed_dead", {
+        pipeline: d.pipeline, stage: d.stage, task: d.task, attempt: d.attempt,
+        claimed_by: d.claimed_by, minutes: d.minutes,
+        ...(d.completed_unacked ? { completed_unacked: true } : {}),
+      });
+      process.stdout.write(
+        d.completed_unacked
+          ? `⚠ presumed dead: ${d.task} (claimed_by ${d.claimed_by ?? "unknown"}, ${d.minutes} min) completed but not acknowledged: reconcile via the return gate (queue reconcile), do not TaskStop or salvage.\n`
+          : `⚠ presumed dead: ${d.task} (claimed_by ${d.claimed_by ?? "unknown"}, ${d.minutes} min, no completion or recent heartbeat). TaskStop, anchor and park are the wrapper's call.\n`,
+      );
+    }
+  } catch { /* detector is advisory; never fail a tick */ }
 
   const pathText = via.length > 0 ? [from ?? "(fresh)", ...chain].join(" → ") : `${from ?? "(fresh)"} → ${stage}`;
   process.stdout.write(`cursor: ${pathText} (${path})\n`);
@@ -781,6 +1068,9 @@ export function cursorResume(dataDir, pipelineArg, rest, { now = new Date() } = 
     status: "in_progress",
     terminal: false,
     last_advance_at: now.toISOString(),
+    session_started_at: now.toISOString(),
+    session_id: process.env.CLAUDE_CODE_SESSION_ID?.trim() || prior.fm.session_id,
+    session_key: process.env.CLAUDE_CODE_SESSION_ID?.trim() ? "env" : "gap",
     next_action: fields.next_action ?? `Resumed from ${status} at stage ${prior.fm.stage}`,
     stuck_counter: 0,
   };
@@ -798,28 +1088,20 @@ export function cursorResume(dataDir, pipelineArg, rest, { now = new Date() } = 
   process.stdout.write(`cursor: resumed at stage ${merged.stage} (was ${status}). Normal advances apply again.\n`);
 }
 
-/** ---- pause --------------------------------------------------------- */
-
-export function cursorPause(dataDir, pipelineArg, rest, { now = new Date() } = {}) {
-  const pipeline = canonicalPipeline(pipelineArg);
-  if (!pipeline) usageFail(`cursor pause: unknown pipeline "${pipelineArg}" — expected execute|review`);
-  const { fields, note } = parseArgs(rest);
-  if (!note) usageFail('cursor pause: --note "<why paused / what next>" is required — it is the resume context');
-
-  const prior = readCursor(dataDir, pipeline);
-  if (!prior) {
-    gateFail("cursor pause refused — no active cursor to pause", [
-      `Expected sprints/current/${CURSOR_FILE[pipeline]} to exist.`,
-    ]);
-  }
-
+/**
+ * Shared pause mechanics (cursorPause and the session-budget gate): keep the
+ * stage, set status paused, record the note, emit pipeline_paused, refresh
+ * PROGRESS.md and release the execution lock. Prints nothing — callers own
+ * their output and must print the stop marker last. Returns the merged fields.
+ */
+function pauseCursorInternal(dataDir, pipeline, prior, { now, note, nextAction } = {}) {
   const merged = {
     ...prior.fm,
     pipeline,
     status: "paused",
     terminal: false,
     last_advance_at: now.toISOString(),
-    next_action: fields.next_action ?? prior.fm.next_action ?? "",
+    next_action: nextAction ?? prior.fm.next_action ?? "",
   };
   const content = renderCursor(merged, prior.pending, note);
   writeCursorFile(dataDir, pipeline, content);
@@ -835,6 +1117,25 @@ export function cursorPause(dataDir, pipelineArg, rest, { now = new Date() } = {
     writeProgress(dataDir);
   } catch { /* best-effort */ }
   clearExecutionLock(dataDir, pipeline);
+  return merged;
+}
+
+/** ---- pause --------------------------------------------------------- */
+
+export function cursorPause(dataDir, pipelineArg, rest, { now = new Date() } = {}) {
+  const pipeline = canonicalPipeline(pipelineArg);
+  if (!pipeline) usageFail(`cursor pause: unknown pipeline "${pipelineArg}" — expected execute|review`);
+  const { fields, note } = parseArgs(rest);
+  if (!note) usageFail('cursor pause: --note "<why paused / what next>" is required — it is the resume context');
+
+  const prior = readCursor(dataDir, pipeline);
+  if (!prior) {
+    gateFail("cursor pause refused — no active cursor to pause", [
+      `Expected sprints/current/${CURSOR_FILE[pipeline]} to exist.`,
+    ]);
+  }
+
+  const merged = pauseCursorInternal(dataDir, pipeline, prior, { now, note, nextAction: fields.next_action });
   process.stdout.write(`cursor: paused at stage ${merged.stage}. Resume is a USER decision (\`shipyard-data cursor resume\`) — /goal must stop until the user resumes.\n`);
   process.stdout.write(STOP_MARKER + "\n");
 }
@@ -858,6 +1159,19 @@ export function cursorEscalate(dataDir, pipelineArg, rest, { now = new Date() } 
     last_advance_at: now.toISOString(),
     next_action: fields.next_action ?? `Escalated: ${reason}`,
   };
+  // Nothing was in flight (4.0): a single task that outgrew its lane escalates
+  // before any stage was advanced. Writing an escalated cursor then leaves a
+  // marker with nothing to resume, in the folder the sprint's own run reads:
+  // seen live, a sprint could not start until someone ran `cursor resume`
+  // for a task that had already gone back to discussion. The event and the
+  // lock release below are the whole record.
+  if (!prior) {
+    logEvent(dataDir, "pipeline_terminal", { pipeline, sprint: fields.sprint || "none", outcome: "escalated", reason });
+    clearExecutionLock(dataDir, pipeline);
+    process.stdout.write(`cursor: escalated (${reason}); nothing was in flight, so no cursor is left behind. Next: ${merged.next_action}\n`);
+    process.stdout.write("▶ CYCLE COMPLETE — pipeline terminal (escalated). /goal should stop.\n");
+    return;
+  }
   // status: escalated bypasses the evidence gate by design — it is not a
   // claim of success (mirrors the hook-era classify()).
   const content = renderCursor(merged, prior?.pending ?? [], note ?? prior?.body ?? "");

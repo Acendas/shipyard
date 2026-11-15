@@ -75,6 +75,9 @@ const BUILD_DIR_RE = /(^|\/)(dist|build|out|target|node_modules|\.next|\.nuxt|__
  * when nothing in the list is a source file — the signal that a caller can
  * clean or commit without asking.
  */
+/** Paths Shipyard writes into the user's project and may commit on its own. */
+export const SHIPYARD_OWNED_PATHS = new Set(["CHANGELOG.md", ".claude/settings.json", ".claude/settings.local.json"]);
+
 export function classifyPaths(projectRoot, paths) {
   const ignored = [];
   const generated = [];
@@ -186,13 +189,27 @@ export function readinessCheck(projectRoot, dataDir, opts = {}) {
   }
 
   if (!dirty.clean && !askReasons.some((r) => r.code === "dirty_and_branch_mismatch")) {
-    actions.push({
-      code: "commit_dirty",
-      detail:
-        `Commit ${dirty.paths.length} uncommitted path(s) as 'wip: pre-sprint' — worktree agents ` +
-        `start from the last commit, so uncommitted work would not reach them. Undo: git reset --soft HEAD~1`,
-      command: "git add -A && git commit -m 'wip: pre-sprint'",
-    });
+    // Only residue Shipyard itself writes into the project (the changelog the
+    // release step prepends, settings it ensured) is committed without asking.
+    // `git add -A` on a user's dirty tree swept untracked files into a
+    // 'wip: pre-sprint' commit in their history — seen live on 2026-11-13.
+    const foreign = dirty.paths.filter((p) => !SHIPYARD_OWNED_PATHS.has(p));
+    if (foreign.length === 0) {
+      actions.push({
+        code: "commit_dirty",
+        detail:
+          `Commit ${dirty.paths.length} Shipyard-written path(s) (${dirty.paths.join(", ")}) as 'chore(shipyard): pre-sprint residue' — ` +
+          `worktree agents start from the last commit. Undo: git reset --soft HEAD~1`,
+        command: `git add -- ${dirty.paths.map((p) => `'${p}'`).join(" ")} && git commit -m 'chore(shipyard): pre-sprint residue'`,
+      });
+    } else {
+      askReasons.push({
+        code: "dirty_tree",
+        detail:
+          `Working tree has ${foreign.length} uncommitted path(s) that are yours (${foreign.slice(0, 5).join(", ")}${foreign.length > 5 ? ", …" : ""}). ` +
+          `Builders start from the last commit, so this work would not reach them. Commit it yourself, stash it, or say continue to build without it — Shipyard never commits your files for you.`,
+      });
+    }
   }
 
   if (opts.baselineFailing) {

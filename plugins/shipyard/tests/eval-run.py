@@ -93,6 +93,26 @@ def read_file(filepath):
         return ""
 
 
+# ─── Skill directory hygiene ───
+
+def check_skill_dir_hygiene(result, skills_dir=None):
+    """Fail (naming the dir) on a top-level skill dir without SKILL.md, or any
+    directory under skills/ that contains no files at all (recursively)."""
+    skills_dir = Path(skills_dir) if skills_dir else SKILLS_DIR
+    if not skills_dir.is_dir():
+        return
+    for top in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
+        if (top / "SKILL.md").is_file():
+            result.ok(f"skill-dir:{top.name}:has_skill_md")
+        else:
+            result.fail(f"skill-dir:{top.name}:has_skill_md",
+                        f"skills/{top.name}/ has no SKILL.md")
+        for d in [top] + sorted(p for p in top.rglob("*") if p.is_dir()):
+            if not any(f.is_file() for f in d.rglob("*")):
+                rel = d.relative_to(skills_dir).as_posix()
+                result.fail(f"skill-dir:{rel}:non_empty", f"skills/{rel}/ is empty")
+
+
 # ─── Check 1: Frontmatter validity ───
 
 def check_frontmatter(result):
@@ -182,6 +202,7 @@ BANNED_PATTERNS = [
     (r'\bgit\.merge_strategy\b', "git.merge_strategy config — removed"),
     (r'\bgit\.pr_on_sprint_complete\b', "git.pr_on_sprint_complete config — removed"),
     (r'\bgit\.integration_branch\b', "git.integration_branch config — removed"),
+    (r'skill-writer', "skill-writer — silent SME-skill generation was removed; no unattended skill authoring"),
 ]
 
 # Files exempt from banned pattern checks
@@ -189,6 +210,17 @@ EXEMPT_FILES = {
     "eval-run.py",  # this file
     "git-strategy.md",  # documents what we DON'T do — references banned terms in negation
 }
+
+# Patterns where the basename exemption does NOT apply except to eval-run.py
+# (F006 AC-5: only the assertion file and eval-run.py may mention skill-writer).
+STRICT_PATTERNS = {r'skill-writer': {"eval-run.py"}}
+
+
+def is_exempt(filename, pattern):
+    """Per-pattern exemption: strict patterns use their own tiny allowlist."""
+    if pattern in STRICT_PATTERNS:
+        return filename in STRICT_PATTERNS[pattern]
+    return filename in EXEMPT_FILES
 
 
 def check_banned_patterns(result):
@@ -201,13 +233,12 @@ def check_banned_patterns(result):
     all_files.extend(find_all_files(SCRIPTS_DIR, "*.py"))
 
     for filepath in sorted(all_files):
-        if filepath.name in EXEMPT_FILES:
-            continue
-
         content = read_file(filepath)
         rel = filepath.relative_to(PROJECT_ROOT)
 
         for pattern, description in BANNED_PATTERNS:
+            if is_exempt(filepath.name, pattern):
+                continue
             matches = list(re.finditer(pattern, content, re.IGNORECASE))
             if matches:
                 lines = []
@@ -223,6 +254,28 @@ def check_banned_patterns(result):
                 )
             else:
                 result.ok(f"banned:{rel}:no_{pattern.split(chr(92))[-1][:15]}")
+
+
+def check_exemption_scoping_and_light_tier(result):
+    """T095: git-strategy.md must not be exempt for skill-writer. T094: light tier listed."""
+    gs = "git-strategy.md"
+    if not is_exempt(gs, r'skill-writer') and is_exempt(gs, r'\bgit\s+push\b') \
+            and not is_exempt("other.md", r'skill-writer') and is_exempt("eval-run.py", r'skill-writer'):
+        result.ok("banned:exemption_scoped_per_pattern")
+    else:
+        result.fail("banned:exemption_scoped_per_pattern",
+                    "skill-writer exemption must be only eval-run.py (git-strategy.md not exempt)")
+
+    hook = read_file(PROJECT_ROOT / "bin" / "hooks" / "auto-approve-data.mjs")
+    if "set-model <think|build|orchestrate|light>" in hook:
+        result.ok("hint:auto_approve_lists_light_tier")
+    else:
+        result.fail("hint:auto_approve_lists_light_tier", "denied-write hint must list the light tier")
+    helpmd = read_file(SKILLS_DIR / "ship-help" / "SKILL.md")
+    if "config set-model <think|build|orchestrate|light>" in helpmd:
+        result.ok("hint:ship_help_lists_light_tier")
+    else:
+        result.fail("hint:ship_help_lists_light_tier", "ship-help must list the light tier")
 
 
 # ─── Check 3: File references ───
@@ -436,6 +489,8 @@ def check_skill_assertions(result, skill_filter=None):
                 hooks_name = target.split(":", 1)[1]
                 hooks_file = HOOKS_DIR / hooks_name
                 text = read_file(hooks_file) if hooks_file.exists() else ""
+            elif target.startswith("plugin:"):
+                text = read_plugin_relpath(target.split(":", 1)[1])
             elif target.startswith("ref:"):
                 ref_name = target.split(":", 1)[1]
                 # Search for reference file in skill's references/ subdirectory
@@ -768,38 +823,327 @@ def check_session_mutex_pattern(result):
         result.ok(f"session_mutex:{skill_dir.name}:read_before_write")
 
 
-def check_render_before_ask(result):
-    """Structural guard (v3.11.0, widened): every skill body — command or
-    capability — that uses AskUserQuestion must state the full render-before-ask
-    doctrine: (A) the rule phrase "Render before asking", (B) the provenance
-    negation "does not count as rendered" (Read results, subagent/Agent
-    returns, dossier files, SendMessage payloads are not "shown to the user"),
-    and (C) the option-packing clause naming the "compact card" (question/option
-    strings are not a rendering surface).
+def read_plugin_relpath(relpath):
+    """Resolve a `plugin:<relpath>` assertion target against the plugin root.
 
-    Motivated by the 2026-07-21 ship-backlog blind-ask incident (a delegated
-    gather produced an AskUserQuestion with nothing rendered above it) and the
-    v3.11.0 context-conflation follow-up incident, where Read results,
-    subagent/Agent returns, dossier files, and SendMessage payloads were
-    treated as "shown to the user" when they are invisible, and content packed
-    into AskUserQuestion question/option strings (rendered as a compact card)
-    was treated as shown when it isn't.
-
-    Scope: every directory under SKILLS_DIR with a SKILL.md — command skills
-    AND capability skills alike (the v3.8.0 `ship-*`-only scope and the
-    ship-backlog wording exemption are both retired; zero exemptions).
-
-    Skills with no AskUserQuestion at all are not-applicable — nothing to
-    check. Frontmatter is stripped before scanning so the rule text can't be
-    satisfied by an unrelated frontmatter field.
+    Returns the file text, or "" when the file is missing or the path escapes
+    the plugin root (absolute paths and `..` traversal are rejected, so an
+    assertion can never read outside the plugin).
     """
-    import re
+    root = PROJECT_ROOT.resolve()
+    try:
+        candidate = (root / relpath).resolve()
+    except (OSError, ValueError):
+        return ""
+    if Path(relpath).is_absolute() or not candidate.is_relative_to(root):
+        return ""
+    return read_file(candidate) if candidate.is_file() else ""
 
-    RENDER_RULE_RE = re.compile(r"Render before asking", re.IGNORECASE)
-    PROVENANCE_RE = re.compile(r"does not count as rendered", re.IGNORECASE)
-    OPTION_PACK_RE = re.compile(r"compact card", re.IGNORECASE)
 
-    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+# Single-home strictness for render-before-ask (F016 AC-5). While False the
+# check tolerates the long per-skill copies that T061-T064 are deleting.
+# T064 (the last deletion task) flips this to True: change this one constant.
+ENFORCE_SINGLE_HOME = True
+
+CONTEXT_CLI_RELPATH = "bin/shipyard-context.mjs"
+MIN_DISTINCTIVE_LEN = 60
+# Markers every canonical rule set must carry (render rule, provenance negation,
+# compact-card packing clause, recovery, paths). Full clause text is derived
+# from the CLI source, not copied here; the CLI's own tests pin exact clauses.
+CANONICAL_KEY_PHRASES = (
+    "Render before asking", "does not count as rendered", "compact card",
+    "Recovery:", "Paths:",
+)
+
+
+_JS_SIMPLE_ESC = {"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f", "v": "\v", "0": "\0"}
+
+
+def _js_string_at(text, i):
+    """Parse one JS string literal (single/double quoted, or a template literal
+    without interpolation) starting at text[i]. Returns (value, next_index)."""
+    q = text[i]
+    i += 1
+    out = []
+    while i < len(text):
+        c = text[i]
+        if c == q:
+            return "".join(out), i + 1
+        if c == "\\":
+            i += 1
+            if i >= len(text):
+                break
+            e = text[i]
+            if e in _JS_SIMPLE_ESC:
+                out.append(_JS_SIMPLE_ESC[e])
+            elif e == "x":
+                out.append(chr(int(text[i + 1:i + 3], 16)))
+                i += 2
+            elif e == "u":
+                if text[i + 1:i + 2] == "{":
+                    end = text.index("}", i)
+                    out.append(chr(int(text[i + 2:end], 16)))
+                    i = end
+                else:
+                    out.append(chr(int(text[i + 1:i + 5], 16)))
+                    i += 4
+            elif e == "\n":
+                pass  # line continuation
+            else:
+                out.append(e)
+            i += 1
+            continue
+        if q == "`" and c == "$" and text[i + 1:i + 2] == "{":
+            raise ValueError("template literal interpolation is not supported")
+        if q != "`" and c == "\n":
+            raise ValueError("unterminated string literal")
+        out.append(c)
+        i += 1
+    raise ValueError("unterminated string literal")
+
+
+def canonical_startup_parse(cli_text):
+    """Parse CANONICAL_STARTUP_RULES from the CLI source. Returns (clauses, errors).
+
+    Every array entry is parsed as a JS string expression (single/double quotes,
+    template literals without interpolation, `+` concatenation, // comments), so
+    each entry is accounted for. An entry that cannot be parsed is reported in
+    `errors` as (index, snippet) -- never silently dropped.
+    """
+    m = re.search(r"const CANONICAL_STARTUP_RULES = \[(.*?)\n\];", cli_text, re.DOTALL)
+    if not m:
+        return [], []
+    body = m.group(1)
+    clauses, errors = [], []
+    i, n = 0, len(body)
+
+    def skip_ws(i):
+        while i < n:
+            if body[i].isspace():
+                i += 1
+            elif body.startswith("//", i):
+                while i < n and body[i] != "\n":
+                    i += 1
+            else:
+                break
+        return i
+
+    while True:
+        i = skip_ws(i)
+        if i >= n:
+            break
+        start, idx = i, len(clauses) + len(errors)
+        try:
+            parts = []
+            while True:
+                if i >= n or body[i] not in "\"'`":
+                    raise ValueError("entry is not a string literal")
+                val, i = _js_string_at(body, i)
+                parts.append(val)
+                i = skip_ws(i)
+                if i < n and body[i] == "+":
+                    i = skip_ws(i + 1)
+                    continue
+                break
+            if i < n and body[i] != ",":
+                raise ValueError("unexpected token after string expression")
+            clauses.append("".join(parts))
+            i += 1  # past the comma (or end)
+        except (ValueError, IndexError) as exc:
+            errors.append((idx, f"{exc}: {body[start:start + 70]!r}"))
+            break  # cannot resynchronise reliably after a bad entry
+    return clauses, errors
+
+
+def canonical_startup_clauses(cli_text):
+    """Clause list derived from CANONICAL_STARTUP_RULES (see canonical_startup_parse)."""
+    return canonical_startup_parse(cli_text)[0]
+
+
+# The onboarding gate's single home is SHIPYARD_ONBOARDING_INSTRUCTION, printed
+# by renderOnboardingLines in bin/init-data.mjs when onboarding is required.
+ONBOARDING_CLI_RELPATH = "bin/init-data.mjs"
+ONBOARDING_REQUIRED_LITERAL = "SHIPYARD_ONBOARDING_REQUIRED"
+ONBOARDING_INSTRUCTION_RE = re.compile(r"""[`"']SHIPYARD_ONBOARDING_INSTRUCTION:""")
+
+
+def onboarding_instruction_parse(cli_text):
+    """Return the SHIPYARD_ONBOARDING_INSTRUCTION string (a JS string expression,
+    `+` concatenation allowed) from init-data.mjs, or None when absent/unparseable."""
+    m = ONBOARDING_INSTRUCTION_RE.search(cli_text)
+    if not m:
+        return None
+    i, parts = m.start(), []
+    try:
+        while True:
+            val, i = _js_string_at(cli_text, i)
+            parts.append(val)
+            while i < len(cli_text) and cli_text[i].isspace():
+                i += 1
+            if cli_text[i:i + 1] != "+":
+                break
+            i += 1
+            while i < len(cli_text) and cli_text[i].isspace():
+                i += 1
+    except (ValueError, IndexError):
+        return None
+    return "".join(parts)
+
+
+def find_onboarding_gate_copies(text):
+    """Return (line_no, reason) for paragraphs restating the onboarding gate.
+
+    Rule: a paragraph (normalized markdown) that names the gate condition --
+    the literal SHIPYARD_ONBOARDING_REQUIRED or the words "onboarding is
+    required" -- AND carries gate instruction text -- "run the exact" or the
+    word "stop" (any case) -- is a copy of the gate whose single home is
+    SHIPYARD_ONBOARDING_INSTRUCTION. A short pointer that only names
+    SHIPYARD_ONBOARDING_INSTRUCTION is not flagged.
+    """
+    hits, para, start = [], [], 1
+    for k, line in enumerate(normalize_markdown(text).splitlines() + [""], 1):
+        if line.strip():
+            if not para:
+                start = k
+            para.append(line)
+            continue
+        if para:
+            ptxt = " ".join(" ".join(para).split())
+            low = ptxt.lower()
+            if (ONBOARDING_REQUIRED_LITERAL in ptxt or "onboarding is required" in low) and (
+                    "run the exact" in low or re.search(r"\bstop\b", low)):
+                hits.append((start, "paragraph restates the onboarding gate "
+                                    "(gate condition + run/stop instruction)"))
+            para = []
+    return hits
+
+
+# Phrase-level signatures of the long per-skill copies (provenance, compact-card
+# and Paths blocks). Each MUST occur in the CLI text (pinned by
+# tests/test_eval_render_before_ask.py, so a CLI rewording fails loudly instead
+# of silently disarming the gate). Matching is
+# case-insensitive on normalized text. Rule: in a paragraph, the short reminder
+# ("Render before asking ...") may carry at most ONE signature phrase; a
+# paragraph carrying >= SIGNATURE_MIN of them is a copy of the long enumerations.
+SIGNATURE_PHRASES = (
+    "does not count as rendered", "compact card",
+    "absolute SHIPYARD_DATA prefix", "shell variables", "shell redirects",
+    "never hardcode paths", "never cd into the data directory",
+)
+SIGNATURE_MIN = 2
+
+
+def normalize_markdown(text):
+    """Flatten markdown so wraps/emphasis/backticks/list markers/curly quotes/
+    dashes cannot hide a copy. Keeps paragraph structure (blank lines)."""
+    text = (text.replace("\u2018", "'").replace("\u2019", "'")
+                .replace("\u201c", '"').replace("\u201d", '"')
+                .replace("\u2013", "-").replace("\u2014", "-"))
+    lines = []
+    for line in text.splitlines():
+        line = re.sub(r"^\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+", "", line)
+        line = re.sub(r"[*`]|~~", "", line)
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _flat(text):
+    return " ".join(normalize_markdown(text).split())
+
+
+def find_single_home_copies(text, distinctive, signatures):
+    """Return a list of (line_no, reason) where `text` carries canonical copy."""
+    norm = normalize_markdown(text)
+    hits = []
+    flat = " ".join(norm.split())
+    for d in distinctive:
+        if d in flat:
+            # locate a line for the report: first line sharing the sentence's opening words
+            head = " ".join(d.split()[:4])
+            ln = next((k + 1 for k, l in enumerate(norm.splitlines()) if head in " ".join(l.split())), 1)
+            hits.append((ln, f"verbatim canonical sentence: {d[:60]}..."))
+    # paragraph-level signature scan (line numbers refer to the original file)
+    para, start = [], 1
+    lines = norm.splitlines() + [""]
+    for k, line in enumerate(lines, 1):
+        if line.strip():
+            if not para:
+                start = k
+            para.append(line)
+            continue
+        if para:
+            ptxt = " ".join(" ".join(para).split()).lower()
+            found = [s for s in signatures if s.lower() in ptxt]
+            if len(found) >= SIGNATURE_MIN:
+                hits.append((start, f"paragraph carries {len(found)} canonical signature phrases: {', '.join(found)}"))
+            para = []
+    return hits
+
+
+def check_render_before_ask(result, skills_dir=None, plugin_root=None, enforce_single_home=None):
+    """Structural guard (F016): the render-before-ask doctrine has ONE home --
+    CANONICAL_STARTUP_RULES in bin/shipyard-context.mjs, printed at startup --
+    and every skill (command or capability) that uses AskUserQuestion keeps only
+    the short reminder containing "Render before asking".
+
+    Checks:
+      1. canonical: every clause of CANONICAL_STARTUP_RULES (derived from the CLI
+         source) is present in the CLI file, and the list is non-empty.
+      2. reminder: each skill with AskUserQuestion contains "Render before asking".
+      3. single home (only when enforce_single_home / ENFORCE_SINGLE_HOME is on):
+         no distinctive canonical sentence appears in any skill body. The
+         onboarding gate (SHIPYARD_ONBOARDING_INSTRUCTION in bin/init-data.mjs)
+         is a second single-home source: its distinctive sentences are scanned
+         too, and find_onboarding_gate_copies flags restated gate paragraphs.
+    """
+    skills_dir = Path(skills_dir) if skills_dir else SKILLS_DIR
+    root = Path(plugin_root) if plugin_root else PROJECT_ROOT
+    if enforce_single_home is None:
+        enforce_single_home = ENFORCE_SINGLE_HOME
+
+    cli_file = root / CONTEXT_CLI_RELPATH
+    cli_text = read_file(cli_file)
+    clauses, parse_errors = canonical_startup_parse(cli_text)
+    for idx, snippet in parse_errors:
+        result.fail(f"render_before_ask:canonical:entry_{idx}_unparsed",
+                    f"CANONICAL_STARTUP_RULES entry #{idx} in {CONTEXT_CLI_RELPATH} could not be "
+                    f"parsed ({snippet}); every entry must be accounted for")
+    if not clauses:
+        result.fail("render_before_ask:canonical:parse",
+                    f"could not derive CANONICAL_STARTUP_RULES from {CONTEXT_CLI_RELPATH}")
+    elif not parse_errors:
+        joined = " ".join(clauses)
+        missing = [k for k in CANONICAL_KEY_PHRASES if k not in joined]
+        if missing:
+            result.fail("render_before_ask:canonical:clauses",
+                        f"CANONICAL_STARTUP_RULES in {CONTEXT_CLI_RELPATH} lacks required "
+                        f"clause marker(s): {', '.join(missing)}")
+        else:
+            result.ok(f"render_before_ask:canonical:{len(clauses)}_clauses_present")
+
+    flat_clauses = _flat(" ".join(clauses))
+    distinctive_sources = list(clauses)
+
+    # Onboarding gate: SHIPYARD_ONBOARDING_INSTRUCTION in init-data.mjs is a
+    # second single-home source (its distinctive sentences join the scan, and
+    # find_onboarding_gate_copies flags paragraph-level restatements).
+    onboarding_file = root / ONBOARDING_CLI_RELPATH
+    if onboarding_file.is_file():
+        instruction = onboarding_instruction_parse(read_file(onboarding_file))
+        if instruction is None:
+            result.fail("render_before_ask:onboarding:parse",
+                        f"could not derive SHIPYARD_ONBOARDING_INSTRUCTION from {ONBOARDING_CLI_RELPATH}")
+        else:
+            result.ok("render_before_ask:onboarding:instruction_parsed")
+            distinctive_sources.append(instruction)
+
+    distinctive = []
+    for clause in distinctive_sources:
+        for sent in re.split(r"(?<=[.;:!?])\s+", _flat(clause)):
+            if len(sent) >= MIN_DISTINCTIVE_LEN:
+                distinctive.append(sent)
+    signatures = [s for s in SIGNATURE_PHRASES if s.lower() in flat_clauses.lower()]
+    for skill_dir in sorted(skills_dir.iterdir()):
         if not skill_dir.is_dir():
             continue
         skill_md = skill_dir / "SKILL.md"
@@ -809,40 +1153,47 @@ def check_render_before_ask(result):
         raw = read_file(skill_md)
         rel = skill_md.relative_to(PROJECT_ROOT) if skill_md.is_relative_to(PROJECT_ROOT) else skill_md
 
-        # Strip the leading frontmatter block before scanning the body.
+        # Strip frontmatter so the reminder can't be satisfied by a frontmatter field.
         body = re.sub(r"^---\s*\n.*?\n---\s*\n", "", raw, count=1, flags=re.DOTALL)
 
         if "AskUserQuestion" not in body:
             result.ok(f"render_before_ask:{name}:not-applicable")
             continue
 
-        if not RENDER_RULE_RE.search(body):
+        if not re.search(r"Render before asking", body, re.IGNORECASE):
             result.fail(
-                f"render_before_ask:{name}:missing_rule",
-                f"{rel} uses AskUserQuestion but never states the render-before-ask rule "
-                f"(\"Render before asking...\"). See ship-discuss/references/question-design.md "
-                f"§ 'Render before asking' for the canonical text.",
+                f"render_before_ask:{name}:missing_reminder",
+                f"{rel} uses AskUserQuestion but lacks the short reminder "
+                f"(\"Render before asking\"); the full rule is printed by "
+                f"{CONTEXT_CLI_RELPATH} at startup.",
             )
             continue
 
-        if not PROVENANCE_RE.search(body):
-            result.fail(
-                f"render_before_ask:{name}:missing_provenance",
-                f"{rel} states the render-before-ask rule but lacks the provenance "
-                f"negation — must state that Read results / subagent returns / dossier "
-                f"files 'does not count as rendered'.",
-            )
-            continue
+        result.ok(f"render_before_ask:{name}:has_reminder")
 
-        if not OPTION_PACK_RE.search(body):
-            result.fail(
-                f"render_before_ask:{name}:missing_option_packing_clause",
-                f"{rel} lacks the option-packing clause — must name the 'compact card' "
-                f"(question/option strings are not a rendering surface).",
-            )
-            continue
-
-        result.ok(f"render_before_ask:{name}:has_rule_and_provenance")
+    if enforce_single_home:
+        # Single home: scan EVERY markdown file under skills/ (SKILL.md and
+        # references/**) and agents/, whether or not the skill uses AskUserQuestion.
+        agents_dir = root / "agents"
+        files = sorted(skills_dir.rglob("*.md"))
+        if agents_dir.is_dir():
+            files += sorted(agents_dir.rglob("*.md"))
+        for f in files:
+            try:
+                rel = f.relative_to(root)
+            except ValueError:
+                rel = f
+            text = read_file(f)
+            hits = find_single_home_copies(text, distinctive, signatures) + find_onboarding_gate_copies(text)
+            if hits:
+                ln, why = hits[0]
+                result.fail(
+                    f"render_before_ask:{rel.as_posix()}:duplicated_canonical",
+                    f"{rel}:{ln} repeats canonical text (single-home rule; "
+                    f"{len(hits)} hit(s)): {why}",
+                )
+            else:
+                result.ok(f"render_before_ask:{rel.as_posix()}:single_home")
 
 
 def check_quiet_by_default(result):
@@ -1274,7 +1625,7 @@ def check_no_hardcoded_dispatch_model(result):
     Scope: every .md under skills/. Allowed forms near Agent dispatches:
     `model: <models.build value>` style placeholders, `models.think` /
     `models.build` config references. Banned: a bare model name literal
-    or first-party `claude-*` model ID as the model value.
+    or versioned `claude-*` model ID as the model value (still banned).
 
     Also scans AGENTS_DIR (registered agent files). Unlike skills — whose
     frontmatter `model:` is the shell's own legit static tier — a registered
@@ -1351,6 +1702,30 @@ def check_no_hardcoded_dispatch_model(result):
             )
         else:
             result.ok(f"dispatch-model:{rel}")
+
+    # Grep-discovered union (T021 / F003 AC-8): every skills/** and agents/**
+    # file that carries a `model: <placeholder>` dispatch line must route
+    # through `resolve-model`. Discovered, not a fixed list, so a newly added
+    # dispatch site cannot silently skip the resolver.
+    PLACEHOLDER = re.compile(r'model:\s*<')
+    discovered = sorted(
+        f for root in (SKILLS_DIR, AGENTS_DIR)
+        for f in root.rglob("*.md")
+        if PLACEHOLDER.search(read_file(f))
+    )
+    if not discovered:
+        result.fail("dispatch-model:resolve-model:discovery",
+                    "grep found no files matching a model placeholder line - discovery is broken")
+    for f in discovered:
+        rel = f.relative_to(PROJECT_ROOT)
+        if "resolve-model" in read_file(f):
+            result.ok(f"dispatch-model:resolve-model:{rel}")
+        else:
+            result.fail(
+                f"dispatch-model:resolve-model:{rel}",
+                "contains a `model: <...>` dispatch line but never mentions "
+                "`resolve-model` - resolve the tier via `shipyard-data resolve-model`",
+            )
 
 
 def check_no_hardcoded_dispatch_effort(result):
@@ -1709,8 +2084,10 @@ def main():
 
     result = Result()
 
+    check_skill_dir_hygiene(result)
     check_frontmatter(result)
     check_banned_patterns(result)
+    check_exemption_scoping_and_light_tier(result)
     check_file_references(result)
     check_agent_references(result)
     check_hook_scripts(result)

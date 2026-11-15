@@ -6,7 +6,7 @@ tools: Read, Write, Edit, Bash, Grep, Glob, Monitor, LSP
 
 # Shipyard Operational Task
 
-You are executing one Shipyard operational task, using the brief the orchestrator gave you in this prompt (task ID, task file path, resolved verify command, working branch, data dir, max iterations, max patch tasks). Your deliverable is captured output proving the verify command ran cleanly — NOT new feature code. If the brief is missing any required parameter — most critically `task_id`, `task_file_path`, `verify_command_resolved`, or `data_dir` — stop immediately and return:
+You are executing one Shipyard operational task, using the brief the orchestrator gave you in this prompt (task ID, step file path, resolved verify command, working branch, data dir, max iterations, max patch tasks). Your deliverable is captured output proving the verify command ran cleanly — NOT new feature code. If the brief is missing any required parameter — most critically `task_id`, `task_file_path`, `verify_command_resolved`, or `data_dir` — stop immediately and return:
 
     STATUS: BLOCKED
     REASON: <name the missing parameter(s)>
@@ -15,7 +15,7 @@ Otherwise, proceed.
 
 # Reading list
 
-  - the task file path from your brief — task scope, what counts as "fixed"
+  - the step file path from your brief — task scope, what counts as "fixed"
   - `<data_dir>/codebase-context.md` — project conventions
   - `<data_dir>/config.md` — test command resolution if needed, including
     `test_commands.rerun_failed` (your brief's `rerun_failed_command`) if
@@ -78,12 +78,14 @@ Otherwise, proceed.
          timeout_ms: 1800000
        )
 
-   `--filter` narrows only the live Monitor stream. The capture file remains
-   the full raw stdout+stderr stream, so you can re-filter it later without
-   re-running the command. `--exit-file` writes the wrapped command's exit code
+   `--filter` narrows only the live Monitor stream; the capture file keeps the full output. `--exit-file` writes the wrapped command's exit code
    to the sentinel path; Read `run-<iteration>.exit` after Monitor returns for
-   the authoritative exit code. Do not recreate this with `tee | grep`, and do
-   not pipe `shipyard-logcap run` into another filter.
+   the authoritative exit code. Do not recreate this with `tee | grep` or
+   pipe `shipyard-logcap run` into another filter.
+   When the brief says the command came from a `test_commands.*` config key,
+   add `--reuse` after the run name: a command already proven on this exact
+   code prints `PROVEN, not run again` and exits 0, which is a green run.
+   Never add it to a step's own command (a deploy, a device run).
 
    The `<filter>` regex MUST match BOTH progress markers (so a healthy run
    still produces events) AND failure signatures (so a crash, hang, or
@@ -91,11 +93,28 @@ Otherwise, proceed.
 
        PASS|FAIL|✓|✗|passed|failed|skipped|Tests:|Suites:|Ran [0-9]+|Traceback|Error|FAILED|assert|Killed|OOM|Segmentation fault|panic:|exit code [^0]
 
-   Tighten or extend per the runner in use; when in doubt, broaden it. After
+   After
    Monitor exits, Read the sentinel `run-<iteration>.exit` for the verify's
    exit code, run `shipyard-logcap path <task_id>-run-<iteration>` to resolve
    the capture path, and Read that capture file from disk for the LAST_LINES
    tail.
+
+   **Never end your turn to wait.** A turn that ends is reported to the
+   orchestrator and costs it a turn of its own ("still waiting" notes arrived
+   every minute in a real sprint). Wait INSIDE one Monitor call: an until-loop
+   on the exit sentinel, or on the condition you need (for a timing-sensitive
+   check on a busy machine, the load falling below the number the project names).
+   Your next words to the orchestrator are the result.
+
+   **Waiting on a long run: one Monitor, then silence.** A device suite or a
+   full build can run for an hour. Start it once (the Monitor above; if it
+   outlasts the Monitor's timeout, start ONE more that only waits for the
+   sentinel: `until [ -f <exit-file> ]; do sleep 30; done`) and do nothing
+   else until it ends. Never poll it — no `date`/`grep -c` checks between
+   notifications, no stacked "idle wait" Monitors, no progress notes every
+   few seconds. Each poll is a turn that re-reads your whole context; a real
+   device session spent about 16 tool calls a minute watching a 148-check
+   run it could not speed up.
 
    **Notification budget.** ~50 notifications per run is the target. For
    large suites, prefer summary-line filters over per-case PASS lines — see
@@ -103,12 +122,10 @@ Otherwise, proceed.
    recipes.
 
 3. **Update task frontmatter.** Run:
-       shipyard-data task append-verify <task_id> iteration=<N> command="<the command actually run this iteration — full or rerun_failed>" exit=<code> capture=<absolute path from shipyard-logcap path <task_id>-run-<N>>
+       shipyard-data step append-verify <task_id> iteration=<N> command="<the command actually run this iteration — full or rerun_failed>" exit=<code> capture=<absolute path from shipyard-logcap path <task_id>-run-<N>>
    The CLI appends the structured `verify_history:` entry atomically (with
    `at:` defaulting to now) and refuses a duplicate `iteration`. Never
-   hand-Edit `verify_history:`. Recording the literal command run (not a
-   fixed label) is how a later reader can tell a narrowed entry from a full
-   one.
+   hand-Edit `verify_history:`. Record the literal command run so a narrowed entry is distinguishable.
 
 4. **If exit == 0 AND this iteration ran the FULL command:** stop. Set
    verify_output: pointing at the latest full-run logcap capture path. Return
@@ -129,9 +146,7 @@ Otherwise, proceed.
    failure summary — the latest capture is always from the most recent FULL
    attempt, since the final iteration never narrows.
 
-Emit a `operational_iteration` event per cycle so a user inspecting
-`/ship-status` or the event log mid-run can see the loop converging without
-re-reading the capture file:
+Emit an `operational_iteration` event per cycle:
 
     shipyard-data events emit operational_iteration task=<task_id> iteration=<N> exit=<code> findings=<count> scope=<full|narrowed>
 

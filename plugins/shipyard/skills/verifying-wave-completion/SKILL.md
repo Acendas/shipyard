@@ -6,11 +6,9 @@ disable-model-invocation: true
 
 # Verifying Wave Completion
 
-**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+**Render before asking.** Render the decision context as chat text before any AskUserQuestion (rules printed at startup under SHIPYARD_STARTUP_RULES).
 
 A passing wave-scoped probe is necessary but not sufficient. The wave is fully complete only when six invariants hold simultaneously. This capability skill runs that composite check after the existing wave-boundary steps (rebase + ff-merge, wave-scoped build, REFACTOR + MUTATE, wave-scoped tests, wave VERIFY) and gates advance-to-next-wave on the result.
-
-The check exists because the structured return contract makes false completion structurally hard at the *subagent* boundary, but the *wave* boundary is one level up — and pre-this-skill, the only gate there was a single probe pass. A flaky test, a dropped commit, or a subagent that exited mid-flight without writing its completion event could all slip through.
 
 ## When to Invoke
 
@@ -34,18 +32,9 @@ Other entry points:
 - `wakeup_budget` — number of recovery wakeups before escalation. Default `3`.
 - `wakeup_delay_seconds` — delay per wakeup. Default `180` (warm-cache window — see [schedule-wakeup-discipline.md](../dispatching-operational-task/references/schedule-wakeup-discipline.md)).
 
-## The Six Invariants — Summary Table
+## The Six Invariants
 
-Detailed per-invariant logic, primitives, and recovery actions live in [references/invariants.md](references/invariants.md). Read that when implementing the skill; the summary below is for orientation.
-
-| # | Invariant | Primitive | Recovery shape |
-|---|---|---|---|
-| 1 | All dispatched builders returned a structured contract | `shipyard-context scan-events --tail 500 task_loop_iteration task_dispatch_returned` | Re-dispatch tasks missing a return event |
-| 2 | Every `COMPLETE` return commit is integrated and none dangling | `shipyard-data verify-wave-integrated` + `wave_integration_verified` event | Rebase + ff-merge the un-integrated branch, re-gate |
-| 3 | Wave-boundary verify-probe exits 0 with non-empty capture showing a real verdict | Read `wave_probe_capture` + the exit code parameter | Re-run via `dispatching-operational-task`; if second run passes with different failure signature, treat as flaky |
-| 4 | Every task settled — a gate-recorded `task_dispatch_returned status=complete` (or a `task_blocked` parking event); operational tasks show `operational_task_completed` | `shipyard-context scan-events --tail 500 task_dispatch_returned task_blocked subagent_completed operational_task_completed` | Self-heal: run the orchestrator gate on the task's `.json` return, then use `shipyard-data task accept-return ...` |
-| 5 | No silent-failure markers in the wave's event-log window | `shipyard-context scan-events --tail 500 silent_failure loop_detected operational_task_bogus_pass anti_stub_finding` | None — confirmed marker tied to a complete task always ESCALATES |
-| 6 | No un-integrated or uncommitted `shipyard/wt-*` worktree (isolation off: also no dirty main tree) | `shipyard-data verify-wave-integrated` + `shipyard-context check-dirty-worktrees` (+ `shipyard-context check-dirty-tree` when isolation off) | Un-integrated branch → ESCALATE; stale dirty-salvage self-heals |
+Per-invariant checks, primitives and recovery actions are in [references/invariants.md](references/invariants.md); read it before running the skill.
 
 ## The Loop
 
@@ -69,7 +58,7 @@ If wakeup_budget exhausted with RECOVERABLE still outstanding:
   Return STATUS: ESCALATED.
 ```
 
-The cache-TTL rules for picking `wakeup_delay_seconds` are documented in [schedule-wakeup-discipline.md](../dispatching-operational-task/references/schedule-wakeup-discipline.md). Default 180s sits in the warm-cache window — three wakeups burn no cache and give ~9 minutes of recovery time.
+Default 180s sits in the warm-cache window (rules in [schedule-wakeup-discipline.md](../dispatching-operational-task/references/schedule-wakeup-discipline.md)).
 
 ## Required Return Shape
 
@@ -108,24 +97,3 @@ The events this skill emits and their fields are catalogued in [event-types.md](
 - **`dispatching-task-loop`** is re-dispatched by this skill's recovery actions when invariants 1, 2, or 4 produce a RECOVERABLE verdict tied to a specific task. Single re-dispatch per task per wave (same rule that lives in `dispatching-task-loop`'s orchestrator gate).
 - **`dispatching-operational-task`** is dispatched for invariant 3 flake detection (re-run the wave-scoped test command in a fresh dispatch).
 - **`acquiring-skill-lock`** is held by the calling command skill; this skill doesn't acquire its own.
-
-## Why This Skill Exists
-
-Pre-this-skill, `/ship-execute` Step 4 advanced the wave counter as soon as the wave-scoped test command exited 0. Six failure modes could slip through:
-
-1. Builder mid-flight death — subagent crashes, orchestrator timeouts.
-2. Commit propagation drops — `COMMIT: <sha>` returned but the merge-back didn't include that sha.
-3. Flaky pass on first run — wave-scoped test happens to pass once; subsequent runs would fail.
-4. Missing completion record — the builder finished (`subagent_completed`) but the orchestrator gate never recorded `task_dispatch_returned`.
-5. Silent-failure marker ignored — anti-stub-scan emitted a finding but no skill checked for it.
-6. Stale worktree leftover — merge-back missed a worktree; its branch is orphaned.
-
-The six-invariant gate makes each structurally observable at the wave boundary, when recovery is cheapest. Catching a missing commit one wave later means re-running tests on top of subsequent work; catching it immediately means a clean re-dispatch.
-
-## Bottom Line
-
-- After existing wave-boundary checks pass, run six invariants — see [references/invariants.md](references/invariants.md) for the detail.
-- RECOVERABLE → automatic recovery dispatch + ScheduleWakeup (default 180s, warm-cache window).
-- ESCALATE → halt, AskUserQuestion with reason. Don't advance the wave counter.
-- All PASS → wave_check_passed event, advance.
-- Wakeup budget default 3; cap exhaustion is itself an escalation.

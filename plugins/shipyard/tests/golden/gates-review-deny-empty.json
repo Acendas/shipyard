@@ -1,0 +1,5 @@
+{
+  "code": 1,
+  "stdout": "DENY — terminal cursor write would be refused. Missing evidence:\n  - Missing pipeline_tick_completed event for stage=demo_user — review never reached the user-approval step\n  - Missing verdict file for feature F001: <DIR>/verify/F001-verdict.md\n  - Missing verdict file for feature F002: <DIR>/verify/F002-verdict.md\n  - Missing fresh full-suite verification proof (ledger key=\"sprint_full_tests\") — no recorded verification for key=sprint_full_tests. Run the full suite once after all mutating stages and record it: shipyard-data verify record --key sprint_full_tests --command \"<full-suite-command>\" --exit 0 --capture <captured-output-path>.",
+  "stderr": ""
+}

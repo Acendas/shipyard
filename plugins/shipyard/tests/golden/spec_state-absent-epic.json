@@ -1,0 +1,8 @@
+{
+  "epicTable": true,
+  "epicSetStatus": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal epic status transition open -> done for E001. Valid next states from \"open\": (unknown status). Re-run with --force to override the graph."
+  }
+}

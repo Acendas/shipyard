@@ -85,5 +85,25 @@
     "type": "contains",
     "pattern": "user_flow_probe_confirmed",
     "why": "v3.17.0: invariant 8 keyed only on an exit code, so an assisted/manual probe could never satisfy it — forcing on-device verification through skip-with-reason."
+  },
+  {
+    "name": "f028_nine_invariants",
+    "type": "contains",
+    "pattern": "nine invariants hold simultaneously",
+    "why": "F028: invariant 9 (settled per-story review) joins the predicate"
+  },
+  {
+    "name": "f028_invariant_9_defined",
+    "type": "contains",
+    "pattern": "## Invariant 9 — Every story carries a settled per-story review",
+    "target": "ref:invariants.md",
+    "why": "F028 AC-4: the sprint gate reads the story-review records"
+  },
+  {
+    "name": "f028_invariant_9_cli_primitive",
+    "type": "contains",
+    "pattern": "shipyard-data story-review check --json",
+    "target": "ref:invariants.md",
+    "why": "F028: the predicate's primitive is the CLI, not prose"
   }
 ]

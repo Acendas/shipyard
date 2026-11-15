@@ -1,0 +1,257 @@
+{
+  "captured:graduated": {
+    "code": 0,
+    "stdout": "IDEA-001: captured -> promoted (-> F001)",
+    "stderr": ""
+  },
+  "captured:rejected": {
+    "code": 0,
+    "stdout": "IDEA-001: captured -> rejected",
+    "stderr": ""
+  },
+  "captured:graduated-no-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+  },
+  "captured:rejected-with-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status rejected refuses --to — only a promoted idea has a target"
+  },
+  "captured:graduated-bad-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+  },
+  "captured:graduated-missing-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to F999 does not exist under spec/stories/ (or the legacy spec/features/, spec/bugs/)"
+  },
+  "captured:bogus": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "spec-state: unknown idea status \"bogus\". Allowed: captured, assessing, parked, promoted, rejected, landed (legacy: proposed, graduated)"
+  },
+  "captured:proposed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal idea status transition captured -> captured for IDEA-001. Valid next states from \"captured\": assessing, promoted, rejected, parked, landed."
+  },
+  "assessing:graduated": {
+    "code": 0,
+    "stdout": "IDEA-001: assessing -> promoted (-> F001)",
+    "stderr": ""
+  },
+  "assessing:rejected": {
+    "code": 0,
+    "stdout": "IDEA-001: assessing -> rejected",
+    "stderr": ""
+  },
+  "assessing:graduated-no-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+  },
+  "assessing:rejected-with-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status rejected refuses --to — only a promoted idea has a target"
+  },
+  "assessing:graduated-bad-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+  },
+  "assessing:graduated-missing-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to F999 does not exist under spec/stories/ (or the legacy spec/features/, spec/bugs/)"
+  },
+  "assessing:bogus": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "spec-state: unknown idea status \"bogus\". Allowed: captured, assessing, parked, promoted, rejected, landed (legacy: proposed, graduated)"
+  },
+  "assessing:proposed": {
+    "code": 0,
+    "stdout": "IDEA-001: assessing -> captured",
+    "stderr": ""
+  },
+  "parked:graduated": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal idea status transition parked -> promoted for IDEA-001. Valid next states from \"parked\": captured, assessing, rejected, landed."
+  },
+  "parked:rejected": {
+    "code": 0,
+    "stdout": "IDEA-001: parked -> rejected",
+    "stderr": ""
+  },
+  "parked:graduated-no-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+  },
+  "parked:rejected-with-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status rejected refuses --to — only a promoted idea has a target"
+  },
+  "parked:graduated-bad-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+  },
+  "parked:graduated-missing-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to F999 does not exist under spec/stories/ (or the legacy spec/features/, spec/bugs/)"
+  },
+  "parked:bogus": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "spec-state: unknown idea status \"bogus\". Allowed: captured, assessing, parked, promoted, rejected, landed (legacy: proposed, graduated)"
+  },
+  "parked:proposed": {
+    "code": 0,
+    "stdout": "IDEA-001: parked -> captured",
+    "stderr": ""
+  },
+  "promoted:graduated": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal idea status transition promoted -> promoted for IDEA-001. Valid next states from \"promoted\": (none — terminal)."
+  },
+  "promoted:rejected": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal idea status transition promoted -> rejected for IDEA-001. Valid next states from \"promoted\": (none — terminal)."
+  },
+  "promoted:graduated-no-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+  },
+  "promoted:rejected-with-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status rejected refuses --to — only a promoted idea has a target"
+  },
+  "promoted:graduated-bad-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+  },
+  "promoted:graduated-missing-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to F999 does not exist under spec/stories/ (or the legacy spec/features/, spec/bugs/)"
+  },
+  "promoted:bogus": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "spec-state: unknown idea status \"bogus\". Allowed: captured, assessing, parked, promoted, rejected, landed (legacy: proposed, graduated)"
+  },
+  "promoted:proposed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal idea status transition promoted -> captured for IDEA-001. Valid next states from \"promoted\": (none — terminal)."
+  },
+  "rejected:graduated": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal idea status transition rejected -> promoted for IDEA-001. Valid next states from \"rejected\": (none — terminal)."
+  },
+  "rejected:rejected": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal idea status transition rejected -> rejected for IDEA-001. Valid next states from \"rejected\": (none — terminal)."
+  },
+  "rejected:graduated-no-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+  },
+  "rejected:rejected-with-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status rejected refuses --to — only a promoted idea has a target"
+  },
+  "rejected:graduated-bad-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+  },
+  "rejected:graduated-missing-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to F999 does not exist under spec/stories/ (or the legacy spec/features/, spec/bugs/)"
+  },
+  "rejected:bogus": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "spec-state: unknown idea status \"bogus\". Allowed: captured, assessing, parked, promoted, rejected, landed (legacy: proposed, graduated)"
+  },
+  "rejected:proposed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal idea status transition rejected -> captured for IDEA-001. Valid next states from \"rejected\": (none — terminal)."
+  },
+  "landed:graduated": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal idea status transition landed -> promoted for IDEA-001. Valid next states from \"landed\": captured."
+  },
+  "landed:rejected": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal idea status transition landed -> rejected for IDEA-001. Valid next states from \"landed\": captured."
+  },
+  "landed:graduated-no-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+  },
+  "landed:rejected-with-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: idea set-status rejected refuses --to — only a promoted idea has a target"
+  },
+  "landed:graduated-bad-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+  },
+  "landed:graduated-missing-to": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: --to F999 does not exist under spec/stories/ (or the legacy spec/features/, spec/bugs/)"
+  },
+  "landed:bogus": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "spec-state: unknown idea status \"bogus\". Allowed: captured, assessing, parked, promoted, rejected, landed (legacy: proposed, graduated)"
+  },
+  "landed:proposed": {
+    "code": 0,
+    "stdout": "IDEA-001: landed -> captured",
+    "stderr": ""
+  },
+  "usage": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "usage: idea set-status <IDEA-NNN> <captured|assessing|promoted|rejected|parked> [--to <S###|E###>]"
+  },
+  "badId": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "spec-state: invalid idea id \"nope\" — expected IDEA-### (e.g. IDEA-045)"
+  },
+  "missing": {
+    "code": 4,
+    "stdout": "",
+    "stderr": "spec-state: IDEA-999 not found under spec/ideas/"
+  }
+}

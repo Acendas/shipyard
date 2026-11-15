@@ -1,0 +1,5 @@
+{
+  "code": 1,
+  "stdout": "DENY — terminal cursor write would be refused. Missing evidence:\n  - Missing pipeline_tick_completed event for stage=wave_2_gate — wave 2 never advanced through its completion gate",
+  "stderr": ""
+}

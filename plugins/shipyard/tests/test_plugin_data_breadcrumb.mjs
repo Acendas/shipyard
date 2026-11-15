@@ -24,7 +24,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -34,6 +34,8 @@ import {
   getProjectHash,
   breadcrumbCandidates,
   configTagForPluginsDir,
+  configPluginsDirFromConfigDir,
+  configPluginsDirFromPluginData,
 } from "../bin/shipyard-resolver.mjs";
 
 function setup() {
@@ -205,6 +207,35 @@ test("idempotent: a correct existing link is not recreated", () => {
 
     assert.equal(inoBefore, inoAfter, "correct link should not be recreated");
   } finally {
+    t.cleanup();
+  }
+});
+
+test("--plugin-dir session: the reader derives the install tag from CLAUDE_CONFIG_DIR, so it finds the breadcrumb the hook tagged from CLAUDE_PLUGIN_DATA", () => {
+  const t = setup();
+  let taggedCandidates = [];
+  const saved = { data: process.env.CLAUDE_PLUGIN_DATA, cfg: process.env.CLAUDE_CONFIG_DIR };
+  try {
+    const configDir = join(t.root, ".claude-work");
+    const configPluginsDir = join(configDir, "plugins");
+    const pluginData = join(configPluginsDir, "data", "shipyard-inline");
+    markInitialized(join(pluginData, "projects", t.hash));
+    // writer: the SessionStart hook has CLAUDE_PLUGIN_DATA
+    assert.equal(run({}, { CLAUDE_PLUGIN_DATA: pluginData }), 0);
+    taggedCandidates = breadcrumbCandidates(t.hash, { configTag: configTagForPluginsDir(configPluginsDir) });
+    // reader: a skill `!` subprocess has no CLAUDE_PLUGIN_DATA, only CLAUDE_CONFIG_DIR
+    delete process.env.CLAUDE_PLUGIN_DATA;
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    assert.deepEqual(breadcrumbCandidates(t.hash), taggedCandidates, "reader and writer agree on the tagged name");
+    assert.equal(configPluginsDirFromConfigDir(configDir), configPluginsDirFromPluginData(pluginData));
+    // no CLAUDE_CONFIG_DIR → the default install's plugins dir, never the untagged legacy name
+    delete process.env.CLAUDE_CONFIG_DIR;
+    assert.equal(configPluginsDirFromConfigDir(undefined), configPluginsDirFromPluginData(join(homedir(), ".claude", "plugins", "data", "x")));
+    assert.notEqual(breadcrumbCandidates(t.hash)[0], breadcrumbCandidates(t.hash, { legacy: true })[0]);
+  } finally {
+    if (saved.data !== undefined) process.env.CLAUDE_PLUGIN_DATA = saved.data; else delete process.env.CLAUDE_PLUGIN_DATA;
+    if (saved.cfg !== undefined) process.env.CLAUDE_CONFIG_DIR = saved.cfg; else delete process.env.CLAUDE_CONFIG_DIR;
+    for (const p of taggedCandidates) { try { rmSync(p); } catch { /* ignore */ } }
     t.cleanup();
   }
 });

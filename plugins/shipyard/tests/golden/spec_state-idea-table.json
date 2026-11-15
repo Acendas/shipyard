@@ -1,0 +1,27 @@
+{
+  "captured": [
+    "assessing",
+    "promoted",
+    "rejected",
+    "parked",
+    "landed"
+  ],
+  "assessing": [
+    "promoted",
+    "rejected",
+    "parked",
+    "captured",
+    "landed"
+  ],
+  "parked": [
+    "captured",
+    "assessing",
+    "rejected",
+    "landed"
+  ],
+  "promoted": [],
+  "rejected": [],
+  "landed": [
+    "captured"
+  ]
+}

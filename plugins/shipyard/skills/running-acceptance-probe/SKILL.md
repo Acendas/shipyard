@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Running an Acceptance Probe
 
-A probe is the smoke-test command that demonstrates a task's wiring works end-to-end — distinct from unit/integration tests, which assert behavior in isolation. The probe is the most important reliability artifact in Shipyard 2.0: it is the difference between "tests pass against a stub" and "the thing actually works."
+A probe is the smoke-test command that demonstrates a task's wiring works end-to-end — distinct from unit/integration tests, which assert behavior in isolation. It is the difference between "tests pass against a stub" and "the thing actually works."
 
 ## What Counts as an Acceptance Probe
 
@@ -41,10 +41,10 @@ The probe is authored alongside acceptance criteria (see `authoring-acceptance-p
 
 ## Inputs
 
-- `probe_command` — the shell command string. Must come from the task file's `acceptance_probe:` frontmatter.
+- `probe_command` — the shell command string. Must come from the step file's `acceptance_probe:` frontmatter.
 - `cwd` — the directory to run the probe from (typically the worktree path or the working branch checkout).
 - `timeout_seconds` — optional, default 60, max 300.
-- `session_name` — optional logcap session label (e.g., `T-042-probe`); see `## Output Capture`.
+- `session_name` — optional logcap session label (e.g., `T-042-probe`); see `How to Run It`.
 
 ## How to Run It
 
@@ -58,7 +58,7 @@ Bash(
 )
 ```
 
-Capture the full output (stdout + stderr) in the logcap file and the exit code from the Bash tool's return. Resolve the durable file with `shipyard-logcap path {session_name-or-task_id}-probe`.
+Capture the full output (stdout + stderr) in the logcap file and the exit code from the Bash tool's return. Resolve the durable file with `shipyard-logcap path {session_name-or-task_id}-probe`. Never use raw `tee` or run the probe bare first: the logcap file is the audit trail and recovery surface when the first run fails.
 
 **Run in a fresh shell.** The Bash tool already does this — each invocation spawns its own shell. Do not chain probes with `;` or `&&` to other setup commands; the probe must be self-contained. If setup is needed, that's a problem with the probe — fix the probe, not the runner.
 
@@ -87,30 +87,7 @@ Verdict mapping:
 
 The caller (`dispatching-task-loop` orchestrator-side, `/ship-review`, etc.) decides what to do with each verdict.
 
-## Output Capture
-
-The probe's output is captured by `shipyard-logcap`. Resolve the durable artifact immediately after the run:
-
-```
-shipyard-logcap path {session_name-or-task_id}-probe
-```
-
-This is required for any probe execution. The structured return above is the primary contract, but the logcap file is the audit trail and recovery surface when the first run fails. Do not use raw `tee` and do not run the probe bare before capturing.
-
-## Probe Failure Interpretation
-
-A probe FAIL is a **different signal** from a test FAIL:
-
-| Signal | Means | Caller's response |
-|---|---|---|
-| Test FAIL, probe not run | Unit/integration test caught a bug | Fix implementation, re-test |
-| Tests PASS, probe FAIL | Tests passed against incomplete or stubbed code | Re-dispatch subagent — wiring is broken (the most important case this whole architecture exists to catch) |
-| Tests FAIL, probe FAIL | Implementation is broken at multiple levels | Fix from the test outward, then re-probe |
-| Tests PASS, probe PASS | Real done | Mark `done`, commit, advance |
-| Probe TIMEOUT | Probe is poorly authored, OR the implementation hangs | Inspect; if hang, fix; if probe is too broad, narrow it |
-| Probe ERROR | Probe definition is wrong | Fix the probe in the task frontmatter; re-run |
-
-The middle row — **tests pass, probe fails** — is the one that justifies probes existing at all. It's the false-completion vector that pure unit-test discipline cannot catch.
+A probe FAIL while tests pass means the wiring is broken (tests passed against incomplete or stubbed code): re-dispatch. ERROR means fix the probe; TIMEOUT means the probe is poorly authored OR the implementation hangs (inspect; if a hang, fix the implementation, otherwise narrow the probe).
 
 ## When to Run a Probe
 
@@ -122,20 +99,7 @@ The middle row — **tests pass, probe fails** — is the one that justifies pro
 
 Probes are first-class artifacts. They are authored once (`authoring-acceptance-probe`) and re-run on demand. Some hygiene rules:
 
-- **Probes live in the task file's frontmatter** (`acceptance_probe:`), not in scripts or fixtures. They are the spec's smoke contract.
+- **Probes live in the step file's frontmatter** (`acceptance_probe:`), not in scripts or fixtures. They are the spec's smoke contract.
 - **Probes are versioned with the task.** When the task's behavior changes, the probe must change.
-- **Probes are not load tests.** A probe runs once and proves wiring; performance is a separate concern.
-- **Probes are not security tests.** Security is `/ship-review`'s scanner pass.
 
-## What This Skill Does NOT Do
-
-- It does not author probes. See `authoring-acceptance-probe` (built during `/ship-sprint` planning).
-- It does not decide whether to re-dispatch on failure. See `dispatching-task-loop` for the orchestrator-side action rules.
-- It does not validate probe quality (whether the probe actually exercises the wiring). That's a `/ship-review` concern, surfaced via `anti-stub-scan` for stub-shaped probes.
-
-## Bottom Line
-
-- One command, one shell, one exit code.
-- PASS only if exit 0 AND output tail non-empty.
-- TIMEOUT and ERROR are distinct from FAIL — they tell the caller to fix the probe, not the implementation.
-- The "tests pass, probe fails" case is the whole point. Catch it.
+This skill does not author probes (`authoring-acceptance-probe`), choose redispatch on failure (`dispatching-task-loop`), or judge probe quality (`/ship-review`).

@@ -1,0 +1,21 @@
+{
+  "lifecycleExports": [
+    "BACKLOG_REMOVING_STATUSES",
+    "EPIC_TRANSITIONS",
+    "FEATURE_TRANSITIONS",
+    "IDEA_DISPOSITIONED",
+    "IDEA_STATUS_ALIASES",
+    "IDEA_TRANSITIONS",
+    "LEGACY_BUG_STATUS_ALIASES",
+    "STORY_TRANSITIONS",
+    "TASK_TRANSITIONS",
+    "normalizeStatus",
+    "validateStatusTransition"
+  ],
+  "bugTable": false,
+  "bugSetStatus": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "spec-state: unknown story status \"fixed\". Allowed: proposed, approved, in-progress, done, deployed, deferred, rejected, released"
+  }
+}

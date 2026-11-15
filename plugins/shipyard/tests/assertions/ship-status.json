@@ -1,247 +1,268 @@
 [
-  {
-    "name": "has_diagnose_subcommand",
-    "type": "contains",
-    "pattern": "shipyard-context diagnose"
-  },
-  {
-    "name": "status_dashboard_context_is_bundled",
-    "type": "contains",
-    "pattern": "shipyard-context status-dashboard"
-  },
-  {
-    "name": "has_diagnose_section",
-    "type": "contains",
-    "pattern": "diagnose section|/ship-status diagnose"
-  },
-  {
-    "name": "has_dashboard",
-    "type": "contains",
-    "pattern": "[Dd]ashboard|[Pp]rogress|[Oo]verview"
-  },
-  {
-    "name": "has_schema_validation",
-    "type": "contains",
-    "pattern": "Frontmatter Schema|frontmatter"
-  },
-  {
-    "name": "has_auto_fix",
-    "type": "contains",
-    "pattern": "Auto-fix|auto-fix|silently"
-  },
-  {
-    "name": "has_backlog_check",
-    "type": "contains",
-    "pattern": "Backlog Consistency"
-  },
-  {
-    "name": "has_sprint_check",
-    "type": "contains",
-    "pattern": "Sprint Consistency"
-  },
-  {
-    "name": "has_next_action",
-    "type": "contains",
-    "pattern": "NEXT ACTION"
-  },
-  {
-    "name": "no_ship_reconcile_ref",
-    "type": "not_contains",
-    "pattern": "/ship-reconcile"
-  },
-  {
-    "name": "has_frontmatter_name",
-    "type": "frontmatter_field",
-    "field": "name",
-    "value": "ship-status"
-  },
-  {
-    "name": "has_execution_lock_handling",
-    "type": "contains",
-    "pattern": "\\.active-execution\\.json"
-  },
-  {
-    "name": "has_stale_lock_cleanup",
-    "type": "contains",
-    "pattern": "stale|2.*hour|escape hatch"
-  },
-  {
-    "name": "detects_paused_cursor",
-    "type": "contains",
-    "pattern": "status: paused",
-    "why": "v2.9.0: HANDOFF.md retired \u2014 a paused pipeline is a cursor with status: paused; ship-status surfaces it as RESUME"
-  },
-  {
-    "name": "has_id_reference_integrity",
-    "type": "contains",
-    "pattern": "ID.*Reference|[Dd]uplicate.*ID|broken.*dep"
-  },
-  {
-    "name": "has_git_alignment_check",
-    "type": "contains",
-    "pattern": "Git Alignment"
-  },
-  {
-    "name": "has_file_hygiene",
-    "type": "contains",
-    "pattern": "File Hygiene"
-  },
-  {
-    "name": "has_file_size_health",
-    "type": "contains",
-    "pattern": "File Size|rollover"
-  },
-  {
-    "name": "has_reconcile_log",
-    "type": "contains",
-    "pattern": "reconcile-log"
-  },
-  {
-    "name": "has_health_subcommand",
-    "type": "contains",
-    "pattern": "ship-status health|throughput"
-  },
-  {
-    "name": "has_sprint_subcommand",
-    "type": "contains",
-    "pattern": "ship-status sprint|per-wave"
-  },
-  {
-    "name": "uses_ask_user_question",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "uses_shipyard_data_path",
-    "type": "contains",
-    "pattern": "shipyard-data|shipyard-context"
-  },
-  {
-    "name": "no_shell_sd_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-data"
-  },
-  {
-    "name": "no_shell_sc_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-context"
-  },
-  {
-    "name": "no_sd_shell_var_assignment",
-    "type": "not_contains",
-    "pattern": "SD=\\$\\(shipyard-data"
-  },
-  {
-    "name": "task_status_enum_includes_needs_attention",
-    "type": "contains",
-    "pattern": "pending.*in-progress.*done.*blocked.*needs-attention",
-    "dotall": true
-  },
-  {
-    "name": "status_indicator_for_needs_attention",
-    "type": "contains",
-    "pattern": "\u26a0\ufe0f needs-attention|\u26a0 needs-attention|needs-attention.*\u26a0"
-  },
-  {
-    "name": "needs_attention_distinct_from_blocked",
-    "type": "contains",
-    "pattern": "needs-attention.*blocked|distinct from.*blocked|tried and failed",
-    "dotall": true
-  },
-  {
-    "name": "prohibits_bash_redirect_for_state",
-    "type": "contains",
-    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
-  },
-  {
-    "name": "renders_review_cursor",
-    "type": "contains",
-    "pattern": "SHIPYARD_REVIEW_CURSOR_\\*|SHIPYARD_REVIEW_CURSOR"
-  },
-  {
-    "name": "renders_execute_cursor",
-    "type": "contains",
-    "pattern": "SHIPYARD_EXECUTE_CURSOR_\\*|SHIPYARD_EXECUTE_CURSOR"
-  },
-  {
-    "name": "status_does_not_read_cursors_directly",
-    "type": "not_contains",
-    "pattern": "Read `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR\\.md`|Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md`|EXECUTE-CURSOR\\.md.*REVIEW-CURSOR\\.md.*Validate the frontmatter",
-    "why": "ship-status consumes cursor state from shipyard-context status-dashboard instead of parsing cursor files itself."
-  },
-  {
-    "name": "renders_pipeline_stage",
-    "type": "contains",
-    "pattern": "[Pp]ipeline [Ss]tage|[Cc]urrent [Ss]tage|[Cc]ursor"
-  },
-  {
-    "name": "renders_terminal_state",
-    "type": "contains",
-    "pattern": "terminal:|[Tt]erminal|pipeline_terminal"
-  },
-  {
-    "name": "renders_stuck_warning",
-    "type": "contains",
-    "pattern": "pipeline_stuck|stuck_counter|stuck"
-  },
-  {
-    "name": "no_backlog_hand_edit_instruction",
-    "type": "not_contains",
-    "pattern": "archive completed items by Edit",
-    "why": "v3.6.0 wave 2 binding resolution: ship-status stays read-only \u2014 Check 7 surfaces the recommendation instead of hand-Editing BACKLOG.md."
-  },
-  {
-    "name": "backlog_size_check_points_at_ship_backlog_archive",
-    "type": "contains",
-    "pattern": "/ship-backlog archive",
-    "why": "v3.6.0 wave 2: Check 7's BACKLOG.md-oversize remediation now tells the user to run /ship-backlog archive rather than mutating BACKLOG.md itself."
-  },
-  {
-    "name": "uses_lock_status",
-    "type": "contains",
-    "pattern": "lock status",
-    "why": "v3.7.0 wave 3: File Hygiene's skill-mutex rendering reads both lock files in one call via shipyard-data lock status instead of hand-parsing JSON."
-  },
-  {
-    "name": "uses_lock_release_force",
-    "type": "contains",
-    "pattern": "lock release.*--force",
-    "why": "v3.7.0 wave 3: stale/user-confirmed lock clearing routes through shipyard-data lock release --force instead of a hand Write of the cleared sentinel."
-  },
-  {
-    "name": "render_provenance_negation",
-    "type": "contains",
-    "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
-  },
-  {
-    "name": "check1_uses_doctor_cli",
-    "type": "contains",
-    "pattern": "shipyard-data doctor",
-    "why": "perf plan fix 3.1/3.2: Check 1 used to Glob every .md under spec/ and Read each one (measured 779 files and growing on one customer project) \u2014 now delegates schema validation to the incremental, watermark-gated shipyard-data doctor CLI."
-  },
-  {
-    "name": "check1_no_whole_tree_glob_read",
-    "type": "not_contains",
-    "pattern": "Use Glob to enumerate every `\\.md` file under",
-    "why": "fix 3.1: the old whole-tree Glob-then-Read-every-file instruction is retired in favor of the doctor CLI's incremental watermark scan."
-  },
-  {
-    "name": "check1_describes_watermark_contract",
-    "type": "contains",
-    "pattern": "watermark",
-    "why": "fix 3.1: Check 1 prose must describe the incremental contract \u2014 validate files whose mtime exceeds the last clean-validation timestamp, full sweep on demand or on schema-version change."
-  },
-  {
-    "name": "check1_full_sweep_escape_hatch",
-    "type": "contains",
-    "pattern": "--full",
-    "why": "fix 3.1: a full sweep must remain available on demand (manual bulk edit under spec/) or automatically on schema-version mismatch, not just the incremental path."
-  },
-  {
-    "name": "check1_auto_fix_targets_named_file",
-    "type": "contains",
-    "pattern": "never re-Glob-and-Read the whole tree",
-    "why": "fix 3.1: auto-fix must Edit only the specific file doctor's finding names, not re-scan the whole tree to locate it."
-  }
+ {
+  "name": "has_diagnose_subcommand",
+  "type": "contains",
+  "pattern": "shipyard-context diagnose"
+ },
+ {
+  "name": "status_dashboard_context_is_bundled",
+  "type": "contains",
+  "pattern": "shipyard-context status-dashboard"
+ },
+ {
+  "name": "has_diagnose_section",
+  "type": "contains",
+  "pattern": "diagnose section|/ship-status diagnose"
+ },
+ {
+  "name": "has_dashboard",
+  "type": "contains",
+  "pattern": "[Dd]ashboard|[Pp]rogress|[Oo]verview"
+ },
+ {
+  "name": "has_schema_validation",
+  "type": "contains",
+  "pattern": "Frontmatter Schema|frontmatter"
+ },
+ {
+  "name": "has_auto_fix",
+  "type": "contains",
+  "pattern": "Auto-fix|auto-fix|silently"
+ },
+ {
+  "name": "has_backlog_check",
+  "type": "contains",
+  "pattern": "Backlog Consistency"
+ },
+ {
+  "name": "has_sprint_check",
+  "type": "contains",
+  "pattern": "Sprint Consistency"
+ },
+ {
+  "name": "has_next_action",
+  "type": "contains",
+  "pattern": "NEXT ACTION"
+ },
+ {
+  "name": "no_ship_reconcile_ref",
+  "type": "not_contains",
+  "pattern": "/ship-reconcile"
+ },
+ {
+  "name": "has_frontmatter_name",
+  "type": "frontmatter_field",
+  "field": "name",
+  "value": "ship-status"
+ },
+ {
+  "name": "has_execution_lock_handling",
+  "type": "contains",
+  "pattern": "\\.active-execution\\.json"
+ },
+ {
+  "name": "has_stale_lock_cleanup",
+  "type": "contains",
+  "pattern": "stale|2.*hour|escape hatch"
+ },
+ {
+  "name": "detects_paused_cursor",
+  "type": "contains",
+  "pattern": "status: paused",
+  "why": "v2.9.0: HANDOFF.md retired — a paused pipeline is a cursor with status: paused; ship-status surfaces it as RESUME"
+ },
+ {
+  "name": "has_id_reference_integrity",
+  "type": "contains",
+  "pattern": "ID.*Reference|[Dd]uplicate.*ID|broken.*dep"
+ },
+ {
+  "name": "has_git_alignment_check",
+  "type": "contains",
+  "pattern": "Git Alignment"
+ },
+ {
+  "name": "has_file_hygiene",
+  "type": "contains",
+  "pattern": "File Hygiene"
+ },
+ {
+  "name": "has_file_size_health",
+  "type": "contains",
+  "pattern": "File Size|rollover"
+ },
+ {
+  "name": "has_reconcile_log",
+  "type": "contains",
+  "pattern": "reconcile-log"
+ },
+ {
+  "name": "has_health_subcommand",
+  "type": "contains",
+  "pattern": "ship-status health|throughput"
+ },
+ {
+  "name": "has_sprint_subcommand",
+  "type": "contains",
+  "pattern": "ship-status sprint|per-wave"
+ },
+ {
+  "name": "uses_ask_user_question",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "uses_shipyard_data_path",
+  "type": "contains",
+  "pattern": "shipyard-data|shipyard-context"
+ },
+ {
+  "name": "no_shell_sd_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data"
+ },
+ {
+  "name": "no_shell_sc_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context"
+ },
+ {
+  "name": "no_sd_shell_var_assignment",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data"
+ },
+ {
+  "name": "task_status_enum_includes_needs_attention",
+  "type": "contains",
+  "pattern": "pending.*in-progress.*done.*blocked.*needs-attention",
+  "dotall": true
+ },
+ {
+  "name": "status_indicator_for_needs_attention",
+  "type": "contains",
+  "pattern": "⚠️ needs-attention|⚠ needs-attention|needs-attention.*⚠"
+ },
+ {
+  "name": "needs_attention_distinct_from_blocked",
+  "type": "contains",
+  "pattern": "needs-attention.*blocked|distinct from.*blocked|tried and failed",
+  "dotall": true
+ },
+ {
+  "name": "prohibits_bash_redirect_for_state",
+  "type": "contains",
+  "pattern": "never use echo, printf, or shell redirects",
+  "target": "plugin:bin/shipyard-context.mjs",
+  "why": "S016/P062: canonical home is CANONICAL_STARTUP_RULES in the startup CLI."
+ },
+ {
+  "name": "renders_review_cursor",
+  "type": "contains",
+  "pattern": "SHIPYARD_REVIEW_CURSOR_\\*|SHIPYARD_REVIEW_CURSOR"
+ },
+ {
+  "name": "renders_execute_cursor",
+  "type": "contains",
+  "pattern": "SHIPYARD_EXECUTE_CURSOR_\\*|SHIPYARD_EXECUTE_CURSOR"
+ },
+ {
+  "name": "status_does_not_read_cursors_directly",
+  "type": "not_contains",
+  "pattern": "Read `<SHIPYARD_DATA>/sprints/current/EXECUTE-CURSOR\\.md`|Read `<SHIPYARD_DATA>/sprints/current/REVIEW-CURSOR\\.md`|EXECUTE-CURSOR\\.md.*REVIEW-CURSOR\\.md.*Validate the frontmatter",
+  "why": "ship-status consumes cursor state from shipyard-context status-dashboard instead of parsing cursor files itself."
+ },
+ {
+  "name": "renders_pipeline_stage",
+  "type": "contains",
+  "pattern": "[Pp]ipeline [Ss]tage|[Cc]urrent [Ss]tage|[Cc]ursor"
+ },
+ {
+  "name": "renders_terminal_state",
+  "type": "contains",
+  "pattern": "terminal:|[Tt]erminal|pipeline_terminal"
+ },
+ {
+  "name": "renders_stuck_warning",
+  "type": "contains",
+  "pattern": "pipeline_stuck|stuck_counter|stuck"
+ },
+ {
+  "name": "no_backlog_hand_edit_instruction",
+  "type": "not_contains",
+  "pattern": "archive completed items by Edit",
+  "why": "v3.6.0 wave 2 binding resolution: ship-status stays read-only — Check 7 surfaces the recommendation instead of hand-Editing BACKLOG.md."
+ },
+ {
+  "name": "backlog_size_check_points_at_ship_backlog_archive",
+  "type": "contains",
+  "pattern": "/ship-backlog archive",
+  "why": "v3.6.0 wave 2: Check 7's BACKLOG.md-oversize remediation now tells the user to run /ship-backlog archive rather than mutating BACKLOG.md itself."
+ },
+ {
+  "name": "uses_lock_status",
+  "type": "contains",
+  "pattern": "lock status",
+  "why": "v3.7.0 wave 3: File Hygiene's skill-mutex rendering reads both lock files in one call via shipyard-data lock status instead of hand-parsing JSON."
+ },
+ {
+  "name": "uses_lock_release_force",
+  "type": "contains",
+  "pattern": "lock release.*--force",
+  "why": "v3.7.0 wave 3: stale/user-confirmed lock clearing routes through shipyard-data lock release --force instead of a hand Write of the cleared sentinel."
+ },
+ {
+  "name": "render_provenance_negation",
+  "type": "contains",
+  "pattern": "does not count as rendered",
+  "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P062: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+  "target": "plugin:bin/shipyard-context.mjs"
+ },
+ {
+  "name": "check1_uses_doctor_cli",
+  "type": "contains",
+  "pattern": "shipyard-data doctor",
+  "why": "perf plan fix 3.1/3.2: Check 1 used to Glob every .md under spec/ and Read each one (measured 779 files and growing on one customer project) — now delegates schema validation to the incremental, watermark-gated shipyard-data doctor CLI."
+ },
+ {
+  "name": "check1_no_whole_tree_glob_read",
+  "type": "not_contains",
+  "pattern": "Use Glob to enumerate every `\\.md` file under",
+  "why": "fix 3.1: the old whole-tree Glob-then-Read-every-file instruction is retired in favor of the doctor CLI's incremental watermark scan."
+ },
+ {
+  "name": "check1_describes_watermark_contract",
+  "type": "contains",
+  "pattern": "watermark",
+  "why": "fix 3.1: Check 1 prose must describe the incremental contract — validate files whose mtime exceeds the last clean-validation timestamp, full sweep on demand or on schema-version change."
+ },
+ {
+  "name": "check1_full_sweep_escape_hatch",
+  "type": "contains",
+  "pattern": "--full",
+  "why": "fix 3.1: a full sweep must remain available on demand (manual bulk edit under spec/) or automatically on schema-version mismatch, not just the incremental path."
+ },
+ {
+  "name": "check1_auto_fix_targets_named_file",
+  "type": "contains",
+  "pattern": "never re-Glob-and-Read the whole tree",
+  "why": "fix 3.1: auto-fix must Edit only the specific file doctor's finding names, not re-scan the whole tree to locate it."
+ },
+ {
+  "name": "render_before_ask_short_reminder_present",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "S016/P062: the command keeps only the short reminder; the full doctrine is printed at startup (CANONICAL_STARTUP_RULES)."
+ },
+ {
+  "name": "onboarding_runs_without_asking",
+  "type": "contains",
+  "pattern": "run `SHIPYARD_ONBOARDING_COMMAND` immediately",
+  "why": "an empty dashboard plus 'say the word' was the blind first impression"
+ },
+ {
+  "name": "status_reconciles_drift",
+  "type": "contains",
+  "pattern": "shipyard-data reconcile",
+  "why": "4.6: status repairs and reports state drift"
+ }
 ]

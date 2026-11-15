@@ -40,15 +40,20 @@
  * so a malicious skill body cannot escape the plugin tree.
  */
 
+import { planInfo, readonlyStories } from "./sprint-ahead.mjs";
 import { existsSync, lstatSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, closeSync, readSync } from "node:fs";
+import { eventTypeAliases } from "./vocab.mjs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
 import { breadcrumbCandidates, getDataDir, getProjectHash, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
 import { evaluateExecuteTerminal, evaluateReviewTerminal, parseFrontmatter } from "./terminal-gate.mjs";
 import { acquireLock, checkLock, resolveSessionIdentity } from "./skill-lock.mjs";
+import { readEvents, activeTime } from "./event-report.mjs";
 import { readCursor } from "./cursor-cli.mjs";
 import { ensureInitializedDataDir, renderOnboardingLines } from "./init-data.mjs";
+import { readQueue as readDiscussQueue, summarize as summarizeDiscussQueue } from "./discuss-queue.mjs";
+import { waitingTopics as waitingDiscussTopics } from "./discuss-questions.mjs";
 
 /**
  * Validate a user-supplied relative path and join it to base. Returns the
@@ -121,8 +126,10 @@ function listDir(dirpath, limit) {
 }
 
 function countDir(dirpath) {
+  // Records only: `.id-seq` and other dotfiles live beside them and used to
+  // make "Ideas: 3" with two idea files.
   try {
-    return readdirSync(dirpath).length;
+    return readdirSync(dirpath).filter((n) => !n.startsWith(".")).length;
   } catch {
     return 0;
   }
@@ -236,6 +243,13 @@ const LIST_REGISTRY = {
     limit: 20,
     fallback: "No epics yet",
   },
+  stories: {
+    kind: "dir",
+    path: ["spec", "stories"],
+    limit: 30,
+    fallback: "No stories yet",
+  },
+  // legacy (pre-v4) story directory; read-only alias of `stories`
   features: {
     kind: "dir",
     path: ["spec", "features"],
@@ -254,14 +268,11 @@ const LIST_REGISTRY = {
     limit: 5,
     fallback: "No active debug sessions",
   },
-  "quick-tasks": {
-    kind: "glob-sort",
-    pattern: "spec/tasks/Q-*.md",
-    fallback: "No quick tasks yet",
-  },
 };
 
 const COUNT_REGISTRY = {
+  stories: ["spec", "stories"],
+  steps: ["spec", "steps"],
   bugs: ["spec", "bugs"],
   features: ["spec", "features"],
   epics: ["spec", "epics"],
@@ -394,7 +405,7 @@ function renderDraftState(dataDir, out, kind) {
   const entry = kind === "research"
     ? { prefix: "SHIPYARD_RESEARCH_DRAFT", path: join("spec", ".research-draft.md") }
     : kind === "sprint"
-      ? { prefix: "SHIPYARD_SPRINT_DRAFT", path: join("sprints", "current", "SPRINT-DRAFT.md") }
+      ? { prefix: "SHIPYARD_SPRINT_DRAFT", path: join("sprints", (() => { try { return planInfo(dataDir).mode === "draft-ahead" ? "next" : "current"; } catch { return "current"; } })(), "SPRINT-DRAFT.md") }
       : null;
   if (!entry) {
     out("SHIPYARD_DRAFT_ERROR=unknown-kind");
@@ -432,15 +443,61 @@ function renderProjectClaudeSection(out, lines = 50) {
   out(result ?? "No CLAUDE.md");
 }
 
-function renderSkillStartup(dataDir, out) {
+// Canonical startup rules: the single home of the render-before-ask and paths
+// rules. Printed by every command, so every word costs every startup (F016
+// AC-2): only enforced / damage-preventing rules stay, one sentence each
+// (F016 AC-4 as decided 2026-11-11). Printed once at top-level skill startup
+// only; mid-skill calls (cursor-state, draft-state) pass canonical=false so the
+// text is not re-loaded. No shell-specific tokens.
+const CANONICAL_STARTUP_RULES = [
+  "SHIPYARD_STARTUP_RULES:",
+  "Render before asking. Before every AskUserQuestion, write the decision context as assistant chat text in this response. Anything else (tool results, files, the question itself) does not count as rendered; options show as a compact card. One question per card: write each question and its explanation in the chat first, then call the tool for that question alone. The card holds only that short question and short choices (a hook refuses more).",
+  "Recovery: if the user can't see what you reference, render it in full before asking again.",
+  "Talking to the user: work quietly (no step-by-step account, no line per helper that finishes); a progress update is one line: a few words plus a small visual such as [████░░] 4/6. When you explain or ask, start with a summary readable in 15 seconds (40 words or fewer), then show it with a picture, a table or a real example before more words. Plain everyday words; the reader may not be an expert.",
+  "Paths: use the literal absolute SHIPYARD_DATA prefix, also in Agent prompts; no `~`, `$HOME`, or shell variables in file_path; never hardcode paths or look in other worktrees; never cd into the data directory; never use echo, printf, or shell redirects to write state files (use Write).",
+];
+
+function renderSkillStartup(dataDir, out, { canonical = true } = {}) {
   out(`SHIPYARD_DATA=${dataDir}`);
   const status = renderOnboardingLines(dataDir, out);
+  if (canonical && !status.required) {
+    for (const line of CANONICAL_STARTUP_RULES) out(line);
+  }
   return status.required;
 }
 
+// One-line report summary for the status dashboard (F010 AC-15). Scope: the
+// current sprint's events plus events with no `sprint` field (explicitly
+// counted as "unscoped", never guessed). Prints NOTHING when there are no events.
+function renderReportSummary(dataDir, out) {
+  let sprint = null;
+  try {
+    const m = /^id:\s*"?([^"\r\n]+?)"?\s*$/m.exec(readFileSync(join(dataDir, "sprints", "current", "SPRINT.md"), "utf8"));
+    sprint = m ? m[1].trim() : null;
+  } catch {}
+  let evs;
+  try {
+    evs = readEvents(dataDir).events;
+  } catch {
+    return;
+  }
+  const has = (e) => typeof e.sprint === "string" && e.sprint.trim();
+  const scoped = sprint ? evs.filter((e) => !has(e) || e.sprint.trim() === sprint) : evs;
+  if (scoped.length === 0) return;
+  const unscoped = scoped.filter((e) => !has(e)).length;
+  const { activeMs, silentMs } = activeTime(scoped);
+  const m = (ms) => (ms / 60000).toFixed(1);
+  out(
+    `Report: ${sprint ?? "all sprints"} | ${scoped.length} events (${unscoped} unscoped) | ` +
+      `active ${m(activeMs)}m | silent ${m(silentMs)}m | details: shipyard-data report time`,
+  );
+}
+
 function main() {
-  const cmd = process.argv[2] ?? "help";
-  const args = process.argv.slice(3);
+  // Asking for help never runs the command (4.13.6).
+  const wantsHelp = (() => { const a = process.argv.slice(3); const cut = a.indexOf("--"); return (cut === -1 ? a : a.slice(0, cut)).some((x) => x === "--help" || x === "-h"); })();
+  const cmd = wantsHelp ? "help" : (process.argv[2] ?? "help");
+  const args = wantsHelp ? [] : process.argv.slice(3);
 
   // `diagnose` must run even when the data dir CANNOT be resolved — that's
   // precisely the failure a user runs diagnose to investigate (e.g. a
@@ -498,6 +555,18 @@ function main() {
         out("SHIPYARD_LOCK_NOTICE:");
         for (const line of lock.message.trimEnd().split("\n")) out(line);
       }
+      // 4.17: a sprint can be planned while another one runs. The CLI says
+      // where this planner writes: sprints/next/ when a sprint owns current/.
+      if (lock.json.running_beside?.length) out(`SHIPYARD_RUNNING_BESIDE=${lock.json.running_beside.join(",")}`);
+      try {
+        const pi = planInfo(sd);
+        out(`SHIPYARD_SPRINT_PLAN_MODE=${pi.mode}`);
+        out(`SHIPYARD_SPRINT_PLAN_DIR=${pi.dir}`);
+        out(`SHIPYARD_SPRINT_PLAN_ID=${pi.id}`);
+        if (pi.active) out(`SHIPYARD_ACTIVE_SPRINT=${pi.active.id} (${pi.active.status})`);
+        if (pi.next) out(`SHIPYARD_NEXT_SPRINT_DRAFT=${pi.next.id} (${pi.next.status}; stories ${pi.next.stories.join(", ") || "none"})`);
+        if (pi.promotable) out(`SHIPYARD_NEXT_SPRINT_READY=${pi.next.id}`);
+      } catch { /* plan info is advisory */ }
       renderViewSection(sd, out, "config");
       renderViewSection(sd, out, "backlog");
       renderViewSection(sd, out, "sprint");
@@ -531,6 +600,7 @@ function main() {
       out("SHIPYARD_LOCK_ACQUIRED=true");
       out(`SHIPYARD_LOCK_DEPTH=${lock.json.depth ?? 1}`);
       if (lock.json.cross_lock_allowed) out(`SHIPYARD_LOCK_CROSS_ALLOWED=${lock.json.cross_lock_allowed}`);
+      if (lock.json.running_beside?.length) out(`SHIPYARD_RUNNING_BESIDE=${lock.json.running_beside.join(",")}`);
       if (lock.message) {
         out("SHIPYARD_LOCK_NOTICE:");
         for (const line of lock.message.trimEnd().split("\n")) out(line);
@@ -543,44 +613,6 @@ function main() {
       renderViewSection(sd, out, "codebase");
       break;
     }
-    case "quick-task": {
-      if (renderSkillStartup(sd, out)) break;
-      const { sessionId, unverified } = resolveSessionIdentity([]);
-      const planning = checkLock(sd, "planning", { sessionId, unverified });
-
-      if (!planning.ok) {
-        out("SHIPYARD_PLANNING_LOCK_CLEAR=false");
-        out("SHIPYARD_LOCK_ACQUIRED=false");
-        out("SHIPYARD_LOCK_BLOCKED:");
-        for (const line of (planning.message || "Planning lock blocked").trimEnd().split("\n")) out(line);
-        break;
-      }
-
-      out("SHIPYARD_PLANNING_LOCK_CLEAR=true");
-      out(`SHIPYARD_PLANNING_LOCK_STATE=${planning.json.state ?? "unknown"}`);
-      const lock = acquireLock(sd, "execution", {
-        skill: "ship-quick",
-        sessionId,
-        unverified,
-      });
-      if (!lock.ok) {
-        out("SHIPYARD_LOCK_ACQUIRED=false");
-        out("SHIPYARD_LOCK_BLOCKED:");
-        for (const line of (lock.message || "Execution lock blocked").trimEnd().split("\n")) out(line);
-        break;
-      }
-
-      out("SHIPYARD_LOCK_ACQUIRED=true");
-      out(`SHIPYARD_LOCK_DEPTH=${lock.json.depth ?? 1}`);
-      if (lock.message) {
-        out("SHIPYARD_LOCK_NOTICE:");
-        for (const line of lock.message.trimEnd().split("\n")) out(line);
-      }
-      renderViewSection(sd, out, "config");
-      renderViewSection(sd, out, "codebase", 30);
-      renderListSection(sd, out, "quick-tasks");
-      break;
-    }
     case "debug-session": {
       if (renderSkillStartup(sd, out)) break;
       renderListSection(sd, out, "debug-sessions");
@@ -591,6 +623,7 @@ function main() {
       if (renderSkillStartup(sd, out)) break;
       renderViewSection(sd, out, "config");
       renderViewSection(sd, out, "codebase", 30);
+      renderListSection(sd, out, "stories", 20);
       renderListSection(sd, out, "features", 20);
       renderViewSection(sd, out, "sprint");
       renderViewSection(sd, out, "sprint-progress", 20);
@@ -615,17 +648,11 @@ function main() {
       renderViewSection(sd, out, "metrics");
       break;
     }
-    case "bug-context": {
-      if (renderSkillStartup(sd, out)) break;
-      out(`Bugs: ${countDir(join(sd, "spec", "bugs"))}`);
-      renderViewSection(sd, out, "sprint", 10);
-      break;
-    }
     case "spec-context": {
       const c = (...p) => countDir(join(sd, ...p));
       if (renderSkillStartup(sd, out)) break;
       out(
-        `Epics: ${c("spec", "epics")} | Features: ${c("spec", "features")} | ` +
+        `Stories: ${c("spec", "stories")} | Steps: ${c("spec", "steps")} | Epics: ${c("spec", "epics")} | Features: ${c("spec", "features")} | ` +
           `Tasks: ${c("spec", "tasks")} | Bugs: ${c("spec", "bugs")} | ` +
           `Ideas: ${c("spec", "ideas")} | References: ${c("spec", "references")}`,
       );
@@ -650,25 +677,41 @@ function main() {
       renderViewSection(sd, out, "metrics", 50);
       out(`Debug sessions: ${activeDebugCount(sd)} active`);
       out(
-        `Features: ${c("spec", "features")} | Epics: ${c("spec", "epics")} | ` +
+        `Stories: ${c("spec", "stories")} | Features: ${c("spec", "features")} | Epics: ${c("spec", "epics")} | ` +
           `Bugs: ${c("spec", "bugs")} | Ideas: ${c("spec", "ideas")}`,
       );
+      renderReportSummary(sd, out);
       break;
     }
     case "cursor-state": {
-      if (renderSkillStartup(sd, out)) break;
+      if (renderSkillStartup(sd, out, { canonical: false })) break;
       renderCursorState(sd, out, process.argv[3] ?? "");
       break;
     }
     case "draft-state": {
-      if (renderSkillStartup(sd, out)) break;
+      if (renderSkillStartup(sd, out, { canonical: false })) break;
       renderDraftState(sd, out, process.argv[3] ?? "");
       break;
     }
     case "discuss-context": {
       if (renderSkillStartup(sd, out)) break;
+      // v4 (F026): a CLI-owned discuss queue survives a dead session; /ship-discuss
+      // resumes CHAINED mode at the recorded position when ACTIVE is true.
+      {
+        const q = readDiscussQueue(sd);
+        const qs = q ? summarizeDiscussQueue(q) : null;
+        out(`SHIPYARD_DISCUSS_QUEUE_ACTIVE=${qs?.active ? "true" : "false"}`);
+        // v4.18: questions raised by research and not yet answered survive a
+        // compacted or restarted session; the new one asks them before anything else.
+        const dq = waitingDiscussTopics(sd);
+        if (dq.waiting.length) out(`SHIPYARD_DISCUSS_QUESTIONS_WAITING=${dq.waiting.map((x) => `${x.topic}:${x.ids.join(",")}`).join(" ")}`);
+        if (qs?.active) {
+          out(`SHIPYARD_DISCUSS_QUEUE_POSITION=${qs.done}/${qs.total}`);
+          out(`SHIPYARD_DISCUSS_QUEUE_CURRENT=${qs.current}`);
+        }
+      }
       const { sessionId, unverified } = resolveSessionIdentity([]);
-      const lock = acquireLock(sd, "planning", {
+      const lock = acquireLock(sd, "discuss", {
         skill: "ship-discuss",
         sessionId,
         unverified,
@@ -677,13 +720,22 @@ function main() {
       if (!lock.ok) {
         out("SHIPYARD_LOCK_ACQUIRED=false");
         out("SHIPYARD_LOCK_BLOCKED:");
-        for (const line of (lock.message || "Planning lock blocked").trimEnd().split("\n")) out(line);
+        for (const line of (lock.message || "Discuss lock blocked").trimEnd().split("\n")) out(line);
         break;
       }
 
       out("SHIPYARD_LOCK_ACQUIRED=true");
       out(`SHIPYARD_LOCK_DEPTH=${lock.json.depth ?? 1}`);
       if (lock.json.cross_lock_allowed) out(`SHIPYARD_LOCK_CROSS_ALLOWED=${lock.json.cross_lock_allowed}`);
+      // 4.17: other commands never block a discussion. It is told what runs
+      // beside it and which stories belong to a sprint (running, or approved
+      // and waiting), so it leaves them alone.
+      if (lock.json.running_beside?.length) out(`SHIPYARD_RUNNING_BESIDE=${lock.json.running_beside.join(",")}`);
+      {
+        let ro = [];
+        try { ro = readonlyStories(sd); } catch { ro = []; }
+        if (ro.length) out(`SHIPYARD_READONLY_STORIES=${ro.join(",")}`);
+      }
       if (lock.message) {
         out("SHIPYARD_LOCK_NOTICE:");
         for (const line of lock.message.trimEnd().split("\n")) out(line);
@@ -691,8 +743,9 @@ function main() {
       renderViewSection(sd, out, "config");
       renderViewSection(sd, out, "codebase");
       renderListSection(sd, out, "epics");
+      renderListSection(sd, out, "stories");
       renderListSection(sd, out, "features");
-      if (lock.json.cross_lock_allowed === "ship-discuss+ship-execute") {
+      if ((lock.json.running_beside ?? []).some((x) => x === "ship-execute" || x === "ship-review")) {
         renderViewSection(sd, out, "sprint", 80);
       }
       break;
@@ -709,7 +762,7 @@ function main() {
     case "spec-counts": {
       const c = (...p) => countDir(join(sd, ...p));
       out(
-        `Epics: ${c("spec", "epics")} | Features: ${c("spec", "features")} | ` +
+        `Stories: ${c("spec", "stories")} | Steps: ${c("spec", "steps")} | Epics: ${c("spec", "epics")} | Features: ${c("spec", "features")} | ` +
           `Tasks: ${c("spec", "tasks")} | Bugs: ${c("spec", "bugs")} | ` +
           `Ideas: ${c("spec", "ideas")} | References: ${c("spec", "references")}`,
       );
@@ -718,7 +771,7 @@ function main() {
     case "status-counts": {
       const c = (...p) => countDir(join(sd, ...p));
       out(
-        `Features: ${c("spec", "features")} | Epics: ${c("spec", "epics")} | ` +
+        `Stories: ${c("spec", "stories")} | Features: ${c("spec", "features")} | Epics: ${c("spec", "epics")} | ` +
           `Bugs: ${c("spec", "bugs")} | Ideas: ${c("spec", "ideas")}`,
       );
       break;
@@ -1018,7 +1071,9 @@ function main() {
       }
       const lines = content.split("\n").filter((l) => l.length > 0);
       const start = Math.max(0, lines.length - tail);
-      const typeSet = new Set(types);
+      // v4: a reader naming either spelling of a renamed event sees both
+      // (patch_task_created ~ patch_step_created, feature_* ~ story_*, ...).
+      const typeSet = new Set(types.flatMap((t) => eventTypeAliases(t)));
       for (let i = start; i < lines.length; i++) {
         try {
           const ev = JSON.parse(lines[i]);

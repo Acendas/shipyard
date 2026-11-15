@@ -1,0 +1,27 @@
+{
+  "failUnclaimed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "shipyard-data queue fail: task ship-execute:wave_1_dispatch:T001 is pending, not claimed"
+  },
+  "failWrongWorker": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "shipyard-data queue fail: task ship-execute:wave_1_dispatch:T001 is claimed by w1, not w2"
+  },
+  "fail": {
+    "code": 0,
+    "stdout": "{\"failed\":true,\"task\":{\"id\":\"T001\",\"pipeline\":\"ship-execute\",\"stage\":\"wave_1_dispatch\",\"kind\":\"work\",\"status\":\"failed\",\"files\":[],\"expected_artifact\":null,\"required_validation\":[],\"payload\":null,\"source\":null,\"effort\":null,\"base_sha\":null,\"idempotent\":true,\"attempt\":1,\"claimed_by\":\"w1\",\"claimed_at\":\"<TS>\",\"deadline_at\":\"<TS>\",\"completed_at\":null,\"failed_at\":\"<TS>\",\"result\":null,\"artifact_status\":null,\"reason\":\"blocked on migration choice\",\"ttl_seconds\":1800}}",
+    "stderr": ""
+  },
+  "failAgain": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "shipyard-data queue fail: task ship-execute:wave_1_dispatch:T001 is failed, not claimed"
+  },
+  "list": {
+    "code": 0,
+    "stdout": "{\n  \"tasks\": [\n    {\n      \"id\": \"T001\",\n      \"pipeline\": \"ship-execute\",\n      \"stage\": \"wave_1_dispatch\",\n      \"kind\": \"work\",\n      \"status\": \"failed\",\n      \"files\": [],\n      \"expected_artifact\": null,\n      \"required_validation\": [],\n      \"payload\": null,\n      \"source\": null,\n      \"effort\": null,\n      \"base_sha\": null,\n      \"idempotent\": true,\n      \"attempt\": 1,\n      \"claimed_by\": \"w1\",\n      \"claimed_at\": \"<TS>\",\n      \"deadline_at\": \"<TS>\",\n      \"completed_at\": null,\n      \"failed_at\": \"<TS>\",\n      \"result\": null,\n      \"artifact_status\": null,\n      \"reason\": \"blocked on migration choice\",\n      \"ttl_seconds\": 1800\n    }\n  ]\n}",
+    "stderr": ""
+  }
+}

@@ -4,15 +4,15 @@ This is the full protocol for Phase 3 in `/ship-discuss`. The SKILL body summari
 
 ## Research draft absorption
 
-Run `shipyard-context draft-state research` first. If `SHIPYARD_RESEARCH_DRAFT_PRESENT=true` and `SHIPYARD_RESEARCH_DRAFT_OBSOLETE=false`, use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md` for the narrative body and absorb its content into the feature file's `## Technical Notes` and `## Decision Log` sections. **Do not mark it obsolete yet** — it serves as a recovery checkpoint until Phase 3 is fully complete (feature file written with acceptance criteria, estimates, and epic assignment). After Phase 3 finishes, mark it obsolete only via `shipyard-data draft obsolete-research --topic "<current topic>"`; do not hand-Edit its frontmatter.
+Run `shipyard-context draft-state research` first. If `SHIPYARD_RESEARCH_DRAFT_PRESENT=true` and `SHIPYARD_RESEARCH_DRAFT_OBSOLETE=false`, use the Read tool on `<SHIPYARD_DATA>/spec/.research-draft.md` for the narrative body and absorb its content into the story file's `## Technical Notes` and `## Decision Log` sections. **Do not mark it obsolete yet** — it serves as a recovery checkpoint until Phase 3 is fully complete (story file written with acceptance criteria, estimates, and epic assignment). After Phase 3 finishes, mark it obsolete only via `shipyard-data draft obsolete-research --topic "<current topic>"`; do not hand-Edit its frontmatter.
 
 ## Per feature
 
 For each well-defined feature:
 
-1. **Generate ID** — Next available FNNN (F001, F002, etc.)
+1. **Generate ID** — Next available SNNN (S001, S002, etc.)
 
-2. **Determine epic** — Use Glob `<SHIPYARD_DATA>/spec/epics/E*.md` to enumerate epics and Read each. Use Grep with `pattern: ^epic:`, `path: <SHIPYARD_DATA>/spec/features`, `glob: F*.md`, `output_mode: content`, `-n: false` to see how features are grouped. Then decide:
+2. **Determine epic** — Use Glob `<SHIPYARD_DATA>/spec/epics/E*.md` to enumerate epics and Read each. Use Grep with `pattern: ^epic:`, `path: <SHIPYARD_DATA>/spec`, `glob: {stories,features}/[SF]*.md`, `output_mode: content`, `-n: false` to see how features are grouped. Then decide:
 
    **Does it belong to an existing epic?** Check if the feature:
    - Shares the same user-facing domain (e.g., auth, payments, onboarding)
@@ -36,12 +36,12 @@ For each well-defined feature:
 
    **If no epics exist yet** — create the first one if the feature is part of a larger initiative. Otherwise, leave `epic: ""` and let it accumulate. Epics emerge from patterns, don't force them early.
 
-3. **Write feature file** to `<SHIPYARD_DATA>/spec/features/FNNN-[slug].md`.
+3. **Write story file** to `<SHIPYARD_DATA>/spec/stories/SNNN-[slug].md`.
 
    **Frontmatter — every field is required. No omissions.**
    ```yaml
    ---
-   id: FNNN
+   id: SNNN
    title: ""
    type: feature
    epic: ""               # E00N if assigned, empty string if none
@@ -56,7 +56,7 @@ For each well-defined feature:
    rice_score: 0          # cached derived score: (reach × impact × confidence) / effort; keep in sync with components
    feasibility: 0         # 1–10 from viability gate
    dependencies: []       # feature IDs this depends on
-   references: []         # full relative paths: <SHIPYARD_DATA>/spec/references/FNNN-slug.md
+   references: []         # full relative paths: <SHIPYARD_DATA>/spec/references/SNNN-slug.md
    children: []           # sub-feature IDs if split
    tasks: []              # populated during sprint planning
    created: YYYY-MM-DD
@@ -70,7 +70,7 @@ For each well-defined feature:
    ---
    ```
 
-   **`user_flow_probe` is authored HERE, with the acceptance criteria — not later.** It is the proof the feature works *for a user*: unit/integration/e2e-in-CI runs do not exercise the path a user takes, and the per-task `acceptance_probe` only proves wiring inside one task. Authoring it at spec time is what makes it a real bar; a probe written after the sprint has already built the feature is a rubber stamp. `/ship-sprint` refuses to plan a feature without one, and `/ship-execute` re-checks before wave 1 — so omitting it here blocks the feature downstream rather than silently deferring.
+   **`user_flow_probe` is authored HERE, with the acceptance criteria — not later.** It is the proof the feature works *for a user*: unit/integration/e2e-in-CI runs do not exercise the path a user takes, and the per-task `acceptance_probe` only proves wiring inside one task. Authoring it at spec time is what makes it a real bar; a probe written after the sprint has already built the feature is a rubber stamp. `/ship-sprint` refuses to plan a feature without one, and `/ship-execute` re-checks before wave 1 — so omitting it here blocks the feature downstream rather than silently deferring. **A probe proves this story, not the project:** never end it with the project's full test command (`test_commands.*`). The sprint proves the suite once at its boundary; a probe that repeats it costs a full run per story.
 
    Pick `kind` from what actually demonstrates the flow — this is a two-way door, so decide and inform rather than asking (confidence gate, `question-design.md`):
 
@@ -82,12 +82,13 @@ For each well-defined feature:
 
    For `assisted`/`manual`, write `steps` as numbered user actions with the **expected observable outcome** on each — "2. Expect: lands on the home screen with the account name in the header", not "2. Check it works". The person confirming may not be the person who wrote it, and a step with no stated expectation cannot be failed.
 
-   An `assisted`/`manual` verdict is recorded as evidence (`shipyard-data feature record-proof`) and satisfies sprint-complete invariant 8 exactly as an `auto` exit-0 does. `skip-with-reason` is reserved for features where **no proof of any kind exists** — a hand-checked flow is `kind: manual`, not a skip.
+   An `assisted`/`manual` verdict is recorded as evidence (`shipyard-data story record-proof`) and satisfies sprint-complete invariant 8 exactly as an `auto` exit-0 does. `skip-with-reason` is reserved for features where **no proof of any kind exists** — a hand-checked flow is `kind: manual`, not a skip.
 
    **Body sections:**
    - User story ("As a... I want... so that...")
    - Why This Matters (business reasoning)
-   - Acceptance criteria in Given/When/Then format (at least 2 scenarios: happy path + one edge case)
+   - **Paths** (`## Paths`) — written BEFORE the scenarios: every path from the trigger to each way it can end (success, each refusal, each failure, each timeout), one row per ending, each naming the scenario that covers it (`@AC-n`) or the stated reason it cannot happen. Start from the behaviour, not the code.
+   - Acceptance criteria: one scenario per criterion, in Given (the starting state) / When (what the user or the outside world does) / Then (what someone outside the system can observe: a screen, a saved record, a message sent, money moved — never a function, a flag or an internal state). One scenario per ending in the path map
    - **Interface** — only if API endpoints, method signatures, or event schemas were discussed. Skip the section entirely if nothing was covered.
    - **Data Model** — only if schema fields, entity relationships, or data constraints were discussed. Skip if not.
    - **Configuration** — only if settings, environment variables, or feature flags were discussed. Skip if not.
@@ -103,14 +104,18 @@ For each well-defined feature:
    - **Error Handling** — only if specific failure modes or error responses were discussed. Skip if not.
    - Technical notes (research findings — from `.research-draft.md`)
    - Decision log (decisions made during this discussion)
-   - **No inline task table** — tasks are created as separate files in `<SHIPYARD_DATA>/spec/tasks/` and referenced via the `tasks:` array in frontmatter. Preliminary task IDs can be listed during discuss; full task files are created during sprint planning.
+   - **No inline task table** — tasks are created as separate files in `<SHIPYARD_DATA>/spec/steps/` and referenced via the `tasks:` array in frontmatter. Preliminary task IDs can be listed during discuss; full step files are created during sprint planning.
    - **Hard limit: 200 lines per file.** If the feature has 10+ acceptance scenarios or extensive technical notes, split it:
-     - Split into sub-features (F001a, F001b) for large scenario sets
-     - Extract API contracts, data models, wireframes to `<SHIPYARD_DATA>/spec/references/FNNN-<slug>.md`. Add frontmatter to each extracted file: `feature: FNNN` and `source: extracted from FNNN during discuss`.
-     - `<SHIPYARD_DATA>/spec/references/FNNN-flows.md` — Mermaid diagrams (C4, sequence, state machine, ER, deployment, data-flow, user journey) when `## Flows` exceeds ~30 lines
-     - Add full relative paths (e.g., `<SHIPYARD_DATA>/spec/references/F001-api.md`) to the `references:` array in the feature's frontmatter
+     - Split into sub-features (S001a, S001b) for large scenario sets
+     - Extract API contracts, data models, wireframes to `<SHIPYARD_DATA>/spec/references/SNNN-<slug>.md`. Add frontmatter to each extracted file: `feature: SNNN` and `source: extracted from SNNN during discuss`.
+     - `<SHIPYARD_DATA>/spec/references/SNNN-flows.md` — Mermaid diagrams (C4, sequence, state machine, ER, deployment, data-flow, user journey) when `## Flows` exceeds ~30 lines
+     - Add full relative paths (e.g., `<SHIPYARD_DATA>/spec/references/S001-api.md`) to the `references:` array in the feature's frontmatter
      - Plan the split BEFORE writing, not after
 
-4. **Estimates are Shipyard-decided — NEVER a user question.** Fill every estimate field (`rice_reach`, `rice_impact`, `rice_confidence`, `rice_effort`, `story_points`, `complexity`, `token_estimate`, `feasibility`) yourself from the evidence in this discussion (scope, acceptance-scenario count, touched surfaces, prior similar features). Do NOT AskUserQuestion for any estimate value. Record a one-line rationale per non-obvious value in the Decision Log as `ASSUMED: story_points=5 because ...`. The numbers appear in the Phase 5 ESTIMATES section with rationale; the user vetoes via the Round-4 approval gate ("Refine"), never via a question. Low confidence goes into `rice_confidence` and the rationale, not into a question.
+4. **Estimates are Shipyard-decided — NEVER a user question.** Fill every estimate field (`rice_reach`, `rice_impact`, `rice_confidence`, `rice_effort`, `story_points`, `complexity`, `token_estimate`, `feasibility`) yourself from the evidence in this discussion (scope, acceptance-scenario count, touched surfaces, prior similar features). Do NOT AskUserQuestion for any estimate value. Record a one-line rationale per non-obvious value in the Decision Log as `ASSUMED: story_points=5 because ...`. The numbers appear in the Phase 5 ESTIMATES section with rationale; the user vetoes at the approval card ("Refine"), never via a question. Low confidence goes into `rice_confidence` and the rationale, not into a question.
 
-5. **Epic**: If an epic was assigned, set `epic: E00N` in feature frontmatter. Do NOT update the epic file with a features list — epic membership is derived by querying feature files.
+5. **Epic**: If an epic was assigned, set `epic: E00N` in story frontmatter. Do NOT update the epic file with a features list — epic membership is derived by querying story files.
+
+## Scenario level tags (test economy)
+
+Next to its `@AC-n` tag, every Gherkin scenario carries one level tag that says where its single proof lives. **The default is `@e2e`:** an end-to-end journey through the real code wired together, with fakes only at the true edges (hardware, network, clock) — the acceptance probe, a scenario file, a device run. Drop to `@component` (one real composed piece) only for a fault, race or timing the journey cannot stage. Use `@unit` only for a rule with many input values, proven as one table. The builder writes exactly one test per scenario at that level and nowhere else (`${CLAUDE_PLUGIN_ROOT}/skills/tdd-cycle/references/test-economy.md`); choosing the level here, with the product decision fresh, is what keeps the suite from re-proving the same promise three times. A lower level needs its reason on the line under its tags: `# why not e2e: <reason>`. `shipyard-data story check-scenarios <ID>` checks ids, level tags, reasons and the path map; finalize runs it.

@@ -31,10 +31,14 @@
  * so the user-approval step cannot be skipped before any terminal outcome.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { eventMatches, WAVE_UNIT_ID_RE, WAVE_UNIT_ID_SRC } from "./vocab.mjs";
+import { readStoryReview } from "./config-read.mjs";
 import { join } from "node:path";
 import { evaluateFreshness, FULL_SUITE_KEY } from "./verify-ledger.mjs";
-import { readMaxParkedRatio } from "./config-read.mjs";
+import { parseFrontmatterList, splitItems } from "./frontmatter-list.mjs";
+import { readMaxParkedRatio, readTriageSprintFindings } from "./config-read.mjs";
+import { sprintFindings } from "./sprint-findings.mjs";
 
 /**
  * Parse a YAML-ish frontmatter block from markdown content.
@@ -49,7 +53,7 @@ import { readMaxParkedRatio } from "./config-read.mjs";
  */
 export function parseFrontmatter(content) {
   if (!content || typeof content !== "string") return {};
-  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const m = content.replace(/^\uFEFF/, "").match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return {};
   const fm = {};
   for (const rawLine of m[1].split(/\r?\n/)) {
@@ -99,17 +103,17 @@ export function parseWaves(sprintContent) {
       if (/^##/.test(lines[j])) break;
       const taskLine = lines[j].match(/Tasks:\s*\[?([^\]]+)\]?/i);
       if (taskLine) {
-        tasks = taskLine[1]
-          .split(",")
-          .map((s) => s.trim().replace(/[\[\]]/g, ""))
+        // Shared helper strips surrounding quotes: Tasks: ["T001", "T002"].
+        tasks = splitItems(taskLine[1].replace(/[\[\]]/g, ""))
           // Require trailing digits so placeholder tokens (TBD, TODO) in a
           // half-authored wave don't become phantom task IDs the terminal
-          // gate then demands completion evidence for. Real IDs: T001,
-          // T-P001 (patch), T-HOT1 — letters ≤3 then digits.
-          .filter((s) => /^T-?[A-Za-z]{0,3}\d+$/.test(s));
+          // gate then demands completion evidence for. Real IDs: P001 (v4
+          // step), T001 (pre-v4 builder task), T-P001 (patch), T-HOT1 —
+          // letters ≤3 then digits.
+          .filter((s) => WAVE_UNIT_ID_RE.test(s));
         break;
       }
-      const bulletMatch = lines[j].match(/^\s*[-*]\s+(T-?[A-Za-z]{0,3}\d+)\b/);
+      const bulletMatch = lines[j].match(new RegExp(`^\\s*[-*]\\s+(${WAVE_UNIT_ID_SRC})\\b`));
       if (bulletMatch) {
         tasks.push(bulletMatch[1]);
       }
@@ -165,6 +169,51 @@ export function readEvents(dataDir, tail = 5000) {
     }
   }
   return events;
+}
+
+/**
+ * F028: is a story's per-story review settled? `approve` settles; `changes`
+ * settles only once a later story_review_dispositioned records where the
+ * findings went. Shared by the execute terminal gate, `story-review check`
+ * and the sprint-complete invariant so the three never disagree.
+ */
+export function storySettled(events, storyId, sprintId = null) {
+  let verdict = null;
+  let settled = false;
+  for (const e of events) {
+    if (sprintId && e.sprint && e.sprint !== sprintId) continue;
+    const sid = e.story || e.feature;
+    if (sid !== storyId) continue;
+    if (eventMatches(e, "story_reviewed")) {
+      verdict = String(e.verdict || "");
+      settled = verdict === "approve";
+    } else if (eventMatches(e, "story_review_dispositioned") && verdict === "changes") {
+      settled = true;
+    }
+  }
+  return { verdict, settled };
+}
+
+/** The SPRINT.md list that names the sprint's stories (`stories:` canonical, `features:` read), as parseFrontmatterList returns it. */
+export function sprintStoryList(sprintContent) {
+  const stories = parseFrontmatterList(sprintContent, "stories");
+  return stories.raw !== undefined && stories.raw !== "" ? stories : parseFrontmatterList(sprintContent, "features");
+}
+
+/** Story ids a SPRINT.md names — S### (new) or legacy F###/B### aliases, letter-suffixed child ids kept, de-duplicated. Every reader uses this one rule. */
+export function sprintStoryIds(sprintContent) {
+  return [...new Set(sprintStoryList(sprintContent).items.flatMap((i) => i.match(/\b(?:[SF]\d+[a-z]?|B-?\d+)\b/g) || []))];
+}
+
+/** Id of the sprint in sprints/current/SPRINT.md, or null. One definition for the reports, risk and gates. */
+export function currentSprintId(dataDir) {
+  try {
+    const p = join(dataDir, "sprints", "current", "SPRINT.md");
+    if (!existsSync(p)) return null;
+    return String(parseFrontmatter(readFileSync(p, "utf8")).id ?? "").trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -264,7 +313,9 @@ export function evaluateExecuteTerminal({ dataDir }) {
   // with heavy parking) while removing the SILENT path (it now takes an explicit,
   // logged human acknowledgement, surfaced by the skill via AskUserQuestion).
   if (allTaskIds.length > 0) {
-    const parkedInSprint = allTaskIds.filter((t) => tasksParked.has(t) && !tasksCompleted.has(t));
+    // A step the plan gave to the person at the end (`needs_person: after`) waits for the
+    // review by design: it is not a step the sprint failed to finish.
+    const parkedInSprint = allTaskIds.filter((t) => tasksParked.has(t) && !tasksCompleted.has(t) && waitsForPerson(dataDir, t) !== "after");
     const ratio = parkedInSprint.length / allTaskIds.length;
     const maxRatio = readMaxParkedRatio(dataDir);
     const accepted = events.some((ev) => ev.type === "terminal_parked_accepted");
@@ -276,6 +327,35 @@ export function evaluateExecuteTerminal({ dataDir }) {
           `\`shipyard-data events emit terminal_parked_accepted\` (only after confirming with the user — this is the deliberate escape hatch, not a rubber stamp).`,
       );
     }
+  }
+
+  // F028: per-story review settled for every story the sprint names
+  // (execution.story_review, default on). A story reviewed when its last step
+  // merged needs no sprint-end repeat; one never reviewed blocks the terminal.
+  if (readStoryReview(dataDir)) {
+    const sprintId = String(parseFrontmatter(sprintContent).id || "").trim() || null;
+    for (const story of sprintStoryIds(sprintContent)) {
+      const { verdict, settled } = storySettled(events, story, sprintId);
+      if (settled) continue;
+      reasons.push(
+        verdict === "changes"
+          ? `Story ${story} review verdict is 'changes' with no disposition — route the findings (patch steps, bug story, needs-attention or accepted) and run \`shipyard-data story-review disposition ${story} --via <how>\``
+          : `Missing per-story review for ${story} — run spec review + gap analysis for the story and record it with \`shipyard-data story-review record ${story} --verdict approve|changes\` (or set execution.story_review: false to review only at sprint end)`,
+      );
+    }
+  }
+
+  // Findings captured during the sprint are decided (4.7.2): triaged, and a
+  // defect above low severity has a fix step that returned (or was parked,
+  // which the ratio guard above and the review both show).
+  if (readTriageSprintFindings(dataDir)) {
+    const open = sprintFindings({
+      dataDir, events,
+      sprintId: String(parseFrontmatter(sprintContent).id || "").trim() || null,
+      sprintStoryIds: sprintStoryIds(sprintContent),
+      stepStatus: (id) => (tasksCompleted.has(id) ? "complete" : tasksParked.has(id) ? "parked" : null),
+    }).filter((f) => f.state !== "settled");
+    for (const f of open) reasons.push(f.detail);
   }
 
   // Sprint-complete predicate evidence.
@@ -339,24 +419,28 @@ export function evaluateReviewTerminal({ dataDir, terminalStage }) {
         "SPRINT.md not found — cannot validate terminal_approved without feature list",
       );
     } else {
-      const sprintFm = parseFrontmatter(sprintContent);
-      const featuresRaw = sprintFm.features || "";
-      const featureIds = featuresRaw
-        .replace(/[\[\]]/g, "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      // v4: `stories:` is the canonical SPRINT.md key; `features:` is read as its alias.
+      // Same rule as every other sprint reader (block form included) — the
+      // review terminal used to refuse a block list the execute terminal,
+      // story-review and archive-sprint all accepted, so a review could never end.
+      const parsed = sprintStoryList(sprintContent);
+      const featureIds = sprintStoryIds(sprintContent);
+      if (featureIds.length === 0) {
+        reasons.push(
+          `SPRINT.md features parsed to zero feature ids (raw value: ${JSON.stringify(parsed.raw)}) — cannot validate terminal_approved; use: features: [F001, F002]`,
+        );
+      }
       for (const fid of featureIds) {
         const verdictPath = join(dataDir, "verify", `${fid}-verdict.md`);
         if (!existsSync(verdictPath)) {
-          reasons.push(`Missing verdict file: verify/${fid}-verdict.md`);
+          reasons.push(`Missing verdict file for feature ${fid}: ${verdictPath}`);
           continue;
         }
         let verdictContent;
         try {
           verdictContent = readFileSync(verdictPath, "utf8");
         } catch {
-          reasons.push(`Cannot read verdict file: verify/${fid}-verdict.md`);
+          reasons.push(`Cannot read verdict file for feature ${fid}: ${verdictPath}`);
           continue;
         }
         const verdictFm = parseFrontmatter(verdictContent);
@@ -387,14 +471,21 @@ export function evaluateReviewTerminal({ dataDir, terminalStage }) {
     terminalStage === "terminal_changes" ||
     terminalStage === "terminal_issues"
   ) {
-    // At least one patch task or bug entry was created during this review.
-    const patchOrBugCreated = events.some(
+    // At least one patch step or bug story was created DURING THIS REVIEW: only
+    // events after the latest ship-review preflight tick count, and a story that
+    // merely got imported from a tracker (story_imported) never does.
+    let reviewStart = -1;
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i];
+      if (ev.type === "pipeline_tick_completed" && ev.pipeline === "ship-review" && (ev.stage === "preflight" || ev.next_stage === "preflight")) reviewStart = i;
+    }
+    const patchOrBugCreated = events.slice(reviewStart + 1).some(
       (ev) =>
-        ev.type === "patch_task_created" || ev.type === "bug_created",
+        eventMatches(ev, "patch_step_created", "story_created") && ev.source !== "tracker", // legacy: patch_task_created / bug_created
     );
     if (!patchOrBugCreated) {
       reasons.push(
-        `Terminal stage ${terminalStage} requires at least one patch_task_created or bug_created event in this review window`,
+        `Terminal stage ${terminalStage} requires at least one patch_step_created or story_created event (legacy names patch_task_created / bug_created also count) in this review window`,
       );
     }
   }
@@ -524,6 +615,90 @@ export function evaluateLoopLeakGuard({ dataDir, proposedContent, cursorBasename
 }
 
 /**
+ * `--task` / `--hotfix` terminal (terminal_single_task / terminal_hotfix).
+ *
+ * These modes run without a sprint, so the sprint evidence (wave gates, per-
+ * step returns, story review, sprint_complete_passed) can never exist for
+ * them — before this gate existed every land-now run ended in a refusal, a
+ * stale `single_task` cursor and a `--force` on the next sprint start. Their
+ * evidence is the task itself: since the tick that entered the mode's stage,
+ * a task or step was set `done` (or a dispatch returned complete) and nothing
+ * was left needs-attention/blocked.
+ */
+export function evaluateTaskModeTerminal({ dataDir, terminalStage }) {
+  const entryStage = terminalStage === "terminal_hotfix" ? "hotfix" : "single_task";
+  const events = readEvents(dataDir);
+  let start = -1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (eventMatches(e, "pipeline_tick_started") && e.pipeline === "ship-execute" && e.stage === entryStage) { start = i; break; }
+    if (eventMatches(e, "pipeline_tick_completed") && e.pipeline === "ship-execute" && e.next_stage === entryStage) { start = i; break; }
+  }
+  const window = start === -1 ? events : events.slice(start);
+  let done = 0;
+  let parked = 0;
+  for (const e of window) {
+    const to = String(e.to || "");
+    if ((eventMatches(e, "task_status_set") || eventMatches(e, "step_status_set")) && to === "done") done++;
+    if ((eventMatches(e, "task_status_set") || eventMatches(e, "step_status_set")) && /^(needs-attention|blocked)$/.test(to)) parked++;
+    if (eventMatches(e, "task_dispatch_returned") && String(e.status || "") === "complete") done++;
+  }
+  const reasons = [];
+  if (done === 0) {
+    reasons.push(
+      `Missing evidence for the ${entryStage} run — need a task/step set to done (shipyard-data task|step set-status <id> done, or accept-return) or a task_dispatch_returned status=complete since the tick that entered ${entryStage}`,
+    );
+  }
+  if (parked > 0 && done === 0) {
+    reasons.push(`The ${entryStage} run parked its task (needs-attention/blocked) — a parked task is never a success terminal; use cursor escalate execute reason=task_needs_attention`);
+  }
+  return { allowed: reasons.length === 0, reasons };
+}
+
+/** Names of agents this pipeline cycle spawned and has not stopped. Pure over `events`. */
+/**
+ * `needs_person` of a step ("before" | "after" | null), read from its file.
+ * Kept here (not imported from person-steps.mjs, which imports this module).
+ */
+function waitsForPerson(dataDir, id) {
+  for (const sub of ["steps", "tasks"]) {
+    let names = [];
+    try { names = readdirSync(join(dataDir, "spec", sub)); } catch { continue; }
+    const n = names.find((x) => x.endsWith(".md") && (x.startsWith(`${id}-`) || x === `${id}.md`));
+    if (!n) continue;
+    try {
+      const v = String(parseFrontmatter(readFileSync(join(dataDir, "spec", sub, n), "utf8")).needs_person ?? "").replace(/["']/g, "").trim().toLowerCase();
+      return v === "before" || v === "after" ? v : null;
+    } catch { return null; }
+  }
+  return null;
+}
+
+export function liveAgents(events) {
+  let start = 0;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (eventMatches(events[i], "pipeline_terminal")) { start = i + 1; break; }
+  }
+  const state = new Map(); // name -> { live, step, since }
+  for (const e of events.slice(start)) {
+    if (eventMatches(e, "agent_spawned") && e.agent) {
+      const w = Number(e.wave);
+      // A hook-recorded spawn carries no step or wave; keep what a claim or an
+      // explicit `agents spawned` already said about the same name.
+      const prev = state.get(String(e.agent));
+      state.set(String(e.agent), { live: true, step: e.step || prev?.step || null, since: e.ts ?? null, source: "spawned", wave: Number.isInteger(w) && w > 0 ? w : prev?.wave ?? null, via: e.via === "hook" ? "hook" : "cli", session: e.session || prev?.session || null });
+    } else if (eventMatches(e, "worker_queue_claimed") && e.worker) {
+      const m = String(e.stage ?? "").match(/^wave_(\d+)_/);
+      state.set(String(e.worker), { ...(state.get(String(e.worker)) ?? {}), live: true, step: e.task ?? null, since: e.ts ?? null, source: "queue", wave: m ? Number(m[1]) : null, via: "cli" });
+    } else if (eventMatches(e, "agent_stopped") && e.agent) {
+      const cur = state.get(String(e.agent));
+      state.set(String(e.agent), { ...(cur ?? {}), live: false });
+    }
+  }
+  return [...state.entries()].filter(([, v]) => v.live).map(([name, v]) => ({ name, step: v.step, since: v.since, source: v.source, wave: v.wave ?? null, via: v.via ?? "cli", session: v.session ?? null }));
+}
+
+/**
  * Top-level gate entry point. Called from the auto-approve PreToolUse
  * hook for every Write/Edit targeting a cursor file.
  *
@@ -538,7 +713,29 @@ export function evaluateTerminalGate({ dataDir, proposedContent }) {
   if (!classification.shouldEvaluate) {
     return { allowed: true, reasons: [] };
   }
+  const verdict = evaluateTerminalEvidence({ dataDir, classification });
+  // No pipeline ends with agents still running (v4.5): finished builders and
+  // reviewers used to linger until the owner asked what they were. Every agent
+  // the cycle spawned (queue claims are ground truth) needs an agent_stopped.
+  // An agent another session's command recorded by hook (a discussion that
+  // crashed, say) is that session's to account for, not this pipeline's.
+  const cursorSession = String(parseFrontmatter(proposedContent ?? "").session_id ?? "").trim();
+  const live = liveAgents(readEvents(dataDir)).filter((a) => a.via !== "hook" || !a.session || !cursorSession || a.session === cursorSession);
+  if (live.length) {
+    verdict.allowed = false;
+    verdict.reasons = [
+      ...verdict.reasons,
+      `${live.length} agent(s) are still live: ${live.map((a) => `${a.name}${a.step ? ` (${a.step})` : ""}`).join(", ")} — TaskStop each one, then record it: shipyard-data agents stopped <name> ... (or --all once every one is stopped)`,
+    ];
+  }
+  return verdict;
+}
+
+function evaluateTerminalEvidence({ dataDir, classification }) {
   if (classification.pipeline === "ship-execute") {
+    if (/^terminal_(single_task|hotfix)$/.test(classification.stage)) {
+      return evaluateTaskModeTerminal({ dataDir, terminalStage: classification.stage });
+    }
     return evaluateExecuteTerminal({ dataDir });
   }
   return evaluateReviewTerminal({

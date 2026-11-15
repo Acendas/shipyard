@@ -1,0 +1,11 @@
+{
+  "populated": {
+    "code": 0,
+    "stderr": "",
+    "count": 2,
+    "lines": [
+      "IDEA-001-a.md",
+      "IDEA-002-b.md"
+    ]
+  }
+}

@@ -1,52 +1,107 @@
 [
-  {
-    "name": "has_iron_law_section",
-    "type": "contains",
-    "pattern": "## The Iron Law"
-  },
-  {
-    "name": "states_no_production_code_rule",
-    "type": "contains",
-    "pattern": "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"
-  },
-  {
-    "name": "has_red_phase",
-    "type": "contains",
-    "pattern": "### RED"
-  },
-  {
-    "name": "has_green_phase",
-    "type": "contains",
-    "pattern": "### GREEN"
-  },
-  {
-    "name": "has_refactor_phase",
-    "type": "contains",
-    "pattern": "### REFACTOR"
-  },
-  {
-    "name": "has_forbidden_moves",
-    "type": "contains",
-    "pattern": "## Forbidden Moves"
-  },
-  {
-    "name": "references_verifying_completion",
-    "type": "contains",
-    "pattern": "verifying-completion"
-  },
-  {
-    "name": "no_registered_agent_dispatch",
-    "type": "not_contains",
-    "pattern": "shipyard:shipyard-"
-  },
-  {
-    "name": "no_registered_shipyard_agent",
-    "type": "not_contains",
-    "pattern": "subagent_type: *shipyard:shipyard-"
-  },
-  {
-    "name": "no_dead_reference_links",
-    "type": "not_contains",
-    "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
-  }
+ {
+  "name": "has_iron_law_section",
+  "type": "contains",
+  "pattern": "## The Iron Law"
+ },
+ {
+  "name": "states_no_production_code_rule",
+  "type": "contains",
+  "pattern": "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"
+ },
+ {
+  "name": "has_red_phase",
+  "type": "contains",
+  "pattern": "### RED"
+ },
+ {
+  "name": "has_green_phase",
+  "type": "contains",
+  "pattern": "### GREEN"
+ },
+ {
+  "name": "has_refactor_phase",
+  "type": "contains",
+  "pattern": "### REFACTOR"
+ },
+ {
+  "name": "has_forbidden_moves",
+  "type": "contains",
+  "pattern": "## Forbidden Moves"
+ },
+ {
+  "name": "references_verifying_completion",
+  "type": "contains",
+  "pattern": "verifying-completion"
+ },
+ {
+  "name": "no_registered_agent_dispatch",
+  "type": "not_contains",
+  "pattern": "shipyard:shipyard-"
+ },
+ {
+  "name": "no_registered_shipyard_agent",
+  "type": "not_contains",
+  "pattern": "subagent_type: *shipyard:shipyard-"
+ },
+ {
+  "name": "no_dead_reference_links",
+  "type": "not_contains",
+  "pattern": "references/(refactor-loop|context-pressure|live-capture|test-delegation|tdd-cycle|operational-tasks|research-tasks)\\.md"
+ },
+ {
+  "name": "test_economy_section",
+  "type": "contains",
+  "pattern": "Test Economy \\(one proof per behaviour\\)",
+  "why": "4.4: which tests may exist, not only when they are written"
+ },
+ {
+  "name": "test_economy_delete_rule",
+  "type": "contains",
+  "pattern": "would not turn the test red",
+  "target": "ref:test-economy.md",
+  "why": "the delete test is the one rule that bans padding"
+ },
+ {
+  "name": "test_economy_group_on_setup",
+  "type": "contains",
+  "pattern": "group on setup",
+  "target": "ref:test-economy.md",
+  "why": "few tests, full assertions"
+ },
+ {
+  "name": "journey_is_the_default_level",
+  "type": "contains",
+  "pattern": "the journey is the default",
+  "target": "ref:test-economy.md",
+  "why": "4.15 (owner's rule): default level is the end-to-end journey; component only for a fault, race or timing; unit only for a many-valued rule"
+ },
+ {
+  "name": "paths_mapped_before_scenarios",
+  "type": "contains",
+  "pattern": "Every ending has a scenario, or a stated reason it cannot happen",
+  "target": "ref:test-economy.md",
+  "why": "4.15: start from the behaviour, map every path to every ending first"
+ },
+ {
+  "name": "spec_and_code_fixed_together",
+  "type": "contains",
+  "pattern": "both are fixed in the same change",
+  "target": "ref:test-economy.md",
+  "why": "4.15: a spec/code mismatch is a bug in one of them, never coded around"
+ },
+ {
+  "name": "test_written_from_spec_first",
+  "type": "contains",
+  "pattern": "before reading the code it will exercise",
+  "target": "ref:test-economy.md",
+  "why": "4.15: a test written after reading the code proves the code, not the spec"
+ },
+ {
+  "name": "both_directions_checked",
+  "type": "contains",
+  "pattern": "checks both directions",
+  "target": "ref:test-economy.md",
+  "why": "4.15: every scenario has a test and every test has a scenario, by CLI"
+ }
 ]

@@ -17,7 +17,7 @@ A diff scanner that flags code claimed as complete but not actually wired. Runs 
 From the orchestrator side:
 
 1. After `dispatching-task-loop` returns `STATUS: COMPLETE`.
-2. Before marking the task `status: done` in its task file.
+2. Before marking the task `status: done` in its step file.
 3. Before merging the worktree branch back to the working branch.
 
 Do NOT invoke during the subagent's own loop — the prompt-level Iron Law is the in-loop check.
@@ -137,7 +137,7 @@ The orchestrator aggregates findings:
 
 ## Re-Dispatch Rules
 
-The single-redispatch rule from `dispatching-task-loop` still applies: at most one extra iteration per task per wave. If the second pass also produces HIGH findings, run `shipyard-data task set-status <id> needs-attention --reason "stub_findings_persist"` and continue. Do NOT loop indefinitely on stub-fix.
+The single-redispatch rule from `dispatching-task-loop` still applies: at most one extra iteration per task per wave. If the second pass also produces HIGH findings, run `shipyard-data step set-status <id> needs-attention --reason "stub_findings_persist"` and continue. Do NOT loop indefinitely on stub-fix.
 
 ## Implementation Notes for the Orchestrator
 
@@ -157,21 +157,7 @@ The scan operates only on files in `git diff --name-only {base}..{head}` and onl
 
 Keep the pattern set's precision modest. If a pattern is hard to express (e.g., AST-level "function body is just pass"), the CLI accepts that some legitimate code triggers MEDIUM — better than an over-engineered scanner that drifts from this spec.
 
-## What This Replaces
-
-- The implicit assumption in the old `shipyard-builder` agent that the agent's "Before Exiting" checks would catch stubs. They didn't reliably — that's why this exists.
-- Some of the work `shipyard-review-spec` did during ship-review (catching missing implementations); that scanner can now focus on acceptance-criteria mapping while this one handles structural stub detection.
-
 ## What This Does NOT Replace
 
 - **The Iron Law in the subagent prompt.** Most stubs never make it past the prompt-level rule. This scanner exists for the exceptions. If you find yourself relying on this scanner instead of the prompt rule, the prompt rule isn't doing its job — fix the prompt, don't lean harder on the scanner.
 - **`/ship-review` spec compliance.** That's about acceptance-criteria → code mapping, not structural stubs.
-
-## Bottom Line
-
-- Run after subagent return; before marking done.
-- HIGH findings without placeholder marker → re-dispatch.
-- MEDIUM → orchestrator's call.
-- LOW → log only.
-- Single redispatch per task per wave; then `needs-attention`.
-- Belt-and-suspenders, not the primary defense.

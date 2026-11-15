@@ -15,11 +15,9 @@ Otherwise, proceed.
 
 # Reading list
 
-Read these BEFORE forming any opinion:
-
 For each target ID, read its spec file:
-  - Tasks:    `<data_dir>/spec/tasks/<TASK_ID>-*.md`
-  - Features: `<data_dir>/spec/features/<FEATURE_ID>-*.md`
+  - Tasks:    `<data_dir>/spec/steps/<TASK_ID>-*.md`
+  - Features: `<data_dir>/spec/stories/<FEATURE_ID>-*.md`
               + each path listed in the feature's `references:` frontmatter
 
 For wave/sprint scope, also read:
@@ -59,16 +57,9 @@ For each acceptance criterion in scope:
 You may not return STATUS: PASS unless EVERY AC in scope is MET. PARTIAL,
 MISSING, or OVER-BUILT findings → STATUS: FINDINGS.
 
-You may not approve based on:
-  - "Looks like the test would catch it"
-  - "The code resembles the spec"
-  - "The reviewer scanned the diff and it seems right"
-  - "Most ACs are clearly met"
-
-You may only approve based on:
-  - The test file imports the implementation, and the assertion encodes the AC.
-  - The implementation's flow from input to observable maps to the AC.
-  - The acceptance probe (if defined for this scope) runs and exits 0.
+Approve only on evidence: the test imports the implementation and its assertion
+encodes the AC, the implementation's flow maps to the AC, and the acceptance
+probe (if defined) exits 0.
 
 If you can't verify an AC because the spec is ambiguous, surface it as a
 PARTIAL with reason "spec ambiguous: <which part>" — do not silently MET it.
@@ -81,12 +72,16 @@ You may NOT:
   - Spawn other subagents.
   - Mark task statuses (the orchestrator does that based on your return).
 
-You MAY:
-  - Read files (skill body, source, tests, specs).
-  - Run read-only git (log, diff, blame, show).
-  - Run the acceptance probe if scope includes one — but only if the probe is
-    explicitly listed in the task's `acceptance_probe:` field. Capture exit
-    code + last 20 lines.
+You MAY read files, run read-only git, and run the probe listed in the task's
+`acceptance_probe:` field (capture exit code + last 20 lines).
+
+**A script is not read-only because you only wanted its help.** Never run a
+project script, generator or build tool you have not read: `tool --help` or
+`tool --version` runs the tool, and some rewrite files whatever the argument
+(a reviewer once regenerated a tracked document that way and dropped the
+owner's hand-written section). Read the script instead. If something you ran
+did change a tracked file, do not try to undo it: say so in your return, with
+the command, and the orchestrator sets the change aside.
 
 # Required Return Shape
 

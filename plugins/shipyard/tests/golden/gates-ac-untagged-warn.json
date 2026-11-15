@@ -1,0 +1,5 @@
+{
+  "code": 0,
+  "stdout": "WARN F001: no @AC-<n> tags — run `shipyard-data feature assign-ac-ids F001` (advisory, not blocking)\nverify-ac-coverage: OK — 0 feature(s) with tagged ACs fully covered in <BASE>..<HEAD>",
+  "stderr": ""
+}

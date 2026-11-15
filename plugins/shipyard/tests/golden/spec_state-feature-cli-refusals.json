@@ -1,0 +1,47 @@
+{
+  "unknownStatus": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "spec-state: unknown story status \"bogus\". Allowed: proposed, approved, in-progress, done, deployed, deferred, rejected, released"
+  },
+  "unknownStatusForce": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "spec-state: unknown story status \"bogus\". Allowed: proposed, approved, in-progress, done, deployed, deferred, rejected, released"
+  },
+  "usage": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "usage: story set-status <SID> <status> [--force] [--reason \"<why>\"] [--replaced-by <SID,SID>]"
+  },
+  "badId": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "spec-state: invalid story id \"nope\" — expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d"
+  },
+  "missingFeature": {
+    "code": 4,
+    "stdout": "",
+    "stderr": "spec-state: F999 not found under spec/stories/"
+  },
+  "forceIllegal": {
+    "code": 0,
+    "stdout": "F001: proposed -> released",
+    "stderr": ""
+  },
+  "forceToProposed": {
+    "code": 0,
+    "stdout": "F001: proposed -> proposed",
+    "stderr": ""
+  },
+  "legalProposedToDeferred": {
+    "code": 0,
+    "stdout": "F001: proposed -> deferred",
+    "stderr": ""
+  },
+  "unknownSub": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "shipyard-data story: unknown subcommand \"nope\". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|retract-proof|check-probes|check-scenarios|probe-command|assign-ac-ids"
+  }
+}

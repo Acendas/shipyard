@@ -1,0 +1,37 @@
+{
+  "table": {
+    "proposed": [
+      "approved",
+      "deferred",
+      "rejected"
+    ],
+    "approved": [
+      "in-progress",
+      "deferred",
+      "rejected"
+    ],
+    "in-progress": [
+      "done",
+      "approved"
+    ],
+    "done": [
+      "deployed",
+      "released"
+    ],
+    "deployed": [
+      "released"
+    ],
+    "deferred": [
+      "proposed"
+    ],
+    "rejected": [],
+    "released": []
+  },
+  "backlogRemoving": [
+    "deferred",
+    "deployed",
+    "done",
+    "rejected",
+    "released"
+  ]
+}

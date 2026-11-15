@@ -4,7 +4,7 @@ This is the full protocol for Phase 4.9 and Phase 4.95 in `/ship-discuss`. The S
 
 ## Phase 4.9: Quality Gate (self-review loop)
 
-Before presenting to the user, review your own output. Re-read each feature file you wrote and check against this checklist:
+Before presenting to the user, review your own output. Re-read each story file you wrote and check against this checklist:
 
 | # | Check | Fail criteria |
 |---|---|---|
@@ -25,7 +25,7 @@ Before presenting to the user, review your own output. Re-read each feature file
 | 15 | **All states covered** | Missing empty state, error state, loading state, or offline state |
 | 16 | **Right diagram present when a significance trigger fired (type-aware)** | A Phase 1.5 Step 4 significance trigger applied (new boundary/service/component, non-obvious 2+-component interaction, ≥3-state or branching lifecycle/UI graph, 2+ related entities, new runtime unit/trust boundary, data crossing a trust boundary, or multi-step user journey) but the `## Flows` (or `## Data Model` for an ER diagram) section lacks the *matching* Mermaid type. Type-aware: a fired lifecycle trigger needs a `stateDiagram`; a fired data-model trigger needs an `erDiagram`; a fired deployment trigger needs a `C4Deployment`/topology graph — a single unrelated diagram does NOT satisfy a different trigger. Conversely, do NOT flag a simple feature that correctly skipped: when no Step 4 trigger fired, an empty Flows section is a PASS, not a gap. |
 
-Iterate the checklist on each feature file, fixing failures (when a fix needs user input, render the failing check and the current spec text in question as chat text, then AskUserQuestion — the feature file is a Read result the user hasn't seen) and re-running. Max 3 iterations. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag remaining gaps as "Unresolved — needs follow-up in /ship-discuss [ID]". Then proceed to Phase 4.95.
+Iterate the checklist on each story file, fixing failures (when a fix needs user input, render the failing check and the current spec text in question as chat text, then AskUserQuestion — the story file is a Read result the user hasn't seen) and re-running. Max 3 iterations. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag remaining gaps as "Unresolved — needs follow-up in /ship-discuss [ID]". Then proceed to Phase 4.95.
 
 ## Phase 4.95: Adversarial Critique
 
@@ -37,10 +37,10 @@ After the self-review quality gate passes, spawn the critic agent to challenge t
 
 **Spawn the critic:** dispatch a `general-purpose` subagent with the inline critic prompt below. The critic role is reused across ship-review, ship-sprint, and ship-discuss with mode-specific framing; per S-1's granularity criterion, the prompt stays inline.
 
-Substitute the literal SHIPYARD_DATA path before spawning. **Model tier (think):** if a `--think` override is active for this invocation, pass `model: <think_override>` on the Agent call — do not read config.md for this dispatch. Otherwise, read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-discuss` context block already carries config, or Read it): if non-empty, pass `model: <value>` on the Agent call; if empty or absent, OMIT `model:` so the critic inherits the session model. Never hardcode a literal. **Effort tier (think):** read `agent_effort.think` from config.md (default `high`); if non-empty pass `effort: <value>`, if empty/absent OMIT `effort:`. **Spawn-failure fallback:** if the dispatch errors at spawn because the requested model is unavailable, print one line ("`<model>` unavailable — falling back to `models.think`") and re-dispatch using the config value.
+Substitute the literal SHIPYARD_DATA path before spawning. **Model + effort (think):** Run `shipyard-data resolve-model think [--override <think_override>]` — one line `model=<m> effort=<e>`; pass each value as a string on the Agent call and OMIT any empty field (inherit). Never hardcode a literal. Log it once: `shipyard-data events emit dispatch_model_resolved role=<role> model=<model or inherit> effort=<effort>` (a logging failure never blocks the dispatch). If a `--think` override is active, add `--override <think_override>`. **Spawn-failure fallback:** if the dispatch errors at spawn because the requested model is unavailable, print one line and re-run `resolve-model think` WITHOUT `--override`, then re-dispatch.
 
 ```
-Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, effort: <agent_effort.think — omit if empty>, prompt: |
+Agent(subagent_type: "general-purpose", model: <model= from resolve-model think; omit if empty>, effort: <effort= from resolve-model think; omit if empty>, prompt: |
 
 You are an adversarial critic of a feature spec. Your job is to find what
 the spec misses: implicit assumptions, feasibility risks, ambiguous
@@ -62,15 +62,27 @@ ${CLAUDE_PLUGIN_ROOT}/project-files/references/data-modeling-guide.md).
 Surface these under FEASIBILITY_RISKS / IMPLICIT_ASSUMPTIONS. Skip entirely
 for features with no persistence concern.
 
+Check the criteria against the code (4.0). For every acceptance criterion
+that states a number, a threshold, a size, or what the system does today:
+open the code, data or design record it refers to and work out whether it
+can be met as written. Two rules that cannot both hold, a floor that today's
+values are already under, a check that can never pass on the real assets, a
+criterion that contradicts the project's design record: report each under
+UNMEETABLE_CRITERIA with the file and line and the value you measured. A
+planner found four of these in one sprint after the stories were approved;
+they belong here, before approval.
+
 Mode: feature-critique
 Stakes: [standard | high]   (high if part of an epic, ≥8 story points,
                              touches auth/payments/data, or 6+ acceptance
                              scenarios)
 
 Read these files:
-  - All feature files written in Phase 3 (full paths inlined here)
+  - All story files written in Phase 3 (full paths inlined here)
   - Codebase context: <SHIPYARD_DATA>/codebase-context.md
   - Project rules: .claude/rules/project-*.md
+  - The source files, data files and design record each criterion names
+    (find them with Grep; read only what a criterion depends on)
 
 Return:
   STATUS: CHALLENGES
@@ -78,6 +90,7 @@ Return:
   IMPLICIT_ASSUMPTIONS: <baked-in assumptions the spec didn't surface>
   FEASIBILITY_RISKS: <design choices that may not survive contact with reality>
   AMBIGUITIES: <ACs that are too vague to test against>
+  UNMEETABLE_CRITERIA: <AC id — why it cannot be met as written — file:line — measured value — the smallest rewording that can>
   MISSING_ERROR_STATES: <happy-path-only paths that should specify failure>
 
 If you genuinely have no challenges:
@@ -92,11 +105,12 @@ You are READ-ONLY: no edits, no commits, no spawning subagents.
 
 1. Read the `PRIORITY ACTIONS` section — these are mandatory fixes
 2. For each FAIL item and HIGH-risk assumption, classify by fix-shape (the classification determines routing, not the critic's confidence):
-   - **Mechanical / non-semantic fix** — pure formatting (Given/When/Then restructuring of existing-text scenarios with no semantic change), typo correction, missing-citation backfill, internal-link repair. Apply directly to the feature file.
-   - **Semantic / policy-shaped fix** — anything that ADDS a new acceptance criterion, MAKES an implicit assumption explicit in the spec, ADDS a noted dependency edge, CHANGES error-handling behavior, INTRODUCES a rate limit / timeout / retry policy, or otherwise encodes a product decision. **These MUST go through `AskUserQuestion`** even when the model judges them "obvious" or "standard practice." Adding `rate-limit at 5/min` looks mechanical from the model's perspective but is a policy decision the user has standing on. The v2.4.0 audit flagged silent auto-fixes of this shape as HIGH-risk because they encode wrong-by-default product policy under the cover of "the critic said to fix it."
+   - **Mechanical / non-semantic fix** — pure formatting (Given/When/Then restructuring of existing-text scenarios with no semantic change), typo correction, missing-citation backfill, internal-link repair. Apply directly to the story file.
+   - **Semantic / policy-shaped fix** — anything that ADDS a new acceptance criterion, MAKES an implicit assumption explicit in the spec, ADDS a noted dependency edge, CHANGES error-handling behavior, INTRODUCES a rate limit / timeout / retry policy, or otherwise encodes a product decision. **These MUST go through `AskUserQuestion`** even when the model judges them "obvious" or "standard practice." Adding `rate-limit at 5/min` looks mechanical from the model's perspective but is a policy decision the user has standing on. Silent auto-fixes of this shape encode product policy under the cover of "the critic said to fix it."
    - **Ambiguous case** — if it's unclear whether a fix is mechanical or semantic, route through `AskUserQuestion`. Cheap to ask, expensive to silently encode a wrong policy.
 
-   Render each policy-shaped item as chat text first — the critic's finding verbatim, its evidence, and your recommended fix (compact list) — then batch the decisions into a single AskUserQuestion (or themed groups of ≤4). The critic's return is a subagent payload the user has never seen; "evidence inlined" into question/option strings renders as a compact card and does not count as rendered. Do not present the critic's findings as questions for the user to interpret — present them as: "Critic flagged [issue]. Recommend [fix]. Apply? (apply / modify / skip — log as accepted-risk)".
+   Render each policy-shaped item as chat text first — the critic's finding verbatim, its evidence, and your recommended fix (compact list) — then put each decision on the question list (`shipyard-data discuss-questions add`) and ask what the list hands out, one card at a time. The critic's return is a subagent payload the user has never seen, so the render step is mandatory (rules printed at startup under SHIPYARD_STARTUP_RULES). Do not present the critic's findings as questions for the user to interpret — present them as: "Critic flagged [issue]. Recommend [fix]. Apply? (apply / modify / skip — log as accepted-risk)".
+   **An UNMEETABLE_CRITERIA item is always a question for the owner**, never a mechanical fix: write the measured numbers and the options (reword the criterion, change the thing it measures, drop it) in the chat, recommend one, and put it on the question list. The story is not approved while one is open.
 3. For CONCERN items: note them in the feature's `## Decision Log` as "Critic flagged — [summary]. Accepted because: [your reasoning]" or fix if quick (mechanical only — semantic CONCERNs go through AskUserQuestion per the rule above).
 4. For RECONSIDER verdicts from Pass 3 (steel-man challenges): AskUserQuestion with both options and the critic's reasoning, plus your recommendation
 5. If the critic identified assumptions that the spec relies on silently, **do NOT make them explicit in the spec silently.** These items follow the same render-first rule as step 2 — the steel-man reasoning and the assumption text appear as chat text above the ask, never only inside the question. Making an assumption explicit IS a policy decision (you're committing the spec to a specific reading the user may not have intended). AskUserQuestion: "Critic flagged silent assumption: [text]. Apply as explicit acceptance criterion / Apply as Technical Notes line / Decline (assumption may not be load-bearing)". Default-recommend "Apply as Technical Notes line" — that's the lowest-commitment way to surface the assumption without baking it into the test contract.

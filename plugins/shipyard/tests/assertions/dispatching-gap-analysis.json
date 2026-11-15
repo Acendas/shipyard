@@ -48,5 +48,23 @@
     "name": "has_porcelain_check",
     "type": "contains",
     "pattern": "git status --porcelain"
+  },
+  {
+    "name": "model_resolved_via_cli",
+    "type": "contains",
+    "pattern": "shipyard-data resolve-model",
+    "why": "S003 AC-8: model/effort come from the CLI resolver, not prose derivation of config.md."
+  },
+  {
+    "name": "no_prose_model_derivation",
+    "type": "not_contains",
+    "pattern": "Read `(models\\.(think|build)|agent_effort\\.\\w+)` from config\\.md",
+    "why": "S003 AC-8: prose config reads for model/effort are replaced by resolve-model."
+  },
+  {
+    "name": "wrapper_emits_dispatch_model_resolved",
+    "type": "contains",
+    "pattern": "dispatch_model_resolved",
+    "why": "S003 AC-9: the wrapper (not the resolver) logs the resolution."
   }
 ]

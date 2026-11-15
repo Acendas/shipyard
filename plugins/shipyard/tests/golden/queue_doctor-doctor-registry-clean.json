@@ -1,0 +1,5 @@
+{
+  "code": 0,
+  "stdout": "shipyard-data doctor: no issues found (scanned 1 project dir under <BASE>/projects; current project abc123abc123; registry: 5 file(s) checked (full sweep)).",
+  "stderr": ""
+}

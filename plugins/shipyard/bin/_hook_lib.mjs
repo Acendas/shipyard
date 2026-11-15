@@ -37,6 +37,7 @@
  */
 
 import {
+  appendFileSync,
   closeSync,
   existsSync,
   mkdirSync,
@@ -59,6 +60,7 @@ const DEFAULT_LOG_MAX_BYTES = 256 * 1024;
 // Larger caps than breadcrumbs because users need enough history to
 // reconstruct "what happened" during a sprint that failed hours ago.
 export const EVENTS_LOG_NAME = ".shipyard-events.jsonl";
+export const EVENTS_ARCHIVE_DIR = "events-archive";
 const DEFAULT_EVENTS_MAX_LINES = 5000;
 const DEFAULT_EVENTS_MAX_BYTES = 1024 * 1024; // 1 MB
 
@@ -363,8 +365,14 @@ export function logEvent(dataDir, type, fields = {}, opts = {}) {
     return;
   }
 
-  withLockfile(logPath + ".lock", () => {
+  withLockfile(logPath + ".lock", (held) => {
     try {
+      if (!held) {
+        // Fail open to append-only: never rotate (and so never drop lines)
+        // without the lock.
+        appendFileSync(logPath, line);
+        return;
+      }
       let existing = "";
       try {
         existing = readFileSync(logPath, "utf8");
@@ -376,7 +384,50 @@ export function logEvent(dataDir, type, fields = {}, opts = {}) {
         const lines = updated.split("\n");
         if (lines.length > maxLines) {
           const kept = lines.slice(-maxLines - 1);
-          updated = kept.join("\n");
+          const dropped = lines.slice(0, lines.length - kept.length);
+          // AC-11 AC-12 AC-16: archive (append, no rename) inside the lock.
+          // Archive exactly the dropped head lines BEFORE rewriting the live
+          // log, inside the lock. If the archive write fails, skip rotation
+          // (append-only) rather than lose lines.
+          // Failure-safe: a marker records how many head lines are already in
+          // the archive while still in the live log (rewrite failed). A retry
+          // skips them so no line is archived twice.
+          let archived = false;
+          let marker = null;
+          const dir = join(dataDir, EVENTS_ARCHIVE_DIR);
+          const markerPath = join(dir, ".archived-head.json");
+          if (dropped.length > 0) {
+            try {
+              mkdirSync(dir, { recursive: true });
+              let skip = 0;
+              try {
+                const m = JSON.parse(readFileSync(markerPath, "utf8"));
+                if (m && m.count > 0 && m.count <= dropped.length && lines[m.count - 1] === m.last) skip = m.count;
+              } catch { /* no marker */ }
+              const fresh = dropped.slice(skip);
+              const day = new Date().toISOString().slice(0, 10);
+              if (fresh.length > 0) appendFileSync(join(dir, `events-${day}.jsonl`), fresh.join("\n") + "\n");
+              marker = { count: dropped.length, last: dropped[dropped.length - 1] };
+              writeFileSync(markerPath, JSON.stringify(marker));
+              archived = true;
+            } catch {
+              archived = false;
+            }
+          }
+          if (archived) {
+            const write = opts._atomicWrite ?? atomicWrite; // test seam
+            try {
+              write(logPath, kept.join("\n"));
+              try { unlinkSync(markerPath); } catch { /* ignore */ }
+            } catch {
+              // Rewrite failed (e.g. Windows file held): lines are in the
+              // archive AND still in the live log. Keep the live log
+              // unrotated, append the new event so it is not lost; the marker
+              // prevents re-archiving the same head on the next rotation.
+              appendFileSync(logPath, line);
+            }
+            return;
+          }
         }
       }
       atomicWrite(logPath, updated);
@@ -435,6 +486,10 @@ function require_basename(p) {
  *
  * On exit (normal or thrown), the lockfile is removed in a finally block.
  *
+ * `fn` receives one boolean: `true` when the lock is held, `false` when
+ * `failOpen` ran it unlocked (contention timeout / non-EEXIST open error).
+ * Callers doing destructive work (rotation) must skip it when `false`.
+ *
  * Synchronous API to match the rest of the hook chain — hooks run in
  * short-lived processes and don't benefit from async locking.
  *
@@ -457,7 +512,7 @@ export function withLockfile(lockPath, fn, opts = {}) {
       break;
     } catch (err) {
       if (err.code !== "EEXIST") {
-        if (opts.failOpen) return fn();
+        if (opts.failOpen) return fn(false);
         throw err;
       }
       // Lock contended. Check if stale.
@@ -478,7 +533,7 @@ export function withLockfile(lockPath, fn, opts = {}) {
       if (attempt > maxRetries) {
         const err = new Error(`timed out acquiring lock ${lockPath}`);
         err.code = "ELOCKTIMEOUT";
-        if (opts.failOpen) return fn();
+        if (opts.failOpen) return fn(false);
         throw err;
       }
       // Synchronous sleep via Atomics.wait. Never notified.
@@ -488,7 +543,7 @@ export function withLockfile(lockPath, fn, opts = {}) {
 
   try {
     closeSync(fd);
-    fn();
+    fn(true);
   } finally {
     try { unlinkSync(lockPath); } catch { /* ignore */ }
   }

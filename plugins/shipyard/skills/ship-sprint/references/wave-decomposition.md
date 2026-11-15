@@ -4,17 +4,17 @@ Detail for `/ship-sprint` PLAN-mode task decomposition and wave grouping.
 
 ## Step 4 — Decompose Tasks (5-stage protocol)
 
-**Read first:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-decomposition-patterns.md` — contains the splitting patterns, walking skeleton rules, Red step examples, and effort anchors (the canonical 11 patterns are walked by `splitting-stories` at Stage 3). Read it before decomposing any feature; decomposing without it produces bundled tasks.
+**Read first:** `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-decomposition-patterns.md` — contains the splitting patterns, walking skeleton rules, Red step examples, and effort anchors (the canonical 11 patterns are walked by `splitting-stories` at Stage 3).
 
 Always include cleanup as explicit tasks — not afterthoughts. If architecture analysis found dead code, deprecated patterns, stale config, or migration shims, create dedicated cleanup tasks in the final wave so they don't block feature work.
 
-**Do not write task files until Stage 4.** Follow these stages in order for each selected feature.
+**Do not write step files until Stage 4.** Follow these stages in order for each selected feature.
 
 ### Stage 1: Map acceptance criteria to task drafts
 
 Check the feature's `tasks:` frontmatter array first — if tasks already exist from a prior session, verify each has a `First failing test:` entry in its Technical Notes (sign that the protocol was followed). If yes, skip to Stage 3 for any remaining `approved`-status tasks. If no Red step is present, re-decompose from here.
 
-Read the feature spec's acceptance criteria (written by `/ship-discuss` in Gherkin form). List one draft entry per criterion — no task files yet, just a named mapping:
+Read the feature spec's acceptance criteria (written by `/ship-discuss` in Gherkin form). List one draft entry per criterion — no step files yet, just a named mapping:
 
 ```
 Criterion: "User can refresh an expired access token"  → draft: "Add JWT refresh endpoint"
@@ -22,7 +22,7 @@ Criterion: "Refresh token is invalidated after use"    → draft: "Invalidate re
 Criterion: "Expired refresh token returns 401"         → draft: "Return 401 for expired refresh token"
 ```
 
-Every final task must trace back to exactly one acceptance criterion, or carry an explicit label: `[infrastructure]`, `[cleanup]`, or `[spike]`. This traceability is the test that decomposition is complete — no criterion left uncovered, no task invented without a spec anchor.
+Every final task traces to exactly one acceptance criterion or carries a label: `[infrastructure]`, `[cleanup]`, or `[spike]`.
 
 ### Stage 2: Extract the walking skeleton (Wave 1 foundation)
 
@@ -30,7 +30,7 @@ Before any behavior task, identify what must exist across all layers for any beh
 
 **Data features (gated):** when the feature has a `## Data Model` section or otherwise persists data, consult `${CLAUDE_PLUGIN_ROOT}/project-files/references/data-modeling-guide.md` while shaping the foundation task — ensure schema/migration, constraint (`FK`/`NOT NULL`/`UNIQUE`/`CHECK`), and index work that the feature's Data Model and Technical Notes imply are captured as explicit tasks rather than left implicit, and apply the guide's right-sizing routine to keep those tasks neither over- nor under-scoped. Skip for features with no persistence concern.
 
-**Rule:** Wave 1 = foundation only. No behavior task can sit in Wave 1. Every behavior task depends on the foundation. This enforces vertical slicing — each behavior task is a thin, independently testable end-to-end slice through the foundation.
+**Rule:** when the sprint needs a foundation step, it is alone in Wave 1 and every behaviour step that uses it lists it in `dependencies:`. This enforces vertical slicing — each behaviour step is a thin, independently testable end-to-end slice through the foundation. Keep the foundation as small as the contract the others need (types, a route, a stub): the smaller it is, the sooner everything else starts. A sprint whose steps need nothing new underneath has no foundation step, and its behaviour steps start in Wave 1.
 
 If the feature has no cross-layer infrastructure needs (e.g., a pure UI wording change or isolated function fix), skip this stage and place behavior tasks in Wave 1 directly.
 
@@ -47,7 +47,7 @@ The capability skill is the single source of truth for the patterns; the trigger
 - **Happy path vs. edge cases** — "implement X and handle errors / validate / edge cases"
 - **Make-it-work vs. make-it-fast** — any mention of caching, performance, or optimization
 
-### Stage 4: Write the Red step, author the acceptance probe, then write the task file
+### Stage 4: Write the Red step, author the acceptance probe, then write the step file
 
 For each draft that survived Stage 3:
 
@@ -65,14 +65,17 @@ For each draft that survived Stage 3:
    - Runs the quality checklist: one command, self-contained, exit-0-means-pass, observable output, deterministic, bounded ≤60s, AND fails today against the unimplemented state.
    - Returns the probe command as a YAML-ready string.
 
-   Write the returned probe to the task's frontmatter `acceptance_probe:` field (use a YAML block scalar `|` for multi-line probes). **Without a probe, dispatching-task-loop refuses to dispatch — task is unauthorable.** If the probe is genuinely elusive after the patterns are tried, surface to the user:
+   Write the returned probe to the task's frontmatter `acceptance_probe:` field (use a YAML block scalar `|` for multi-line probes). **"Fails today" is checked by the CLI, not by eye (4.21):** once the step files and the wave list are written, run `shipyard-data sprint probes-at-base --draft` (`--next` for a sprint drafted ahead). It runs every feature step's probe on the code as it is now. A probe that already passes proves nothing when it passes later: rewrite it so it checks what the step adds, and run the command again (unchanged probes are not re-run). Only when a pass is right — a pure refactor guarded by an existing check — say so in the step: `probe_passes_at_base: "<reason>"`. A story cannot enter the sprint while a probe is unrun or passes with no reason. **Without a probe, dispatching-task-loop refuses to dispatch — task is unauthorable.** If the probe is genuinely elusive after the patterns are tried, surface to the user:
 
    > *"This task's acceptance criteria don't reduce to a single observable command. Should we (a) refine the criteria, (b) split into smaller tasks, or (c) mark this task `kind: research` and produce a findings doc instead? Recommended: (a)."*
 
    Skip probe authoring for `kind: operational` (the verify_command IS the probe — see operational task guidance) and `kind: research` (no code commit, no probe — research_output is the deliverable).
 
-3. **Write the task file.** Use the Write tool to create `<SHIPYARD_DATA>/spec/tasks/TNNN-[slug].md` from `${CLAUDE_PLUGIN_ROOT}/project-files/templates/task.md`. Required frontmatter:
+3. **Write the step file.** Use the Write tool to create `<SHIPYARD_DATA>/spec/steps/TNNN-[slug].md` from `${CLAUDE_PLUGIN_ROOT}/project-files/templates/task.md`. Required frontmatter:
    - `id`, `title`, `feature` (parent ID), `status`, `effort` (S/M/L), `dependencies`
+   - **`touches`** (4.19): the files this step changes, as a list (`touches: [src/hud.c, tests/test_hud.c]`). When two steps must change the same file, name the part each one changes (`"src/app.c#render queue"`, `"src/app.c#input"`), cut the work so each has its own file, or make one wait for the other. `dependencies:` lists only what this step truly waits for: every entry adds to the chain that sets how long the sprint takes.
+   - **`needs_person`** when a person has to do the step (4.0): `before` if its result changes what gets built (a spike, a device test, a decision, access to something), `after` if it only confirms what was built (a look, a manual test). With it, `person_task: "<what the person does, one line>"`, and optionally `person_minutes:` and `person_where:` (for example the device, so the end-of-sprint checks can be done in one sitting). A `before` step goes in Wave 1 and the steps that need its result list it in `dependencies:`. Nothing may depend on an `after` step. **There is no third kind:** a person is never needed in the middle of a sprint.
+   - **Size is also the model (4.10).** `effort` routes the step: **S** = straightforward, runs on the light tier (Haiku) — one or two files, an exact spec, no design choice, nothing to find out; **M** = needs reasoning (build tier, Sonnet) — several files, a choice between approaches, or behaviour to work out from the code; **L** = hard (think tier, Opus) — cross-cutting, subtle, or easy to get wrong. Size honestly: an S that is not straightforward costs a failed dispatch before it climbs. A small step that still needs judgment gets `tier: build` (or `think`) in its frontmatter; a pin only raises.
    - **`kind`** (see Task Kinds below)
    - **`acceptance_probe`** for `kind: feature` (the probe authored in step 2)
    - **`verify_command`** for `kind: operational`
@@ -80,7 +83,7 @@ For each draft that survived Stage 3:
 
    Write the Red step into `## Technical Notes` under the heading `First failing test:`.
 
-Task files are the **single source of truth** — title, effort, status, dependencies, kind, and probe all live there.
+Step files are the **single source of truth** — title, effort, status, dependencies, touches, kind, and probe all live there.
 
 ### Stage 5: Assign effort using the adapted 8/80 rule
 
@@ -96,7 +99,7 @@ For any task assigned `effort: L`: confirm the splitting patterns were checked a
 
 ---
 
-After all stages: populate `## Technical Notes` in each task file using findings from Steps 3-3.5: architecture impact, files to modify, implementation strategy, Decision Log choices, patterns to follow, gotchas, cleanup items. Use the template in `references/task-tech-notes-template.md`. Every task must have Technical Notes — the builder reads these before writing any code. Update the feature's `tasks:` array with all final task IDs.
+After all stages: populate `## Technical Notes` in each step file using findings from Steps 3-3.5: architecture impact, files to modify, implementation strategy, Decision Log choices, patterns to follow, gotchas, cleanup items. Use the template in `references/task-tech-notes-template.md`. Every task must have Technical Notes — the builder reads these before writing any code. Update the feature's `tasks:` array with all final task IDs.
 
 **INVEST output check.** After all tasks are written for a feature:
 - **I (Independent):** No task in the same wave depends on another task in the same wave. Same-wave dependencies indicate a missed foundation task — revisit Stage 2.
@@ -109,7 +112,7 @@ After all stages: populate `## Technical Notes` in each task file using findings
 
 **Why this matters.** The silent-pass failure mode — task marked done without tests actually running — happens when an operational-shaped task is routed to the builder, which exits clean on an empty tree because there's no code for it to write. The `kind:` field is the load-bearing signal that prevents this.
 
-**Kind auto-classifier.** Before writing each task file, scan the task description for operational signals — they are easy to miss by eye and the classifier is how users surface them. Signal phrases (case-insensitive):
+**Kind auto-classifier.** Before writing each step file, scan the task description for operational signals — they are easy to miss by eye and the classifier is how users surface them. Signal phrases (case-insensitive):
 - `run the … tests`, `run the full suite`, `run all …`
 - `audit`, `scan for`, `check for` (when used as a command, not as a metaphor)
 - `benchmark`, `measure`, `profile`
@@ -122,41 +125,44 @@ When a signal fires, **do NOT auto-assign `kind: operational` silently.** Use As
 
 ## Step 5 — Build Task Dependency Graph
 
-Build the dependency graph from task files. Read each task file's frontmatter to determine which tasks depend on which. Do NOT duplicate task data into SPRINT.md — the sprint file only stores task IDs grouped by wave.
+Build the dependency graph from step files. Read each step file's frontmatter to determine which tasks depend on which. Do NOT duplicate task data into SPRINT.md — the sprint file only stores task IDs grouped by wave.
 
 ## Step 6 — Find the Bottleneck
 
-Identify the longest chain of dependent tasks (the critical path). If any of these tasks are delayed, the whole sprint is delayed.
+The longest chain of steps that must wait for each other sets how long the sprint takes; everything else can run beside it. Do not work it out by hand: `shipyard-data sprint plan-score` prints it (Step 7).
 
-## Step 7 — Wave Assignment
+## Step 7 — Wave Assignment: as wide as the dependencies allow
 
-Waves are groups of tasks that can run together. Tasks in the same wave don't depend on each other, so they can run in parallel. Each wave finishes before the next one starts.
+A wave is a group of steps that run at the same time. The aim is the **fewest waves** and the **shortest chain**, so the most work runs in parallel.
 
-Group tasks into waves:
-- Wave 1: tasks with no dependencies (these start first)
-- Wave 2: tasks that depend only on wave 1 tasks
-- Wave N: tasks that depend only on earlier wave tasks
+1. **Put every step in the earliest wave its `dependencies:` allow.** Wave 1: steps that wait for nothing. Wave N: steps whose dependencies all finish by wave N-1. A step in a later wave than that is refused by the CLI (`late`).
+2. **Steps in one wave never depend on each other and never change the same file.** The CLI checks both from `dependencies:` and `touches:`.
+3. **A wave is as wide as it comes.** The only ceiling is `execution.max_agents` (default 100 agents alive at once; `shipyard-data resolve-wave-caps` prints the numbers in force). Each story is reviewed when its own last step merges, so a wide wave does not make reviews rarer. Never cap the number of waves: that is the depth of the dependencies.
+4. **Score the plan and shorten the chain.** Write the wave list into the sprint draft, then run:
 
-Rules:
-- Tasks within a wave have NO dependencies on each other
-- Each wave completes fully before the next starts
-- Mark which waves can run in parallel (multiple subagents)
+   ```
+   shipyard-data sprint plan-score --draft        (--next for a sprint drafted ahead)
+   ```
 
-**Wave size cap (`execution.max_tasks_per_wave`, default 6).** All quality machinery is wave-scoped — one integration gate, one scoped build/test run, one spec review, one completion gate per wave. An oversized wave makes those checkpoints rare and smears failure attribution across a giant merge surface.
+   ```
+   plan score: 9 steps in 3 waves · widest wave 6 · longest chain 3 (P001 → P004 → P009)
+     wave  1 ██████ 6
+     wave  2 ██ 2
+     wave  3 █ 1
+   ```
 
-**But splitting an independent layer costs a whole boundary (`execution.merge_independent_layers`, default true).** The waves produced by this split have **no dependency on each other** — that is what makes the split legal in the first place — yet `/ship-execute` runs them strictly in series, paying a full boundary cycle (build + refactor + tests + spec review + integration + gate) for each extra wave. So before splitting, check the merge path:
+   Fix every problem it lists by changing the plan, never by loosening the check. Then look at the chain it names and ask of each link: **is this a real wait?**
 
-**Read the caps from the CLI, not from config.md prose:** `shipyard-data resolve-wave-caps` prints one JSON object — `{max_tasks_per_wave, merge_independent_layers, max_tasks_per_wave_merged, dispatch_order}` — with every default applied and every malformed value already coerced. Do not re-derive these numbers by reading config.md.
+   | The link exists because | Make it parallel by |
+   |---|---|
+   | Both steps change the same file | Cutting the work along the file: each step owns its file, or names its own part (`file#part`) |
+   | The second needs a type, a route or a data shape from the first | Moving that contract into a small first step, so the rest of both steps runs side by side |
+   | One step does two things | Splitting it (Stage 3) so the independent half leaves the chain |
+   | The second really needs the first's behaviour | Nothing. That is the chain; say so |
 
-- If the layer's task count is `<= max_tasks_per_wave_merged` (default 12), **keep it as ONE wave** and skip the split entirely.
-- Beyond that bound, split as documented below. The merge-surface cost of an arbitrarily wide wave does eventually exceed the saved boundary.
-- Set `merge_independent_layers: false` to always split, when failure attribution on a smaller diff matters more than the saved boundary.
+   Re-run the score after each change. Stop when every remaining link is a real wait.
+5. **Run the probes on today's code:** `shipyard-data sprint probes-at-base --draft`, and fix every probe it says already passes (Stage 4).
+6. **A person at the start or at the end, never in the middle.** The score's `you:` line says what the sprint needs from the person: `you: 2 things at the start (about 10 min): … · 3 checks at the end`. The CLI refuses a `needs_person: before` step outside Wave 1 and a step that waits for an `after` step. When a person step could go either way, the rule decides: its result changes what is built → `before`; it only confirms → `after`.
+7. **Show the score in the plan summary** (the first line, the bars and the `you:` line), so the owner sees how parallel the sprint is and what it needs from them before approving it.
 
-**Do not oversell the merge.** It does NOT raise build concurrency — `execution.max_parallel_agents` (default 3, hard ceiling 4) still caps that, so a merged 12-task wave is still four batches of three. What it removes is the *duplicated boundary machinery*, which is where the wall-clock actually goes.
-
-When a dependency layer has more tasks than the cap **and the merge path above does not apply**:
-
-- Split it into consecutive waves **along track boundaries** — keep tasks sharing a parent feature in the same wave (a track's nested per-task builders share the track coordinator's running context; splitting a track across waves forces that coordinator to idle at a boundary mid-feature).
-- If a single track alone exceeds the cap, split that track across consecutive waves at its most natural internal seam (e.g., data layer wave, then service/UI wave).
-- The split is always dependency-valid: the layer's tasks were mutually independent, so any partition of them into consecutive waves preserves the no-intra-wave-dependency invariant.
-- **Never cap the number of WAVES** — wave count is dependency depth, and merging dependent tasks into one wave to reduce count breaks the invariant.
+The gate behind this: a story cannot enter the sprint, and a sprint drafted ahead cannot be queued, while `plan-score` reports a problem. `execution.parallel_plan: false` is the owner's switch to turn it off.

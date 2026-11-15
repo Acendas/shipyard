@@ -1,191 +1,202 @@
 [
-  {
-    "name": "has_persistent_state",
-    "type": "contains",
-    "pattern": "persist|survives|session"
-  },
-  {
-    "name": "has_resume",
-    "type": "contains",
-    "pattern": "--resume|resume"
-  },
-  {
-    "name": "has_frontmatter_name",
-    "type": "frontmatter_field",
-    "field": "name",
-    "value": "ship-debug"
-  },
-  {
-    "name": "has_investigate_step",
-    "type": "contains",
-    "pattern": "[Ii]nvestigat|[Hh]ypothes"
-  },
-  {
-    "name": "has_fix_step",
-    "type": "contains",
-    "pattern": "[Ff]ix.*TDD|TDD.*fix|regression test"
-  },
-  {
-    "name": "has_verify_step",
-    "type": "contains",
-    "pattern": "[Vv]erif"
-  },
-  {
-    "name": "approval_uses_ask_user",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "has_evidence_section",
-    "type": "contains",
-    "pattern": "Evidence"
-  },
-  {
-    "name": "has_eliminated_section",
-    "type": "contains",
-    "pattern": "Eliminated"
-  },
-  {
-    "name": "has_fix_attempt_limit",
-    "type": "contains",
-    "pattern": "fix_attempts|3.*failed|attempt.*3"
-  },
-  {
-    "name": "has_defense_in_depth",
-    "type": "contains",
-    "pattern": "[Dd]efense.in.[Dd]epth"
-  },
-  {
-    "name": "has_scientific_method",
-    "type": "contains",
-    "pattern": "[Hh]ypothesis.*test|scientific"
-  },
-  {
-    "name": "has_compaction_recovery",
-    "type": "contains",
-    "pattern": "[Cc]ompaction|resume.*debug"
-  },
-  {
-    "name": "has_red_flags",
-    "type": "contains",
-    "pattern": "[Rr]ed [Ff]lag"
-  },
-  {
-    "name": "has_pattern_analysis",
-    "type": "contains",
-    "pattern": "[Pp]attern [Aa]nalysis|working.*code"
-  },
-  {
-    "name": "uses_ask_user_question",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "uses_shipyard_data_path",
-    "type": "contains",
-    "pattern": "shipyard-data|shipyard-context"
-  },
-  {
-    "name": "has_lsp_in_tools",
-    "type": "contains",
-    "pattern": "LSP"
-  },
-  {
-    "name": "has_lsp_first_principle",
-    "type": "contains",
-    "pattern": "LSP-first|LSP.*before.*Grep"
-  },
-  {
-    "name": "no_shell_sd_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-data"
-  },
-  {
-    "name": "no_shell_sc_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-context"
-  },
-  {
-    "name": "no_sd_shell_var_assignment",
-    "type": "not_contains",
-    "pattern": "SD=\\$\\(shipyard-data"
-  },
-  {
-    "name": "has_planning_mutex_check",
-    "type": "contains",
-    "pattern": "Planning-session mutex check|Planning session active"
-  },
-  {
-    "name": "planning_check_uses_lock_check_cli",
-    "type": "contains",
-    "pattern": "shipyard-data lock check planning"
-  },
-  {
-    "name": "debug_runs_through_logcap",
-    "type": "contains",
-    "pattern": "shipyard-logcap run"
-  },
-  {
-    "name": "debug_iter_capture_naming",
-    "type": "contains",
-    "pattern": "<debug-slug>-iter<N>|debug-slug>-iter"
-  },
-  {
-    "name": "debug_verify_runs_captured",
-    "type": "contains",
-    "pattern": "<debug-slug>-verify-repro|verify-repro|verify-tests"
-  },
-  {
-    "name": "debug_allowed_tools_has_logcap",
-    "type": "contains",
-    "pattern": "Bash\\(shipyard-logcap:"
-  },
-  {
-    "name": "debug_context_is_bundled",
-    "type": "contains",
-    "pattern": "shipyard-context debug-session"
-  },
-  {
-    "name": "debug_evidence_references_captures",
-    "type": "contains",
-    "pattern": "capture: <debug-slug|capture name"
-  },
-  {
-    "name": "prohibits_bash_redirect_for_state",
-    "type": "contains",
-    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
-  },
-  {
-    "name": "uses_lock_check",
-    "type": "contains",
-    "pattern": "lock check",
-    "why": "v3.7.0 wave 3: both the planning and execution mutex checks are read-only via shipyard-data lock check \u2014 ship-debug never acquires either lock, it only verifies neither is held by someone else."
-  },
-  {
-    "name": "no_hand_write_lock_file",
-    "type": "not_contains",
-    "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
-    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned \u2014 no skill body hand-Writes them anymore."
-  },
-  {
-    "name": "fix_phase_acquires_execution_lock",
-    "type": "contains",
-    "pattern": "lock acquire execution --skill ship-debug"
-  },
-  {
-    "name": "fix_phase_releases_execution_lock",
-    "type": "contains",
-    "pattern": "lock release execution --skill ship-debug"
-  },
-  {
-    "name": "render_provenance_negation",
-    "type": "contains",
-    "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
-  },
-  {
-    "name": "quiet_by_default",
-    "type": "contains",
-    "pattern": "Quiet by default"
-  }
+ {
+  "name": "has_persistent_state",
+  "type": "contains",
+  "pattern": "persist|survives|session"
+ },
+ {
+  "name": "has_resume",
+  "type": "contains",
+  "pattern": "--resume|resume"
+ },
+ {
+  "name": "has_frontmatter_name",
+  "type": "frontmatter_field",
+  "field": "name",
+  "value": "ship-debug"
+ },
+ {
+  "name": "has_investigate_step",
+  "type": "contains",
+  "pattern": "[Ii]nvestigat|[Hh]ypothes"
+ },
+ {
+  "name": "has_fix_step",
+  "type": "contains",
+  "pattern": "[Ff]ix.*TDD|TDD.*fix|regression test"
+ },
+ {
+  "name": "has_verify_step",
+  "type": "contains",
+  "pattern": "[Vv]erif"
+ },
+ {
+  "name": "approval_uses_ask_user",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "has_evidence_section",
+  "type": "contains",
+  "pattern": "Evidence"
+ },
+ {
+  "name": "has_eliminated_section",
+  "type": "contains",
+  "pattern": "Eliminated"
+ },
+ {
+  "name": "has_fix_attempt_limit",
+  "type": "contains",
+  "pattern": "fix_attempts|3.*failed|attempt.*3"
+ },
+ {
+  "name": "has_defense_in_depth",
+  "type": "contains",
+  "pattern": "[Dd]efense.in.[Dd]epth"
+ },
+ {
+  "name": "has_scientific_method",
+  "type": "contains",
+  "pattern": "[Hh]ypothesis.*test|scientific"
+ },
+ {
+  "name": "has_compaction_recovery",
+  "type": "contains",
+  "pattern": "[Cc]ompaction|resume.*debug"
+ },
+ {
+  "name": "has_red_flags",
+  "type": "contains",
+  "pattern": "[Rr]ed [Ff]lag"
+ },
+ {
+  "name": "has_pattern_analysis",
+  "type": "contains",
+  "pattern": "[Pp]attern [Aa]nalysis|working.*code"
+ },
+ {
+  "name": "uses_ask_user_question",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "uses_shipyard_data_path",
+  "type": "contains",
+  "pattern": "shipyard-data|shipyard-context"
+ },
+ {
+  "name": "has_lsp_in_tools",
+  "type": "contains",
+  "pattern": "LSP"
+ },
+ {
+  "name": "has_lsp_first_principle",
+  "type": "contains",
+  "pattern": "LSP-first|LSP.*before.*Grep"
+ },
+ {
+  "name": "no_shell_sd_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data"
+ },
+ {
+  "name": "no_shell_sc_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context"
+ },
+ {
+  "name": "no_sd_shell_var_assignment",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data"
+ },
+ {
+  "name": "has_planning_mutex_check",
+  "type": "contains",
+  "pattern": "Other commands do not block a fix",
+  "why": "4.17 (owner): different commands never block each other; the lock stops a second copy of the same command"
+ },
+ {
+  "name": "planning_check_uses_lock_check_cli",
+  "type": "contains",
+  "pattern": "the fix phase only needs the execution lock",
+  "why": "4.17 (owner): different commands never block each other; the lock stops a second copy of the same command"
+ },
+ {
+  "name": "debug_runs_through_logcap",
+  "type": "contains",
+  "pattern": "shipyard-logcap run"
+ },
+ {
+  "name": "debug_iter_capture_naming",
+  "type": "contains",
+  "pattern": "<debug-slug>-iter<N>|debug-slug>-iter"
+ },
+ {
+  "name": "debug_verify_runs_captured",
+  "type": "contains",
+  "pattern": "<debug-slug>-verify-repro|verify-repro|verify-tests"
+ },
+ {
+  "name": "debug_allowed_tools_has_logcap",
+  "type": "contains",
+  "pattern": "Bash\\(shipyard-logcap:"
+ },
+ {
+  "name": "debug_context_is_bundled",
+  "type": "contains",
+  "pattern": "shipyard-context debug-session"
+ },
+ {
+  "name": "debug_evidence_references_captures",
+  "type": "contains",
+  "pattern": "capture: <debug-slug|capture name"
+ },
+ {
+  "name": "prohibits_bash_redirect_for_state",
+  "type": "contains",
+  "pattern": "never use echo, printf, or shell redirects",
+  "target": "plugin:bin/shipyard-context.mjs",
+  "why": "S016/P062: canonical home is CANONICAL_STARTUP_RULES in the startup CLI."
+ },
+ {
+  "name": "uses_lock_check",
+  "type": "contains",
+  "pattern": "lock check",
+  "why": "v3.7.0 wave 3: both the planning and execution mutex checks are read-only via shipyard-data lock check — ship-debug never acquires either lock, it only verifies neither is held by someone else."
+ },
+ {
+  "name": "no_hand_write_lock_file",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore."
+ },
+ {
+  "name": "fix_phase_acquires_execution_lock",
+  "type": "contains",
+  "pattern": "lock acquire execution --skill ship-debug"
+ },
+ {
+  "name": "fix_phase_releases_execution_lock",
+  "type": "contains",
+  "pattern": "lock release execution --skill ship-debug"
+ },
+ {
+  "name": "render_provenance_negation",
+  "type": "contains",
+  "pattern": "does not count as rendered",
+  "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P062: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+  "target": "plugin:bin/shipyard-context.mjs"
+ },
+ {
+  "name": "quiet_by_default",
+  "type": "contains",
+  "pattern": "Quiet by default"
+ },
+ {
+  "name": "render_before_ask_short_reminder_present",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "S016/P062: the command keeps only the short reminder; the full doctrine is printed at startup (CANONICAL_STARTUP_RULES)."
+ }
 ]

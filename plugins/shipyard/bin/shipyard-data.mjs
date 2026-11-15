@@ -11,7 +11,7 @@
  *   shipyard-data init                         → ensures the data directory tree
  *   shipyard-data onboarding status|bootstrap  → setup/onboarding state
  *   shipyard-data with-lock <key> -- <cmd>     → fcntl-style locking primitive
- *   shipyard-data archive-sprint <id> [--force]→ atomic sprint rename
+ *   shipyard-data archive-sprint <id> [--force] [--unreviewed|--via-review]→ atomic sprint rename
  *   shipyard-data metrics record-retro ...      → CLI-owned metrics update
  *   shipyard-data init-sprint <id> [--data-dir] → copy canonical templates into sprints/current/
  *   shipyard-data events emit <type> [k=v ...] → structured event log append
@@ -49,6 +49,8 @@
  *   shipyard-data verify record --key <k>      → record a verification result
  *     --command <literal> --exit <n>              (see bin/verify-ledger.mjs)
  *     --capture <path>
+ *   shipyard-data verify findings --wave <n> --tasks <ids> --met <n> --partial <n>
+ *     --missing <n> --over-built <n>   → wave_verify_findings event (counts only)
  *   shipyard-data verify check --key <k>       → exit 0 = fresh (reusable),
  *     --command <literal> [--ttl-hours <n>]       exit 3 = stale (re-run it)
  *   shipyard-data review plan <findings.json>  → deterministic review finding
@@ -57,26 +59,44 @@
  *                                                → durable flat-worker queue
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { findDrift, applyFixes } from "./reconcile.mjs";
+import { repoFor, sweepBranches, sweepWorktrees } from "./branches.mjs";
+import { strayChanges, othersWorkingHere } from "./stray.mjs";
+import { main as sprintAheadMain } from "./sprint-ahead.mjs";
+import { readSweepBranches } from "./config-read.mjs";
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve as pathResolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { logEvent, withLockfile } from "./_hook_lib.mjs";
+import { basename, dirname, isAbsolute, join, resolve as pathResolve, resolve } from "node:path";
+import { loadMetricsState, sortSprintRecords, updateMetricAggregate, roundMetric, writeMetricsState } from "./metrics-state.mjs";
+import { capacityMain } from "./capacity.mjs";
+import { migrateMain } from "./migrate-v4.mjs";
+import { ENTITIES, entityForNextIdKind, STEP_ID_RE, eventMatches, eventTypeAliases, canonicalEventType, WAVE_UNIT_ID_RE, inSprintWindow, isStepSpawn } from "./vocab.mjs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { EVENTS_LOG_NAME, logEvent, withLockfile } from "./_hook_lib.mjs";
+import { readEvents as readEventsWithArchive, activeTime } from "./event-report.mjs";
 import { dirLooksInitialized, ensureDataDirLink, getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
 import { cursorCmd } from "./cursor-cli.mjs";
-import { parseFrontmatter, parseWaves, readEvents } from "./terminal-gate.mjs";
+import { parseFrontmatter, parseWaves, readEvents, sprintStoryIds, sprintStoryList } from "./terminal-gate.mjs";
+import { parseFrontmatterList } from "./frontmatter-list.mjs";
 import { specStateCmd } from "./spec-state-cli.mjs";
 import { FEATURE_TRANSITIONS } from "./spec-lifecycle.mjs";
-import { skillLockCmd } from "./skill-lock.mjs";
+import { skillLockCmd, resolveSessionIdentity, runningBeside } from "./skill-lock.mjs";
 import { scanStubsCmd } from "./scan-stubs.mjs";
 import { verifyCmd } from "./verify-ledger.mjs";
 import { readinessCheckCmd } from "./readiness-check.mjs";
 import { checkIdeaBacklogCmd, countUndispositionedIdeas } from "./idea-backlog.mjs";
 import { bootstrapOnboarding, ensureInitializedDataDir, renderOnboardingLines } from "./init-data.mjs";
 import { reviewPlanCmd } from "./review-plan.mjs";
-import { queueCmd } from "./worker-queue.mjs";
+import { queueCmd, settleFromReturn } from "./worker-queue.mjs";
+import { tierFor } from "./model-for.mjs";
 import {
   readExecutionIsolation,
+  readRoutingRules,
+  ROLE_EFFORT_DEFAULT,
+  readModelTier,
+  normalizeLegacyModel,
+  readAgentEffort,
+  ROLE_TIER,
   normalizeIsolationToken,
   readMaxUndispositionedIdeas,
   readEnforceAcCoverage,
@@ -86,6 +106,8 @@ import {
   readMergeIndependentLayers,
   readMaxTasksPerWaveMerged,
 } from "./config-read.mjs";
+import { collectConfigWarnings, collectConfigErrors } from "./doctor-config.mjs";
+import { routeDecision } from "./route.mjs";
 
 // Shared Int32Array used by Atomics.wait for a true synchronous sleep in
 // withLock's poll loop. Never notified — always waits the full timeout.
@@ -311,12 +333,104 @@ function withLock(args) {
  * an existing archive dir unless --force is given, matching migrate's
  * safety contract.
  */
+function reviewCursorAllowsViaReview(currentDir, sprintId) {
+  const p = join(currentDir, "REVIEW-CURSOR.md");
+  if (!existsSync(p)) return false;
+  try {
+    const fm = parseFrontmatter(readFileSync(p, "utf8"));
+    const stage = String(fm.stage || "").trim();
+    if (stage !== "release_step_3" && stage !== "archive") return false;
+    const cs = String(fm.sprint || "").trim();
+    return !cs || cs === sprintId;
+  } catch { return false; }
+}
+
+/** See the call site in archiveSprint. Returns [{id, to}] for the stories it moved. */
+function finalizeSprintStories(dataDir, currentDir, sprintId) {
+  const out = [];
+  let content;
+  try { content = readFileSync(join(currentDir, "SPRINT.md"), "utf8"); } catch { return out; }
+  const completed = String(parseFrontmatter(content).status || "").trim().toLowerCase() === "completed";
+  const self = fileURLToPath(import.meta.url);
+  const run = (...argv) => spawnSync("node", [self, ...argv, "--data-dir", dataDir], { encoding: "utf8" });
+  for (const id of parseSprintFeatureIds(content)) {
+    const fp = findFeatureFile(dataDir, id);
+    if (!fp) continue;
+    let status = "";
+    try { status = String(parseFrontmatter(readFileSync(fp, "utf8")).status || "").trim().toLowerCase(); } catch { continue; }
+    if (status !== "in-progress") continue;
+    let approved = false;
+    try { approved = String(parseFrontmatter(readFileSync(join(dataDir, "verify", `${id}-verdict.md`), "utf8")).recommendation || "").trim() === "approve"; } catch { approved = false; }
+    if (completed && approved) {
+      if (run("story", "set-status", id, "done").status === 0) out.push({ id, to: "done" });
+    } else if (run("story", "set-status", id, "approved").status === 0) {
+      run("backlog", "add", id);
+      out.push({ id, to: "approved" });
+    }
+  }
+  return out;
+}
+
+// AC-1 AC-2 AC-3 AC-4 AC-7 (F043): a completed sprint may only be archived
+// with review evidence and no in-progress feature, unless --via-review.
+function enforceReviewGate(dataDir, currentDir, sprintId, unreviewed = false, events = null) {
+  const sprintPath = join(currentDir, "SPRINT.md");
+  if (!existsSync(sprintPath)) return;
+  const content = readFileSync(sprintPath, "utf8");
+  if (String(parseFrontmatter(content).status || "").trim().toLowerCase() !== "completed") return;
+  const isRelease = (v) => v === "archive" || /^release_step_\d+$/.test(String(v || ""));
+  // Archive-aware: review evidence rotated into events-archive/ still counts.
+  const reviewed = (events ?? readEventsWithArchive(dataDir).events).some(
+    (e) =>
+      e.pipeline === "ship-review" &&
+      e.sprint === sprintId &&
+      (isRelease(e.stage) ||
+        isRelease(e.next_stage) ||
+        (e.type === "pipeline_terminal" && ["success", "escalated"].includes(e.outcome))),
+  );
+  const inProgress = [];
+  for (const id of parseSprintFeatureIds(content)) {
+    const fp = findFeatureFile(dataDir, id);
+    if (!fp) continue;
+    try {
+      if (String(parseFrontmatter(readFileSync(fp, "utf8")).status || "").trim().toLowerCase() === "in-progress") inProgress.push(id);
+    } catch { /* unreadable feature: not evidence of in-progress */ }
+  }
+  if (unreviewed) {
+    // AC-5 (F043): explicit override — archive anyway, but leave an audit
+    // trail only when the gate would actually have refused (no no-op noise).
+    if (reviewed && inProgress.length === 0) return;
+    logEvent(dataDir, "sprint_archived_unreviewed", {
+      sprint: sprintId,
+      review_evidence: reviewed,
+      in_progress_features: inProgress.join(","),
+    });
+    return;
+  }
+  if (reviewed && inProgress.length === 0) return;
+  const why = [];
+  if (!reviewed) why.push("no /ship-review evidence for this sprint");
+  if (inProgress.length) why.push(`feature(s) still in-progress: ${inProgress.join(", ")}`);
+  process.stderr.write(
+    `shipyard-data archive-sprint: refusing — ${why.join("; ")}\n` +
+    `  Run /ship-review ${sprintId} first, or re-run with --unreviewed to archive anyway.\n`
+  );
+  process.exit(1);
+}
+
 function archiveSprint(sprintId, opts = {}) {
   if (!sprintId) {
     process.stderr.write(
       "shipyard-data archive-sprint: missing sprint ID\n" +
-      "  Usage: shipyard-data archive-sprint <sprint-id> [--force]\n" +
+      "  Usage: shipyard-data archive-sprint <sprint-id> [--force] [--unreviewed | --via-review]\n" +
       "  Sprint ID must match: sprint-NNN (3+ digits)\n"
+    );
+    process.exit(1);
+  }
+  if (opts.unreviewed && opts.viaReview) {
+    process.stderr.write(
+      "shipyard-data archive-sprint: --unreviewed and --via-review are mutually exclusive\n" +
+      "  --via-review: the review pipeline is archiving; --unreviewed: operator override (audited).\n"
     );
     process.exit(1);
   }
@@ -343,14 +457,55 @@ function archiveSprint(sprintId, opts = {}) {
     process.exit(1);
   }
 
-  if (existsSync(archiveDir)) {
-    if (!opts.force) {
-      process.stderr.write(
-        `shipyard-data archive-sprint: refusing — archive destination already exists: ${archiveDir}\n` +
-        `  Re-run with --force to overwrite (existing contents will be removed first).\n`
-      );
-      process.exit(1);
+  // Destination-exists refusal comes BEFORE the review gate: a refused
+  // archive must not leave a sprint_archived_unreviewed audit event.
+  if (existsSync(archiveDir) && !opts.force) {
+    process.stderr.write(
+      `shipyard-data archive-sprint: refusing — archive destination already exists: ${archiveDir}\n` +
+      `  Re-run with --force to overwrite (existing contents will be removed first).\n`
+    );
+    process.exit(1);
+  }
+
+  // Gate before any destructive step: a refusal must change nothing.
+  // --via-review is honored only while /ship-review itself is archiving
+  // (review cursor at release_step_3/archive); otherwise the normal gate runs.
+  // One pass over the live log + archives, shared by the review gate and the
+  // throughput record (each used to parse the whole history on its own).
+  let sprintEvents = null;
+  try { sprintEvents = readEventsWithArchive(dataDir).events; } catch { /* unreadable: gate reads nothing, throughput reports events_unreadable */ }
+  if (!(opts.viaReview && reviewCursorAllowsViaReview(currentDir, sprintId))) enforceReviewGate(dataDir, currentDir, sprintId, !!opts.unreviewed, sprintEvents ?? []);
+
+  // A review commits what it wrote to the project (4.15.1). It records the
+  // owner's answers in the project's own docs; twice it ended with that file
+  // uncommitted and a line saying "say the word and I'll commit it". Only
+  // files that became dirty since the review's own start count.
+  if (opts.viaReview) {
+    let before = null;
+    try { before = JSON.parse(readFileSync(join(currentDir, ".tree-baseline-ship-review.json"), "utf8")).dirty; } catch { before = null; }
+    if (Array.isArray(before)) {
+      let now = null;
+      try { now = strayChanges(dataDir)?.tracked ?? null; } catch { now = null; }
+      const fresh = now ? now.filter((p) => !before.includes(p)) : [];
+      const besideReview = fresh.length ? othersWorkingHere(dataDir) : [];
+      if (fresh.length && besideReview.length && !opts.leaveChanges) {
+        // 4.17: another command is running here; the file may be its own.
+        process.stderr.write(`shipyard-data archive-sprint: note — ${fresh.length} uncommitted project file(s): ${fresh.join(", ")}. ${besideReview.join(" and ")} is running here too, so they may be its work. If this review wrote one, commit that path.\n`);
+        try { logEvent(dataDir, "archive_with_uncommitted_changes", { sprint: sprintId, files: fresh.join(","), reason: `beside ${besideReview.join("+")}` }); } catch { /* best-effort */ }
+      } else if (fresh.length && !opts.leaveChanges) {
+        process.stderr.write(
+          `shipyard-data archive-sprint: ${fresh.length} project file(s) changed during this review and are not committed: ${fresh.join(", ")}.\n` +
+          `  If the review wrote them (the owner's decisions, a doc): commit exactly those paths — git add -- <paths> && git commit -m "docs: <what was decided>".\n` +
+          `  If it did not: shipyard-data stray set-aside --reason "<who or what>".\n` +
+          `  To archive with them uncommitted on purpose: add --leave-changes "<why>".\n`
+        );
+        process.exit(3);
+      }
+      if (fresh.length) { try { logEvent(dataDir, "archive_with_uncommitted_changes", { sprint: sprintId, files: fresh.join(","), reason: String(opts.leaveChanges).slice(0, 200) }); } catch { /* best-effort */ } }
     }
+  }
+
+  if (existsSync(archiveDir)) {
     // --force path: remove the existing archive dir so the rename can
     // succeed. This is destructive; the operator asked for it explicitly.
     rmSync(archiveDir, { recursive: true, force: true });
@@ -362,6 +517,45 @@ function archiveSprint(sprintId, opts = {}) {
   // Do this in the archive command, not in review/sprint prose, so every
   // successful archive path leaves the next sprint with the prior velocity.
   const velocityResult = recordSprintVelocity(dataDir, currentDir, sprintId);
+  // F011: points per hour is recorded HERE and only here (AC-17), from the
+  // event log, for a completed sprint that delivered points. A sprint without
+  // claim/completion events gets no entry and no guessed rate (AC-3).
+  const throughputResult = velocityResult.features.length > 0
+    ? recordSprintThroughput(dataDir, sprintId, velocityResult.velocity, sprintEvents)
+    : { recorded: false, reason: "no_delivered_features" };
+
+  // 4.6: the archive leaves no story behind. A story the sprint still holds
+  // as in-progress is either finished (its review verdict recommends approve
+  // and the sprint is completed → done) or it is carried over (→ approved and
+  // back on the backlog). Review prose used to own this and sometimes skipped
+  // it; the next sprint then met in-progress stories no sprint held.
+  const finalized = finalizeSprintStories(dataDir, currentDir, sprintId);
+  // An idea whose fix was built in this sprint is done with (4.12.2): a
+  // defect triaged with `fixed_by: <step>` whose step is done becomes
+  // `landed`. Without this it sat in the backlog as an open idea, counted
+  // against the grooming cap, and the owner was asked how to close a bug
+  // that had been fixed two sprints earlier.
+  try {
+    const ideasDir = join(dataDir, "spec", "ideas");
+    const self = fileURLToPath(import.meta.url);
+    for (const n of readdirSync(ideasDir)) {
+      if (!n.endsWith(".md")) continue;
+      const fm = parseFrontmatter(readFileSync(join(ideasDir, n), "utf8"));
+      const step = String(fm.fixed_by ?? "").replace(/^"|"$/g, "").trim();
+      const status = String(fm.status ?? "").trim();
+      if (!step || ["landed", "promoted", "graduated", "rejected"].includes(status)) continue;
+      let stepDone = false;
+      for (const sub of ["steps", "tasks", join("archive", "steps"), join("archive", "tasks")]) {
+        let names = [];
+        try { names = readdirSync(join(dataDir, "spec", sub)); } catch { continue; }
+        const f = names.find((x) => x.startsWith(`${step}-`));
+        if (f && /^status:\s*done\b/m.test(readFileSync(join(dataDir, "spec", sub, f), "utf8"))) { stepDone = true; break; }
+      }
+      if (!stepDone) continue;
+      const id = String(fm.id ?? n.split("-").slice(0, 2).join("-")).replace(/^"|"$/g, "").trim();
+      spawnSync("node", [self, "idea", "set-status", id, "landed", "--data-dir", dataDir], { encoding: "utf8" });
+    }
+  } catch { /* best-effort: the archive itself must not fail on an idea file */ }
 
   // Atomic single-syscall archive. Same-filesystem rename guarantees all
   // current/ contents land in the archive dir in one step — no partial
@@ -392,6 +586,19 @@ function archiveSprint(sprintId, opts = {}) {
     /* best-effort — the sprint archive above already succeeded */
   }
 
+  if (throughputResult.recorded) {
+    try {
+      logEvent(dataDir, "sprint_throughput_recorded", {
+        sprint: sprintId,
+        points_per_hour: throughputResult.points_per_hour,
+        active_hours: throughputResult.active_hours,
+        points: throughputResult.points,
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
+
   if (velocityResult.recorded) {
     try {
       logEvent(dataDir, "sprint_velocity_recorded", {
@@ -403,6 +610,30 @@ function archiveSprint(sprintId, opts = {}) {
       /* best-effort */
     }
   }
+
+  for (const f of finalized) {
+    try { logEvent(dataDir, "sprint_story_finalized", { sprint: sprintId, story: f.id, to: f.to, by: "archive-sprint" }); } catch { /* best-effort */ }
+  }
+  // Leave the repository as it was found (4.9): this sprint's builder branches
+  // and anchors are done with. Merged ones are deleted; the rest move under
+  // refs/shipyard/archive/<sprint>/ where `git branch` does not list them and
+  // their commits stay reachable. Before the drift sweep, so that one finds
+  // nothing left to report.
+  if (readSweepBranches(dataDir)) {
+    try {
+      const wt = sweepWorktrees(repoFor(dataDir));
+      if (wt.removed.length || wt.kept.length) process.stderr.write(`archive-sprint: removed ${wt.removed.length} finished builder worktree(s)${wt.kept.length ? `; left ${wt.kept.length} with uncommitted changes: ${wt.kept.map((k) => k.path).join(", ")}` : ""}\n`);
+      const swept = sweepBranches(repoFor(dataDir), { label: sprintId });
+      if (!swept.error && (swept.deleted || swept.archived || wt.removed.length)) {
+        logEvent(dataDir, "branches_swept", { label: swept.label, deleted: swept.deleted, archived: swept.archived, skipped: swept.skipped, worktrees_removed: wt.removed.length, worktrees_kept: wt.kept.length, by: "archive-sprint" });
+        if (swept.deleted || swept.archived) process.stderr.write(`archive-sprint: swept ${swept.deleted + swept.archived} Shipyard branch(es) — ${swept.deleted} already merged (deleted), ${swept.archived} kept under ${swept.refs_prefix}\n`);
+      }
+    } catch { /* best-effort — the archive itself already succeeded */ }
+  }
+  // Sweep whatever else drifted (epic roll-up, backlog rows for closed work).
+  try {
+    applyFixes(dataDir, findDrift(dataDir).filter((f) => f.fix));
+  } catch { /* best-effort — the archive itself already succeeded */ }
 
   process.stdout.write(archiveDir + "\n");
 }
@@ -418,7 +649,7 @@ function recordSprintVelocity(dataDir, currentDir, sprintId) {
   if (String(sprintFm.status || "").trim().toLowerCase() !== "completed") {
     return { recorded: false, velocity: 0, features: [], reason: "not_completed" };
   }
-  const featureIds = parseSprintFeatureIds(sprintFm.features);
+  const featureIds = parseSprintFeatureIds(sprintContent);
   if (featureIds.length === 0) {
     return { recorded: false, velocity: 0, features: [], reason: "no_features" };
   }
@@ -466,220 +697,70 @@ function recordSprintVelocity(dataDir, currentDir, sprintId) {
   };
 }
 
-function parseSprintFeatureIds(value) {
-  if (!value) return [];
-  return [...String(value).matchAll(/\bF\d+\b/g)].map((m) => m[0]);
-}
+/**
+ * F011 AC-1/AC-2/AC-3: throughput = delivered points / active hours, where active
+ * hours come from the shared activeTime() over the sprint's event window. The
+ * window is [first, last] event tagged `sprint: <id>` (cursor ticks, task events);
+ * every event inside it counts, because worker_queue_claimed/completed carry no
+ * sprint field, and builder claims between ticks are exactly the time that must
+ * count as active. No claim or no completion in the window -> nothing recorded.
+ */
+export const THROUGHPUT_FORMULA =
+  "points_per_hour = delivered_points / active_hours; active_hours = activeTime(events in [first, last] event tagged sprint, gap 30 min; builder claim->completion and spawn->return spans count as active).activeMs / 3600000";
 
-function emptyMetricsState() {
-  return {
-    schema_version: 1,
-    velocity: { all_time: { count: 0, total: 0, min: null, max: null, average: null }, recent: [] },
-    throughput: { all_time: { count: 0, total: 0, min: null, max: null, average: null }, recent: [] },
-    retro: { recent: [] },
-  };
-}
-
-function normalizeMetricsState(raw) {
-  const state = emptyMetricsState();
-  if (!raw || typeof raw !== "object") return state;
-  for (const key of ["velocity", "throughput"]) {
-    const src = raw[key] && typeof raw[key] === "object" ? raw[key] : {};
-    const all = src.all_time && typeof src.all_time === "object" ? src.all_time : src;
-    state[key].all_time.count = Number.isFinite(Number(all.count)) ? Number(all.count) : 0;
-    state[key].all_time.total = Number.isFinite(Number(all.total)) ? Number(all.total) : 0;
-    state[key].all_time.min = all.min === null || all.min === undefined ? null : Number(all.min);
-    state[key].all_time.max = all.max === null || all.max === undefined ? null : Number(all.max);
-    state[key].all_time.average = all.average === null || all.average === undefined ? null : Number(all.average);
-    state[key].recent = Array.isArray(src.recent) ? src.recent : [];
-  }
-  state.retro.recent = Array.isArray(raw.retro?.recent) ? raw.retro.recent : [];
-  return state;
-}
-
-function loadMetricsState(dataDir) {
-  const jsonPath = join(dataDir, "memory", "metrics.json");
-  if (existsSync(jsonPath)) {
+function recordSprintThroughput(dataDir, sprintId, points, events = null) {
+  if (!events) {
     try {
-      return normalizeMetricsState(JSON.parse(readFileSync(jsonPath, "utf8")));
+      events = readEventsWithArchive(dataDir).events;
     } catch {
-      return emptyMetricsState();
+      return { recorded: false, reason: "events_unreadable" };
     }
   }
-  return loadLegacyMetricsState(dataDir);
+  const tagged = events.filter((e) => inSprintWindow(e, sprintId)).map((e) => Date.parse(e.ts)).filter(Number.isFinite);
+  if (tagged.length < 2) return { recorded: false, reason: "no_sprint_window" };
+  const lo = Math.min(...tagged);
+  const hi = Math.max(...tagged);
+  const window = events.filter((e) => {
+    const t = Date.parse(e.ts);
+    return Number.isFinite(t) && t >= lo && t <= hi;
+  });
+  // A builder run is a queue claim, or (a sprint built in place has no queue)
+  // a `builder-<step>` spawn; its end is a queue completion or a recorded
+  // return. Before 4.17.2 only the queue counted, so a solo sprint recorded
+  // no points per hour at all.
+  const claims = window.filter((e) => e.type === "worker_queue_claimed" || isStepSpawn(e)).length;
+  const completions = window.filter((e) => e.type === "worker_queue_completed" || e.type === "task_return_recorded").length;
+  if (claims === 0 || completions === 0) return { recorded: false, reason: "no_claim_or_completion_events", claims, completions };
+  const { activeMs } = activeTime(window);
+  if (!(activeMs > 0) || !(Number(points) > 0)) return { recorded: false, reason: "no_active_time" };
+  const activeHours = roundMetric(activeMs / 3600000);
+  const pph = roundMetric(Number(points) / (activeMs / 3600000));
+  const state = loadMetricsState(dataDir);
+  const existing = state.throughput.recent.find((r) => r.sprint === sprintId);
+  updateMetricAggregate(state.throughput, pph, existing?.points_per_hour);
+  state.throughput.recent = state.throughput.recent.filter((r) => r.sprint !== sprintId);
+  state.throughput.recent.push({
+    sprint: sprintId,
+    points: Number(points),
+    active_hours: activeHours,
+    points_per_hour: pph,
+    formula: THROUGHPUT_FORMULA,
+    recorded_at: new Date().toISOString(),
+  });
+  state.throughput.recent = sortSprintRecords(state.throughput.recent).slice(-10);
+  writeMetricsState(dataDir, state);
+  return { recorded: true, points: Number(points), points_per_hour: pph, active_hours: activeHours };
 }
 
-function loadLegacyMetricsState(dataDir) {
-  const state = emptyMetricsState();
-  const metricsPath = join(dataDir, "memory", "metrics.md");
-  if (!existsSync(metricsPath)) return state;
-  let content = "";
-  try {
-    content = readFileSync(metricsPath, "utf8");
-  } catch {
-    return state;
-  }
-  for (const line of content.split(/\r?\n/)) {
-    const velocity = line.match(/\bVelocity:\s*(\d+)\s*pts\b/i);
-    const sprint = line.match(/\b(sprint-\d{3,})\b/i);
-    if (velocity && sprint) {
-      state.velocity.recent.push({
-        sprint: sprint[1].toLowerCase(),
-        points: Number.parseInt(velocity[1], 10),
-        features: parseFeatureSummary(line),
-        recorded_at: null,
-      });
-    }
-    const throughput = line.match(/\bThroughput:\s*([0-9]+(?:\.[0-9]+)?)\s*pts\/hr\b/i);
-    if (throughput && sprint) {
-      state.throughput.recent.push({
-        sprint: sprint[1].toLowerCase(),
-        points_per_hour: Number(throughput[1]),
-        recorded_at: null,
-      });
-    }
-  }
-  state.velocity.recent = dedupeSprintRecords(sortSprintRecords(state.velocity.recent));
-  state.throughput.recent = dedupeSprintRecords(sortSprintRecords(state.throughput.recent));
-  recomputeAggregateFromRecent(state.velocity, "points");
-  recomputeAggregateFromRecent(state.throughput, "points_per_hour");
-  state.velocity.recent = state.velocity.recent.slice(-10);
-  state.throughput.recent = state.throughput.recent.slice(-10);
-  return state;
+// The sprint's story list, by the one rule every reader shares (terminal-gate
+// sprintStoryIds: `stories:` canonical / `features:` alias, inline or block,
+// S###/F###/B### with letter-suffixed child ids kept). Returns { ids, raw }.
+function parseSprintFeatureList(content) {
+  return { ids: sprintStoryIds(content), raw: sprintStoryList(content).raw };
 }
 
-function parseFeatureSummary(line) {
-  const m = line.match(/\bfeatures=([^#\n]+)/);
-  if (!m) return [];
-  return m[1].split(",").map((part) => {
-    const [id, points] = part.trim().split(":");
-    return { id, points: Number.parseInt(points, 10) || 0 };
-  // Child/sub-feature ids (F071d) are legitimate — see FID_RE in
-  // spec-state-cli.mjs. A plain /^F\d+$/ silently dropped them from every
-  // sprint feature summary, so their story points vanished from metrics.
-  }).filter((f) => /^F\d+[a-z]?$/.test(f.id));
-}
-
-function sortSprintRecords(records) {
-  return [...records].sort((a, b) => sprintSortKey(a.sprint) - sprintSortKey(b.sprint));
-}
-
-function sprintSortKey(sprint) {
-  const n = String(sprint || "").match(/sprint-(\d+)/i)?.[1];
-  return n ? Number.parseInt(n, 10) : 0;
-}
-
-function dedupeSprintRecords(records) {
-  const bySprint = new Map();
-  for (const record of records) bySprint.set(record.sprint, record);
-  return [...bySprint.values()];
-}
-
-function recomputeAggregateFromRecent(bucket, valueKey) {
-  const values = bucket.recent
-    .map((r) => Number(r[valueKey]))
-    .filter((n) => Number.isFinite(n));
-  bucket.all_time.count = values.length;
-  bucket.all_time.total = roundMetric(values.reduce((sum, n) => sum + n, 0));
-  bucket.all_time.min = values.length ? roundMetric(Math.min(...values)) : null;
-  bucket.all_time.max = values.length ? roundMetric(Math.max(...values)) : null;
-  bucket.all_time.average = values.length ? roundMetric(bucket.all_time.total / values.length) : null;
-}
-
-function updateMetricAggregate(bucket, value, replacingValue = undefined) {
-  const n = roundMetric(Number(value));
-  if (!Number.isFinite(n)) return;
-  const all = bucket.all_time;
-  if (Number.isFinite(Number(replacingValue))) {
-    const previous = Number(replacingValue);
-    all.total = roundMetric(all.total - previous + n);
-    all.average = all.count > 0 ? roundMetric(all.total / all.count) : null;
-    if (all.min === null || n < all.min) all.min = n;
-    if (all.max === null || n > all.max) all.max = n;
-    return;
-  }
-  all.count += 1;
-  all.total = roundMetric(all.total + n);
-  all.min = all.min === null ? n : Math.min(all.min, n);
-  all.max = all.max === null ? n : Math.max(all.max, n);
-  all.average = roundMetric(all.total / all.count);
-}
-
-function roundMetric(n) {
-  return Math.round(n * 100) / 100;
-}
-
-function writeMetricsState(dataDir, state) {
-  const metricsDir = join(dataDir, "memory");
-  mkdirSync(metricsDir, { recursive: true });
-  const normalized = normalizeMetricsState(state);
-  normalized.velocity.recent = sortSprintRecords(normalized.velocity.recent).slice(-10);
-  normalized.throughput.recent = sortSprintRecords(normalized.throughput.recent).slice(-10);
-  normalized.retro.recent = sortSprintRecords(normalized.retro.recent).slice(-10);
-
-  const jsonPath = join(metricsDir, "metrics.json");
-  const jsonTmp = jsonPath + ".tmp";
-  writeFileSync(jsonTmp, JSON.stringify(normalized, null, 2) + "\n", "utf8");
-  renameSync(jsonTmp, jsonPath);
-
-  const mdPath = join(metricsDir, "metrics.md");
-  const mdTmp = mdPath + ".tmp";
-  writeFileSync(mdTmp, renderMetricsMarkdown(normalized), "utf8");
-  renameSync(mdTmp, mdPath);
-}
-
-function renderMetricsMarkdown(state) {
-  const lines = [
-    "# Metrics",
-    "",
-    "Generated by `shipyard-data metrics` and `shipyard-data archive-sprint`. Do not edit by hand.",
-    "",
-    "## Summary",
-  ];
-  const velocityAll = state.velocity.all_time;
-  const throughputAll = state.throughput.all_time;
-  if (velocityAll.count > 0) {
-    lines.push(`Velocity average: ${velocityAll.average} pts/sprint`);
-    lines.push(`Velocity range: ${velocityAll.min}-${velocityAll.max} pts/sprint`);
-    lines.push(`Velocity total: ${velocityAll.total} pts across ${velocityAll.count} sprint${velocityAll.count === 1 ? "" : "s"}`);
-    lines.push(`Velocity records retained: ${state.velocity.recent.length} sprint${state.velocity.recent.length === 1 ? "" : "s"}`);
-  } else {
-    lines.push("Velocity: no completed sprints recorded");
-  }
-  if (throughputAll.count > 0) {
-    lines.push(`Throughput average: ${throughputAll.average} pts/hr`);
-    lines.push(`Throughput range: ${throughputAll.min}-${throughputAll.max} pts/hr`);
-  }
-  lines.push("", "## Recent Sprint Velocity");
-  if (state.velocity.recent.length === 0) {
-    lines.push("- none");
-  } else {
-    for (const r of sortSprintRecords(state.velocity.recent).slice().reverse()) {
-      const features = Array.isArray(r.features) && r.features.length
-        ? `; features=${r.features.map((f) => `${f.id}:${f.points}`).join(",")}`
-        : "";
-      lines.push(`Velocity: ${r.points} pts  # ${r.sprint}${features}`);
-    }
-  }
-  lines.push("", "## Recent Throughput");
-  if (state.throughput.recent.length === 0) {
-    lines.push("- none");
-  } else {
-    for (const r of sortSprintRecords(state.throughput.recent).slice().reverse()) {
-      lines.push(`Throughput: ${r.points_per_hour} pts/hr  # ${r.sprint}`);
-    }
-  }
-  if (state.retro.recent.length > 0) {
-    lines.push("", "## Recent Retro Metrics");
-    for (const r of sortSprintRecords(state.retro.recent).slice().reverse()) {
-      const parts = [];
-      for (const key of ["carry_over", "bug_rate", "estimate_accuracy", "flags"]) {
-        if (r[key]) parts.push(`${key}=${r[key]}`);
-      }
-      lines.push(`- ${r.sprint}: ${parts.length ? parts.join("; ") : "recorded"}`);
-    }
-  }
-  return lines.join("\n") + "\n";
+function parseSprintFeatureIds(content) {
+  return parseSprintFeatureList(content).ids;
 }
 
 function parseKvArgs(args, commandName) {
@@ -705,24 +786,16 @@ function metricsCmd(args, opts = {}) {
       process.stderr.write("shipyard-data metrics record-retro: sprint=<sprint-NNN> is required\n");
       process.exit(2);
     }
-    const state = loadMetricsState(dataDir);
-    const throughput = kv.throughput === undefined || kv.throughput === ""
-      ? null
-      : Number(kv.throughput);
-    if (throughput !== null) {
-      if (!Number.isFinite(throughput) || throughput < 0) {
-        process.stderr.write("shipyard-data metrics record-retro: throughput must be a non-negative number\n");
-        process.exit(2);
-      }
-      const existingRecent = state.throughput.recent.find((r) => r.sprint === sprint);
-      updateMetricAggregate(state.throughput, throughput, existingRecent?.points_per_hour);
-      state.throughput.recent = state.throughput.recent.filter((r) => r.sprint !== sprint);
-      state.throughput.recent.push({
-        sprint,
-        points_per_hour: roundMetric(throughput),
-        recorded_at: new Date().toISOString(),
-      });
+    // F011 AC-17: throughput.recent has exactly one writer, archive-sprint. The
+    // retro used to write a wall-clock-minus-pauses figure under the same key,
+    // so whichever ran last silently overwrote the other.
+    if (kv.throughput !== undefined) {
+      process.stderr.write(
+        "shipyard-data metrics record-retro: throughput= is not accepted — points per hour is recorded once, by archive-sprint, from the event log. Drop the field.\n",
+      );
+      process.exit(2);
     }
+    const state = loadMetricsState(dataDir);
     const retro = {
       sprint,
       carry_over: kv.carry_over || "",
@@ -1249,6 +1322,7 @@ function eventsCmd(args, opts = {}) {
         process.exit(1);
       }
       const fields = {};
+      const raw = {};
       for (let i = 2; i < args.length; i++) {
         const a = args[i];
         const eq = a.indexOf("=");
@@ -1264,12 +1338,68 @@ function eventsCmd(args, opts = {}) {
           v = rawV;
         }
         fields[k] = v;
+        raw[k] = rawV;
+      }
+      if (type === "subagent_completed") {
+        // F010 AC-1: same validation/omission rules as accept-return.
+        for (const k of ["role", "model", "effort", "attempt", "tokens"]) delete fields[k];
+        Object.assign(fields, dispatchAttributionFields(raw));
       }
       const dataDir = opts.dataDir || getDataDir();
-      logEvent(dataDir, type, fields);
+      logEvent(dataDir, canonicalEventType(type), // v4: writers emit the new name; the log keeps history as written
+         fields);
       break;
     }
   }
+}
+
+/**
+ * `verify findings --wave <n> --tasks <T001,T002> --met <n> --partial <n>
+ * --missing <n> --over-built <n>` — F010 AC-17. Emits `wave_verify_findings`
+ * with counts only. Strict allowlist: any other flag (e.g. --text, --message)
+ * is rejected, so finding text can never reach the event log.
+ */
+function verifyFindingsCmd(dataDir, args) {
+  const fail = (msg) => {
+    process.stderr.write(`shipyard-data verify findings: ${msg}\n`);
+    process.exit(2);
+  };
+  const CLASS_FLAGS = { "--met": "MET", "--partial": "PARTIAL", "--missing": "MISSING", "--over-built": "OVER-BUILT" };
+  const vals = {};
+  for (let i = 0; i < args.length; i += 2) {
+    const flag = args[i];
+    if (flag !== "--wave" && flag !== "--tasks" && !(flag in CLASS_FLAGS)) {
+      fail(`unknown argument "${flag}" (counts only; finding text is never accepted)`);
+    }
+    if (args[i + 1] === undefined) fail(`${flag} requires a value`);
+    vals[flag] = args[i + 1];
+  }
+  const asCount = (flag, v) => {
+    if (!/^\d+$/.test(v ?? "")) fail(`${flag} must be a non-negative integer`);
+    return Number(v);
+  };
+  const wave = asCount("--wave", vals["--wave"]);
+  const taskIds = (vals["--tasks"] ?? "").split(",").filter(Boolean);
+  if (taskIds.length === 0) fail("--tasks <T001,T002,...> is required");
+  // v4: a wave's units are steps (P###); builder/patch task ids (T###, T-P###, T-HOT1)
+  // are accepted exactly as parseWaves reads them from SPRINT.md, so a wave that
+  // carries a patch task can still record its verify outcome.
+  for (const t of taskIds) if (!WAVE_UNIT_ID_RE.test(t)) fail(`invalid step id "${t}" — expected P### (or a builder task id such as T001 / T-P001)`);
+  const classCounts = {};
+  let total = 0;
+  for (const [flag, name] of Object.entries(CLASS_FLAGS)) {
+    classCounts[name] = asCount(flag, vals[flag] ?? "0");
+    total += classCounts[name];
+  }
+  logEvent(dataDir, "wave_verify_findings", {
+    wave,
+    task_ids: taskIds.join(","),
+    finding_count: total,
+    met: classCounts.MET,
+    partial: classCounts.PARTIAL,
+    missing: classCounts.MISSING,
+    over_built: classCounts["OVER-BUILT"],
+  });
 }
 
 /**
@@ -1318,23 +1448,24 @@ function nextIdCmd(args, { dataDir: dataDirOverride } = {}) {
   const kind = args[0];
   if (!kind) {
     process.stderr.write(
-      `shipyard-data next-id: missing kind argument. Expected: ideas|bugs|features|epics|tasks\n`,
+      `shipyard-data next-id: missing kind argument. Expected: stories|steps|tasks|ideas|epics (features|bugs alias stories)\n`,
     );
     process.exit(1);
   }
 
   // Map kind → {dir, prefix}. The dir is relative to <SHIPYARD_DATA>.
-  const KIND_TABLE = {
-    ideas: { dir: join("spec", "ideas"), prefix: "IDEA-" },
-    bugs: { dir: join("spec", "bugs"), prefix: "B-" },
-    features: { dir: join("spec", "features"), prefix: "F" },
-    epics: { dir: join("spec", "epics"), prefix: "E" },
-    tasks: { dir: join("spec", "tasks"), prefix: "T" },
-  };
-  const entry = KIND_TABLE[kind];
+  // v4 (F022, terminology-v4 A-06 / D-6): kinds come from the vocabulary table.
+  // `stories` (S###) replaces `features`/`bugs`, which are accepted as aliases;
+  // `steps` (P###) is the builder unit; `tasks` (T###) is the new entity and
+  // continues the counter past archived builder ids (IDEA-008 scan).
+  const entityName = entityForNextIdKind(kind);
+  const KIND_TABLE = Object.fromEntries(
+    Object.entries(ENTITIES).map(([name, e]) => [e.nextIdKinds[0], { dir: join(...e.dir), prefix: e.prefix, name }]),
+  );
+  const entry = entityName ? KIND_TABLE[ENTITIES[entityName].nextIdKinds[0]] : undefined;
   if (!entry) {
     process.stderr.write(
-      `shipyard-data next-id: unknown kind "${kind}". Expected one of: ${Object.keys(KIND_TABLE).join("|")}\n`,
+      `shipyard-data next-id: unknown kind "${kind}". Expected one of: ${Object.keys(KIND_TABLE).join("|")} (features|bugs are aliases of stories)\n`,
     );
     process.exit(1);
   }
@@ -1374,26 +1505,33 @@ function nextIdCmd(args, { dataDir: dataDirOverride } = {}) {
   // when the seq file is missing or unreadable, AND as a safety floor — if
   // someone hand-creates an IDEA-999 file outside this allocator, we must
   // not hand out IDEA-500 on the next call. max(seq, scan) + 1 wins.
+  //
+  // The archive dir (`spec/archive/<kind>/`) is scanned too: archive-sprint
+  // moves done task files there, so a stale `.id-seq` (observed: counter at
+  // 90 while T091-T098 sat in the archive) would otherwise re-issue ids that
+  // still exist in archived files, events and `(TNNN)` commit subjects.
   function scanMax() {
     let max = 0;
-    let entries;
-    try {
-      entries = readdirSync(kindDir);
-    } catch {
-      return 0;
-    }
     // Match <prefix><digits> at the start of the filename. For prefixes
     // that end in `-` (IDEA-, B-) the separator is already in the prefix.
     // For bare-letter prefixes (F, E, T) we allow an optional separator.
     // Use a regex built from the prefix for safety.
     const escaped = entry.prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(`^${escaped}0*(\\d+)`);
-    for (const name of entries) {
-      if (name.startsWith(".")) continue;
-      const m = name.match(re);
-      if (!m) continue;
-      const n = parseInt(m[1], 10);
-      if (Number.isFinite(n) && n > max) max = n;
+    for (const dir of [kindDir, join(dataDir, "spec", "archive", basename(entry.dir))]) {
+      let entries;
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        continue;
+      }
+      for (const name of entries) {
+        if (name.startsWith(".")) continue;
+        const m = name.match(re);
+        if (!m) continue;
+        const n = parseInt(m[1], 10);
+        if (Number.isFinite(n) && n > max) max = n;
+      }
     }
     return max;
   }
@@ -1505,11 +1643,27 @@ function linkDataDir(opts = {}) {
     );
     process.exit(1);
   }
+  // The link is Shipyard's, not the project's: keep it out of `git status`
+  // with a repo-local exclude (nothing is added to the user's .gitignore).
+  excludeFromGit(projectRoot, ".shipyard");
   process.stdout.write(linkPath + "\n");
 }
 
+/** Add a path to .git/info/exclude (repo-local, never committed). Best-effort. */
+function excludeFromGit(projectRoot, relPath) {
+  try {
+    const gitDir = execFileSync("git", ["rev-parse", "--git-common-dir"], { cwd: projectRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const abs = isAbsolute(gitDir) ? gitDir : join(projectRoot, gitDir);
+    const infoDir = join(abs, "info");
+    mkdirSync(infoDir, { recursive: true });
+    const p = join(infoDir, "exclude");
+    const cur = existsSync(p) ? readFileSync(p, "utf8") : "";
+    if (!cur.split(/\r?\n/).includes(relPath)) writeFileSync(p, cur + (cur.endsWith("\n") || cur === "" ? "" : "\n") + relPath + "\n", "utf8");
+  } catch { /* no git or unwritable: harmless */ }
+}
+
 /**
- * Ensure <projectRoot>/.claude/settings.json has worktree.baseRef = "head".
+ * Ensure <projectRoot>/.claude/settings.local.json has worktree.baseRef = "head".
  *
  * Why at execute, not one-time setup: settings drift; baseRef must hold
  * every sprint. A worktree that forks from origin/<default> (Claude Code's
@@ -1527,7 +1681,23 @@ function linkDataDir(opts = {}) {
 function ensureWorktreeBaseref() {
   const projectRoot = getProjectRoot();
   const claudeDir = join(projectRoot, ".claude");
-  const settingsPath = join(claudeDir, "settings.json");
+  // Local settings, not the shared file: `.claude/settings.json` is tracked in
+  // most repos, so writing it dirtied the user's tree and the readiness step
+  // then committed it as 'wip: pre-sprint'. settings.local.json is merged by
+  // Claude Code the same way and is excluded from git below (repo-local
+  // exclude, nothing added to the user's .gitignore). A baseRef already set in
+  // the shared file is honored as-is.
+  const sharedPath = join(claudeDir, "settings.json");
+  const settingsPath = join(claudeDir, "settings.local.json");
+  try {
+    const shared = existsSync(sharedPath) ? JSON.parse(readFileSync(sharedPath, "utf8")) : null;
+    if (shared?.worktree?.baseRef === "head") {
+      try { logEvent(getDataDir({ projectRoot, silent: true }), "worktree_baseref_ensured", { was: "head", now: "head", changed: false, file: "settings.json" }); } catch { /* best-effort */ }
+      process.stdout.write(`worktree.baseRef already "head" — ${sharedPath}\n`);
+      return;
+    }
+  } catch { /* unreadable shared settings: fall through to the local file */ }
+  excludeFromGit(projectRoot, ".claude/settings.local.json");
 
   let settings = {};
   if (existsSync(settingsPath)) {
@@ -1815,6 +1985,84 @@ function resolveIsolation(args) {
 }
 
 /**
+ * `shipyard-data resolve-model <role> [--override <model>] [--subject <TID>] [--data-dir <path>]`
+ * — the single deterministic answer to "which model/effort does this dispatch
+ * use?". Prints exactly one line `model=<m> effort=<e>`; an empty value means
+ * omit that field on the Agent call. Roles are the agent_effort roles.
+ * `--override` replaces the model for the `think` role only (a `--think`
+ * invocation override). Pure: reads config.md, writes nothing, emits no events
+ * (the wrapper logs `dispatch_model_resolved`). Unknown role: exit 2.
+ */
+function resolveModel(args) {
+  const { dataDir: dataDirOverride, rest } = extractDataDirFlag(args, "resolve-model");
+  let role = null;
+  let override = null;
+  let subject = null;
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === "--subject") {
+      subject = rest[i + 1] ?? "";
+      i++;
+    } else if (rest[i].startsWith("--subject=")) {
+      subject = rest[i].slice("--subject=".length);
+    } else if (rest[i] === "--override") {
+      override = rest[i + 1] ?? "";
+      i++;
+    } else if (rest[i].startsWith("--override=")) {
+      override = rest[i].slice("--override=".length);
+    } else if (role === null) {
+      role = rest[i];
+    }
+  }
+  const roles = Object.keys(ROLE_TIER);
+  if (!role || !Object.hasOwn(ROLE_TIER, role)) {
+    process.stderr.write(
+      `shipyard-data resolve-model: unknown role "${role ?? ""}" — expected one of: ${roles.join(", ")}\n`,
+    );
+    process.exit(2);
+  }
+  if (override !== null && role !== "think") {
+    process.stderr.write(`shipyard-data resolve-model: --override applies to the think role only\n`);
+    process.exit(2);
+  }
+  const dataDir = dataDirOverride ?? getDataDir({ silent: true });
+  let tier = ROLE_TIER[role];
+  let ladder = null;
+  let routed = null;
+  if (subject !== null) {
+    if (!subject) {
+      process.stderr.write(`shipyard-data resolve-model: --subject requires a task id\n`);
+      process.exit(2);
+    }
+    // v4.2 rules-first routing + the retry ladder, in one shared definition
+    // (bin/model-for.mjs) that the agent-ledger hook also enforces at spawn.
+    const t = tierFor(dataDir, role, subject, {
+      onNoSprint: (sprintPath) => process.stderr.write(`shipyard-data resolve-model: warning: cannot read sprint id from ${sprintPath}; dispatch attempts counted as 0\n`),
+    });
+    tier = t.tier; ladder = t.ladder; routed = t.routed;
+  }
+  let model = override !== null ? normalizeLegacyModel(override) : readModelTier(dataDir, tier);
+  if (model === "inherit") model = "";
+  // Effort: the routed value (by size/risk) applies when agent_effort.<role> is
+  // absent or still at the role default; a value the user CUSTOMIZED is a floor
+  // that routing can only raise (never silently dropped — 4.3.0 code review).
+  const configuredEffort = readAgentEffort(dataDir, role);
+  const EFFORT_ORDER = ["low", "medium", "high"];
+  const customized = configuredEffort !== "" && configuredEffort !== (ROLE_EFFORT_DEFAULT[role] ?? "");
+  const effort = !routed ? configuredEffort
+    : customized && EFFORT_ORDER.indexOf(configuredEffort) > EFFORT_ORDER.indexOf(routed.effort) ? configuredEffort
+    : routed.effort;
+  if (ladder === null) {
+    process.stdout.write(`model=${model} effort=${effort}\n`);
+    return;
+  }
+  process.stdout.write(
+    `model=${model} effort=${effort} tier=${tier} attempt=${ladder.attempt} ladder=${ladder.exhausted ? "exhausted" : "ok"}${routed ? ` routed=${routed.tier}:${routed.effort}` : ""}\n`,
+  );
+  if (ladder.exhausted) process.exit(3);
+}
+
+
+/**
  * `shipyard-data resolve-refactor-scope` — prints exactly `sprint` or `wave`.
  *
  * Same reason `resolve-isolation` exists: the stage graph permits BOTH
@@ -1896,6 +2144,9 @@ function parseFeatureAcIds(featurePath) {
   return [...ids].sort((a, b) => a - b);
 }
 
+/** A file that holds tests, by name (never by folder: helpers live beside tests). */
+const TEST_FILE_RE = /(^|\/)(test_[^/]+\.[A-Za-z0-9]+|[^/]+_test\.[A-Za-z0-9]+|[^/]+\.(test|spec)\.[A-Za-z0-9]+|[^/]+Tests?\.(java|kt|kts|cs|swift|scala|groovy))$/;
+
 /**
  * `verify-ac-coverage --base <sha> --head <sha>` — deterministic backing for
  * sprint-complete invariant 4. For each feature linked to the current sprint,
@@ -1932,25 +2183,24 @@ function verifyAcCoverage(args) {
   }
   const sprintContent = readFileSync(sprintPath, "utf8");
   const fm = sprintContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  const featuresLine = fm ? fm[1].match(/^features:\s*(.+)$/m) : null;
-  const featureIds = featuresLine
-    ? featuresLine[1].replace(/[[\]"']/g, "").split(",").map((s) => s.trim()).filter(Boolean)
-    : [];
+  const { ids: featureIds, raw: featuresRaw } = parseSprintFeatureList(sprintContent);
+  if (featureIds.length === 0) {
+    process.stderr.write(`shipyard-data verify-ac-coverage: no feature ids parsed from SPRINT.md features: ${JSON.stringify(featuresRaw)} — nothing would be checked\n`);
+    process.exit(3);
+  }
 
   // Full sprint diff text (added + context lines) — markers may sit on either.
   const diff = gitCapture(["diff", `${base}..${head}`], projectRoot) || "";
 
-  const featuresDir = join(dataDir, "spec", "features");
   const orphans = [];
   const warnings = [];
   let checkedFeatures = 0;
 
   for (const fid of featureIds) {
-    // Resolve the feature file by <fid>-*.md prefix.
+    // Resolve the story file (S### under spec/stories/, legacy F###/B###).
     let featurePath = null;
     try {
-      const match = readdirSync(featuresDir).find((f) => f.startsWith(`${fid}-`) && f.endsWith(".md"));
-      if (match) featurePath = join(featuresDir, match);
+      featurePath = findFeatureFile(dataDir, fid);
     } catch { /* no features dir */ }
     if (!featurePath) {
       warnings.push(`${fid}: feature file not found — skipped`);
@@ -1968,20 +2218,43 @@ function verifyAcCoverage(args) {
     }
   }
 
+  // The other direction (4.15): every test has a scenario. A test file added
+  // or changed in the sprint must carry a scenario id, or say why it has none
+  // (`no-scenario: <reason>`). Only when the sprint has tagged scenarios at
+  // all — a project that has not adopted ids is never blocked by this.
+  const orphanTests = [];
+  if (checkedFeatures > 0) {
+    const names = (gitCapture(["diff", "--name-status", "--diff-filter=AMR", `${base}..${head}`], projectRoot) || "").split("\n").filter(Boolean)
+      .map((l) => l.split("\t").pop());
+    for (const file of names) {
+      if (!TEST_FILE_RE.test(file)) continue;
+      const text = gitCapture(["show", `${head}:${file}`], projectRoot);
+      if (text == null) continue;
+      if (!/\bAC-\d+\b/.test(text) && !/no-scenario:\s*\S/.test(text)) orphanTests.push(file);
+    }
+  }
+
   for (const w of warnings) process.stdout.write(`WARN ${w}\n`);
-  if (orphans.length === 0) {
+  if (orphans.length === 0 && orphanTests.length === 0) {
     process.stdout.write(`verify-ac-coverage: OK — ${checkedFeatures} feature(s) with tagged ACs fully covered in ${base}..${head}\n`);
     process.exit(0);
   }
 
-  process.stdout.write(`verify-ac-coverage: ${orphans.length} orphan AC(s) — no AC-<n> marker in ${base}..${head}:\n`);
-  for (const o of orphans) process.stdout.write(`  - ${o}\n`);
+  if (orphans.length) {
+    process.stdout.write(`verify-ac-coverage: ${orphans.length} orphan AC(s) — no AC-<n> marker in ${base}..${head}:\n`);
+    for (const o of orphans) process.stdout.write(`  - ${o}\n`);
+  }
+  if (orphanTests.length) {
+    process.stdout.write(`verify-ac-coverage: ${orphanTests.length} orphan test file(s) — changed in ${base}..${head} with no scenario id (AC-<n>) and no \`no-scenario: <reason>\` line:\n`);
+    for (const o of orphanTests) process.stdout.write(`  - ${o}\n`);
+  }
   const enforce = readEnforceAcCoverage(dataDir);
   try {
-    logEvent(dataDir, "ac_coverage_checked", { orphans: orphans.length, checked_features: checkedFeatures, enforce });
+    logEvent(dataDir, "ac_coverage_checked", { orphans: orphans.length, orphan_tests: orphanTests.length, checked_features: checkedFeatures, enforce });
   } catch { /* best-effort */ }
   if (enforce) {
-    process.stdout.write("Add `// AC-<n>` / `# AC-<n>` markers (or the @AC-<n> tag in a test) for each orphan, or set execution.enforce_ac_coverage: false for advisory mode.\n");
+    if (orphans.length) process.stdout.write("Add `// AC-<n>` / `# AC-<n>` markers (or the @AC-<n> tag in a test) for each orphan, or set execution.enforce_ac_coverage: false for advisory mode.\n");
+    if (orphanTests.length) process.stdout.write("Give each orphan test file its scenario id (`AC-<n>`) or a `no-scenario: <reason>` line.\n");
     process.exit(3);
   }
   process.stdout.write("(advisory mode: execution.enforce_ac_coverage is false — not blocking)\n");
@@ -2185,6 +2458,7 @@ const SPRINT_SETTABLE_KEYS = new Set([
   "status",
   "goal",
   "capacity",
+  "stories",
   "features",
   "execution_mode",
   "branch",
@@ -2231,7 +2505,31 @@ function sprintSet(key, value) {
     process.stderr.write(`shipyard-data sprint set: no ${sprintPath} — run init-sprint first\n`);
     process.exit(1);
   }
+  // 4.17: commands run side by side, so the running sprint needs an owner.
+  // While /ship-execute or /ship-review holds the execution lock in another
+  // session, nobody else rewrites this sprint; a planner drafts the next one.
+  {
+    const { sessionId, unverified } = resolveSessionIdentity([]);
+    // only when both sides are known and differ: an unidentified caller is never locked out of its own sprint
+    const exec = unverified ? null : runningBeside(dataDir, "planning", sessionId, unverified).find((b) => b.kind === "execution" && b.state === "held" && b.session_id);
+    if (exec) {
+      process.stderr.write(`shipyard-data sprint set: the current sprint is being run by ${exec.skill} in another session — it is read-only to everyone else.\n  To plan more work now, draft the next sprint (/ship-sprint writes it to sprints/next/); to change this one, stop that run first.\n`);
+      process.exit(3);
+    }
+  }
   const content = readFileSync(sprintPath, "utf8");
+  // F043 bypass guard: completed -> cancelled would skip the archive review gate.
+  if (
+    key === "status" &&
+    String(value).trim().toLowerCase() === "cancelled" &&
+    String(parseFrontmatter(content).status || "").trim().toLowerCase() === "completed"
+  ) {
+    process.stderr.write(
+      "shipyard-data sprint set: refusing — a completed sprint cannot be cancelled (that would bypass the review gate)\n" +
+      "  Run /ship-review to review it, or `shipyard-data archive-sprint <id> --unreviewed` to archive it knowingly (audited).\n",
+    );
+    process.exit(1);
+  }
   const fmMatch = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
   if (!fmMatch) {
     process.stderr.write("shipyard-data sprint set: SPRINT.md has no frontmatter block — refusing\n");
@@ -2268,9 +2566,10 @@ function sprintSet(key, value) {
  *
  * Exit 0 with a parse report, or exit 3 naming what's unparseable.
  */
-function sprintCheck() {
+function sprintCheck(next = false) {
   const dataDir = getDataDir({ silent: true });
-  const sprintPath = join(dataDir, "sprints", "current", "SPRINT.md");
+  // --next: the sprint drafted ahead (sprints/next/SPRINT-DRAFT.md), same parse
+  const sprintPath = next ? join(dataDir, "sprints", "next", "SPRINT-DRAFT.md") : join(dataDir, "sprints", "current", "SPRINT.md");
   if (!existsSync(sprintPath)) {
     process.stderr.write(`✗ sprint check: no ${sprintPath}\n`);
     process.exit(3);
@@ -2298,11 +2597,33 @@ function sprintCheck() {
     process.exit(3);
   }
   const total = waves.reduce((n, w) => n + w.tasks.length, 0);
-  process.stdout.write(
+  const ok = () => process.stdout.write(
     `✓ sprint check — ${waves.length} wave(s), ${total} task(s): ` +
       waves.map((w) => `W${w.wave}[${w.tasks.join(",")}]`).join(" ") +
       "\n",
   );
+  if (next) { ok(); return; } // the sprint drafted ahead is gated when it is queued
+  // 4.0: the running sprint's plan must still pass the plan gate after any
+  // change to its waves. Extending a sprint rewrote the waves and ran only
+  // this structure check: a step that needs the person at the start had been
+  // pushed into wave 2 and nothing said so.
+  // Only the plan's shape (order, overlap, width, the person rule): whether
+  // each probe fails first is checked later, when a story enters the sprint.
+  import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "plan-score.mjs")).href).then(async (m) => {
+    let plan = [];
+    try {
+      const { readParallelPlan } = await import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "config-read.mjs")).href);
+      const s = readParallelPlan(dataDir) ? m.planScore(dataDir) : { problems: [] };
+      plan = s.error ? [] : s.problems.filter((p) => !/no step file/.test(p));
+    } catch { plan = []; }
+    if (plan.length) {
+      process.stderr.write("✗ sprint check FAILED — the waves parse, but the plan does not pass the plan gate:\n");
+      for (const p of plan) process.stderr.write(`  - ${p}\n`);
+      process.stderr.write("  See it whole: shipyard-data sprint plan-score\n");
+      process.exit(3);
+    }
+    ok();
+  });
 }
 
 /**
@@ -2318,18 +2639,16 @@ function sprintCheck() {
  *   shipyard-data config set-model think fable
  *   shipyard-data config set-model think opus
  *   shipyard-data config set-model build sonnet
- *   shipyard-data config set-model think claude-opus-4-8
  *   shipyard-data config set-model think inherit   ("" — omit model:, inherit session)
  */
-const MODEL_TIERS = new Set(["think", "build", "orchestrate"]);
+const MODEL_TIERS = new Set(["think", "build", "light", "orchestrate"]);
 const MODEL_VALUES = new Set(["fable", "opus", "sonnet", "haiku", "inherit"]);
-const CLAUDE_MODEL_ID_RE = /^claude-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ORCHESTRATION_SKILL_NAMES = ["ship-execute", "ship-review", "ship-sprint", "ship-discuss"];
 const AGENT_EFFORT_TIERS = new Set(["build", "build_trivial", "fixer", "operational", "operational_fix", "think", "coordinator", "simplifier"]);
 const AGENT_EFFORT_VALUES = new Set(["low", "medium", "high", "inherit"]);
 
 function isAllowedModelValue(value) {
-  return MODEL_VALUES.has(value) || CLAUDE_MODEL_ID_RE.test(value);
+  return MODEL_VALUES.has(value);
 }
 
 function setFrontmatterNestedValue(block, blockName, key, written) {
@@ -2356,6 +2675,8 @@ function setFrontmatterNestedValue(block, blockName, key, written) {
 }
 
 function pluginRoot() {
+  // Test seam: lets tests sync orchestration frontmatter in a copy of skills/.
+  if (process.env.SHIPYARD_PLUGIN_ROOT) return process.env.SHIPYARD_PLUGIN_ROOT;
   return dirname(dirname(fileURLToPath(import.meta.url)));
 }
 
@@ -2401,7 +2722,7 @@ function syncOrchestrateModel(value) {
 function configSetModel(tier, value, { dataDir: dataDirOverride } = {}) {
   if (!MODEL_TIERS.has(tier) || !isAllowedModelValue(value)) {
     process.stderr.write(
-      "shipyard-data config set-model: usage: config set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*>\n",
+      "shipyard-data config set-model: usage: config set-model <think|build|light|orchestrate> <fable|opus|sonnet|haiku|inherit>\n",
     );
     process.exit(2);
   }
@@ -2511,6 +2832,39 @@ function configSetIsolation(value, { dataDir: dataDirOverride } = {}) {
 }
 
 /**
+ * `shipyard-data config set-max-agents <n>` (v4.18) — the most agents alive
+ * at once in this project (default 100). Writes `execution.max_agents` and
+ * removes the retired `max_parallel_agents` line so one number is on record.
+ */
+function configSetMaxAgents(value, { dataDir: dataDirOverride } = {}) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) {
+    process.stderr.write("shipyard-data config set-max-agents: usage: config set-max-agents <whole number, 1 or more>\n");
+    process.exit(2);
+  }
+  const dataDir = dataDirOverride ?? getDataDir({ silent: true });
+  const configPath = join(dataDir, "config.md");
+  if (!existsSync(configPath)) {
+    process.stderr.write(`shipyard-data config set-max-agents: no ${configPath} — run shipyard-data onboarding bootstrap first\n`);
+    process.exit(1);
+  }
+  const content = readFileSync(configPath, "utf8");
+  const fmMatch = content.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
+  if (!fmMatch) {
+    process.stderr.write("shipyard-data config set-max-agents: config.md has no frontmatter block — refusing\n");
+    process.exit(1);
+  }
+  let [, open, block, close] = fmMatch;
+  block = setFrontmatterNestedValue(block, "execution", "max_agents", String(n));
+  block = block.split("\n").filter((l) => !/^\s+max_parallel_agents:/.test(l)).join("\n");
+  const tmp = configPath + ".tmp";
+  writeFileSync(tmp, open + block + close + content.slice(fmMatch[0].length), "utf8");
+  renameSync(tmp, configPath);
+  try { logEvent(dataDir, "config_max_agents_set", { value: n }); } catch { /* best-effort */ }
+  process.stdout.write(`execution.max_agents: ${n}\n`);
+}
+
+/**
  * `shipyard-data task-return <task-id> status=<COMPLETE|BLOCKED> ...` —
  * record a builder subagent's structured return contract as JSON.
  *
@@ -2584,7 +2938,9 @@ function taskReturn(args, opts = {}) {
     commit_sha: sha || null,
     probe_exit_code: probeExit,
     escalation_code: kv["escalation-code"] || null,
-    output_tail: outputTail,
+    output_tail: outputTail.trim() ? outputTail : "(no probe output was recorded with this return)",
+    // Where the evidence is: the probe tail file when one was given, else this file.
+    capture_file: kv["output-tail-file"] && existsSync(resolve(kv["output-tail-file"])) ? resolve(kv["output-tail-file"]) : join(returnsDir, `${taskId}.json`),
     recorded_at: new Date().toISOString(),
   };
   const path = join(returnsDir, `${taskId}.json`);
@@ -2599,7 +2955,33 @@ function taskReturn(args, opts = {}) {
       probe_exit_code: probeExit,
     });
   } catch { /* best-effort */ }
+  // One command for the builder: the return also closes its queue item.
+  const settled = settleFromReturn(dataDir, taskId, path);
+  if (settled.settled) process.stderr.write(`task-return: queue item ${taskId} closed (${String(settled.task.artifact_status ?? status).toLowerCase()}) — no \`queue complete\` needed\n`);
+  else if (settled.reason && settled.reason !== "no_claimed_item") process.stderr.write(`task-return: the return is recorded, but the queue item was not closed: ${settled.reason}\n`);
   process.stdout.write(path + "\n");
+}
+
+/**
+ * Optional dispatch-attribution fields (F010 AC-1/3/4): role/model/effort
+ * strings (200-char cap), attempt (F004 dispatch attempt, NOT queue
+ * claim_attempt) and tokens as positive integers. Blank/zero/unknown/invalid
+ * values are omitted so old readers and absent data stay valid.
+ */
+function dispatchAttributionFields(kv) {
+  const out = {};
+  for (const k of ["role", "model", "effort"]) {
+    const v = typeof kv[k] === "string" ? kv[k].trim() : "";
+    if (v && v.toLowerCase() !== "unknown") out[k] = v.slice(0, 200);
+  }
+  for (const k of ["attempt", "tokens"]) {
+    const v = kv[k];
+    if (typeof v === "string" && /^[0-9]+$/.test(v.trim())) {
+      const n = Number.parseInt(v, 10);
+      if (n > 0 && Number.isSafeInteger(n)) out[k] = n;
+    }
+  }
+  return out;
 }
 
 /**
@@ -2611,7 +2993,7 @@ function taskReturn(args, opts = {}) {
  *
  * Usage:
  *   shipyard-data task accept-return <task-id> sprint=<id> wave=<n> commit=<sha>
- *     [--data-dir <path>]
+ *     [role=<r> model=<m> effort=<e> attempt=<n> tokens=<n>] [--data-dir <path>]
  */
 function taskAcceptReturn(args, opts = {}) {
   const taskId = args[0];
@@ -2627,22 +3009,18 @@ function taskAcceptReturn(args, opts = {}) {
   const sprint = kv.sprint || "";
   const wave = kv.wave || "";
   const sha = kv.commit || kv.commit_sha || "";
-  if (!taskId || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(taskId)) {
+  // Report every problem in one go: one refusal per missing argument cost a
+  // real orchestrator three round trips per accepted step.
+  const problems = [];
+  if (!taskId || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(taskId)) problems.push(`invalid task id ${JSON.stringify(taskId)} — expected [A-Za-z][A-Za-z0-9_-]{0,63}`);
+  if (!sprint) problems.push("sprint=<id> is required");
+  if (!wave || !/^[0-9]+$/.test(wave)) problems.push("wave=<number> is required");
+  if (!/^[0-9a-fA-F]{7,40}$/.test(sha)) problems.push("commit=<7-40 hex sha> is required");
+  if (problems.length) {
     process.stderr.write(
-      `shipyard-data task accept-return: invalid task id ${JSON.stringify(taskId)} — expected [A-Za-z][A-Za-z0-9_-]{0,63}\n`,
+      `shipyard-data task accept-return: ${problems.join("; ")}\n` +
+        "  Usage: step accept-return <step-id> sprint=<id> wave=<n> commit=<sha> [role=<r> model=<m> effort=<e> attempt=<n> tokens=<n>] [--data-dir <path>]\n",
     );
-    process.exit(2);
-  }
-  if (!sprint) {
-    process.stderr.write("shipyard-data task accept-return: sprint=<id> is required\n");
-    process.exit(2);
-  }
-  if (!wave || !/^[0-9]+$/.test(wave)) {
-    process.stderr.write("shipyard-data task accept-return: wave=<number> is required\n");
-    process.exit(2);
-  }
-  if (!/^[0-9a-fA-F]{7,40}$/.test(sha)) {
-    process.stderr.write("shipyard-data task accept-return: commit=<7-40 hex sha> is required\n");
     process.exit(2);
   }
 
@@ -2656,9 +3034,26 @@ function taskAcceptReturn(args, opts = {}) {
     task: taskId,
     status: "complete",
     commit_sha: sha,
+    ...dispatchAttributionFields(kv),
   });
+  // A hotfix has no step: the work is recorded against the story itself (4.0).
+  // The step status call refused a story id, and a live hotfix recorded its
+  // completion by hand. The story's own status is the review's to change.
+  const isStory = (() => {
+    const has = (dir) => { try { return readdirSync(join(dataDir, "spec", dir)).some((n) => n.startsWith(`${taskId}-`) || n === `${taskId}.md`); } catch { return false; } };
+    return !has("steps") && !has("tasks") && (has("stories") || has("features") || has("bugs"));
+  })();
+  if (isStory) {
+    process.stdout.write(`story ${taskId} accepted complete return ${sha} (no step to close; its status changes at the review)\n`);
+    return;
+  }
   specStateCmd(dataDir, ["task", "set-status", taskId, "done"]);
   process.stdout.write(`task ${taskId} accepted complete return ${sha}\n`);
+  // 4.0: did the builder stay inside the files its step declared? A note and
+  // an event, never a refusal (see step-touched.mjs).
+  import("./step-touched.mjs")
+    .then((m) => m.reportOutsideTouches(dataDir, taskId, sha, { cwd: getProjectRoot(), sprint, base: /^[0-9a-fA-F]{7,40}$/.test(kv.base || "") ? kv.base : "" }))
+    .catch(() => {});
 }
 
 /**
@@ -2731,6 +3126,7 @@ function taskAcceptOperational(args, opts = {}) {
     status: "complete",
     kind: "operational",
     commit_sha: sha,
+    ...dispatchAttributionFields(kv),
   });
   specStateCmd(dataDir, ["task", "set-status", taskId, "done"]);
   process.stdout.write(`task ${taskId} accepted operational completion at ${sha}\n`);
@@ -2757,37 +3153,57 @@ function dirHoldsState(dir) {
  * Find the task file for an id under `spec/tasks/`, or null. Task files are
  * named `<id>-<slug>.md` (occasionally bare `<id>.md`), so match by prefix.
  */
-function findTaskFile(dataDir, id) {
-  const tasksDir = join(dataDir, "spec", "tasks");
-  let entries;
-  try {
-    entries = readdirSync(tasksDir);
-  } catch {
-    return null;
+function findInDirs(dataDir, subdirs, id) {
+  for (const sub of subdirs) {
+    const dir = join(dataDir, "spec", sub);
+    let entries;
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    const hit = entries.find((name) => name === `${id}.md` || name.startsWith(`${id}-`));
+    if (hit) return join(dir, hit);
   }
-  const hit = entries.find(
-    (name) => name === `${id}.md` || name.startsWith(`${id}-`),
-  );
-  return hit ? join(tasksDir, hit) : null;
+  return null;
+}
+
+/** v4: a builder unit is a P### step under spec/steps/ or a legacy T### under spec/tasks/. */
+function findTaskFile(dataDir, id) {
+  const live = STEP_ID_RE.test(String(id)) ? ["steps", "tasks"] : ["tasks", "steps"];
+  // archive-sprint moves done records under spec/archive/<kind>/ — still a file.
+  const dirs = [...live, join("archive", "steps"), join("archive", "tasks")];
+  return findInDirs(dataDir, dirs, id) ?? findByAlias(dataDir, dirs, id);
+}
+
+/**
+ * A migrated record keeps its old id in `aliases:` (T421 became P022). The
+ * event log is never rewritten, so anything that goes from an event's id to a
+ * file must be able to follow the alias.
+ */
+function findByAlias(dataDir, subdirs, id) {
+  const needle = new RegExp(`^aliases:\\s*\\[[^\\]]*["']?${String(id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']?[^\\]]*\\]`, "m");
+  for (const sub of subdirs) {
+    const dir = join(dataDir, "spec", sub);
+    let entries;
+    try { entries = readdirSync(dir); } catch { continue; }
+    for (const name of entries) {
+      if (!name.endsWith(".md")) continue;
+      try { if (needle.test(readFileSync(join(dir, name), "utf8").slice(0, 600))) return join(dir, name); } catch { /* unreadable */ }
+    }
+  }
+  return null;
 }
 
 /**
  * Find the feature file for an id under `spec/features/`, or null. Feature
  * files follow the same `<id>-<slug>.md` convention as tasks.
  */
+/** v4: a story is S### under spec/stories/, or a legacy F### (spec/features/) / B### (spec/bugs/). */
 function findFeatureFile(dataDir, id) {
-  const featuresDir = join(dataDir, "spec", "features");
-  let entries;
-  try {
-    entries = readdirSync(featuresDir);
-  } catch {
-    return null;
-  }
-  const hit = entries.find(
-    (name) => name === `${id}.md` || name.startsWith(`${id}-`),
-  );
-  return hit ? join(featuresDir, hit) : null;
+  return findInDirs(dataDir, ["stories", "features", "bugs"], id);
 }
+const findStoryFile = findFeatureFile;
 
 /**
  * P5 (fixes 3.1, 3.2): registry-schema validation, watermark-gated for
@@ -2809,7 +3225,26 @@ function findFeatureFile(dataDir, id) {
 const REGISTRY_SCHEMA_VERSION = 1;
 const DOCTOR_WATERMARK_BASENAME = ".doctor-watermark.json";
 
+const STORY_REQUIRED_KEYS = [
+  "id", "title", "type", "epic", "status", "story_points", "complexity",
+  "token_estimate", "rice_reach", "rice_impact", "rice_confidence",
+  "rice_effort", "rice_score", "dependencies", "references", "created",
+];
 const REGISTRY_ENTITY_RULES = {
+  // v4 written directories first; the legacy dirs below keep their own rules.
+  stories: {
+    dir: join("spec", "stories"),
+    idRe: /^S\d+[a-z]?$/,
+    requiredKeys: STORY_REQUIRED_KEYS,
+    allowEmpty: ["epic"],
+    statusValues: Object.keys(FEATURE_TRANSITIONS),
+  },
+  steps: {
+    dir: join("spec", "steps"),
+    idRe: /^P\d+$/,
+    requiredKeys: ["id", "title", "story", "status", "effort", "dependencies"],
+    statusValues: ["pending", "in-progress", "done", "blocked", "needs-attention", "approved"],
+  },
   features: {
     dir: join("spec", "features"),
     // Accepts child/sub-feature ids (F036a, F071d) — the documented split
@@ -2819,19 +3254,28 @@ const REGISTRY_ENTITY_RULES = {
     requiredKeys: [
       "id", "title", "type", "epic", "status", "story_points", "complexity",
       "token_estimate", "rice_reach", "rice_impact", "rice_confidence",
-      "rice_effort", "rice_score", "dependencies", "references", "tasks", "created",
+      "rice_effort", "rice_score", "dependencies", "references", "created",
     ],
+    // pre-v4 records list their builder units under `tasks:`, migrated ones under `steps:`.
+    anyOfKeys: [["tasks", "steps"]],
+    // `epic: ""` is the documented "no epic" state (the template default; the
+    // backlog renders an "(no epic)" group), so presence is required but an
+    // empty value is not a schema problem. Found by the v3.27.0 CLI e2e.
+    allowEmpty: ["epic"],
     statusValues: Object.keys(FEATURE_TRANSITIONS),
   },
   tasks: {
     dir: join("spec", "tasks"),
     idRe: /^T[-A-Za-z0-9]*\d+$/,
-    requiredKeys: ["id", "title", "feature", "status", "effort", "dependencies"],
-    statusValues: ["pending", "in-progress", "done", "blocked", "needs-attention", "approved"],
+    requiredKeys: ["id", "title", "status", "effort", "dependencies"],
+    // A builder record names its owner as `feature`/`story`; a v4 standalone
+    // task (land-now, spike, chore) carries `parent`, legitimately empty.
+    anyOfKeys: [["feature", "story", "parent"]],
+    statusValues: ["pending", "in-progress", "done", "blocked", "needs-attention", "approved", "open", "dropped"],
   },
   bugs: {
     dir: join("spec", "bugs"),
-    idRe: /^B\d+$/,
+    idRe: /^B-?\d+$/,
     requiredKeys: ["id", "title", "status", "severity"],
   },
   ideas: {
@@ -2871,8 +3315,13 @@ function validateRegistryFile(rules, filePath) {
   const content = readFileSync(filePath, "utf8");
   const fm = parseFrontmatter(content);
   const problems = [];
+  const allowEmpty = new Set(rules.allowEmpty ?? []);
   for (const key of rules.requiredKeys) {
-    if (!(key in fm) || fm[key] === "") problems.push(`missing/empty field: ${key}`);
+    if (!(key in fm)) problems.push(`missing/empty field: ${key}`);
+    else if (fm[key] === "" && !allowEmpty.has(key)) problems.push(`missing/empty field: ${key}`);
+  }
+  for (const group of rules.anyOfKeys ?? []) {
+    if (!group.some((k) => k in fm)) problems.push(`missing field: one of ${group.join("|")}`);
   }
   if (rules.statusValues && fm.status && !rules.statusValues.includes(fm.status)) {
     problems.push(`invalid status: "${fm.status}"`);
@@ -2984,7 +3433,7 @@ function scanRegistry(dataDir, opts = {}) {
 function doctor(opts = {}) {
   let dataDir;
   try {
-    dataDir = getDataDir({ silent: true });
+    dataDir = opts.dataDir ?? getDataDir({ silent: true });
   } catch (err) {
     process.stderr.write(
       `shipyard-data doctor: cannot locate the plugin data directory.\n` +
@@ -3026,6 +3475,13 @@ function doctor(opts = {}) {
     }
   }
 
+  // --- Current project: state that drifted when a cycle ended (4.6). ---
+  try {
+    for (const f of findDrift(dataDir)) {
+      findings.push({ kind: "state-drift", detail: `${f.kind}: ${f.detail}`, hint: f.fix || f.move ? "Run `shipyard-data reconcile --fix` (repairs it through the typed verbs and logs state_reconciled)." : f.hint });
+    }
+  } catch { /* unreadable spec tree — the registry checks below report it */ }
+
   // --- Current project: dangling patch tasks. ---
   const eventsLog = join(dataDir, ".shipyard-events.jsonl");
   if (existsSync(eventsLog)) {
@@ -3044,15 +3500,17 @@ function doctor(opts = {}) {
       } catch {
         continue;
       }
-      if (ev.type !== "patch_task_created") continue;
-      const id = ev.task_id ?? ev.task;
+      if (!eventMatches(ev, "patch_step_created")) continue;
+      const id = ev.step ?? ev.task_id ?? ev.task;
       if (!id || seen.has(id)) continue;
       seen.add(id);
+      // Pre-v4 logs carried placeholder ids (PATCH-R1, none); only a wave-unit id names a file.
+      if (!WAVE_UNIT_ID_RE.test(String(id))) continue;
       if (!findTaskFile(dataDir, id)) {
         findings.push({
-          kind: "dangling-patch-task",
-          detail: `patch_task_created id=${id} has no spec/tasks/${id}-*.md file`,
-          hint: `Write the missing task file (spec/tasks/${id}-<slug>.md) — the dispatch path must create it before emitting patch_task_created.`,
+          kind: "dangling-patch-step",
+          detail: `${ev.type} id=${id} has no spec/steps/${id}-*.md (or legacy spec/tasks/) file`,
+          hint: `Write the missing step file (spec/steps/${id}-<slug>.md) — the dispatch path must create it before emitting patch_step_created.`,
         });
       }
     }
@@ -3075,6 +3533,14 @@ function doctor(opts = {}) {
     }
   }
 
+  findings.push(...collectConfigErrors(dataDir));
+  const configWarnings = collectConfigWarnings(dataDir);
+  const emitWarnings = () => {
+    for (const w of configWarnings) {
+      process.stdout.write(`warning: [${w.kind}] ${w.detail} — ${w.hint}\n`);
+    }
+  };
+
   const registrySummary = registryScan
     ? `; registry: ${registryScan.scannedCount} file(s) checked` +
       (registryScan.incremental ? ` (incremental, ${registryScan.skippedCount} skipped via watermark)` : " (full sweep)")
@@ -3086,6 +3552,7 @@ function doctor(opts = {}) {
         `(scanned ${scanned} project dir${scanned === 1 ? "" : "s"} under ${projectsDir}; ` +
         `current project ${currentHash}${registrySummary}).\n`,
     );
+    emitWarnings();
     return;
   }
 
@@ -3097,11 +3564,31 @@ function doctor(opts = {}) {
     process.stdout.write(`    → ${f.hint}\n`);
   }
   process.stdout.write("\n");
+  emitWarnings();
   process.exit(1);
+}
+
+const COMMAND_SUMMARY = `(none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] [--unreviewed|--via-review] | metrics <record-retro|regenerate> ... [--data-dir <path>] | capacity [--points <P>] [--hours <H> | --until <time>] [--json] [--data-dir <path>] | migrate [--dry-run] [--reverse] [--data-dir <path>] | route-intake ... | discuss-queue <start|status|next|mark|decision|stop|clear> ... | discuss-questions <start|bind|add|revise|assume|next|answer|answer-bundle|answers|drop|research|wait|status|pause|reset> ... | plugin-issue <add|list> ... | infra <check|apply> [--json] | sprint <set|check|plan-score|probes-at-base|needs-you|plan-dir|queue-next|promote-next> ... | tracker <pull|status|ack> ... | risk <profile|score|drift> ... | route (--step|--task|--story|--role) ... | design <approve|check|status> ... | ui <doctor|screenshot|verify|rules> ... | agents <spawned|stopped|live|check> ... | review-pack [--sprint <id>] [--base <sha> --head <sha>] [--json] | reconcile [--fix] [--json] | patch-budget [--json] | stray <list|set-aside --reason "..."> [--json] | decide --question <q> --option <A=text> --option <B=text> [--facts-file <f>] [--stage <s>] [--subject <id>] [--json] | branches <status|sweep> [--label <name>] [--dry-run] [--json] | story-review <record|disposition|check> ... | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check [--next]|plan-dir|queue-next|promote-next> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | ensure-shared-caches | resolve-isolation [--flag <true|false|worktree|none>] | resolve-model <role> [--override <model>] [--subject <task-id>] [--data-dir <path>] | resolve-refactor-scope | resolve-wave-caps | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | verify-ac-coverage [--base <sha>] [--head <sha>] | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes|check-scenarios|probe-command|assign-ac-ids> ... [--data-dir <path>] | backlog <add|remove|rank|set> ... [--data-dir <path>] | idea <set-status|triage|repair> ... [--data-dir <path>] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set-isolation|set-max-agents|set> ... [--data-dir <path>] | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <list|record|check|findings> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ... | check-idea-backlog [--json] [--data-dir <path>] | report <time|cost|idle|boundary-share|stages> [--data-dir <path>]`;
+
+/**
+ * Asking a verb for help never runs it (4.13.6). `next-id steps --help`
+ * allocated an id, and any other writer would have written: a flag a verb
+ * does not know was simply ignored. Only arguments before a literal `--`
+ * count, so a wrapped command's own `--help` (with-lock) is left alone.
+ */
+function helpRequested(argv) {
+  const cut = argv.indexOf("--");
+  return (cut === -1 ? argv : argv.slice(0, cut)).some((a) => a === "--help" || a === "-h");
 }
 
 function main() {
   const command = process.argv[2] ?? "";
+  if (command && command !== "help" && !command.startsWith("-") && helpRequested(process.argv.slice(3))) {
+    const lines = COMMAND_SUMMARY.split(" | ").filter((l) => l === command || l.startsWith(`${command} `));
+    process.stdout.write(`shipyard-data ${command} — usage (nothing was run):\n`);
+    for (const l of lines.length ? lines : [`${command} (no summary line; call it without arguments for its usage)`]) process.stdout.write(`  shipyard-data ${l}\n`);
+    return;
+  }
   switch (command) {
     case "":
       process.stdout.write(getDataDir({ silent: true }) + "\n");
@@ -3120,13 +3607,63 @@ function main() {
       // either position.
       const rest = process.argv.slice(3);
       const force = rest.includes("--force");
-      const sprintId = rest.find((a) => a !== "--force");
-      archiveSprint(sprintId, { force });
+      const viaReview = rest.includes("--via-review");
+      const unreviewed = rest.includes("--unreviewed");
+      const lc = rest.indexOf("--leave-changes");
+      const leaveChanges = lc !== -1 && rest[lc + 1] && !rest[lc + 1].startsWith("--") ? rest[lc + 1] : "";
+      if (lc !== -1 && !leaveChanges) { process.stderr.write("shipyard-data archive-sprint: --leave-changes needs a reason\n"); process.exit(2); }
+      const sprintId = rest.find((a, i) => !a.startsWith("--") && !(lc !== -1 && i === lc + 1));
+      archiveSprint(sprintId, { force, viaReview, unreviewed, leaveChanges });
       break;
     }
     case "metrics": {
       const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "metrics");
       metricsCmd(rest, { dataDir: dataDirOverride });
+      break;
+    }
+    case "capacity": {
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "capacity");
+      capacityMain(dataDirOverride ?? getDataDir({ silent: true }), rest);
+      break;
+    }
+    case "migrate": {
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "migrate");
+      migrateMain(dataDirOverride ?? getDataDir({ silent: true }), rest);
+      break;
+    }
+    case "discuss-queue":
+    case "plugin-issue":
+    case "infra":
+    case "discuss-questions":
+    case "tracker":
+    case "story-review":
+    case "risk":
+    case "route":
+    case "design":
+    case "ui":
+    case "agents":
+    case "review-pack":
+    case "reconcile":
+    case "stray":
+    case "patch-budget":
+    case "decide":
+    case "branches":
+    case "route-intake": {
+      // v4 intake verbs (F023 route-intake, F026 discuss-queue, F027 tracker)
+      // live in their own leaf modules, loaded on demand like `report`.
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), command);
+      const file = join(dirname(fileURLToPath(import.meta.url)), `${command}.mjs`);
+      if (!existsSync(file)) {
+        process.stderr.write(`shipyard-data ${command}: module ${file} is missing\n`);
+        process.exit(1);
+      }
+      const dd = dataDirOverride ?? getDataDir({ silent: true });
+      import(pathToFileURL(file).href).then(
+        (mod) => mod.main(dd, rest),
+      ).catch((err) => {
+        process.stderr.write(`shipyard-data ${command}: ${err?.message ?? err}\n`);
+        process.exit(typeof err?.exitCode === "number" ? err.exitCode : 1);
+      });
       break;
     }
     case "init-sprint": {
@@ -3175,6 +3712,10 @@ function main() {
       resolveIsolation(process.argv.slice(3));
       break;
     }
+    case "resolve-model": {
+      resolveModel(process.argv.slice(3));
+      break;
+    }
     case "resolve-refactor-scope": {
       resolveRefactorScope();
       break;
@@ -3209,12 +3750,26 @@ function main() {
       if (rest[0] === "set") {
         sprintSet(rest[1], rest.slice(2).join(" "));
       } else if (rest[0] === "check") {
-        sprintCheck();
+        sprintCheck(rest.includes("--next"));
+      } else if (rest[0] === "needs-you") {
+        // v4.0: whether the person is needed now, and what waits for them at the review
+        const { dataDir: dd, rest: more } = extractDataDirFlag(rest.slice(1), "sprint needs-you");
+        import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "person-steps.mjs")).href).then((m) => m.main(dd ?? getDataDir({ silent: true }), more));
+      } else if (rest[0] === "person-check") {
+        // v4.0: the person's own answer to a step's end-of-sprint (or start) check
+        const { dataDir: dd, rest: more } = extractDataDirFlag(rest.slice(1), "sprint person-check");
+        import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "person-steps.mjs")).href).then((m) => m.main(dd ?? getDataDir({ silent: true }), ["person-check", ...more]));
+      } else if (rest[0] === "probes-at-base") {
+        // v4.21: run each step's probe on today's code; one that already passes proves nothing
+        const { dataDir: dd, rest: more } = extractDataDirFlag(rest.slice(1), "sprint probes-at-base");
+        import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "probes-at-base.mjs")).href).then((m) => m.main(dd ?? getDataDir({ silent: true }), more));
+      } else if (rest[0] === "plan-score") {
+        // v4.19: how parallel the plan is, and what in it is later than it has to be
+        const { dataDir: dd, rest: more } = extractDataDirFlag(rest.slice(1), "sprint plan-score");
+        import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "plan-score.mjs")).href).then((m) => m.main(dd ?? getDataDir({ silent: true }), more));
       } else {
-        process.stderr.write(
-          `shipyard-data sprint: unknown subcommand "${rest[0] ?? ""}". Expected: set <key> <value> | check\n`,
-        );
-        process.exit(2);
+        // plan-dir | queue-next | promote-next (a sprint drafted ahead, 4.17)
+        sprintAheadMain(getDataDir({ silent: true }), rest);
       }
       break;
     }
@@ -3231,6 +3786,8 @@ function main() {
         configSetEffort(rest[1], rest[2], { dataDir: dataDirOverride });
       } else if (rest[0] === "set-isolation") {
         configSetIsolation(rest[1], { dataDir: dataDirOverride });
+      } else if (rest[0] === "set-max-agents") {
+        configSetMaxAgents(rest[1], { dataDir: dataDirOverride });
       } else if (rest[0] === "set") {
         // Generic allowlisted config.md fields outside the `models:` block
         // (currently just product-spec-path) route through spec-state-cli's
@@ -3239,7 +3796,7 @@ function main() {
         specStateCmd(dataDirOverride ?? getDataDir({ silent: true }), ["config", "set", ...rest.slice(1)]);
       } else {
         process.stderr.write(
-          `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*> | set-effort <build|build_trivial|fixer|operational|operational_fix|think|coordinator|simplifier> <low|medium|high|inherit> | set-isolation <worktree|none> | set <key> <value>\n`,
+          `shipyard-data config: unknown subcommand "${rest[0] ?? ""}". Expected: set-model <think|build|light|orchestrate> <fable|opus|sonnet|haiku|inherit> | set-effort <build|build_trivial|fixer|operational|operational_fix|think|coordinator|simplifier> <low|medium|high|inherit> | set-isolation <worktree|none> | set-max-agents <n> | set <key> <value>\n`,
         );
         process.exit(2);
       }
@@ -3251,10 +3808,17 @@ function main() {
       break;
     }
     case "doctor": {
-      doctor({ full: process.argv.slice(3).includes("--full") });
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "doctor");
+      doctor({ full: rest.includes("--full"), dataDir: dataDirOverride });
       break;
     }
+    case "story":
     case "feature":
+    case "bug":
+    // `step` is NOT here: it shares the `task` case below so `step accept-return`
+    // / `accept-operational` reach the gate functions (a duplicate case label
+    // made them unreachable — found by the 4.3.0 code review).
+    case "epic":
     case "backlog":
     case "idea": {
       // These route into spec-state-cli exactly like `task`/`draft` do, and
@@ -3275,7 +3839,10 @@ function main() {
       specStateCmd(dataDirOverride ?? getDataDir({ silent: true }), ["draft", ...rest]);
       break;
     }
+    case "step":
     case "task": {
+      // v4: `step` is the canonical verb for a builder unit; `task` is accepted
+      // for pre-v4 skill text and for the new task entity (spec-state routes).
       // `task set-status` is invoked from several builder/dispatch bodies
       // running inside a worktree whose resolver-derived data dir can
       // differ from the orchestrator's — same class of bug --data-dir
@@ -3288,7 +3855,7 @@ function main() {
       } else if (rest[0] === "accept-operational") {
         taskAcceptOperational(rest.slice(1), { dataDir: dataDirOverride });
       } else {
-        specStateCmd(dataDirOverride ?? getDataDir({ silent: true }), ["task", ...rest]);
+        specStateCmd(dataDirOverride ?? getDataDir({ silent: true }), [command === "step" ? "step" : "task", ...rest]);
       }
       break;
     }
@@ -3302,6 +3869,11 @@ function main() {
       break;
     }
     case "verify": {
+      if (process.argv[3] === "findings") {
+        const { dataDir: findingsDir, rest } = extractDataDirFlag(process.argv.slice(4), "verify findings");
+        verifyFindingsCmd(findingsDir ?? getDataDir({ silent: true }), rest);
+        break;
+      }
       verifyCmd(getDataDir({ silent: true }), process.argv.slice(3));
       break;
     }
@@ -3318,6 +3890,26 @@ function main() {
       readinessCheckCmd(getProjectRoot(), getDataDir({ silent: true }), process.argv.slice(3));
       break;
     }
+    case "report": {
+      // `report <mode>` loads bin/report-<mode>.mjs. The mode is validated
+      // against a strict slug before it reaches an import path.
+      const { dataDir: dataDirOverride, rest } = extractDataDirFlag(process.argv.slice(3), "report");
+      const rawMode = rest[0] ?? "";
+      const mode = rawMode === "boundary-share" ? "idle" : rawMode; // alias
+      const file = /^[a-z][a-z-]*$/.test(mode) ? join(dirname(fileURLToPath(import.meta.url)), `report-${mode}.mjs`) : null;
+      if (!file || !existsSync(file)) {
+        process.stderr.write(`shipyard-data report: unknown mode "${mode}". Expected: report <time|cost|idle|boundary-share|stages> [--data-dir <path>]\n`);
+        process.exit(2);
+      }
+      const dd = dataDirOverride ?? getDataDir({ silent: true });
+      import(pathToFileURL(file).href).then(
+        (mod) => mod.reportMain(dd, rest.slice(1)),
+      ).catch((err) => {
+        process.stderr.write(`shipyard-data report ${mode}: ${err?.message ?? err}\n`);
+        process.exit(1);
+      });
+      break;
+    }
     case "check-idea-backlog": {
       const { dataDir: dataDirOverride, rest } = extractDataDirFlag(
         process.argv.slice(3),
@@ -3327,12 +3919,16 @@ function main() {
       checkIdeaBacklogCmd(dd, readEvents(dd), readMaxUndispositionedIdeas(dd), rest);
       break;
     }
+    case "help":
+    case "--help":
+    case "-h":
+      process.stdout.write(`shipyard-data — Shipyard's CLI-owned state and gates (one verb per line; each verb prints its own usage when called without arguments)\n\n`);
+      for (const line of COMMAND_SUMMARY.split(" | ")) process.stdout.write(`  shipyard-data ${line}\n`);
+      process.stdout.write(`\nAll verbs accept --data-dir <path> where listed. Docs: skills/*/references and UPGRADING.md.\n`);
+      break;
     // For project-id / project-root use `node ${CLAUDE_PLUGIN_ROOT}/bin/shipyard-resolver.mjs project-hash|project-root`.
     default:
-      process.stderr.write(
-        `shipyard-data: unknown command "${command}". ` +
-        `Expected: (none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] | metrics <record-retro|regenerate> ... [--data-dir <path>] | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | ensure-shared-caches | resolve-isolation [--flag <true|false|worktree|none>] | resolve-refactor-scope | resolve-wave-caps | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | verify-ac-coverage [--base <sha>] [--head <sha>] | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes|assign-ac-ids> ... [--data-dir <path>] | backlog <add|remove|rank|set> ... [--data-dir <path>] | idea <set-status|repair> ... [--data-dir <path>] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set-isolation|set> ... [--data-dir <path>] | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <record|check> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ... | check-idea-backlog [--json] [--data-dir <path>]\n`,
-      );
+      process.stderr.write(`shipyard-data: unknown command "${command}". Run \`shipyard-data help\` for the list of verbs.\n`);
       process.exit(1);
   }
 }

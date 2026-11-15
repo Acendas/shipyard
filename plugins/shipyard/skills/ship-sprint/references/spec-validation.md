@@ -20,12 +20,12 @@ Before anything else, verify selected features comply with current project rules
 **For each violation found:** Output the explanation (what the spec says, what the rule says, why they conflict), then AskUserQuestion:
 
 ```
-F010 Scenario 4 contradicts .claude/rules/event-driven-first.md:
+S010 Scenario 4 contradicts .claude/rules/event-driven-first.md:
   Spec says: "periodic 1hr health check"
   Rule says: "prefer event-driven push over polling"
 
-1. Update spec — rewrite the scenario to comply (I'll update the feature file now)
-2. Send back to discuss — this feature needs rethinking (/ship-discuss F010)
+1. Update spec — rewrite the scenario to comply (I'll update the story file now)
+2. Send back to discuss — this feature needs rethinking (/ship-discuss S010)
 3. Override rule — the spec is intentionally different here (document why in decision log)
 4. Remove scenario — it's no longer needed
 
@@ -48,7 +48,7 @@ Verify that the language in feature specs matches what the codebase actually cal
 3. **Check domain vocabulary** — if `.claude/rules/project-*.md` defines a domain vocabulary (term mappings, canonical names), verify spec terms match
 4. **Report mismatches:**
    ```
-   TERMINOLOGY MISMATCHES — F009: Maintenance Requests
+   TERMINOLOGY MISMATCHES — S009: Maintenance Requests
 
    Spec says          Code uses           Where in code
    ─────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ Verify that the language in feature specs matches what the codebase actually cal
    2. Update code — rename to match the spec (only if the spec term is better)
    3. Keep both — they're different concepts despite similar names (document the distinction)
    ```
-5. **Update feature files** with resolved terminology before decomposing tasks. This prevents builders from creating `Tenant` models when `Organization` already exists.
+5. **Update story files** with resolved terminology before decomposing tasks. This prevents builders from creating `Tenant` models when `Organization` already exists.
 
 Skip this step if the codebase is empty (greenfield project — no existing terms to conflict with).
 
@@ -76,30 +76,9 @@ Also run the **Cross-Cutting Concerns Audit** from the checklists — for each f
 
 Run the **Knowledge Gap Assessment** — flag tasks in unfamiliar domains, add research time to estimates.
 
-**Auto-generate SME skills for knowledge gaps:** If knowledge gaps cluster around a specific technology that has no existing skill in `.claude/skills/` (e.g., multiple tasks need OAuth patterns but no `/oauth-expert` skill exists), silently dispatch a `general-purpose` subagent in skill-writer mode for that specific technology. The skill is generated without user interaction. Report in the sprint plan output: "Generated /[tech]-expert skill to fill knowledge gap."
-
-The skill-writer prompt is local to ship-sprint. **Model tier (build)** — authoring a skill is implementation labor: read `models.build` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so it inherits the session model. Never hardcode a literal. **Effort tier (build)** — read `agent_effort.build` from config.md (default `medium`); if non-empty pass `effort: <value>`, if empty/absent OMIT `effort:`.
-
-```
-Agent(subagent_type: "general-purpose", model: <models.build — omit if empty>, effort: <agent_effort.build — omit if empty>, prompt: |
-  You are generating a project-specific SME (Subject Matter Expert) skill for
-  the technology: <TECH>. Read the codebase to learn how it's actually used in
-  this project, then write a SKILL.md to .claude/skills/<TECH>-expert/ that
-  captures the project's specific conventions, patterns, anti-patterns, and
-  gotchas — NOT a generic tutorial.
-
-  Sources to read: relevant files from the codebase, .claude/rules/, package
-  manifests for version info, any existing usage patterns. Self-validate that
-  every example you write would actually compile in this project.
-
-  Output: write SKILL.md and any references/ files. No commits. Return the
-  skill path and a one-line summary of what's covered.
-)
-```
-
 ## Step 9.5 — Quality Gate (self-review loop)
 
-Before presenting the plan, review your own output. Re-read each task file and the sprint draft, checking:
+Before presenting the plan, review your own output. Re-read each step file and the sprint draft, checking:
 
 | # | Check | Fail criteria |
 |---|---|---|
@@ -123,12 +102,15 @@ Before presenting the plan, review your own output. Re-read each task file and t
 | 18 | **Every `kind: research` task has a non-empty `research_scope`** | Research task missing `research_scope` → rejected at DoR. Without it the researcher has no question to investigate and will fail loud at dispatch (`research_scope_missing` event). See `references/task-kinds.md`. |
 | 19 | **Every `kind: feature` task has a `First failing test:` in Technical Notes** | Technical Notes missing this section means the Stage 4 Red step protocol was skipped — the builder has no TDD starting point and may silently invent scope. Re-derive the Red step and add it before approval. |
 | 20 | **No `kind: feature` task title contains "and" joining two independent behaviors** | "Implement X and add Y", "Update X and fix Y" patterns indicate Stage 3 splitting was missed. Split the task; two behaviors means two tasks. |
-| 21 | **Every Technical Notes deliverable maps to a task** | A feature's Technical Notes section names a concrete artifact ("Author must write a Playwright spec covering X", "One Y test covering Z", "Add a Q migration", named files like `tests/e2e/*.spec.ts`) but no task file's "Files to modify" or "Deliverables" references it. Either (a) add a task that owns the artifact, (b) elevate the artifact into an explicit acceptance criterion so it gets decomposed, or (c) capture it as an IDEA and link it (`source: backlog-deferred IDEA-NNN`). Conservative extraction — only flag concrete artifacts (named files, named tools, "must write X" patterns), NOT general guidance like "we should consider Y". Added in v2.6.0 after F002's Technical Notes line 144 explicitly required a Playwright spec but no task in the 14-task sprint owned it. |
+| 21 | **Every Technical Notes deliverable maps to a task** | A feature's Technical Notes section names a concrete artifact ("Author must write a Playwright spec covering X", "One Y test covering Z", "Add a Q migration", named files like `tests/e2e/*.spec.ts`) but no step file's "Files to modify" or "Deliverables" references it. Either (a) add a task that owns the artifact, (b) elevate the artifact into an explicit acceptance criterion so it gets decomposed, or (c) capture it as an IDEA and link it (`source: backlog-deferred IDEA-NNN`). Conservative extraction — only flag concrete artifacts (named files, named tools, "must write X" patterns), NOT general guidance like "we should consider Y". |
 | 22 | **Data work is decomposed (gated — data features only)** | ONLY fires when a feature in scope has a `## Data Model` section (skip entirely for non-data sprints — no false positives on, e.g., a pure-UI sprint). When it fires: the schema/migration the Data Model implies has an owning task; the constraints it names (FK / NOT NULL / UNIQUE / CHECK) are captured rather than left implicit; and an index task exists for any hot-query predicate or new foreign key called out in the feature's Technical Notes. Also flag a Data Model that ships a schema-shape anti-pattern (EAV, OTLT, god table) or a mutable-business-value primary key — those are design defects that should have been caught in discuss; surface for the user. Consult `${CLAUDE_PLUGIN_ROOT}/project-files/references/data-modeling-guide.md`. Fix by adding the missing schema/migration/index/constraint tasks (or routing the anti-pattern back to `/ship-discuss`). |
-| 23 | **No wave exceeds its applicable width cap** | Read both caps from config. The cap is `execution.max_tasks_per_wave` (default 6) for a wave formed from a dependency layer that fit, and `execution.max_tasks_per_wave_merged` (default 12) for a wave that is a whole mutually-independent layer kept intact under `execution.merge_independent_layers` (default true) — that merge is deliberate, because splitting an independent layer creates consecutive waves with no dependency on each other that `/ship-execute` still runs strictly in series, paying a full boundary cycle for each. A layer wider than the applicable cap must be split along track boundaries (tasks sharing a parent feature stay together; a single oversized track splits at its natural internal seam). All quality machinery is wave-scoped — integration gate, scoped build/tests, spec review, completion gate — so an over-wide wave makes checkpoints rare and smears failure attribution across a giant merge surface. Wave COUNT is never capped (it is dependency depth); only wave WIDTH is. Fix by re-partitioning the layer per `wave-decomposition.md` § "Wave size cap". |
-| 24 | **Every feature entering the sprint has a `user_flow_probe:`** | **Do NOT eyeball this row — run the gate.** Execute `shipyard-data feature check-probes <all in-scope feature IDs>` (one call, space-separated, bare from the project root — it resolves the data dir itself). Exit 0 = pass; exit 3 names the features lacking a valid `user_flow_probe:` (a valid one has a `kind` of `auto`/`assisted`/`manual`, or is `skip-with-reason` with a populated `user_flow_probe_skip_reason`; a legacy scalar `demo_probe:` counts). This is the proof the feature works *for a user* — distinct from per-task `acceptance_probe` (wiring inside one task) and from the full test suite (neither exercises the path a user takes). **A non-zero exit is a hard planning blocker, not a "planning gap" to defer:** the model self-review used to pass features through here, so they built for hours before `/ship-execute`'s pre-flight gate caught the omission at sprint-completion cost. The CLI makes this row a data-artifact gate, matching the pipeline-gate rule. Fix by authoring the probe with `/ship-discuss <feature-id>`, then re-run `check-probes`; do not proceed to Step 9.7 until it exits 0. |
+| 23 | **The plan is as parallel as its dependencies allow** | `shipyard-data sprint plan-score --draft --check` (add `--next` for a sprint drafted ahead) exits 0. It refuses a step in a later wave than its `dependencies:` require, a step that waits for its own wave, two steps of one wave that touch the same file, a step with no `touches:` in a shared wave, `solo` over a wide wave, a wave wider than `execution.max_agents`, a `needs_person: before` step outside Wave 1, and a step that waits for a `needs_person: after` step. Fix the plan, never the check. Then read the chain it names and remove every link that is not a real wait (wave-decomposition.md Step 7). |
+| 23b | **Every probe fails first** | `shipyard-data sprint probes-at-base --draft` (add `--next` for a sprint drafted ahead) exits 0: each feature step's `acceptance_probe` was run on the code as it is today and fails, or the step states why a pass is right (`probe_passes_at_base:`). A probe that already passes is rewritten, never waved through. |
+| 24 | **Every feature entering the sprint has a `user_flow_probe:`** | **Do NOT eyeball this row — run the gate.** Execute `shipyard-data story check-probes <all in-scope feature IDs>` (one call, space-separated, bare from the project root — it resolves the data dir itself). Exit 0 = pass; exit 3 names the features lacking a valid `user_flow_probe:` (a valid one has a `kind` of `auto`/`assisted`/`manual`, or is `skip-with-reason` with a populated `user_flow_probe_skip_reason`; a legacy scalar `demo_probe:` counts). This is the proof the feature works *for a user* — distinct from per-task `acceptance_probe` (wiring inside one task) and from the full test suite (neither exercises the path a user takes). **A non-zero exit is a hard planning blocker, not a "planning gap" to defer:** the model self-review used to pass features through here, so they built for hours before `/ship-execute`'s pre-flight gate caught the omission at sprint-completion cost. The CLI makes this row a data-artifact gate, matching the pipeline-gate rule. Fix by authoring the probe with `/ship-discuss <feature-id>`, then re-run `check-probes`; do not proceed to Step 9.7 until it exits 0. |
+| 24b | **Every story entering the sprint starts from the behaviour** | Run `shipyard-data story check-scenarios <all in-scope story IDs>`. Exit 3 lists what is missing (scenario ids, one level tag each, `# why not e2e:` on a lower level, the `## Paths` map). A story written before this rule is fixed here, now: add the map and the tags from its existing scenarios, then re-run. |
+| 25 | **Every UI story (`ui: true`) entering the sprint has an approved, unchanged design snapshot** (E005) | **Run the gate, do not eyeball it.** Execute `shipyard-data design check <all in-scope story IDs>`. Exit 0 = pass (non-UI stories report `NOT-UI`). Exit 3 names stories that are `MISSING` an approval, whose snapshot `DRIFTED` after sign-off, or whose file is gone — a **planning blocker**: route them to `/ship-discuss <story-id>` (DESIGN stage, `design approve` as a new version) and re-run until it exits 0. UI steps are built against the approved snapshot (render-and-look) and verified against it at the wave boundary and in review; without one there is nothing deterministic to verify. |
 
-Iterate the checklist against task files and the sprint draft, fixing failures (update task files, recompute waves) and re-running. Max 3 iterations. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag any remaining gaps in the sprint plan summary as "Planning gaps — review during execution". Then proceed to Step 9.7.
+Iterate the checklist against step files and the sprint draft, fixing failures (update step files, recompute waves) and re-running. Max 3 iterations. **Hold the table in mind across iterations — emit only per-iteration deltas (which checks fixed, which remain). Do not re-print the table on each pass.** Flag any remaining gaps in the sprint plan summary as "Planning gaps — review during execution". Then proceed to Step 9.7.
 
 ## Step 9.7 — Adversarial Critique
 
@@ -138,12 +120,14 @@ After the self-review quality gate passes, spawn the critic agent to challenge t
 - `high` if: sprint has 10+ tasks, total story_points >= 20, any feature touches auth/payments/data, or critical path has 4+ tasks
 - `standard` otherwise
 
+**One critic per story group, in one message (4.0).** Use the groups the decomposition used. A critic reads its own group's stories and steps, plus SPRINT-DRAFT.md for context; name the group's story ids in the prompt's "filter to sprint scope" line. One group → one critic. Whether two steps of one wave collide is the CLI's answer (`shipyard-data sprint plan-score`), so no critic needs the whole plan to judge it. Merge the findings and process them once; still one round only. **Why:** one critic over a seven-story plan took 12 of 47 minutes, and most of what it checks (gaps, estimates, assumptions) is per story.
+
 **Spawn the critic:** dispatch a `general-purpose` subagent with the inline critic prompt below. The critic role is reused across ship-review, ship-sprint, and ship-discuss with mode-specific framing; per the granularity criterion in S-1, the prompt stays inline (different inputs, different evaluation criteria — one combined critic capability skill would be a junk drawer).
 
-Substitute the literal SHIPYARD_DATA path before spawning. **Model tier (think):** read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so the critic inherits the session model. Never hardcode a literal. **Effort tier (think):** read `agent_effort.think` from config.md (default `high`); if non-empty pass `effort: <value>`, if empty/absent OMIT `effort:`.
+Substitute the literal SHIPYARD_DATA path before spawning. **Model + effort (think):** Run `shipyard-data resolve-model think` — one line `model=<m> effort=<e>`; pass each value as a string on the Agent call and OMIT any empty field (inherit). Never hardcode a literal. Log it once: `shipyard-data events emit dispatch_model_resolved role=<role> model=<model or inherit> effort=<effort>` (a logging failure never blocks the dispatch).
 
 ```
-Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, effort: <agent_effort.think — omit if empty>, prompt: |
+Agent(subagent_type: "general-purpose", model: <model= from resolve-model think; omit if empty>, effort: <effort= from resolve-model think; omit if empty>, prompt: |
 
 You are an adversarial critic of a sprint plan. Your job is to find what
 the plan misses: blind spots, optimistic estimates, wave-conflict risks,
@@ -169,8 +153,8 @@ Stakes: [standard | high]   (high if 10+ tasks, ≥20 story points,
 
 Read these files:
   - SPRINT-DRAFT.md: <SHIPYARD_DATA>/sprints/current/SPRINT-DRAFT.md
-  - All task files: <SHIPYARD_DATA>/spec/tasks/ (filter to sprint scope)
-  - Feature specs covered: <list of feature file paths>
+  - All step files: <SHIPYARD_DATA>/spec/steps/ (filter to sprint scope)
+  - Feature specs covered: <list of story file paths>
   - Codebase context: <SHIPYARD_DATA>/codebase-context.md
   - Project rules: .claude/rules/project-*.md
 

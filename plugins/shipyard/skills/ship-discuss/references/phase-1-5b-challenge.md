@@ -12,14 +12,14 @@ Pass to the capability skill:
 |---|---|
 | `feature_text` | Inline summary of the user's feature so far, OR contents of `.research-draft.md` if it exists |
 | `parent_context` | Path to the parent epic/feature if applicable, else null |
-| `domain_hints` | Inferred from the feature draft (`["auth"]`, `["payments"]`, `["external-api"]`, `["multi-tenant"]`, `["AI/LLM"]`, `["cache"]` — pick relevant ones) |
+| `domain_hints` | Inferred from the feature draft (e.g. `["auth"]`, `["payments"]`) |
 | `data_dir` | Literal SHIPYARD_DATA path |
 
-The capability skill returns a structured findings list with per-finding `category`, `case`, `currently_handled` (true/false/ambiguous), and `spec_response_needed`. You hold the structured list (~3-5k tokens), not the seven methodology references. Also run a quick pre-mortem (from `discovery-techniques.md`) — that one is short enough to do inline.
+The capability skill returns a structured findings list with per-finding `category`, `case`, `currently_handled` (true/false/ambiguous), and `spec_response_needed`. Also run a quick pre-mortem (from `discovery-techniques.md`) — that one is short enough to do inline.
 
 ## Presentation
 
-Follow `references/communication-design.md`. Max 3–4 items per AskUserQuestion; batch into themed groups of 3 if more. For each item: what I found → why it matters → what I recommend. Use the 3-layer pattern for anything genuinely surprising. Compact visual summary before the AskUserQuestion:
+Follow `references/communication-design.md`. Max 3–4 questions in the round, one card each, each written in chat first; more small items of one kind become one table and one "apply all / one by one" question. For each item: what I found → why it matters → what I recommend. Use the 3-layer pattern for anything genuinely surprising. Compact visual summary before the AskUserQuestion:
 
 ```
   ⚠️  [Finding]           → [impact], recommend [action]
@@ -43,7 +43,7 @@ created: [ISO date]
 ---
 ```
 
-Body sections: `## Research Findings` (implementation context, patterns, docs/references, gotchas — same structure as feature Technical Notes), `## Challenge Resolutions` (resolved grey areas, deferred items). This file is absorbed into the feature file's Technical Notes in Phase 3 and then deleted.
+Body sections: `## Research Findings` (implementation context, patterns, docs/references, gotchas — same structure as feature Technical Notes), `## Challenge Resolutions` (resolved grey areas, deferred items). This file is absorbed into the story file's Technical Notes in Phase 3 and then deleted.
 
 ## REFINE-mode usage
 

@@ -152,11 +152,9 @@ Wrap with metadata:
 4. **Cite the pattern.** Every candidate has exactly one `pattern` field naming the rule that produced it. If "multiple patterns fired", split twice and re-run.
 5. **Honor `partial: true` in complex domains.** Two thin slices with `partial: true` is a better answer than seven speculative ones.
 
-The test of a good output: a reader can take each candidate, write its Red step, and start building — without re-reasoning whether the candidate is independently valuable.
-
 ## Read-Only Contract
 
-This skill produces a split plan; it does not edit feature/task files. The calling command skill creates the resulting feature/task files (with their own probe authoring, Technical Notes, and frontmatter). Do not Write to the spec or task tree directly.
+This skill produces a split plan; it does not edit feature/step files. The calling command skill creates the resulting feature/step files (with their own probe authoring, Technical Notes, and frontmatter). Do not Write to the spec or task tree directly.
 
 ## Pairing With Other Skills
 
@@ -165,11 +163,3 @@ This skill produces a split plan; it does not edit feature/task files. The calli
 - **`authoring-acceptance-probe`** — runs on each `kind: feature` child after split, deriving the smoke command from the child's `acceptance_hint`.
 - **`/ship-sprint` Stage 2 (walking skeleton)** — the one sanctioned horizontal task. Splitting-stories' horizontal-rejection rule explicitly excepts it.
 - **`/ship-discuss` Phase 2 viability** — when SPLIT fires, this skill produces the candidate decomposition the user picks from.
-
-## Bottom Line
-
-- INVEST gate first; reject the input if it isn't valuable or estimable, don't waste pattern walks on it.
-- 11 patterns + the "and" test, applied in order, until none fires on any child.
-- Horizontal slices are the default LLM failure mode — a structural rejection step makes the failure visible and forces a vertical re-split.
-- Cynefin and the low-value-exposure tiebreaker prevent over-splitting and pick the most useful split when multiple are valid.
-- Output is concrete child stories/tasks with cited patterns and acceptance hints — testable, actionable, non-speculative.

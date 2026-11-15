@@ -14,13 +14,11 @@ Systematic debugging that doesn't lose progress when context compacts or session
 
 !`shipyard-context debug-session`
 
-**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash invocation of `shipyard-data` is limited to the onboarding command surfaced by context plus the `lock check`/`lock acquire`/`lock release` subcommands (see Step 4's mutex checks), and `shipyard-context` reads — no other shell-out; use Read / Grep / Glob for everything else. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA).
+**Shell.** Bash invocation of `shipyard-data` is limited to the onboarding command surfaced by context plus the `lock check`/`lock acquire`/`lock release` subcommands (see Step 4's mutex checks), and `shipyard-context` reads — no other shell-out; use Read / Grep / Glob for everything else.
 
-**Onboarding gate.** If the bundled context contains `SHIPYARD_ONBOARDING_REQUIRED=true`, run the exact `SHIPYARD_ONBOARDING_COMMAND` once with Bash, report the CLI output to the user, and STOP. Do not infer setup state by reading or writing Shipyard state files; onboarding decisions are CLI-owned.
+**Render before asking.** Follow SHIPYARD_STARTUP_RULES and SHIPYARD_ONBOARDING_INSTRUCTION from startup.
 
-**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
-
-**Quiet by default.** Between user-input gates, work quietly — investigate, run captures, and update the debug file without narrating each hypothesis-test in chat (the debug file is the record; that's where the running log lives, not the conversation). Only a one-line transition marker per boundary (status change, hypothesis eliminated) reaches the chat between gates. The diagnosis, fix plan, and resolution are rendered in full ONLY at a gate (render-before-ask — Step 3.5 fix plan, Step 6 close) or when the fix-attempt escalation fires. **No running commentary** ("Now I'll…", "Let me…", explaining a no-input step). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
+**Quiet by default.** Between user-input gates, work quietly and keep the running log in the debug file, not chat; only a one-line transition marker per boundary (status change, hypothesis eliminated) reaches chat. Render the diagnosis, fix plan, and resolution in full ONLY at a gate (Step 3.5, Step 6) or when fix-attempt escalation fires. No running commentary. Doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
 
 ## Input
 
@@ -33,10 +31,6 @@ $ARGUMENTS
 - No args → render each active session as chat text (slug — title — status — last Current Focus line), then AskUserQuestion: "Which session to resume? (pick an ID, or describe a new problem to start a fresh session)". The `!shipyard-context list debug-sessions` context-block output is a tool result, not rendered chat text — restate it before asking.
 
 ---
-
-## Why Persistent State Matters
-
-Claude's auto-compaction and `/clear` wipe conversation history. Without a debug file, you'd re-investigate dead ends, lose evidence, and forget what was eliminated. The debug file IS the debugging brain — it contains everything needed to resume perfectly.
 
 ## New Debug Session
 
@@ -181,9 +175,9 @@ Then use `AskUserQuestion` for approval:
 
 Once root cause is identified and fix plan is approved:
 
-**Planning-session mutex check** — before writing code, run `shipyard-data lock check planning`. Exit 0 → continue to the execution lock check below (echo any recovery-relevant `state` only if useful; `check` never recovers a stale/corrupt lock itself, it only reports). Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP. The investigation phases (Steps 1-3) are read-only and don't need this check; only the fix-application phase does.
+**Other commands do not block a fix (4.17).** Planning and discussion write specs, not code, so the fix phase only needs the execution lock below. The investigation phases (Steps 1-3) are read-only and need no lock.
 
-**Execution lock acquire** — before writing code, run `shipyard-data lock acquire execution --skill ship-debug`. Exit 0 → proceed with the fix (the mutex is now held, so a concurrent `/ship-execute` or `/ship-quick` can't race the same working tree; echo the recovery line if the CLI printed one). Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP; do not offer an override. Release with `shipyard-data lock release execution --skill ship-debug` at the end of Step 5 (after verification), and on ANY abnormal exit from the fix phase — a debug session that dies holding the lock self-heals via the 2h staleness recovery, but don't rely on it.
+**Execution lock acquire** — before writing code, run `shipyard-data lock acquire execution --skill ship-debug`. Exit 0 → proceed with the fix (the mutex is now held, so a concurrent `/ship-execute` (sprint, `--task` or `--hotfix`) can't race the same working tree; echo the recovery line if the CLI printed one). Exit 3 → echo the `⛔` block text from stderr verbatim as the entire response and STOP; do not offer an override. Release with `shipyard-data lock release execution --skill ship-debug` at the end of Step 5 (after verification), and on ANY abnormal exit from the fix phase — a debug session that dies holding the lock self-heals via the 2h staleness recovery, but don't rely on it.
 
 1. Set status → `fixing`
 2. Write the fix (follow project patterns)
@@ -221,7 +215,7 @@ Update `## Resolution` in the debug file with what layers were added and where.
 1. Render the resolution as chat text — root cause, fix applied, files changed, and the two verification capture names with their outcomes — then AskUserQuestion: "Fix verified. Does this resolve the issue?". The debug file's Resolution section is on disk, not in chat; the user approves what they can read above the ask.
 2. If yes: set status → `resolved` in the debug file's frontmatter (Edit in place — do not move). Resolved debug files persist on disk; there is no automatic reaper.
 3. If related to a sprint task, update PROGRESS.md
-4. If this was a hotfix, suggest: "Create a bug report with /ship-bug --hotfix for proper tracking?"
+4. If this was a hotfix with no story yet, suggest: "File it as a hotfix story with /ship-discuss --hotfix so the fix is tracked?"
 
 ---
 
@@ -267,7 +261,7 @@ The debug file is a resume-point, not a novel. Future-you needs: what's proven, 
 
 ## Rules
 
-- Update the debug file after EVERY investigation step — it's the persistent brain
+- Update the debug file after EVERY investigation step — compaction and `/clear` wipe chat, so the file is the only memory
 - Never re-investigate an eliminated hypothesis
 - If stuck after 5 hypotheses eliminated → render the eliminated list (one line each, with evidence) as chat text, then AskUserQuestion for direction. The summary goes in chat, not in the question string.
 - Keep the debug file concise — evidence and eliminations should be 1-2 lines each

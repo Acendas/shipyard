@@ -1,0 +1,12 @@
+{
+  "claim": {
+    "code": 0,
+    "stdout": "{\"claimed\":false,\"pipeline\":\"ship-execute\",\"stage\":\"wave_1_dispatch\"}",
+    "stderr": ""
+  },
+  "list": {
+    "code": 0,
+    "stdout": "{\n  \"tasks\": []\n}",
+    "stderr": ""
+  }
+}

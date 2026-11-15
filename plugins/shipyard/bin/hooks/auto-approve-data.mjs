@@ -47,6 +47,8 @@
  */
 
 import { readFileSync, realpathSync } from "node:fs";
+import { parseFrontmatterList } from "../frontmatter-list.mjs";
+import { globToRe } from "../risk.mjs";
 import { basename, dirname, join, resolve as pathResolve } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -62,6 +64,7 @@ const LOG_NAME = ".auto-approve.log";
 // shipyard-data CLI / the render-progress pipeline). Model writes to these
 // under sprints/current/ are denied — see the v2.9.0 header note.
 const CLI_OWNED_BASENAMES = new Set([
+  ".shipyard-version",
   "EXECUTE-CURSOR.md",
   "REVIEW-CURSOR.md",
   "PROGRESS.md",
@@ -73,6 +76,18 @@ const CLI_OWNED_BASENAMES = new Set([
   ".verification-ledger.json",
   "metrics.json",
   "metrics.md",
+  // v4 (F026): the chained-discuss queue — bin/discuss-queue.mjs is the single
+  // writer; a model edit would desync position/status from what `next` hands out.
+  ".discuss-queue.json",
+  // v4.18: the question queue of an asynchronous discussion — bin/discuss-questions.mjs
+  // is the single writer (ids, answer cursor and waiting times live in it).
+  ".discuss-questions.json",
+  // v4 (F022): the migration journal that makes `migrate --reverse` exact.
+  ".migration-v4.json",
+  // v4.2 (E004): the business risk profile — bin/risk.mjs is the single writer
+  // (`shipyard-data risk profile add-harm|remove-harm`); a hand edit could drop
+  // a harm's human gate without an event.
+  "risk-profile.json",
 ]);
 
 // v3.7.0: the two skill-mutex lock files are now CLI-owned too —
@@ -80,7 +95,7 @@ const CLI_OWNED_BASENAMES = new Set([
 // acquire|release|check|status). Kept as a separate set (rather than
 // merged into CLI_OWNED_BASENAMES) because the deny hint text differs —
 // see the basename branch below.
-const LOCK_BASENAMES = new Set([".active-session.json", ".active-execution.json"]);
+const LOCK_BASENAMES = new Set([".active-session.json", ".active-execution.json", ".active-discuss.json"]);
 
 // v-frontmatter-gap: CLI-owned feature/task/idea/backlog/config frontmatter
 // keys. Keyed by the exact key name; value is the hint naming the CLI
@@ -102,7 +117,8 @@ const FRONTMATTER_KEY_COMMANDS = Object.freeze({
   external_refs: "shipyard-data feature add-external-ref <FID> <key>",
   dependencies:
     "shipyard-data feature add-dep <A> <B>  |  shipyard-data feature remove-dep <A> <B>",
-  tasks: "shipyard-data feature set-tasks <FID> <TID,TID,...>  |  shipyard-data feature clear-tasks <FID>",
+  tasks: "shipyard-data story set-steps <SID> <PID,PID,...>  |  shipyard-data story clear-steps <SID>",
+  steps: "shipyard-data story set-steps <SID> <PID,PID,...>  |  shipyard-data story clear-steps <SID>",
   blocked_reason: 'shipyard-data task set-status <TID> blocked --reason "..."',
   blocked_since: 'shipyard-data task set-status <TID> blocked --reason "..."',
   attention_reason:
@@ -115,7 +131,7 @@ const FRONTMATTER_KEY_COMMANDS = Object.freeze({
   last_groomed: "shipyard-data backlog set last_groomed <date|today>",
   product_spec_path: "shipyard-data config set product-spec-path <path>",
   models:
-    "shipyard-data config set-model <think|build|orchestrate> <fable|opus|sonnet|haiku|inherit|claude-*>",
+    "shipyard-data config set-model <think|build|orchestrate|light> <fable|opus|sonnet|haiku|inherit>",
   agent_effort:
     "shipyard-data config set-effort <build|build_trivial|fixer|operational|operational_fix|think|coordinator|simplifier> <low|medium|high|inherit>",
 });
@@ -192,6 +208,8 @@ function isFrontmatterOwnedPath(filePath, shipyardData) {
   if (/\.md$/i.test(filePath)) {
     const specDir = join(shipyardData, "spec");
     if (
+      dataDirContains(filePath, join(specDir, "stories")) ||
+      dataDirContains(filePath, join(specDir, "steps")) ||
       dataDirContains(filePath, join(specDir, "features")) ||
       dataDirContains(filePath, join(specDir, "tasks")) ||
       dataDirContains(filePath, join(specDir, "ideas"))
@@ -260,6 +278,51 @@ function tryRealpath(p) {
       return null;
     }
   }
+}
+
+/**
+ * True when this very session holds the discuss lock and no execution lock.
+ * Strict on the session id: a lock without one, or a call without one, is
+ * never treated as a match — a sprint's builders running beside a discussion
+ * must not be refused.
+ */
+export function discussOnly(dataDir, sessionId) {
+  const session = String(sessionId ?? "").trim();
+  if (!session) return false;
+  const held = (base) => {
+    try {
+      const o = JSON.parse(readFileSync(join(dataDir, base), "utf8"));
+      return Boolean(o && o.skill && !o.cleared && String(o.session_id ?? "").trim() === session);
+    } catch { return false; }
+  };
+  return held(".active-discuss.json") && !held(".active-execution.json");
+}
+
+/**
+ * May a discussion write this project file? Its rule files always
+ * (`CLAUDE.md`, `AGENTS.md`, `.claude/rules/`: Phase 6 amends them after the
+ * owner says so); beyond
+ * that only what the owner listed in config.md (`discuss_writable: [docs/decisions.md, docs/design/**]`),
+ * the documents where this project records its decisions. A pattern matches
+ * the path from any folder down (`docs/game-design.md` matches
+ * `/any/where/project/docs/game-design.md`).
+ */
+export function discussMayWrite(dataDir, filePath) {
+  const p = String(filePath).replace(/\\/g, "/");
+  if (/(^|\/)\.claude\/rules\//.test(p) || /(^|\/)(CLAUDE|AGENTS)\.md$/.test(p)) return true; // the project's own rule files
+  let patterns = [];
+  try {
+    const m = readFileSync(join(dataDir, "config.md"), "utf8").match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    patterns = m ? parseFrontmatterList(m[1], "discuss_writable").items : [];
+  } catch { patterns = []; }
+  if (!patterns.length) return false;
+  const segs = p.split("/").filter(Boolean);
+  for (const raw of patterns) {
+    const re = globToRe(raw);
+    if (!re) continue;
+    for (let i = 0; i < segs.length; i++) if (re.test(segs.slice(i).join("/"))) return true;
+  }
+  return false;
 }
 
 export async function run(hookInput, _env) {
@@ -393,10 +456,13 @@ export async function run(hookInput, _env) {
     // breadcrumb so drift back to hand-editing frontmatter is visible in
     // `shipyard-context diagnose` instead of silent.
     const featuresDir = join(shipyardData, "spec", "features");
+    const storiesDir = join(shipyardData, "spec", "stories");
     const isBacklogMd = base === "BACKLOG.md";
     // `[a-z]?` covers child/sub-feature files (F071d-…md); without it a
     // hand-Edit of a sub-feature's frontmatter left no audit breadcrumb.
-    const isFeatureFile = /^F\d{3}[a-z]?-.*\.md$/.test(base) && dataDirContains(filePath, featuresDir);
+    const isFeatureFile =
+      (/^F\d{3,}[a-z]?-.*\.md$/.test(base) && dataDirContains(filePath, featuresDir)) ||
+      (/^S\d{3,}[a-z]?-.*\.md$/.test(base) && dataDirContains(filePath, storiesDir));
     if (isBacklogMd || isFeatureFile) {
       try {
         logEvent(shipyardData, "model_state_file_write", { file: filePath });
@@ -413,6 +479,41 @@ export async function run(hookInput, _env) {
     };
     process.stdout.write(JSON.stringify(response));
     return 0;
+  }
+
+  // A discussion decides what to build; it does not build (v4.20). The rule
+  // was prose ("Do not start building inside /ship-discuss") and a chained
+  // discussion still edited the project's docs and a test file itself: no
+  // task record, no test-first, no review. While THIS session holds the
+  // discuss lock and no execution lock, a project file is read-only. The one
+  // exception is the project's own rule files, which Phase 6 may amend after
+  // the owner says so.
+  const discussing = discussOnly(shipyardData, hookInput?.session_id);
+  if (discussing && !discussMayWrite(shipyardData, filePath)) {
+    try { logEvent(shipyardData, "discuss_project_write_denied", { file: basename(filePath) }); } catch { /* best-effort */ }
+    logBreadcrumb(shipyardData, LOG_NAME, "deny-discuss", [toolName, filePath, shipyardData]);
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason:
+          `Shipyard: a discussion writes specs, never the project. ${filePath} is a project file. ` +
+          "For a small change, file it and stop: `shipyard-data next-id tasks`, write <SHIPYARD_DATA>/spec/tasks/T<id>-<slug>.md (What, Done When), " +
+          "then tell the owner `/ship-execute --task T<id>` — that command writes the test first, runs the suite and makes one commit. " +
+          "Anything larger becomes a story. A discussion may write the project's rule files (CLAUDE.md, AGENTS.md, .claude/rules/…) and the documents the owner listed as its decision record " +
+          "(`shipyard-data config set discuss-writable docs/decisions.md,docs/design/**`). If this file is where the project records decisions and it is not listed, say so to the owner; do not write it another way.",
+      },
+    }));
+    return 0;
+  }
+
+  // A discussion writing one of the documents it may write: remember which
+  // file, so `lock release discuss` can require THAT file to be committed even
+  // while a sprint runs in the same folder (then a dirty file cannot otherwise
+  // be attributed to anyone). Seen live: a decision record left uncommitted
+  // beside a running sprint, in the way of that sprint's next merge.
+  if (discussing) {
+    try { logEvent(shipyardData, "discuss_wrote_project_file", { file: filePath.replace(/\\/g, "/").slice(-180), session: String(hookInput?.session_id ?? "") }); } catch { /* best-effort */ }
   }
 
   // Outside the data dir → let default permission evaluation proceed.

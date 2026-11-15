@@ -1,0 +1,12 @@
+{
+  "populated": {
+    "code": 0,
+    "stderr": "",
+    "count": 3,
+    "lines": [
+      "F001-a.md",
+      "F036a-b.md",
+      "README"
+    ]
+  }
+}

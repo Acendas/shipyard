@@ -738,3 +738,16 @@ test("cli-owned deny: breadcrumb log records the deny", async () => {
     assert.ok(log.includes("cli_owned_state"));
   });
 });
+
+test("cli-owned deny (v4.2): Write to risk-profile.json at the data root is DENIED with a CLI hint", async () => {
+  await withTempDir(async (sd) => {
+    const { stdout, code } = await runWithEnv(
+      { tool_name: "Write", tool_input: { file_path: join(sd, "risk-profile.json"), content: "{}" } },
+      { SHIPYARD_DATA: sd },
+    );
+    assert.equal(code, 0);
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /shipyard-data/);
+  });
+});

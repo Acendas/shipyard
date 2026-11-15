@@ -4,58 +4,70 @@ How Shipyard communicates with users when surfacing discoveries, explaining tech
 
 ## Audience
 
-Shipyard's users are **system architects, software architects, and lead engineers**. They think in systems, tradeoffs, and patterns. They expect architectural-level communication — not simplified tutorials. They can handle technical depth but still benefit from structured, visual, layered delivery.
+**Do not assume the reader is an expert.** The person reading may be the owner of the product, not the person who would build it. They know what they want and what their users do. They may not know how software is put together, and they should not have to. Write so that a smart person from outside the field understands it on the first read.
 
 What this means in practice:
-- **Use domain vocabulary freely — but only THEIR system's vocabulary, never the discovery methodology's.** Their nouns (DAG, middleware, race condition, N+1 query, idempotency, tenant, webhook) are fair game and don't need explaining. The discovery *frameworks'* vocabulary — JTBD, ATAM, EARS, ISO 25010, "quality attribute", "NFR", "functional/emotional/social dimension", "job to be done" — is **banned from every user-facing question** (rule Q1 + kill-list #5 in `question-design.md`). Those frameworks structure your analysis; the user hears a concrete scenario, not the scaffolding that produced it. "When a payment fails at 2am, does on-call need a page or a morning summary?" — never "what's the reliability quality attribute?"
-- **Lead with architecture** — when surfacing a discovery, frame it in terms of system boundaries, data flows, component responsibilities, and failure domains. These are the lenses they think through.
-- **Show diagrams by default** — architects prefer visual system representations (C4, sequence diagrams, dependency graphs) over prose descriptions. A diagram of the interaction flow communicates faster than three paragraphs explaining it.
-- **Focus on tradeoffs, not solutions** — architects want to understand *what they're trading* (latency vs consistency, coupling vs complexity, speed vs thoroughness). Present the tradeoff clearly and let them decide.
-- **Respect their time** — they're context-switching between many concerns. Get to the point fast (3-layer pattern), but have the detail available when they want to drill in.
-- The 3-layer pattern still applies — but Layer 1 can use technical terms, Layer 2 focuses on architectural implications, and Layer 3 dives into implementation options.
+- **Plain words.** Say "the list loads slowly because it asks the database once per row", not "an N+1 query". If a technical word is truly needed, explain it in half a sentence the first time: "a migration (a one-time change to how the data is stored)".
+- **Their words, never the method's.** Use the names the user uses for their own things. The vocabulary of the discovery methods (JTBD, ATAM, EARS, ISO 25010, "quality attribute", "NFR", "job to be done") never reaches the user. It structures the analysis; translate every probe into a plain scenario (rule Q1 in `question-design.md`).
+- **What it means for them, before how it works.** Lead with the effect a person would notice: what a user sees, what breaks, what it costs, what gets slower. The mechanism comes after, and only as much as the decision needs.
+- **Show, don't describe.** A picture, a small table or one real example carries more than three paragraphs. See "The 3-Layer Explanation Pattern" below.
+- **An expert loses nothing.** Plain words and a picture are faster for experts too. Depth is still there, one step down (Layer 3), for whoever wants it.
 
 ## Hard Targets
 
 | Dimension | Target | Why |
 |---|---|---|
-| Options per decision | 2–3 max, always with a recommended default | More options → worse decisions (Iyengar/Lepper: 6 options led to 10× more action than 24) |
-| New concepts per message | 3–4 max | Working memory holds ~4 novel chunks (Cowan). Beyond that, comprehension drops sharply |
-| Decision message length | Under 100 words | ~25 seconds of reading. Attention wanes after ~60 seconds for message-style communication |
-| Informational message length | Under 200 words | ~50 seconds. Manageable before the user starts scanning instead of reading |
-| Sentence length | 16–20 words | Flesch-Kincaid sweet spot for comprehension |
-| Reading level | Technical vocabulary OK, but short sentences | Audience is architects/leads — domain terms are fine, but clear structure beats dense prose |
-| Analogy length | 1 sentence. Always flag where the analogy breaks | Unexplained disanalogies create lasting misconceptions (Gentner) |
-| First 15 words | Must convey the topic and the ask | Many users scan just the opening before deciding whether to read the rest |
+| Progress update | One line: 8 words or fewer plus a small visual (bar, count, badges) | The user wants to glance, not read |
+| Summary at the top | 40 words or fewer: readable in 15 seconds | It is the only part some readers will read. It must stand alone |
+| Words against pictures | After the summary, more picture, table and example than prose | A shape is read faster than a sentence |
+| Options per decision | 2–3 max, always with a recommended default | More options, worse decisions |
+| New ideas per message | 3–4 max | Working memory holds about four new things |
+| Decision message length | Under 100 words of prose (pictures and tables do not count) | About 25 seconds of reading |
+| Informational message length | Under 200 words of prose | About 50 seconds |
+| Sentence length | 16–20 words, one idea each | Short sentences survive a quick read |
+| Words | Everyday words. A technical term only with its meaning beside it | The reader may not be an expert |
+| Comparison to something familiar | 1 sentence, and say where it stops being true | An unexplained mismatch leaves a wrong idea behind |
 
 ## The 3-Layer Explanation Pattern
 
-Use this whenever surfacing something the user hasn't considered — a technical discovery, a risk, an assumption, an edge case.
+Every explanation and every question has the same shape: **a 15-second summary, then show it, then detail only if needed.** Use it whenever you tell the user something or ask them something.
 
-### Layer 1: One-Liner (always shown)
+### Layer 1: The 15-second summary (always, always first)
 
-What's happening + your recommendation. Must work standalone. Front-load the key information into the first 15 words.
+Forty words or fewer. What is going on, what it means for them, and what you recommend or need. It must make sense with nothing else on the screen.
 
-> "I recommend we add rate limiting to the login endpoint — without it, anyone can brute-force passwords."
+> "People can try passwords on your login page as fast as they like. Someone could guess a weak password in minutes. I recommend a short wait after 5 wrong tries. One small change."
 
-### Layer 2: Context (always shown)
+### Layer 2: Show it (always)
 
-2–3 bullets: why it matters, the key tradeoff, an analogy if helpful. Keep bullets to one sentence each.
+A picture, a table, or a real example with real inputs and outputs. Pick whichever makes the point fastest, and prefer two short ones over a paragraph. Words here only connect the pieces.
 
-> - Right now there's nothing stopping someone from trying thousands of passwords per second
-> - Most apps limit login attempts to 5–10 per minute per account
-> - Think of it like a bouncer at a door — after a few failed tries, you have to wait before trying again
+> ```
+> today:    wrong, wrong, wrong, wrong ... (no limit) ... right   → account opened
+> proposed: wrong ×5 → wait 1 minute → wrong ×5 → wait 5 minutes  → guessing takes years
+> ```
+>
+> | Who | What they notice |
+> |---|---|
+> | A normal user who mistypes twice | Nothing |
+> | A user who forgot their password | A one-minute wait after the fifth try |
+> | Someone guessing passwords | Stopped |
 
-### Layer 3: Detail (conditional)
+**Use a scenario** whenever the point is "what happens when": name the person, the moment and the result. "Sam taps Pay with $0 left → today the app spins forever → after this change Sam sees 'not enough balance'."
 
-Technical depth. Only include when: (a) the decision is high-stakes or hard to reverse, (b) the user asks, or (c) there are multiple valid technical approaches. Signal the transition: "Here's the technical detail..."
+### Layer 3: Detail (only when needed)
 
-> Here's the technical detail: we can implement this at the middleware level using a sliding window counter in Redis, or at the application level with an in-memory map. Redis survives restarts but adds a dependency; in-memory is simpler but resets on deploy.
+How it works underneath. Include it when the decision is costly to undo, when there is more than one sound way to build it, or when the user asks. Start it with a plain signal such as "How it works underneath:" so a reader who does not need it can stop.
+
+> How it works underneath: the count of wrong tries can be kept in the app's memory (simple, forgotten when the app restarts) or in a shared store (survives restarts, one more thing to run).
 
 ### When to Skip Layers
 
-- **Obvious decisions** (user already understands the domain): Layer 1 only
-- **Low-stakes, reversible**: Layers 1–2 only
-- **High-stakes, irreversible, or genuinely complex**: All 3 layers
+- **Something the user already knows or just said:** Layer 1 only.
+- **Cheap to undo:** Layers 1–2.
+- **Costly to undo, or truly several ways to go:** all three.
+
+Never skip Layer 1, and never put it anywhere but the top.
 
 ## Decision Framing
 
@@ -88,36 +100,51 @@ When asking the user to decide something, follow the Situation–Complication–
 3. **Question** — what we need to decide (implicit in the AskUserQuestion prompt)
 4. **Answer** — your recommended option + alternatives
 
-Example:
+Example (summary first, then show it, then the ask):
 
-> **Plain text:** Your auth feature stores session tokens in cookies. But your project rules require all sensitive data in httpOnly secure cookies with SameSite=Strict — and the current cookie setup doesn't set SameSite at all. This is a one-line fix, but it changes how cross-origin requests behave.
+> **Chat text:** Your sign-in cookie can be sent along by other websites. That lets a bad site act as a signed-in user. Your own project rules already forbid it. I recommend the strict setting: one line, and nothing of yours depends on the loose one.
 >
-> **AskUserQuestion:** "Session cookies need SameSite=Strict to match your project's security rules.
+> | Setting | A link from another site | Risk |
+> |---|---|---|
+> | Today (not set) | Signed in | Other sites can act as the user |
+> | Strict (recommended) | Asked to sign in again | None from other sites |
+> | Lax | Signed in for plain links only | Small |
 >
-> 1. Add SameSite=Strict — secure, may break cross-origin flows if any exist
-> 2. Add SameSite=Lax — less strict, works with most cross-origin patterns
-> 3. Skip — leave as-is, track as a follow-up bug
+> **AskUserQuestion:** "How strict should the sign-in cookie be?
 >
-> Recommended: 1 — your app is single-origin, so Strict won't break anything"
+> 1. Strict (Recommended): safest; a link from another site asks the user to sign in again
+> 2. Lax: links from other sites keep working
+> 3. Leave as it is: tracked as a follow-up"
 
 ## Tone
 
 - **First person.** "I found..." / "I recommend..." — not "It was found..." or "The analysis shows..."
-- **Show, don't tell.** Include the relevant data inline. Don't make the user go look it up.
-- **Conversational, not formal.** This is a colleague explaining something, not a report.
-- **Honest about uncertainty.** "I'm not sure about the performance impact — it could be fine or it could be slow with 10k+ records. Want me to spike it first?"
+- **Plain and short.** Everyday words, one idea per sentence. If a sentence needs a second read, split it.
+- **Show, don't tell.** Put the number, the example or the picture in the message. Do not send the user to look it up.
+- **A colleague, not a report.** Talk the way you would across a table.
+- **Honest about what you do not know.** "I can't tell yet whether this will be slow with ten thousand records. Want me to try it first?"
 
 ## Interim Communication: Quiet by Default
 
 Between user-input gates, Shipyard works **quietly**. The default is silence: run the tools, do the analysis, advance the state — without narrating it. The user asked for a colleague who reports progress in one line and speaks up when a decision is needed, not one who thinks out loud. This is **not** true silence (the user is never left wondering whether anything is happening) — it is the absence of *commentary between* the one-line markers below.
 
+**While it works, Shipyard says almost nothing.** No thinking out loud, no step-by-step account, no report each time a helper finishes. The user reads a line when something changed that they would want to know, and a full explanation when a decision is theirs.
+
 Exactly three things reach the chat outside a user-input gate:
 
-1. **One-line transition markers.** When crossing a major boundary — a phase, a pipeline stage, a wave — emit ONE short line, ideally the `→ …` form (`→ Impact analysis: 2 ripples, 1 needs your call`). One line, not a paragraph; per boundary, not per tool call. This is the "progress update" the user wants.
-2. **The progress / wave bar and compact status blocks.** The execute wave-boundary bar (`Wave 2/4 ✓ [████████░░░░] 6/9 tasks • → Wave 3`), badge lists, sparklines — the at-a-glance visuals above. Compact by construction.
+1. **The progress line: a few words and a small visual, on one line.** When crossing a major boundary (a phase, a pipeline stage, a wave) emit ONE line: eight words or fewer saying what just happened, then a bar, a count or badges that show where things stand. Never a sentence of explanation, never two lines.
+   ```
+   Wave 2 merged            [████████░░░░] 6/9 steps   ✅ 6  🔄 2  🚫 1
+   Reviews done             [█████] 5/5 stories        2 fixes added
+   Research back            3 findings   ⚠ 1 needs you
+   ```
+   Per boundary, not per tool call and not per helper.
+2. **Compact status blocks at a gate.** Badge lists, sparklines and the wave timeline below, when a decision or a summary follows. Compact by construction.
 3. **Dispatch banners for long-running background work.** ONE line when launching a background dispatch that would otherwise be silent for minutes (`→ Dispatched design deep-dive … usually 1–3 min`), and ONE line when it returns (`→ Deep-dive back: 3 findings, 1 data-model risk`). A silent long dispatch reads as frozen — this is load-bearing anti-silence — but it is one line each, never a running account of what the dispatch is doing.
 
 Everything else waits for a gate. **Findings, diagrams, analysis, and reasoning are rendered in full ONLY when they feed an imminent AskUserQuestion (the render-before-ask rule in `question-design.md`) or a final gate / approval summary.** A research write-up, a viability read, an impact map, a quality-gate pass, a critic reconciliation that does NOT immediately precede a user decision collapses to a **one-line result**; the detail folds into the eventual gate summary. Reading a file or receiving a subagent's return puts it in YOUR context — that is not a reason to re-emit it to the user unless a decision is riding on it right now.
+
+**A helper finishing is not a boundary.** One builder or reviewer returning is not news; do not print a line for it. Say it once per boundary: "wave 2 merged, 7 of 7 steps", "all 5 stories reviewed, 2 fix steps added". The progress bar carries the rest.
 
 **No running commentary.** Do not announce a step before doing it ("Now I'll…", "Let me analyze…", "I'm going to check…"), do not explain the rationale for a step that needs no user input, do not restate what a stage does before running it, and do not re-narrate what a tool result already showed. If nothing needs a decision and no boundary was crossed, say nothing — do the work and move on.
 
@@ -127,14 +154,14 @@ This does NOT loosen render-before-ask. At a user-input gate, render fully — t
 
 ## Ask vs Assume
 
-Not every decision is a question. Before composing any AskUserQuestion, run the **confidence gate** in `question-design.md`: a decision where the evidence converges (codebase, spec/constitution, industry practice all point the same way) AND the choice is a two-way door (cheap to reverse) is **decided and informed in one line**, not asked — "Going with X — [≤10-word why]. (say 'change' to override)" — and logged as `ASSUMED:` in the Decision Log. Only genuinely uncertain calls (evidence conflicts, user-value judgment, or one-way doors) reach the user. This keeps the interruption budget to 4–5 rounds and respects the architect's time: a trusted default beats a question they'd answer the obvious way. The full gate, ten-rule rulebook, and kill-list live in `question-design.md` — that file is the authority for everything user-facing; this file governs how the messages that DO get sent are shaped.
+Not every decision is a question. Before composing any AskUserQuestion, run the **confidence gate** in `question-design.md`: a decision where the evidence converges (codebase, spec/constitution, industry practice all point the same way) AND the choice is a two-way door (cheap to reverse) is **decided and informed in one line**, not asked — "Going with X — [≤10-word why]. (say 'change' to override)" — and logged as `ASSUMED:` in the Decision Log. Only genuinely uncertain calls (evidence conflicts, user-value judgment, or one-way doors) reach the user. This keeps the number of cards low and respects the person's time: a trusted default beats a question they'd answer the obvious way. The full gate, ten-rule rulebook, and kill-list live in `question-design.md` — that file is the authority for everything user-facing; this file governs how the messages that DO get sent are shaped.
 
 ## Batching Open Items
 
 When multiple items need resolution (assumption audit, edge cases, impact analysis):
 
-- **Max 3–4 items per AskUserQuestion call.** More than that overwhelms working memory.
-- If you have 8 items, batch into 2–3 groups. Group by theme (security, data model, UX) not by severity.
+- **One question per card, written in the chat first.** Explain it (summary, then show it), state the question in one sentence, then call the tool for that question alone. Then the next one.
+- **Keep the count low.** Decide what you can decide; at most 3–4 questions in a round. With 8 small items of the same kind, show them as one table in chat and ask a single question: "apply all recommendations / go through them one by one".
 - For each item: what I found → why it matters → what I recommend.
 - Offer bulk resolution: "Addressed / Deferred / Not relevant" for each, or "Apply all recommendations."
 
@@ -147,7 +174,7 @@ Text explains *what something means*. Visuals show *what the shape is*. Use both
 | Use Visual When... | Pattern |
 |---|---|
 | Showing progress or proportion | Progress bar: `[████████░░░░] 65%` |
-| Showing relationships or dependencies | DAG with arrows: `T001 ─▶ T003 ─▶ T007` |
+| Showing relationships or dependencies | DAG with arrows: `P001 ─▶ P003 ─▶ P007` |
 | Comparing before/after or across sprints | Side-by-side with deltas: `15 → 20 pts (+33%) ▲` |
 | Showing trends over time | Sparkline: `▂▅▇▆█ avg: 18 pts` |
 | Displaying status at a glance | Badge list: `✅ 6 Done  🔄 3 Active  🚫 1 Blocked` |
@@ -217,20 +244,18 @@ Velocity (last 5 sprints): ▂▅▇▆█  avg: 18 pts  trending up
 
 **Decision trees** — for routing or flowchart-style choices:
 ```
-  Is it a bug?
-  ├── Yes → Is it critical?
-  │         ├── Yes → /ship-bug --hotfix
-  │         └── No  → /ship-bug (backlog)
-  └── No  → Is it a new feature?
-            ├── Yes → /ship-discuss
-            └── No  → /ship-quick
+  /ship-discuss <anything>  → the ceremony ladder proposes a lane
+  ├── production incident?  → hotfix   (/ship-execute --hotfix S###)
+  ├── tiny, clear, low-risk → land-now (/ship-execute --task T###)
+  ├── small and vague       → capture  (IDEA-###)
+  └── otherwise             → refine   (story S###, then /ship-sprint)
 ```
 
 **Impact diagrams** — for showing ripple effects:
 ```
-  F007 (new) ──impacts──▶ F003 (criteria change)
-             ──depends──▶ F001 (must be done first)
-             ──overlaps─▶ F005 (shared data model)
+  S007 (new) ──impacts──▶ S003 (criteria change)
+             ──depends──▶ S001 (must be done first)
+             ──overlaps─▶ S005 (shared data model)
 ```
 
 **Compact finding summaries** — for presenting challenge/audit results before asking decisions:

@@ -2,8 +2,6 @@
 
 Every Shipyard task has a `kind:` field in its frontmatter. The `kind:` determines **which capability skill executes the task** and **what "done" means for that task class**. Get the kind wrong and the execution pipeline silently fails — the builder loop will exit clean on an empty tree for a task that was supposed to run a command, and mark it done without ever running anything.
 
-This file is the authoritative definition of the taxonomy. When planning a sprint, read this before writing task files.
-
 ## The three kinds
 
 | Kind | Executor | "Done" means | Required fields |
@@ -12,11 +10,11 @@ This file is the authoritative definition of the taxonomy. When planning a sprin
 | `operational` | `dispatching-operational-task` | `verify_output:` points at a non-empty logcap capture from a passing run | `verify_command:` |
 | `research` | `dispatching-research-task` | `research_output:` points at a findings doc under `<SHIPYARD_DATA>/research/` | — |
 
-Absent `kind:` is treated as `feature` — every legacy task file keeps working without migration.
+Absent `kind:` is treated as `feature` — every legacy step file keeps working without migration.
 
 ## `kind: feature`
 
-The default. A task that writes new code or modifies existing code. The builder runs the TDD cycle: write the failing test first (RED), implement the smallest change that passes it (GREEN), refactor (REFACTOR), commit atomically (`feat(TASK_ID): …`). The exit gate is a clean git tree + a commit whose subject contains the task ID.
+The default. A task that writes new code or modifies existing code. The builder runs the TDD cycle and commits atomically (`feat(TASK_ID): …`). The exit gate is a clean git tree + a commit whose subject contains the task ID.
 
 ### Required fields
 ```yaml
@@ -26,11 +24,6 @@ acceptance_probe: |
 ```
 
 The task body must also include a Technical Notes entry beginning with `First failing test:` so the builder knows what RED means before implementation. Without `acceptance_probe:`, `dispatching-task-loop` refuses to dispatch the task.
-
-Examples:
-- "Add JWT refresh to the auth middleware"
-- "Extract the pricing engine into its own module"
-- "Fix the off-by-one in paginator.nextPage()"
 
 Don't use this kind when the work is primarily "run something and respond to output" — that's `operational`.
 
@@ -133,9 +126,9 @@ research_history:                      # appended on each attempt
 ### Execution contract
 
 1. ship-execute reads `kind:` and routes research tasks through the `dispatching-research-task` capability skill, NOT through the builder loop.
-2. The dispatcher validates `research_scope:` is present, then dispatches the research subagent (general-purpose, task-driven mode). The subagent receives the task file path, the scope, and an exact output path (`<SHIPYARD_DATA>/research/<TASK_ID>-<slug>.md`).
+2. The dispatcher validates `research_scope:` is present, then dispatches the research subagent (general-purpose, task-driven mode). The subagent receives the step file path, the scope, and an exact output path (`<SHIPYARD_DATA>/research/<TASK_ID>-<slug>.md`).
 3. The researcher investigates using its standard process (codebase search, external docs, cross-verify), then uses its scoped `Write` tool to create the findings doc following the template in the agent body.
-4. On success → dispatcher validates the output file exists, is non-empty, and has at least one `### Finding` section. Writes `research_output:` to the task file, appends to `research_history`, marks done. Emits `research_task_passed`.
+4. On success → dispatcher validates the output file exists, is non-empty, and has at least one `### Finding` section. Writes `research_output:` to the step file, appends to `research_history`, marks done. Emits `research_task_passed`.
 5. On failure (missing output, empty doc, zero findings) → dispatcher emits `research_task_bogus_pass` and does NOT mark done. Single transient retry allowed for network/timeout failures; otherwise escalate to `status: needs-attention`.
 6. **No fix-findings loop.** Unlike operational tasks, research is one-shot. A failed research attempt needs user re-scoping, not more agent iterations.
 7. **The feature builder loop (`dispatching-task-loop`) HARD STOPs if dispatched a research task.** Same routing-bug detection pattern as operational.
@@ -174,4 +167,4 @@ When decomposing a feature into tasks, scan the task description for signals tha
 | Contains only "write/implement/add/fix \_\_\_ code" | "add refresh-token rotation to auth middleware" | feature |
 | Contains only "document \_\_\_" / "research whether \_\_\_" | "research whether Temporal fits our sprint executor" | research |
 
-When the signal fires, ship-sprint should `AskUserQuestion` to confirm the kind before writing the task file — auto-assigning operational silently would surprise users. If confirmed, populate `verify_command:` from the task description or prompt the user for it.
+When the signal fires, ship-sprint should `AskUserQuestion` to confirm the kind before writing the step file — auto-assigning operational silently would surprise users. If confirmed, populate `verify_command:` from the task description or prompt the user for it.

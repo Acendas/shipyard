@@ -143,6 +143,60 @@ function git(args, cwd) {
   return execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
 
+// ---------------------------------------------------------------------------
+// Weakened tests (v4.9). A builder may not loosen a check to make it pass.
+// In one real sprint builders did it twice (a brightness floor halved, a
+// bottom-margin check dropped) and the orchestrator found both only by
+// reading the diffs. These three signals make that reading unnecessary. They
+// are flags for the reviewer (MEDIUM, never a hard stop): an expected value
+// can change for a good reason, and the step's spec says whether it did.
+//   test-number-changed    a line in an EXISTING test file differs only in its numbers
+//   test-assertion-removed a hunk in an existing test file removes more assertions than it adds
+//   test-file-deleted      an existing test file is gone
+// ---------------------------------------------------------------------------
+const ASSERT_RE = /\b(assert\w*|expect\w*|EXPECT\w*|ASSERT\w*|CHECK\w*|REQUIRE\w*|should\w*|verify\w*|t\.(?:Error|Fatal)\w*)\s*[(.!]|\bassert\b/;
+const NUM_RE = /(?<![A-Za-z_])-?\d+(?:\.\d+)?/g;
+// Any language: a file under a tests/spec folder, or named like a test.
+const isTestFile = (f) => TEST_FILE_RE.test(f) || /(?:^|\/)(?:tests?|__tests__|specs?)\//i.test(f) || /(?:^|\/)(?:test_[^/]+|[^/]+_test|[^/]+Tests?|[^/]+\.(?:test|spec))\.[A-Za-z0-9]+$/.test(f);
+
+/** Split a -U0 diff into hunks of removed and added lines. */
+function parseHunks(diffText) {
+  const hunks = [];
+  let cur = null, line = null;
+  for (const raw of diffText.split("\n")) {
+    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (h) { cur = { removed: [], added: [] }; hunks.push(cur); line = Number(h[1]); continue; }
+    if (!cur || raw.startsWith("+++") || raw.startsWith("---")) continue;
+    if (raw.startsWith("-")) cur.removed.push(raw.slice(1));
+    else if (raw.startsWith("+")) { cur.added.push({ lineNo: line, text: raw.slice(1) }); line += 1; }
+  }
+  return hunks;
+}
+
+function weakenedTestFindings({ base, head, cwd, lang }) {
+  const out = [];
+  const list = (filter) => git(["diff", `--diff-filter=${filter}`, "--name-only", `${base}..${head}`], cwd).split("\n").map((f) => f.trim()).filter((f) => f && isTestFile(f) && (!lang || extOf(f) === lang));
+  for (const file of list("D")) out.push({ confidence: "MEDIUM", pattern: "test-file-deleted", file, line: 1, snippet: "an existing test file was deleted", placeholder_marker: null });
+  for (const file of list("M")) {
+    let diffText;
+    try { diffText = git(["diff", "-U0", `${base}..${head}`, "--", file], cwd); } catch { continue; }
+    for (const hunk of parseHunks(diffText)) {
+      const at = hunk.added[0]?.lineNo ?? 1;
+      // numbers-only edits, paired in order
+      for (let i = 0; i < Math.min(hunk.removed.length, hunk.added.length); i++) {
+        const a = hunk.removed[i], b = hunk.added[i].text;
+        if (a === b || !/\d/.test(a)) continue;
+        if (a.replace(NUM_RE, "#").trim() !== b.replace(NUM_RE, "#").trim()) continue;
+        out.push({ confidence: "MEDIUM", pattern: "test-number-changed", file, line: hunk.added[i].lineNo, snippet: `${a.trim().slice(0, 70)}  →  ${b.trim().slice(0, 70)}`, placeholder_marker: null });
+      }
+      const gone = hunk.removed.filter((t) => ASSERT_RE.test(t));
+      const back = hunk.added.filter((t) => ASSERT_RE.test(t.text));
+      if (gone.length > back.length) out.push({ confidence: "MEDIUM", pattern: "test-assertion-removed", file, line: at, snippet: `${gone.length - back.length} assertion(s) removed, e.g. ${gone[0].trim().slice(0, 90)}`, placeholder_marker: null });
+    }
+  }
+  return out;
+}
+
 /**
  * Run the full scan for `base..head` and return the findings array
  * (the JSON shape documented in anti-stub-scan/SKILL.md).
@@ -224,6 +278,8 @@ export function scanStubs({ base, head, cwd = process.cwd(), lang = null }) {
     }
   }
 
+  try { findings.push(...weakenedTestFindings({ base, head, cwd, lang })); } catch { /* a diff git cannot produce is not a scan failure */ }
+
   return findings;
 }
 
@@ -235,13 +291,15 @@ function printFindings(findings) {
  * `shipyard-data scan-stubs <base>..<head> [--lang <x>]`
  */
 export function scanStubsCmd(dataDir, args) {
-  const rangeArg = args.find((a) => !a.startsWith("--") && a.includes(".."));
-  const langIdx = args.indexOf("--lang");
-  const lang = langIdx !== -1 ? args[langIdx + 1] : null;
+  const flag = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : null; };
+  const lang = flag("--lang");
+  // Both spellings every other diff verb takes: `<base>..<head>` and `--base <b> --head <h>`.
+  let rangeArg = args.find((a) => !a.startsWith("--") && a.includes(".."));
+  if (!rangeArg && flag("--base") && flag("--head")) rangeArg = `${flag("--base")}..${flag("--head")}`;
 
   if (!rangeArg) {
     process.stderr.write(
-      "shipyard-data scan-stubs: expected <base>..<head> [--lang <x>]\n",
+      "shipyard-data scan-stubs: no commit range given\n  Usage: scan-stubs <base>..<head> [--lang <ext>]\n         scan-stubs --base <ref> --head <ref> [--lang <ext>]\n",
     );
     process.exit(2);
   }
@@ -275,6 +333,15 @@ export function scanStubsCmd(dataDir, args) {
     findings: findings.length,
     high: highBlocking.length,
   });
+
+  const weakened = findings.filter((f) => f.pattern.startsWith("test-") && f.pattern !== "test-no-impl");
+  if (weakened.length > 0) {
+    process.stderr.write(
+      `\n⚠ ${weakened.length} change(s) to existing tests removed an assertion, deleted a test or changed a number. A check is never loosened to make it pass: confirm each against the step's spec, and send the step back if the spec does not ask for it.\n` +
+        weakened.map((f) => `  ${f.file}:${f.line}: ${f.pattern} — ${f.snippet}`).join("\n") + "\n",
+    );
+    try { logEvent(dataDir, "test_weakening_flagged", { count: weakened.length, files: [...new Set(weakened.map((f) => f.file))].join(",") }); } catch { /* best-effort */ }
+  }
 
   if (highBlocking.length > 0) {
     process.stderr.write(

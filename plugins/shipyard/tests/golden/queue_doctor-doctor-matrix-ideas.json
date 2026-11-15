@@ -1,0 +1,36 @@
+{
+  "code": 1,
+  "stderr": "",
+  "other": [],
+  "cases": {
+    "valid-base": [],
+    "missing-id": [
+      "missing/empty field: id"
+    ],
+    "missing-title": [
+      "missing/empty field: title"
+    ],
+    "missing-status": [
+      "missing/empty field: status"
+    ],
+    "status-invalid": [],
+    "id-ok-IDEA_001": [],
+    "id-ok-IDEA001": [],
+    "id-ok-IDEA_1": [],
+    "id-bad-IDEA": [
+      "id \"IDEA\" does not match the expected pattern"
+    ],
+    "id-bad-IDEA_": [
+      "id \"IDEA-\" does not match the expected pattern"
+    ],
+    "id-bad-IDEA_1a": [
+      "id \"IDEA-1a\" does not match the expected pattern"
+    ],
+    "id-bad-idea_1": [
+      "id \"idea-1\" does not match the expected pattern"
+    ],
+    "id-bad-I_9": [
+      "id \"I-9\" does not match the expected pattern"
+    ]
+  }
+}

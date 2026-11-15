@@ -1,0 +1,22 @@
+{
+  "refusedFlagNone": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "shipyard-data queue enqueue: isolation resolves to none (sequential-only) — refusing to enqueue parallel builders. Dispatch this wave sequentially in-place (solo shape) instead of via the worker queue."
+  },
+  "refusedFlagFalse": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "shipyard-data queue enqueue: isolation resolves to none (sequential-only) — refusing to enqueue parallel builders. Dispatch this wave sequentially in-place (solo shape) instead of via the worker queue."
+  },
+  "invalidValue": {
+    "code": 2,
+    "stdout": "",
+    "stderr": "shipyard-data queue enqueue: invalid --require-isolation \"bogus\" — expected true|false|worktree|none"
+  },
+  "allowedWorktree": {
+    "code": 0,
+    "stdout": "{\"enqueued\":1,\"total_input\":1}",
+    "stderr": ""
+  }
+}

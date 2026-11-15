@@ -6,18 +6,11 @@ disable-model-invocation: true
 
 # Authoring an Acceptance Probe
 
-**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+**Render before asking.** Render the decision context as chat text before any AskUserQuestion (rules printed at startup under SHIPYARD_STARTUP_RULES).
 
 A probe is the smoke-test contract that proves wiring works end-to-end. Without one, a task cannot be dispatched in 2.0 — `dispatching-task-loop` refuses to run a task whose `acceptance_probe:` is missing or empty. So **authoring the probe is part of authoring the task**, not an optional polish step.
 
-## When This Applies
-
-- During `/ship-sprint` Step 3 (task decomposition), as you write each task file.
-- During `/ship-quick` scoping, before dispatching the change.
-- During `/ship-bug` fix authoring — the probe is the regression scenario.
-- During `/ship-discuss` *only* if the discussion produces a task spec ready to enter the backlog with a probe.
-
-If a task is genuinely too speculative to author a probe for, that task isn't ready for execution. Either refine until it is, or mark it `kind: research` (no probe needed; deliverable is a findings doc).
+A task too speculative for a probe is not ready for execution: refine it, or mark it `kind: research` (no probe needed; deliverable is a findings doc).
 
 ## The Authoring Question
 
@@ -31,11 +24,9 @@ If you cannot answer that question in one sentence, the acceptance criteria are 
 
 A probe is *derived* from:
 
-1. **Acceptance criteria** in the task file's `## Acceptance Criteria` section. Each AC describes an observable outcome; the probe demonstrates at least one of them happens.
-2. **Technical Notes** in the parent feature file. These often spell out the exact endpoints, function signatures, table columns, or CLI flags involved.
+1. **Acceptance criteria** in the step file's `## Acceptance Criteria` section. Each AC describes an observable outcome; the probe demonstrates at least one of them happens.
+2. **Technical Notes** in the parent story file. These often spell out the exact endpoints, function signatures, table columns, or CLI flags involved.
 3. **`config.md` test commands** — for the scoped test pattern that proves a unit slice ran. Useful only when paired with a wiring check, not as a probe by itself.
-
-If the AC is "the new endpoint returns 201 with the created user's ID", the probe is the curl that proves it. If the AC is "the migration adds column X to table Y", the probe is a SQL query against `information_schema`.
 
 ## Probe Patterns by Task Shape
 
@@ -117,7 +108,7 @@ Standard probe authoring — same as all patterns above. The probe is a shell co
 
 ### verification_type: "tool"
 
-The AC requires a specific testing tool for verification (e.g., Playwright for visual checks, k6 for load testing, lighthouse for accessibility). The probe is still a shell command, but it invokes a specialized tool binary. Author the probe normally, but note the tool dependency in the task file:
+The AC requires a specific testing tool for verification (e.g., Playwright for visual checks, k6 for load testing, lighthouse for accessibility). The probe is still a shell command, but it invokes a specialized tool binary. Author the probe normally, but note the tool dependency in the step file:
 
 ```yaml
 acceptance_probe: |
@@ -152,7 +143,7 @@ Manual verification items are presented as a checklist during `/ship-review` Sta
 
 ## Quality Checklist Before Saving
 
-Before writing the probe to the task file, confirm:
+Before writing the probe to the step file, confirm:
 
 - [ ] **One command.** Multi-step setup belongs in the task's prerequisites, not the probe. Allowed connectors: `&&` (sequential), `|` (pipe), `;` (only if every step is independently meaningful — rare).
 - [ ] **Self-contained.** Could be run by anyone, in any clone, with the standard project setup, and produce the same exit code.
@@ -164,14 +155,14 @@ Before writing the probe to the task file, confirm:
 
 ## Where the Probe Lands
 
-In the task file's frontmatter:
+In the step file's frontmatter:
 
 ```yaml
 ---
-id: T042
+id: P042
 title: Add user creation endpoint
 kind: feature
-feature: F007
+feature: S007
 status: approved
 effort: M
 acceptance_probe: |
@@ -187,31 +178,15 @@ Use a YAML block scalar (`|`) when the probe is multi-line or contains character
 acceptance_probe: 'node -e ''require("./dist").newFn(42) === 84 || process.exit(1)'''
 ```
 
-(Quoting JS one-liners in YAML is genuinely unpleasant; prefer the block scalar.)
-
 ## When Probe Authoring is Hard
 
-Some legitimate cases where the probe is non-obvious:
+Hard cases: async features (bounded retry loop: `for i in {1..10}; do <check> && exit 0 || sleep 1; done; exit 1`), log-only observability (grep the log), UI-only change (Playwright or `curl` + grep a unique marker), internal refactor (scoped test suite), config-only change (read it back via the loader).
 
-1. **The feature is asynchronous.** Probe by triggering the action and polling for the observable result with a bounded retry: `for i in {1..10}; do <check> && exit 0 || sleep 1; done; exit 1`.
-2. **The feature is observable only via logs.** Trigger the path, then `grep` the log file or stdout for the expected line.
-3. **The feature is a UI-only change with no backend.** Use a Playwright check or, in a pinch, `curl` + grep for a unique element marker.
-4. **The feature is an internal refactor with no new external surface.** Probe is the scoped test suite (the legitimate exception above).
-5. **The change is purely additive to a config file.** Read the config back via the application's loader and assert the new key is honored.
-
-Before asking, render as chat text: the task's acceptance criteria verbatim and which of the five patterns above were attempted and why each failed — the user cannot choose between refine/split/research without seeing the criteria. Criteria sitting in a Read result do not count as shown. Then surface to the user via AskUserQuestion: *"This task's acceptance criteria don't reduce to a single observable command. Should we (a) refine the criteria, (b) split into smaller tasks, or (c) mark this task `kind: research` and produce a findings doc instead?"* Recommend (a) by default.
+Before asking, render as chat text: the task's acceptance criteria verbatim and which of the patterns above were attempted and why each failed — the user cannot choose between refine/split/research without seeing the criteria. Criteria sitting in a Read result do not count as shown. Then surface to the user via AskUserQuestion: *"This task's acceptance criteria don't reduce to a single observable command. Should we (a) refine the criteria, (b) split into smaller tasks, or (c) mark this task `kind: research` and produce a findings doc instead?"* Recommend (a) by default.
 
 ## Pairing With Other Skills
 
 - **`running-acceptance-probe`** runs what this skill writes. The contracts must align: the probe shape this skill produces is exactly what that skill expects.
+- **`anti-stub-scan`** flags stub-shaped probes (`echo done`); a probe that does not exercise the added code is itself a stub.
 - **`dispatching-task-loop`** consumes the `acceptance_probe:` field at dispatch time. A missing or empty probe blocks dispatch — author one or mark `kind: research`.
-- **`anti-stub-scan`** can flag stub-shaped probes (`echo done`) as MEDIUM findings; a probe that doesn't exercise added code is itself a kind of stub.
 - **`/ship-review`** re-runs probes during review; flaky probes surface here and cycle back to this skill for re-authoring.
-
-## Bottom Line
-
-- One command, derived from the AC, that prints observable evidence.
-- Fails today, passes after the change.
-- Self-contained, bounded, deterministic.
-- Written to `acceptance_probe:` in the task frontmatter at planning time.
-- Without one, the task is not ready for execution.

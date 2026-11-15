@@ -1,0 +1,34 @@
+{
+  "enqueue": {
+    "code": 0,
+    "stdout": "{\"enqueued\":5,\"total_input\":5}",
+    "stderr": ""
+  },
+  "claims": [
+    {
+      "code": 0,
+      "stdout": "{\"claimed\":true,\"task\":{\"id\":\"T003\",\"pipeline\":\"ship-execute\",\"stage\":\"wave_1_dispatch\",\"kind\":\"work\",\"status\":\"claimed\",\"files\":[],\"expected_artifact\":null,\"required_validation\":[],\"payload\":null,\"source\":null,\"effort\":\"XL\",\"base_sha\":null,\"idempotent\":true,\"attempt\":1,\"claimed_by\":\"w0\",\"claimed_at\":\"<TS>\",\"deadline_at\":\"<TS>\",\"completed_at\":null,\"failed_at\":null,\"result\":null,\"artifact_status\":null,\"reason\":null,\"ttl_seconds\":1800}}",
+      "stderr": ""
+    },
+    {
+      "code": 0,
+      "stdout": "{\"claimed\":true,\"task\":{\"id\":\"T004\",\"pipeline\":\"ship-execute\",\"stage\":\"wave_1_dispatch\",\"kind\":\"work\",\"status\":\"claimed\",\"files\":[],\"expected_artifact\":null,\"required_validation\":[],\"payload\":null,\"source\":null,\"effort\":\"L\",\"base_sha\":null,\"idempotent\":true,\"attempt\":1,\"claimed_by\":\"w1\",\"claimed_at\":\"<TS>\",\"deadline_at\":\"<TS>\",\"completed_at\":null,\"failed_at\":null,\"result\":null,\"artifact_status\":null,\"reason\":null,\"ttl_seconds\":1800}}",
+      "stderr": ""
+    },
+    {
+      "code": 0,
+      "stdout": "{\"claimed\":true,\"task\":{\"id\":\"T002\",\"pipeline\":\"ship-execute\",\"stage\":\"wave_1_dispatch\",\"kind\":\"work\",\"status\":\"claimed\",\"files\":[],\"expected_artifact\":null,\"required_validation\":[],\"payload\":null,\"source\":null,\"effort\":\"M\",\"base_sha\":null,\"idempotent\":true,\"attempt\":1,\"claimed_by\":\"w2\",\"claimed_at\":\"<TS>\",\"deadline_at\":\"<TS>\",\"completed_at\":null,\"failed_at\":null,\"result\":null,\"artifact_status\":null,\"reason\":null,\"ttl_seconds\":1800}}",
+      "stderr": ""
+    },
+    {
+      "code": 0,
+      "stdout": "{\"claimed\":true,\"task\":{\"id\":\"T001\",\"pipeline\":\"ship-execute\",\"stage\":\"wave_1_dispatch\",\"kind\":\"work\",\"status\":\"claimed\",\"files\":[],\"expected_artifact\":null,\"required_validation\":[],\"payload\":null,\"source\":null,\"effort\":\"S\",\"base_sha\":null,\"idempotent\":true,\"attempt\":1,\"claimed_by\":\"w3\",\"claimed_at\":\"<TS>\",\"deadline_at\":\"<TS>\",\"completed_at\":null,\"failed_at\":null,\"result\":null,\"artifact_status\":null,\"reason\":null,\"ttl_seconds\":1800}}",
+      "stderr": ""
+    },
+    {
+      "code": 0,
+      "stdout": "{\"claimed\":true,\"task\":{\"id\":\"T005\",\"pipeline\":\"ship-execute\",\"stage\":\"wave_1_dispatch\",\"kind\":\"work\",\"status\":\"claimed\",\"files\":[],\"expected_artifact\":null,\"required_validation\":[],\"payload\":null,\"source\":null,\"effort\":null,\"base_sha\":null,\"idempotent\":true,\"attempt\":1,\"claimed_by\":\"w4\",\"claimed_at\":\"<TS>\",\"deadline_at\":\"<TS>\",\"completed_at\":null,\"failed_at\":null,\"result\":null,\"artifact_status\":null,\"reason\":null,\"ttl_seconds\":1800}}",
+      "stderr": ""
+    }
+  ]
+}

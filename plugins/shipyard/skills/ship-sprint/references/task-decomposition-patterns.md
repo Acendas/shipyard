@@ -1,12 +1,8 @@
 # Task Decomposition Patterns
 
-Reference for Step 4 of `/ship-sprint`. Read before decomposing any feature — the protocol in SKILL.md refers to sections here by name.
+Reference for Step 4 of `/ship-sprint`. Read before decomposing any feature — the Step 4 protocol refers to sections here by name.
 
 > **Canonical source:** `${CLAUDE_PLUGIN_ROOT}/skills/splitting-stories/references/patterns.md`. The `splitting-stories` capability skill is the single source of truth for the patterns, the "and" test, the horizontal-slice rejection rule, the Cynefin sensitivity, and the selection tiebreaker. This sprint-local reference is kept for the walking-skeleton (Stage 2), Red-step forcing function (Stage 4), 8/80 effort rule (Stage 5), and INVEST output check — all sprint-specific concerns. When the two diverge on pattern detail, the capability skill wins; update there.
-
-## Why this reference exists
-
-"Break into atomic tasks" is an aspiration, not a protocol. Without named patterns and a forcing function, an LLM orchestrator decomposes top-down (thinking in features and waves) and naturally lands at a granularity too coarse for the builder. This reference gives the concrete patterns that fire before a task file is written, ensuring splits happen at the right moment.
 
 ---
 
@@ -24,7 +20,7 @@ A walking skeleton is the thinnest end-to-end connection that proves all layers 
 
 **Foundation task template:**
 ```yaml
-id: T001
+id: P001
 title: "[Feature name] foundation — schema, routes, types"
 feature: F0NN
 kind: feature
@@ -43,7 +39,7 @@ Technical Notes for a foundation task describe the exact files to create/modify,
 
 ## Stage 3: The 9 Splitting Patterns
 
-For each behavior draft from Stage 1, apply these patterns in order. If any fires, split before writing the task file. Re-evaluate each resulting draft — one draft may need multiple passes.
+For each behavior draft from Stage 1, apply these patterns in order. If any fires, split before writing the step file. Re-evaluate each resulting draft — one draft may need multiple passes.
 
 ### Pattern 1: Workflow Steps
 **Trigger:** The task involves a sequence of distinct process steps.
@@ -116,24 +112,21 @@ The test: would these two clauses produce two separate failing tests? If yes, sp
 
 ## Stage 4: The Red Step Forcing Function
 
-Before writing any task file, complete this sentence:
+Before writing any step file, complete this sentence:
 
 > "The first failing test for this task is: `[specific assertion]`"
 
-Write it into `## Technical Notes → First failing test:` in the task file. The builder reads it as the TDD cycle's starting point.
+Write it into `## Technical Notes → First failing test:` in the step file. The builder reads it as the TDD cycle's starting point.
 
 **Good Red steps** — each names one specific assertion:
 - `POST /auth/refresh returns 200 with new access_token when given a valid refresh_token`
-- `Organization.create() raises ValidationError when name is blank`
-- `MaintenanceRequest#status transitions to "resolved" after AdminReview.approve() is called`
-- `GET /properties returns only properties matching the search term in the title field`
 
 **Bad Red steps — task needs splitting:**
 - "Tests for the auth flow" → vague; what specific behavior?
 - `POST /auth/refresh works **and** POST /auth/logout invalidates the session` → two assertions, two tasks
 - "Unit tests and integration tests for the payment module" → scope is a module, not a behavior
 
-**When the Red step is genuinely unknowable** (research gap, third-party API with unclear behavior), it signals a Spike (Pattern 9). Create the research task first; the Red step for the implementation task is written after findings are in.
+**An unknowable Red step** signals a Spike (Pattern 9): research task first.
 
 ---
 
@@ -167,5 +160,3 @@ After all tasks are written, verify two INVEST criteria that catch remaining siz
 **I — Independent:** No task in the same wave depends on another task in the same wave. Same-wave dependencies indicate a missing foundation task — return to Stage 2 and extract the shared dependency.
 
 **T — Testable:** Every task has exactly one specific done-condition (one Red step). Multiple done-conditions or an ambiguous "done" means the task should split.
-
-The other four INVEST criteria (Negotiable, Valuable, Estimable, Small) are enforced by the protocol stages above and need not be checked separately.

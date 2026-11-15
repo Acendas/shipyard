@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Validating E2E Coverage
 
-**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+**Render before asking.** Render the decision context as chat text before any AskUserQuestion (rules printed at startup under SHIPYARD_STARTUP_RULES).
 
 Post-hoc validation that reads a written feature spec, detects which operational/architectural surfaces the feature touches, maps them to the E2E taxonomy, gap-analyzes against existing acceptance criteria, and returns recommended additions. The goal is to catch the scenarios that live outside the feature's own logic — timeouts, idempotency, degradation, privilege boundaries — before they become production incidents.
 
@@ -20,8 +20,8 @@ Post-hoc validation that reads a written feature spec, detects which operational
 ## Inputs
 
 The calling skill provides:
-- Feature file path (the written spec at `<SHIPYARD_DATA>/spec/features/FNNN-slug.md`)
-- Existing AC list (parsed from the feature file's `## Acceptance Criteria` section)
+- Story file path (the written spec at `<SHIPYARD_DATA>/spec/stories/SNNN-slug.md`)
+- Existing AC list (parsed from the story file's `## Acceptance Criteria` section)
 - Domain hints (e.g., `["payments", "auth"]`) from the discussion context
 
 ## Procedure
@@ -107,9 +107,9 @@ When invoked in REFINE mode on an existing feature that predates E2E validation:
 
 ## Read-Only Contract
 
-This skill does not edit feature files. It returns structured findings. The calling skill (`/ship-discuss`) is responsible for:
+This skill does not edit story files. It returns structured findings. The calling skill (`/ship-discuss`) is responsible for:
 1. Rendering the gap list (category, proposed AC text, rationale) as chat text and only then asking via AskUserQuestion — this skill's structured return is subagent/context content and does not count as shown to the user
-2. Writing approved E2E AC to the feature file under `### E2E AC`
+2. Writing approved E2E AC to the story file under `### E2E AC`
 3. Handling 200-line overflow (extract to reference file)
 
 ## Pairing With Other Skills

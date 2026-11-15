@@ -87,6 +87,81 @@ class TestViewSubcommand(NamedSubcommandBase):
         self.assertIn('SHIPYARD_ONBOARDING_COMMAND=shipyard-data onboarding bootstrap', out)
         self.assertNotIn('SHIPYARD_LOCK_ACQUIRED=', out)
 
+    def _bootstrap(self):
+        r = subprocess.run(['node', os.path.join(PLUGIN_ROOT, 'bin', 'shipyard-data.mjs'), 'onboarding', 'bootstrap'],
+                           capture_output=True, text=True, env={**os.environ, **self.env}, cwd=self.project_dir)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    # One pin per ENFORCED rule of CANONICAL_STARTUP_RULES (F016 AC-4 as
+    # decided 2026-11-11: enforced / damage-preventing rules stay; coaching
+    # wording may go). Deleting or weakening any rule fails a named subtest.
+    CANONICAL_CLAUSES = (
+        ('header', 'SHIPYARD_STARTUP_RULES:'),
+        ('render-rule', 'Render before asking. Before every AskUserQuestion, write the decision context as assistant chat text in this response.'),
+        ('provenance-only-chat-counts', 'Anything else (tool results, files, the question itself) does not count as rendered;'),
+        ('provenance-compact-card', 'options show as a compact card.'),
+        ('recovery', "Recovery: if the user can't see what you reference, render it in full before asking again."),
+        ('paths-prefix', 'Paths: use the literal absolute SHIPYARD_DATA prefix,'),
+        ('paths-agent-prompts', 'also in Agent prompts;'),
+        ('paths-no-tilde-vars', 'no `~`, `$HOME`, or shell variables in file_path;'),
+        ('paths-no-hardcode', 'never hardcode paths or look in other worktrees;'),
+        ('paths-no-cd', 'never cd into the data directory;'),
+        ('paths-no-echo-redirect', 'never use echo, printf, or shell redirects to write state files (use Write).'),
+    )
+
+    def test_startup_canonical_render_before_ask_printed(self):
+        # AC-1 AC-4: one canonical home keeps every clause of the copies
+        self._bootstrap()
+        out, err, rc = run_cli(['spec-context'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_ONBOARDING_REQUIRED=false', out)
+        for name, clause in self.CANONICAL_CLAUSES:
+            with self.subTest(clause=name):
+                self.assertIn(clause, out, name)
+        self.assertNotIn('full board', out)  # ship-backlog board rule stays out
+        self.assertEqual(out.count('Render before asking.'), 1)
+
+    def test_startup_canonical_printed_for_multiple_startup_commands(self):
+        # AC-1: the rules print for every top-level startup, not only spec-context
+        self._bootstrap()
+        for cmd in ('spec-context', 'sprint-planning', 'review-context', 'help-context'):
+            out, err, rc = run_cli([cmd], env_extra=self.env, cwd=self.project_dir)
+            with self.subTest(cmd=cmd):
+                self.assertEqual(rc, 0, err)
+                self.assertIn('SHIPYARD_STARTUP_RULES:', out)
+                self.assertIn(self.CANONICAL_CLAUSES[1][1], out)
+                self.assertIn(self.CANONICAL_CLAUSES[-1][1], out)
+
+    def test_startup_canonical_absent_from_cursor_and_draft_state(self):
+        r = subprocess.run(['node', os.path.join(PLUGIN_ROOT, 'bin', 'shipyard-data.mjs'), 'onboarding', 'bootstrap'],
+                           capture_output=True, text=True, env={**os.environ, **self.env}, cwd=self.project_dir)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for args in (['cursor-state', 'execute'], ['draft-state', 'discuss']):
+            out, err, rc = run_cli(args, env_extra=self.env, cwd=self.project_dir)
+            self.assertEqual(rc, 0, err)
+            self.assertNotIn('Render before asking', out)
+            self.assertNotIn('SHIPYARD_STARTUP_RULES', out)
+
+    def test_onboarding_required_text_printed(self):
+        # AC-3: gate instruction is CLI-printed: run once without asking, say what it set up,
+        # then CONTINUE the invoked skill in the same turn (4.4: no "re-type the command").
+        out, err, rc = run_cli(['sprint-planning'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        lines = [l for l in out.splitlines() if l.startswith('SHIPYARD_ONBOARDING_INSTRUCTION:')]
+        self.assertEqual(len(lines), 1, out)
+        instr = lines[0]
+        for name, clause in (
+            ('run-exact-command-once', 'Run the exact SHIPYARD_ONBOARDING_COMMAND once with Bash'),
+            ('do-not-ask', 'do not ask first'),
+            ('continue', 'CONTINUE the skill in this same turn'),
+            ('never-retype', 'never tell the user to re-type the command'),
+            ('no-inference', 'Do not infer setup state by reading or writing Shipyard state files'),
+            ('cli-owned', 'onboarding decisions are CLI-owned.'),
+        ):
+            with self.subTest(clause=name):
+                self.assertIn(clause, instr, name)
+        self.assertNotIn('Render before asking', out)
+
     def test_path_auto_ensures_data_tree_without_config(self):
         data_dir = self.resolve_data_dir()
         self.assertTrue(os.path.exists(os.path.join(data_dir, '.project-root')))
@@ -112,9 +187,12 @@ class TestViewSubcommand(NamedSubcommandBase):
         self.assertIn('agent_effort:', out)
         self.assertIn('operational_fix: medium', out)
 
-    def test_view_backlog_fallback(self):
+    def test_view_backlog_shows_the_seeded_index(self):
+        # v3.27.0: every CLI call re-seeds backlog/BACKLOG.md from the template when it is
+        # missing, so a fresh project views the empty index, never the 'No backlog yet' fallback.
         out, _, _ = run_cli(['view', 'backlog'], env_extra=self.env, cwd=self.project_dir)
-        self.assertIn('No backlog yet', out)
+        self.assertIn('| Rank | ID |', out)
+        self.assertNotIn('No backlog yet', out)
 
     def test_view_sprint_fallback(self):
         out, _, _ = run_cli(['view', 'sprint'], env_extra=self.env, cwd=self.project_dir)
@@ -265,76 +343,6 @@ class TestSprintExecutionContext(NamedSubcommandBase):
 
 class TestQuickTaskContext(NamedSubcommandBase):
 
-    def test_quick_task_checks_planning_acquires_execution_and_bundles_context(self):
-        self.write_data_file('config.md', 'models:\n  build: sonnet\n')
-        self.write_data_file('codebase-context.md', 'Stack: TypeScript\n')
-        self.write_data_file('spec/tasks/Q-002-existing.md', 'x')
-        self.write_data_file('spec/tasks/Q-001-existing.md', 'x')
-
-        out, err, rc = run_cli(['quick-task'], env_extra=self.env, cwd=self.project_dir)
-
-        self.assertEqual(rc, 0, err)
-        self.assertIn('SHIPYARD_DATA=', out)
-        self.assertIn('SHIPYARD_PLANNING_LOCK_CLEAR=true', out)
-        self.assertIn('SHIPYARD_LOCK_ACQUIRED=true', out)
-        self.assertIn('--- config ---', out)
-        self.assertIn('build: sonnet', out)
-        self.assertIn('--- codebase ---', out)
-        self.assertIn('Stack: TypeScript', out)
-        self.assertIn('--- quick-tasks ---', out)
-        self.assertRegex(out, r'Q-001-existing\.md[\s\S]*Q-002-existing\.md')
-
-    def test_quick_task_planning_block_skips_execution_and_context_reads(self):
-        data_dir = self.resolve_data_dir()
-        self.write_data_file('config.md', 'models:\n  build: sonnet\n')
-        lock_path = os.path.join(data_dir, '.active-session.json')
-        with open(lock_path, 'w') as f:
-            json.dump({
-                'skill': 'ship-sprint',
-                'sprint': None,
-                'wave': None,
-                'started': '2999-01-01T00:00:00.000Z',
-                'session_id': 'other-session',
-                'cleared': None,
-                'depth': 1,
-            }, f)
-
-        out, err, rc = run_cli(['quick-task'], env_extra=self.env, cwd=self.project_dir)
-
-        self.assertEqual(rc, 0, err)
-        self.assertIn('SHIPYARD_PLANNING_LOCK_CLEAR=false', out)
-        self.assertIn('SHIPYARD_LOCK_ACQUIRED=false', out)
-        self.assertIn('⛔ Another planning session is active.', out)
-        self.assertNotIn('--- config ---', out)
-        self.assertNotIn('build: sonnet', out)
-
-    def test_quick_task_execution_block_skips_context_reads(self):
-        data_dir = self.resolve_data_dir()
-        self.write_data_file('config.md', 'models:\n  build: sonnet\n')
-        lock_path = os.path.join(data_dir, '.active-execution.json')
-        with open(lock_path, 'w') as f:
-            json.dump({
-                'skill': 'ship-debug',
-                'sprint': None,
-                'wave': None,
-                'started': '2999-01-01T00:00:00.000Z',
-                'session_id': 'other-session',
-                'cleared': None,
-                'depth': 1,
-            }, f)
-
-        out, err, rc = run_cli(['quick-task'], env_extra=self.env, cwd=self.project_dir)
-
-        self.assertEqual(rc, 0, err)
-        self.assertIn('SHIPYARD_PLANNING_LOCK_CLEAR=true', out)
-        self.assertIn('SHIPYARD_LOCK_ACQUIRED=false', out)
-        self.assertIn('⛔ Another execution lock is active.', out)
-        self.assertNotIn('--- config ---', out)
-        self.assertNotIn('build: sonnet', out)
-
-
-class TestDebugSessionContext(NamedSubcommandBase):
-
     def test_debug_session_bundles_path_sessions_and_config(self):
         self.write_data_file('config.md', 'models:\n  think: opus\n')
         self.write_data_file('debug/auth-timeout.md', '# Debug\n')
@@ -427,19 +435,6 @@ class TestSmallCommandContexts(NamedSubcommandBase):
         self.assertIn('--- metrics ---', out)
         self.assertIn('Velocity: 8 pts', out)
 
-    def test_bug_context_bundles_bug_count_and_sprint(self):
-        self.write_data_file('config.md', 'models:\n  think: opus\n')
-        self.write_data_file('spec/bugs/B-001.md', 'x')
-        self.write_data_file('sprints/current/SPRINT.md', 'id: sprint-001\n')
-
-        out, err, rc = run_cli(['bug-context'], env_extra=self.env, cwd=self.project_dir)
-
-        self.assertEqual(rc, 0, err)
-        self.assertIn('SHIPYARD_DATA=', out)
-        self.assertIn('Bugs: 1', out)
-        self.assertIn('--- sprint ---', out)
-        self.assertIn('id: sprint-001', out)
-
     def test_spec_context_bundles_path_and_counts(self):
         self.write_data_file('config.md', 'models:\n  think: opus\n')
         self.write_data_file('spec/epics/E001.md', 'x')
@@ -479,6 +474,31 @@ class TestInitStatusDiscussContexts(NamedSubcommandBase):
         self.assertIn('think: opus', out)
         self.assertIn('--- project-claude-md ---', out)
         self.assertIn('# Project Instructions', out)
+
+    def test_status_report_summary_one_line_with_data(self):
+        self.write_data_file('config.md', 'project: test\nversion: 1\n')
+        self.write_data_file('sprints/current/SPRINT.md', 'id: sprint-001\n')
+        self.write_data_file(
+            '.shipyard-events.jsonl',
+            '{"ts":"2026-11-11T10:00:00Z","type":"tick","sprint":"sprint-001"}\n'
+            '{"ts":"2026-11-11T10:05:00Z","type":"tick","sprint":"sprint-001"}\n'
+            '{"ts":"2026-11-11T10:06:00Z","type":"tick","sprint":"sprint-009"}\n',
+        )
+        out, err, rc = run_cli(['status-dashboard'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        lines = [l for l in out.splitlines() if l.startswith('Report:')]
+        self.assertEqual(len(lines), 1, out)  # AC-15
+        self.assertIn('2 events', lines[0])
+        self.assertIn('active 5.0m', lines[0])
+        self.assertEqual(out.count('SHIPYARD_STARTUP_RULES:'), 1)
+
+    def test_status_report_summary_silent_without_data(self):
+        self.write_data_file('config.md', 'project: test\nversion: 1\n')
+        self.write_data_file('sprints/current/SPRINT.md', 'id: sprint-001\n')
+        out, err, rc = run_cli(['status-dashboard'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn('Report:', out)  # AC-15
+        self.assertEqual(out.count('SHIPYARD_STARTUP_RULES:'), 1)
 
     def test_status_dashboard_bundles_dashboard_inputs(self):
         self.write_data_file('config.md', 'models:\n  think: opus\n')
@@ -596,10 +616,11 @@ class TestInitStatusDiscussContexts(NamedSubcommandBase):
     def test_discuss_context_blocked_lock_skips_context_reads(self):
         data_dir = self.resolve_data_dir()
         self.write_data_file('config.md', 'models:\n  think: opus\n')
-        lock_path = os.path.join(data_dir, '.active-session.json')
+        # 4.17: only another DISCUSSION blocks a discussion (its own lock file)
+        lock_path = os.path.join(data_dir, '.active-discuss.json')
         with open(lock_path, 'w') as f:
             json.dump({
-                'skill': 'ship-sprint',
+                'skill': 'ship-discuss',
                 'sprint': None,
                 'wave': None,
                 'started': '2999-01-01T00:00:00.000Z',
@@ -613,7 +634,7 @@ class TestInitStatusDiscussContexts(NamedSubcommandBase):
         self.assertEqual(rc, 0, err)
         self.assertIn('SHIPYARD_LOCK_ACQUIRED=false', out)
         self.assertIn('SHIPYARD_LOCK_BLOCKED:', out)
-        self.assertIn('⛔ Another planning session is active.', out)
+        self.assertIn('⛔ Another discussion is active.', out)
         self.assertNotIn('--- config ---', out)
         self.assertNotIn('think: opus', out)
 
@@ -642,6 +663,28 @@ class TestInitStatusDiscussContexts(NamedSubcommandBase):
         self.assertIn('--- sprint ---', out)
         self.assertIn('id: sprint-007', out)
 
+    def test_discuss_context_reports_the_chained_queue(self):
+        # F026 AC-2: a CLI-owned queue survives the session; the context block tells
+        # /ship-discuss to resume CHAINED mode at the recorded position.
+        self.write_data_file('config.md', 'models:\n  think: opus\n')
+        out, err, rc = run_cli(['discuss-context'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DISCUSS_QUEUE_ACTIVE=false', out)
+        self.assertNotIn('SHIPYARD_DISCUSS_QUEUE_CURRENT', out)
+
+        self.write_data_file('.discuss-queue.json', json.dumps({
+            'version': 1, 'position': 1, 'summary_every': 3, 'decisions': [],
+            'items': [
+                {'id': 'S001', 'kind': 'story', 'status': 'refined'},
+                {'id': 'IDEA-002', 'kind': 'idea', 'status': 'pending'},
+            ],
+        }))
+        out, err, rc = run_cli(['discuss-context'], env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(rc, 0, err)
+        self.assertIn('SHIPYARD_DISCUSS_QUEUE_ACTIVE=true', out)
+        self.assertIn('SHIPYARD_DISCUSS_QUEUE_POSITION=1/2', out)
+        self.assertIn('SHIPYARD_DISCUSS_QUEUE_CURRENT=IDEA-002', out)
+
 
 class TestListSubcommand(NamedSubcommandBase):
 
@@ -668,14 +711,6 @@ class TestListSubcommand(NamedSubcommandBase):
         self.write_data_file('debug/stuck-oauth.md', '# debug\n')
         out, _, _ = run_cli(['list', 'debug-sessions'], env_extra=self.env, cwd=self.project_dir)
         self.assertIn('stuck-oauth.md', out)
-
-    def test_list_quick_tasks_sorted(self):
-        self.write_data_file('spec/tasks/Q-003.md', 'x')
-        self.write_data_file('spec/tasks/Q-001.md', 'x')
-        self.write_data_file('spec/tasks/Q-002.md', 'x')
-        out, _, _ = run_cli(['list', 'quick-tasks'], env_extra=self.env, cwd=self.project_dir)
-        lines = [l for l in out.strip().split('\n') if l.startswith('Q-')]
-        self.assertEqual(lines, ['Q-001.md', 'Q-002.md', 'Q-003.md'])
 
     def test_list_unknown_name_errors(self):
         _, err, rc = run_cli(['list', 'bogus'], env_extra=self.env, cwd=self.project_dir)

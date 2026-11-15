@@ -121,12 +121,19 @@
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P064: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+    "target": "plugin:bin/shipyard-context.mjs"
   },
   {
     "name": "render_before_ask_rule",
     "type": "contains",
     "pattern": "Render before asking",
-    "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule."
+    "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule. S016/P064: skill keeps only the short reminder."
+  },
+  {
+    "name": "render_before_ask_short_reminder_present",
+    "type": "contains",
+    "pattern": "Render before asking",
+    "why": "S016/P064: capability skill keeps only the short reminder; full doctrine printed at startup (CANONICAL_STARTUP_RULES)."
   }
 ]

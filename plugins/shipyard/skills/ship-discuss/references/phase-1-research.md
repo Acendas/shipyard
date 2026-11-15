@@ -2,7 +2,7 @@
 
 This is the full protocol for Phase 1.5 (Research) in `/ship-discuss`. The SKILL body summarizes; this file holds the how.
 
-**Who executes this.** As of v3.0.0 this protocol is executed by the **design deep-dive agent** dispatched by the `/ship-discuss` shell (on the `models.think` tier), which writes its output into the design dossier (`<SHIPYARD_DATA>/spec/.research-draft.md`). If that dispatch fails or returns an unusable dossier, the shell falls back to executing this same protocol **inline** — the steps below are the protocol either way.
+**Who executes this.** This protocol is executed by the **design deep-dive agent** dispatched by the `/ship-discuss` shell (on the `models.think` tier), which writes its output into the design dossier (`<SHIPYARD_DATA>/spec/.research-draft.md`). If that dispatch fails or returns an unusable dossier, the shell falls back to executing this same protocol **inline** — the steps below are the protocol either way.
 
 ## Order of operations
 
@@ -12,7 +12,7 @@ Walk this in order. **Use LSP first** for code navigation; fall back to Grep/Rea
    - **Tensions** — places the feature would violate an existing rule. Pre-load these as Phase 1.5b challenge items.
    - **Gaps (gray areas)** — territory the feature enters that no existing rule covers. For each gap, write one line to `<SHIPYARD_DATA>/spec/.research-draft.md` under a `## Constitution Gaps` section: `- [area] — no rule covers [decision needed]; agent slop risk: [specific failure mode]`. Examples of gap-triggers: a new concurrency model (queues, jobs, websockets), a new external integration class (payments, auth provider, AI/LLM call), a new data category (PII, tenant-scoped, audit-logged), a new UI surface (background tab, server component, edge route), a new error class that needs propagation rules. Phase 1.5b challenges resolve these gray areas explicitly; Phase 6 Finalize then proposes the resolutions as new constitution rules. Skip the gap pass silently if no `project-*.md` files exist (the project hasn't opted into a constitution).
 
-2. **Internal research.** Glob `<SHIPYARD_DATA>/spec/features/F*.md` and Read each to find overlaps. Use LSP `documentSymbol` / `findReferences` for relevant codebase patterns. Read `<SHIPYARD_DATA>/codebase-context.md` for stack constraints.
+2. **Internal research.** Glob `<SHIPYARD_DATA>/spec/{stories,features}/[SF]*.md` and Read each to find overlaps. Use LSP `documentSymbol` / `findReferences` for relevant codebase patterns. Read `<SHIPYARD_DATA>/codebase-context.md` for stack constraints.
 
 3. **How others solve it.** WebSearch how established products handle this same problem, the standard UX patterns users expect, and open-source implementations to study. WebSearch common user complaints about existing solutions to learn from their mistakes. WebSearch best practices and security pitfalls for the domain (include the current year for currency). WebFetch official docs for mentioned libraries/APIs.
 
@@ -47,7 +47,7 @@ Walk this in order. **Use LSP first** for code navigation; fall back to Grep/Rea
 
 ## Where findings go
 
-**Write findings to the feature file `## Technical Notes`** (after Phase 3 creates it) with this structure:
+**Write findings to the story file `## Technical Notes`** (after Phase 3 creates it) with this structure:
 
 ```markdown
 ## Technical Notes

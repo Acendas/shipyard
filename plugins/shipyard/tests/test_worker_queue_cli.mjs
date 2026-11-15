@@ -290,9 +290,14 @@ test("queue enqueue gives anonymous tasks deterministic ids", () => {
       { files: ["src/b.ts"] },
     ]));
 
-    p.run(["queue", "enqueue", "--pipeline", "execute", "--stage", "wave_1_dispatch", "--input", input]);
-    const listed = JSON.parse(p.run(["queue", "list", "--pipeline", "execute", "--stage", "wave_1_dispatch"]).stdout);
+    // Review workers (read-only scanners) may be anonymous: deterministic placeholder ids.
+    p.run(["queue", "enqueue", "--pipeline", "review", "--stage", "review_scan", "--input", input]);
+    const listed = JSON.parse(p.run(["queue", "list", "--pipeline", "review", "--stage", "review_scan"]).stdout);
     assert.deepEqual(listed.tasks.map((t) => t.id), ["work-1", "work-2"]);
+    // Execute items name the step a builder claims: an id-less item is refused (4.5).
+    const refused = p.run(["queue", "enqueue", "--pipeline", "execute", "--stage", "wave_1_dispatch", "--input", input]);
+    assert.equal(refused.code, 2, refused.stderr);
+    assert.match(refused.stderr, /has no id/);
   } finally {
     p.cleanup();
   }
@@ -559,6 +564,68 @@ test("queue enqueue leaves review work in authored order (effort ordering is exe
       "queue", "claim", "--pipeline", "review", "--stage", "review_fix_wave_1", "--worker", "w1",
     ]).stdout);
     assert.equal(first.task.id, "B001");
+  } finally {
+    p.cleanup();
+  }
+});
+
+// AC-6
+test("complete_event_carries_claim_attempt_and_kind", () => {
+  const p = makeProject();
+  try {
+    const input = join(p.root, "tasks.json");
+    const result = join(p.root, "T001-result.json");
+    writeFileSync(input, JSON.stringify([{ id: "T001" }, { id: "T002" }]));
+    p.run(["queue", "enqueue", "--pipeline", "execute", "--stage", "wave_1_dispatch", "--input", input]);
+    p.run(["queue", "claim", "--pipeline", "execute", "--stage", "wave_1_dispatch", "--worker", "w1"]);
+    p.run(["queue", "claim", "--pipeline", "execute", "--stage", "wave_1_dispatch", "--worker", "w2"]);
+    writeQueueArtifact(result, "T001");
+    p.run(["queue", "complete", "T001", "--pipeline", "execute", "--stage", "wave_1_dispatch", "--worker", "w1", "--result", result]);
+    p.run(["queue", "fail", "T002", "--pipeline", "execute", "--stage", "wave_1_dispatch", "--worker", "w2", "--reason", "x"]);
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    for (const name of ["worker_queue_completed", "worker_queue_failed"]) {
+      const ev = events.find((e) => e.event === name || e.type === name);
+      assert.ok(ev, name);
+      assert.equal(ev.claim_attempt, 1);
+      assert.equal(ev.kind, "work");
+    }
+  } finally {
+    p.cleanup();
+  }
+});
+
+// AC-6
+test("complete_and_failed_events_pair_with_claimed_attempt_2 (claim_attempt)", () => {
+  const p = makeProject();
+  try {
+    const input = join(p.root, "tasks.json");
+    const result = join(p.root, "T001-result.json");
+    writeFileSync(input, JSON.stringify([{ id: "T001", idempotent: true }, { id: "T002", idempotent: true }]));
+    const stage = "wave_1_dispatch";
+    const base = ["--pipeline", "execute", "--stage", stage];
+    p.run(["queue", "enqueue", ...base, "--input", input]);
+    p.run(["queue", "claim", ...base, "--worker", "w1", "--ttl-seconds", "1"]);
+    p.run(["queue", "claim", ...base, "--worker", "w2", "--ttl-seconds", "1"]);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1100);
+    p.run(["queue", "requeue-stale", ...base]);
+    p.run(["queue", "claim", ...base, "--worker", "w3"]);
+    p.run(["queue", "claim", ...base, "--worker", "w4"]);
+    writeQueueArtifact(result, "T001");
+    p.run(["queue", "complete", "T001", ...base, "--worker", "w3", "--result", result]);
+    p.run(["queue", "fail", "T002", ...base, "--worker", "w4", "--reason", "x"]);
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    const name = (e) => e.event || e.type;
+    for (const [evName, id] of [["worker_queue_completed", "T001"], ["worker_queue_failed", "T002"]]) {
+      const ev = events.find((e) => name(e) === evName && e.task === id);
+      assert.ok(ev, evName);
+      assert.equal(ev.claim_attempt, 2);
+      assert.equal(ev.kind, "work");
+      const claimed = events.find((e) => name(e) === "worker_queue_claimed" && e.task === id && e.attempt === ev.claim_attempt);
+      assert.ok(claimed, `claimed event for ${id} attempt 2`);
+      assert.equal(claimed.attempt, ev.claim_attempt);
+    }
   } finally {
     p.cleanup();
   }

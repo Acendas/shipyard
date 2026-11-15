@@ -1,0 +1,12 @@
+{
+  "populated": {
+    "code": 0,
+    "stderr": "",
+    "count": 3,
+    "lines": [
+      "E001-a.md",
+      "E002-b.md",
+      "notes.txt"
+    ]
+  }
+}

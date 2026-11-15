@@ -2,7 +2,7 @@
 id: ""
 title: ""
 type: idea
-status: proposed
+status: captured        # captured | assessing | promoted | rejected | parked (legacy proposed/graduated still read)
 source: ""
 story_points: 0
 created: null

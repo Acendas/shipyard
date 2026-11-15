@@ -1,0 +1,5 @@
+{
+  "code": 1,
+  "stdout": "DENY — terminal cursor write would be refused. Missing evidence:\n  - Feature F002 verdict recommendation is \"changes\", not \"approve\"",
+  "stderr": ""
+}

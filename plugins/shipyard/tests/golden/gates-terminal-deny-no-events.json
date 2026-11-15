@@ -1,0 +1,5 @@
+{
+  "code": 1,
+  "stdout": "DENY — terminal cursor write would be refused. Missing evidence:\n  - Missing pipeline_tick_completed event for stage=wave_1_gate — wave 1 never advanced through its completion gate\n  - Missing pipeline_tick_completed event for stage=wave_2_gate — wave 2 never advanced through its completion gate\n  - Missing evidence for task T001 — need task_dispatch_returned status=complete, or (for a parked task) a task_blocked event\n  - Missing evidence for task T002 — need task_dispatch_returned status=complete, or (for a parked task) a task_blocked event\n  - Missing evidence for task T003 — need task_dispatch_returned status=complete, or (for a parked task) a task_blocked event\n  - Missing per-story review for F001 — run spec review + gap analysis for the story and record it with `shipyard-data story-review record F001 --verdict approve|changes` (or set execution.story_review: false to review only at sprint end)\n  - Missing sprint_complete_passed event — evaluating-sprint-complete predicate never reported STATUS: COMPLETE",
+  "stderr": ""
+}

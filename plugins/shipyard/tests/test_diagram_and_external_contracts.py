@@ -16,6 +16,7 @@ PLUGIN_ROOT = os.path.dirname(TESTS_DIR)
 SKILLS_DIR = os.path.join(PLUGIN_ROOT, "skills")
 
 SHIP_DISCUSS_PATH = os.path.join(SKILLS_DIR, "ship-discuss", "SKILL.md")
+NEW_MODE_PATH = os.path.join(SKILLS_DIR, "ship-discuss", "references", "new-mode.md")
 PHASE_1_RESEARCH_PATH = os.path.join(SKILLS_DIR, "ship-discuss", "references", "phase-1-research.md")
 PHASE_3_WRITE_SPEC_PATH = os.path.join(SKILLS_DIR, "ship-discuss", "references", "phase-3-write-spec.md")
 QUALITY_GATE_PATH = os.path.join(SKILLS_DIR, "ship-discuss", "references", "phase-quality-and-critique.md")
@@ -116,12 +117,12 @@ class TestDiagramGenerationChain:
             "Check #16 must be about diagrams/Flows"
 
     def test_skill_summary_mentions_step_4(self):
-        content = read_file(SHIP_DISCUSS_PATH)
+        content = read_file(NEW_MODE_PATH)
         assert re.search(r"\(4\).*[Aa]rchitecture [Vv]isualization|\(4\).*diagram", content), \
             "ship-discuss SKILL.md Phase 1.5 summary must mention Step 4"
 
     def test_skill_summary_mentions_diagram_persistence(self):
-        content = read_file(SHIP_DISCUSS_PATH)
+        content = read_file(NEW_MODE_PATH)
         assert re.search(r"[Dd]iagram.*persist|persist.*diagram|[Mm]ermaid.*Flows|Flows.*[Mm]ermaid", content), \
             "ship-discuss SKILL.md must mention diagram persistence to Flows section"
 
@@ -205,7 +206,7 @@ class TestDiagramPersistenceReconciliation:
             assert syntax in content, f"phase-3 Flows persistence must list {syntax}"
 
     def test_skill_persistence_line_matches_canonical_set(self):
-        content = read_file(SHIP_DISCUSS_PATH)
+        content = read_file(NEW_MODE_PATH)
         # SKILL.md:360 used to say only "C4 or sequence" — must now list the full set.
         assert "C4, sequence, state machine, ER, deployment, data-flow, or user-journey" in content, \
             "ship-discuss SKILL.md persistence line must list the full canonical diagram set"
@@ -232,7 +233,7 @@ class TestImpactDiagramPersistence:
             "Impact diagram persistence must gate on 2+ ripple edges (single edge stays prose)"
 
     def test_skill_phase_35_mentions_persistence(self):
-        content = read_file(SHIP_DISCUSS_PATH)
+        content = read_file(NEW_MODE_PATH)
         assert re.search(r"[Pp]ersist it.*ripple|inline ASCII is ephemeral", content, re.DOTALL), \
             "ship-discuss Phase 3.5 must instruct persisting the impact diagram"
 
@@ -386,9 +387,9 @@ class TestShipDiscussExternalMode:
     def test_external_mode_before_heuristic(self):
         content = read_file(SHIP_DISCUSS_PATH)
         external_pos = content.find("EXTERNAL")
-        heuristic_pos = content.find("Heuristic-classified")
-        assert external_pos < heuristic_pos, \
-            "EXTERNAL mode must be in the unambiguous section (before heuristic)"
+        heuristic_pos = content.find("Everything else goes through the ceremony ladder")
+        assert heuristic_pos > 0 and external_pos < heuristic_pos, \
+            "EXTERNAL mode must be in the unambiguous section (before the ladder)"
 
     def test_argument_hint_includes_issue_key(self):
         content = read_file(SHIP_DISCUSS_PATH)

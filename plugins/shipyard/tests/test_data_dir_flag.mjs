@@ -269,9 +269,11 @@ test("task set-status: --data-dir honored, writes into the explicit dir not the 
     const r = f.run(["task", "set-status", "T001", "in-progress", "--data-dir", f.explicitDataDir]);
     assert.equal(r.code, 0, r.stderr);
     assert.match(readTaskFile(f.explicitDataDir, "T001"), /status:\s*in-progress/);
-    const explicitEvents = readEventsLog(f.explicitDataDir).filter((e) => e.type === "task_status_set");
+    // v4: a builder unit's status event is step_status_set (task_status_set was the pre-v4 name)
+    const isStatusEvent = (e) => e.type === "step_status_set" || e.type === "task_status_set";
+    const explicitEvents = readEventsLog(f.explicitDataDir).filter(isStatusEvent);
     assert.equal(explicitEvents.length, 1);
-    assert.equal(readEventsLog(f.realDataDir).filter((e) => e.type === "task_status_set").length, 0);
+    assert.equal(readEventsLog(f.realDataDir).filter(isStatusEvent).length, 0);
   } finally {
     f.cleanup();
   }
@@ -425,7 +427,7 @@ function seedSpecDir(dataDir, { feature, idea, config, backlog } = {}) {
   if (feature) {
     writeFileSync(
       join(dataDir, "spec", "features", `${feature}-x.md`),
-      `---\nid: ${feature}\nstatus: proposed\nrice_reach: 4\nrice_impact: 2\nrice_confidence: 1\nrice_effort: 2\nupdated: 2026-01-01\n---\n\n# x\n`,
+      `---\nid: ${feature}\nstatus: proposed\nrice_reach: 4\nrice_impact: 2\nrice_confidence: 1\nrice_effort: 2\nupdated: 2026-01-01\n---\n\n# x\n` + "\n## Paths\n| Ending | Covered by |\n|---|---|\n| works | @AC-1 |\n\n## Acceptance Criteria\n```gherkin\n@AC-1 @e2e\nScenario: works\n  Given a\n  When b\n  Then c\n```\n",
     );
   }
   if (idea) {

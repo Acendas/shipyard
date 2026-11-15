@@ -1,0 +1,5 @@
+{
+  "code": 1,
+  "stdout": "DENY — terminal cursor write would be refused. Missing evidence:\n  - SPRINT.md has no `### Wave N` headings — terminal write requires a populated wave structure",
+  "stderr": ""
+}

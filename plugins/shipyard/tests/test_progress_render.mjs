@@ -202,3 +202,26 @@ test("renderProgress performance budget (<50ms on bounded event log)", () => {
     assert.ok(ms < 50, `render took ${ms.toFixed(1)}ms; budget is <50ms`);
   });
 });
+
+test("renderProgress shows this sprint only: earlier sprints' patch steps and blockers are not carried over", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir);
+    writeEvents(dataDir, [
+      { type: "patch_step_created", sprint: "sprint-000", step: "P900", feature: "S900", source: "review-gap" },
+      { type: "task_dispatch_returned", sprint: "sprint-000", task_id: "T900", status: "blocked", reason: "old" },
+      { type: "pipeline_tick_completed", sprint: "sprint-001", pipeline: "ship-execute", stage: "preflight" },
+      { type: "patch_step_created", step: "P001", feature: "S001", source: "story-review" },
+    ]);
+    const md = renderProgress(dataDir);
+    assert.doesNotMatch(md, /P900|T900/);
+    assert.match(md, /\| P001 \| S001 \| story-review \|/, "untagged events after the sprint's first tagged one belong to it");
+  });
+});
+
+test("renderProgress: a sprint with no tagged event yet starts empty when the log tags other sprints", () => {
+  withTempDataDir((dataDir) => {
+    writeSprint(dataDir);
+    writeEvents(dataDir, [{ type: "patch_step_created", sprint: "sprint-000", step: "P900", feature: "S900", source: "review-gap" }]);
+    assert.doesNotMatch(renderProgress(dataDir), /P900/);
+  });
+});

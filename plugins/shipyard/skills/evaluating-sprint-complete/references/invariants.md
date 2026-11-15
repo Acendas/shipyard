@@ -28,9 +28,9 @@ shipyard-data verify-wave-integrated
 
 ## Invariant 3 — Every linked spec item is marked done
 
-**What it checks.** For each `feature_id` in SPRINT.md, the feature file's frontmatter has the lifecycle state expected by the caller. During the pre-review `/ship-execute` call, features remain `status: in-progress` because `/ship-review` owns the transition to `done`. During post-review/release verification, features must be `done` or `released`. Same for any directly-linked AC entries.
+**What it checks.** For each `feature_id` in SPRINT.md, the story file's frontmatter has the lifecycle state expected by the caller. During the pre-review `/ship-execute` call, features remain `status: in-progress` because `/ship-review` owns the transition to `done`. During post-review/release verification, features must be `done` or `released`. Same for any directly-linked AC entries.
 
-**Primitive.** Read the feature files; parse YAML frontmatter.
+**Primitive.** Read the story files; parse YAML frontmatter.
 
 **Verdict.** PASS = every linked spec item is in a terminal-done state. FAIL = one or more `in-progress` or `approved`.
 
@@ -46,7 +46,7 @@ shipyard-data verify-ac-coverage --base <sprint_base_sha> --head <sprint_head_sh
 # Features with NO @AC-<n> tags print WARN and never fail — the migration-safety valve.
 ```
 
-Acceptance criteria get stable `@AC-<n>` ids from `shipyard-data feature assign-ac-ids <FID>` (run at authoring and normalized at sprint-plan time); builders emit `// AC-<n>` markers for the criteria their task implements. A feature that has never had ids assigned is advisory only, so this gate cannot false-block a project mid-adoption.
+Acceptance criteria get stable `@AC-<n>` ids from `shipyard-data story assign-ac-ids <SID>` (run at authoring and normalized at sprint-plan time); builders emit `// AC-<n>` markers for the criteria their task implements. A feature that has never had ids assigned is advisory only, so this gate cannot false-block a project mid-adoption.
 
 **Verdict.** PASS = `verify-ac-coverage` exits 0. FAIL = exit 3 (orphans listed with their feature ID). Advisory-only (WARN, PASS) when `execution.enforce_ac_coverage` is false or the feature has no tagged ACs.
 
@@ -95,16 +95,17 @@ shipyard-context check-dirty-tree
 
 ## Invariant 8 — Every shipped feature's `user_flow_probe` was proven in the sprint window
 
-**What it checks.** This is the cross-task proof that the feature works *for a user* — added in v2.6.0 after the confedit/sprint-001 incident demonstrated that "all unit tests pass + all per-task probes pass" does NOT imply "the feature's user-facing flow works." Per-task probes test isolated wiring; the per-feature `user_flow_probe` tests the integrated flow (e.g., "load schema → fill form → see validation → download data" rather than just "the download component renders").
+**What it checks.** This is the cross-task proof that the feature works *for a user* — because "all unit tests pass + all per-task probes pass" does NOT imply "the feature's user-facing flow works." Per-task probes test isolated wiring; the per-feature `user_flow_probe` tests the integrated flow (e.g., "load schema → fill form → see validation → download data" rather than just "the download component renders").
 
 **Proof comes in two forms, and they are equally valid.** A machine verdict (an `auto` probe's exit code) and a human verdict (an `assisted`/`manual` probe confirmed by a person) both satisfy this invariant. Accepting only the machine form is what forced every on-device or hand-checked flow through `skip-with-reason` — i.e. filed the *strongest* available evidence as an ABSENCE of proof.
 
-For each `feature_id` in SPRINT.md, read the feature file's `user_flow_probe:` (legacy scalar `demo_probe:` reads as `kind: auto`):
+For each `feature_id` in SPRINT.md, read the story file's `user_flow_probe:` (legacy scalar `demo_probe:` reads as `kind: auto`):
 
 - **Absent / null** → FAIL with `missing-user_flow_probe` for the feature.
 - **`skip-with-reason` + populated `user_flow_probe_skip_reason`** → PASS-with-warning. This now means *no proof of any kind exists*; a hand-checked flow is `kind: manual`, which takes the confirmation path below. The warning is surfaced in the verdict but doesn't block.
 - **`kind: auto`** → PASS iff the event log has `acceptance_probe_completed feature=<feature_id> probe_type=demo exit_code=0` with `ts >= sprint.started_at`.
-- **`kind: assisted` or `manual`** → PASS iff the event log has `user_flow_probe_confirmed feature=<feature_id> verdict=pass` with `ts >= sprint.started_at` AND whose `commit` is an ancestor of `sprint_head_sha` (`git merge-base --is-ancestor <commit> <sprint_head_sha>`). The ancestry check is what stops a confirmation against work that was later rebased away or reverted from counting as proof of the shipped tree.
+- **`kind: assisted` or `manual`, unattended execute (default)** → PASS-pending-human iff the event log has `acceptance_probe_completed feature=<feature_id> probe_type=demo verdict=PENDING_HUMAN` with `ts >= sprint.started_at`; the person's verdict is collected by `/ship-review` Stage 5 and recorded with `story record-proof`, and the review's approval does not complete without it. Surface it in the verdict as `pending human: <feature_id>`.
+- **`kind: assisted` or `manual`, confirmed** → PASS iff the event log has `user_flow_probe_confirmed feature=<feature_id> verdict=pass` with `ts >= sprint.started_at` AND whose `commit` is an ancestor of `sprint_head_sha` (`git merge-base --is-ancestor <commit> <sprint_head_sha>`). The ancestry check is what stops a confirmation against work that was later rebased away or reverted from counting as proof of the shipped tree.
 
 **Primitives.**
 
@@ -117,14 +118,32 @@ Filter the first by `feature`, `probe_type=demo`, `exit_code=0`; the second by `
 
 **Verdict.** PASS = every feature has a passing probe by either form (or explicit skip-with-reason). FAIL = one or more features missing proof.
 
-**Why this is sprint-complete, not just review.** Before v2.6.0, demo_probe ran only in `/ship-review` Stage 4.8 — AFTER `/ship-execute` had already flipped SPRINT.md to `status: completed`. So a sprint with broken cross-task wiring could be declared complete by execute, and the user had to wait for review to discover the breakage. Moving demo_probe into the sprint-complete predicate inverts the sequence: execute halts at `sprint_demo_probes` stage on probe failure, SPRINT.md stays `in-progress` until the wiring works, and the "Sprint complete" report becomes a real claim instead of a wishful one.
+**Why this is sprint-complete, not just review.** If demo_probe ran only in `/ship-review` Stage 4.8, a sprint with broken cross-task wiring could be declared complete by execute and the breakage would surface only at review. Placing demo_probe in the sprint-complete predicate fixes the sequence: execute halts at `sprint_demo_probes` stage on probe failure, SPRINT.md stays `in-progress` until the wiring works, and the "Sprint complete" report becomes a real claim instead of a wishful one.
+
+## Invariant 9 — Every story carries a settled per-story review (F028)
+
+**What it checks.** With `execution.story_review: true` (default), each story SPRINT.md names has a `story_reviewed` event in this sprint with `verdict=approve`, or `verdict=changes` followed by a `story_review_dispositioned` event (the findings went to patch steps, a bug story, needs-attention, or an explicitly accepted gap). The review ran at the wave boundary where the story's last step merged (`/ship-execute` Step 4 item 3b), so the sprint-level review does not repeat it. SKIPPED when `execution.story_review` is `false`.
+
+**Primitive.**
+
+```text
+shipyard-data story-review check --json
+```
+
+`unsettled` is the list of complete-but-unsettled stories; the execute terminal gate applies the same `storySettled` rule (`bin/terminal-gate.mjs`).
+
+**Verdicts.**
+
+- **PASS** — `unsettled` is empty (or the switch is off).
+- **RECOVERABLE** — a story is `changes` without a disposition: route the findings through the existing deviation path, then `shipyard-data story-review disposition <story> --via <how>`.
+- **ESCALATE** — a complete story was never reviewed: run spec review + gap analysis for it now and `story-review record` the verdict.
 
 ## Aggregation
 
 Sprint-complete does NOT do recovery. The aggregation is simple:
 
 ```text
-All eight PASS → STATUS: COMPLETE
+All nine PASS  → STATUS: COMPLETE
 Any FAIL       → STATUS: INCOMPLETE with the failing-invariant list
 ```
 

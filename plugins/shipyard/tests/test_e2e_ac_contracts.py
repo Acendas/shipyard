@@ -21,6 +21,7 @@ FEATURE_TEMPLATE_PATH = os.path.join(PLUGIN_ROOT, "project-files", "templates", 
 QUALITY_MANIFEST_PATH = os.path.join(SKILLS_DIR, "ship-sprint", "references", "quality-manifest.md")
 GATE_ENFORCEMENT_PATH = os.path.join(SKILLS_DIR, "ship-review", "references", "quality-gate-enforcement.md")
 SHIP_DISCUSS_PATH = os.path.join(SKILLS_DIR, "ship-discuss", "SKILL.md")
+NEW_MODE_PATH = os.path.join(SKILLS_DIR, "ship-discuss", "references", "new-mode.md")
 SPEC_RULES_PATH = os.path.join(PLUGIN_ROOT, "project-files", "rules", "shipyard-spec.md")
 
 
@@ -138,21 +139,21 @@ class TestPhaseNumbering:
     """ship-discuss phase numbers must be monotonically ordered with no duplicates."""
 
     def test_phase_3_7_is_e2e_validation(self):
-        content = read_file(SHIP_DISCUSS_PATH)
+        content = read_file(NEW_MODE_PATH)
         match = re.search(r"Phase 3\.7[:\s].*", content)
         assert match, "Phase 3.7 must exist"
         assert re.search(r"E2E|e2e", match.group(0)), \
             f"Phase 3.7 must be E2E AC Validation, got: {match.group(0)[:80]}"
 
     def test_phase_3_8_is_simplification(self):
-        content = read_file(SHIP_DISCUSS_PATH)
+        content = read_file(NEW_MODE_PATH)
         match = re.search(r"Phase 3\.8[:\s].*", content)
         assert match, "Phase 3.8 must exist"
         assert re.search(r"[Ss]implification", match.group(0)), \
             f"Phase 3.8 must be Simplification Scan, got: {match.group(0)[:80]}"
 
     def test_no_stale_phase_3_7_simplification(self):
-        content = read_file(SHIP_DISCUSS_PATH)
+        content = read_file(NEW_MODE_PATH)
         stale = re.findall(r"Phase 3\.7[:\s]+[Ss]implification", content)
         assert len(stale) == 0, \
             f"Found stale 'Phase 3.7: Simplification' headings: {stale}"

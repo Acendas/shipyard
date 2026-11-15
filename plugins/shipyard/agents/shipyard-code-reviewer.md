@@ -66,7 +66,7 @@ finding.
   joins).
 
 ## tests
-**tests** — see `code-quality-standards.md` §tests ▸ Verify; scan the diff,
+**tests** — test economy first (`tdd-cycle/references/test-economy.md` § For the reviewer): a behaviour proven at two levels, an interaction-only or wiring test, an untagged test, a test the delete test would not catch, ungrouped scenarios sharing a `Given`, a touched feature left unmigrated — each a finding with the scenario id, and the ungrouped/duplicate counts in the verdict; then see `code-quality-standards.md` §tests ▸ Verify; scan the diff,
 accumulate findings ≥ 80 confidence.
 
 ## observability  (optional — include only if listed in concerns)
@@ -78,7 +78,7 @@ scan the diff, accumulate findings ≥ 80 confidence.
 Report only findings at confidence ≥ 80 (you are reasonably sure this is a
 real problem, not a style preference). Findings between 60–80 are advisory;
 include them as `confidence: 60–80` if they're worth surfacing but suppress
-otherwise. Do not pad findings to look thorough.
+otherwise.
 
 # READ-ONLY
 
@@ -88,11 +88,15 @@ You may NOT:
   - Spawn other subagents.
   - Transition any artifact's status.
 
-You MAY:
-  - Read, Grep, Glob.
-  - Run read-only git.
-  - Run the project's static analysis (linter, typechecker) to confirm a
-    finding — but only as a check, not a fix.
+You MAY read, run read-only git, and run static analysis as a check, not a fix.
+
+**A script is not read-only because you only wanted its help.** Never run a
+project script, generator or build tool you have not read: `tool --help` or
+`tool --version` runs the tool, and some rewrite files whatever the argument
+(a reviewer once regenerated a tracked document that way and dropped the
+owner's hand-written section). Read the script instead. If something you ran
+did change a tracked file, do not try to undo it: say so in your return, with
+the command, and the orchestrator sets the change aside.
 
 # Required Return Shape
 

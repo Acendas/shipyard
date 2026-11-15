@@ -88,7 +88,9 @@
   {
     "name": "prohibits_bash_redirect_for_state",
     "type": "contains",
-    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
+    "pattern": "never use echo, printf, or shell redirects",
+    "target": "plugin:bin/shipyard-context.mjs",
+    "why": "S016/P062: canonical home is CANONICAL_STARTUP_RULES in the startup CLI."
   },
   {
     "name": "has_external_refs_field",
@@ -118,7 +120,7 @@
   {
     "name": "uses_feature_set_status",
     "type": "contains",
-    "pattern": "feature set-status"
+    "pattern": "story set-status"
   },
   {
     "name": "bans_frontmatter_hand_edit",
@@ -144,6 +146,13 @@
     "name": "render_provenance_negation",
     "type": "contains",
     "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
+    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P062: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+    "target": "plugin:bin/shipyard-context.mjs"
+  },
+  {
+    "name": "render_before_ask_short_reminder_present",
+    "type": "contains",
+    "pattern": "Render before asking",
+    "why": "S016/P062: the command keeps only the short reminder; the full doctrine is printed at startup (CANONICAL_STARTUP_RULES)."
   }
 ]

@@ -29,6 +29,24 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" auto-approve-data"
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" unattended-ask"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|TaskStop",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" agent-ledger"
+          }
+        ]
       }
     ],
     "WorktreeCreate": [

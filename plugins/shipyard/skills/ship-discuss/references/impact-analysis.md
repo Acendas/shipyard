@@ -1,10 +1,10 @@
 # Impact Analysis Protocol
 
-When a feature is created or refined, scan existing features for ripple effects. This is triggered conditionally — skip if no features exist in `<SHIPYARD_DATA>/spec/features/`.
+When a feature is created or refined, scan existing features for ripple effects. This is triggered conditionally — skip if no features exist in `<SHIPYARD_DATA>/spec/stories/`.
 
 ## Scan Protocol
 
-Grep across `<SHIPYARD_DATA>/spec/features/` frontmatter for keyword matches against the new/refined feature's title, epic, and domain terms. Only read full files for likely matches. Check four dimensions:
+Grep across `<SHIPYARD_DATA>/spec/stories/` frontmatter for keyword matches against the new/refined feature's title, epic, and domain terms. Only read full files for likely matches. Check four dimensions:
 
 - **Duplicates** — Is this substantially the same as an existing feature? Signals: same user story, same acceptance scenarios, same domain nouns. If found → render the overlap evidence as chat text first — the matching user story and the specific acceptance-scenario lines from BOTH features — before asking; the existing feature is a Read result the user hasn't seen, and "looks like it overlaps" is not decidable from a title alone. AskUserQuestion: "This looks like it overlaps heavily with [ID: title]. Merge them, keep separate, or refine the distinction?"
 - **Dependencies** — Does the new feature need something from an existing feature? Does an existing feature now need something from this one? Signals: shared domain keywords, overlapping data model entities, API endpoints one produces that another consumes.
@@ -20,8 +20,8 @@ If no impacts are found across all dimensions, state "No cross-feature impacts d
 
 For each impacted feature, check if it appears in `<SHIPYARD_DATA>/sprints/current/SPRINT.md` (by feature ID or its task IDs in wave listings). If sprint-active, classify the impact:
 
-- **Informational** (dependency-only change): "[ID] is in Sprint N. The dependency link won't block work, but the team should know."
-- **Action-required** (acceptance criteria change, invalidation, or epic move): "[ID]'s acceptance criteria need updating, and it's in Sprint N with X/Y tasks done. Changing criteria now may invalidate completed work."
+- **Informational** (dependency-only change): the link won't block work; tell the user.
+- **Action-required** (acceptance criteria change, invalidation, or epic move): warn that changing criteria may invalidate completed work (give Sprint N and X/Y tasks done).
 
 Available actions per impact:
 1. **Apply now** — Make the change and flag sprint plan as stale
@@ -32,35 +32,7 @@ Impact analysis never blocks. It surfaces, warns, proposes. User can always defe
 
 ## Proposal Format
 
-Present all impacts in a structured block:
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- IMPACT ANALYSIS: [ID] — [title]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- DUPLICATES
-   none
-
- DEPENDENCIES
-   [ID] → [ID]: [reason]
-   [ID] → [ID]: [reason]
-
- OVERLAPS
-   [ID] ↔ [ID]: [what overlaps]
-     ⚠ [ID] is in Sprint N (X/Y tasks done)
-     Proposed: [specific change]
-
- INVALIDATIONS
-   none
-
- EPIC CHANGES
-   none
-
- BACKLOG NOTE
-   [any re-estimation or grooming notes]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
+Present all impacts in one block with sections DUPLICATES, DEPENDENCIES, OVERLAPS, INVALIDATIONS, EPIC CHANGES and BACKLOG NOTE (`none` when empty; flag sprint-active items with Sprint N and X/Y tasks done).
 
 Then AskUserQuestion: "Apply these impacts? (yes / adjust / skip)"
 
@@ -70,18 +42,18 @@ Then AskUserQuestion: "Apply these impacts? (yes / adjust / skip)"
 
 ## What Gets Changed on Approval
 
-- **Dependencies** — Run `shipyard-data feature add-dep F010 F003` — the CLI writes both sides atomically; never Edit `dependencies:` by hand.
-- **Acceptance criteria** — Edit the affected feature file's acceptance criteria. Record the change in that feature's decision log with date and reasoning: "Acceptance criteria updated due to [new feature ID]: [what changed]."
+- **Dependencies** — Run `shipyard-data story add-dep S010 S003` (S010 waits for S003) — the CLI writes S003 into S010's `dependencies:` and S010 into S003's `dependents:`, and refuses a link that would close a loop; never Edit either list by hand.
+- **Acceptance criteria** — Edit the affected story file's acceptance criteria. Record the change in that feature's decision log with date and reasoning: "Acceptance criteria updated due to [new feature ID]: [what changed]."
 - **Re-estimation flags** — Do NOT recalculate RICE/points for other features. Add decision log entry: "Re-estimation needed: scope changed due to [ID]." The backlog note in the summary will suggest `/ship-backlog groom`.
-- **Epic reassignment** — Run `shipyard-data feature set FNNN epic=ENNN`. Epic membership is derived, never stored in epic files.
+- **Epic reassignment** — Run `shipyard-data story set SNNN epic=ENNN`. Epic membership is derived, never stored in epic files.
 - **NEVER reorder BACKLOG.md** — BACKLOG.md is an ordered index managed by `/ship-backlog`. Note in wrap-up summary: "Run `/ship-backlog rank` to re-prioritize."
 - **Impact diagram** — when the impact summary showed an impact diagram (a feature with multiple ripple effects), persist it so the ripple map survives the session. The inline ASCII is ephemeral; convert it to a Mermaid `graph LR` and write it into the new/refined feature's `## Decision Log` (a short "Impact map:" entry). Only persist when **2+ ripple edges** exist — a single dependency is a sentence, not a diagram (per `communication-design.md` "fewer than 3 data points"). Example:
 
   ```mermaid
   graph LR
-    F007[F007 new] -->|impacts| F003[F003 criteria change]
-    F007 -->|depends| F001[F001 prerequisite]
-    F007 -->|overlaps| F005[F005 shared model]
+    S007[S007 new] -->|impacts| S003[S003 criteria change]
+    S007 -->|depends| S001[S001 prerequisite]
+    S007 -->|overlaps| S005[S005 shared model]
   ```
 
 ### REFINE mode specifics

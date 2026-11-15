@@ -10,8 +10,7 @@ Spawned via `Agent(subagent_type: "general-purpose", prompt: <template below>)`.
 - Replace `[FEATURE_ID]` with the feature being critiqued (e.g., `F-018`).
 - Fill in the "Review findings to challenge" section from the current Stage 3 + Stage 4 outputs.
 - Set `Stakes:` to `standard` for low-complexity features or `high` for features touching auth, payments, or data integrity.
-- **Model tier (think):** read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-review` context block already carries config, or Read it). If non-empty, pass `model: <value>` on the `Agent(...)` call; if empty or absent, OMIT `model:` so the critic inherits the session model. Never hardcode a literal.
-- **Effort tier (think):** read `agent_effort.think` from config.md (default `high`). If non-empty, pass `effort: <value>` on the `Agent(...)` call; if empty or absent, OMIT `effort:`.
+- **Model + effort (think):** Run `shipyard-data resolve-model think` — one line `model=<m> effort=<e>`; pass each value as a string on the Agent call and OMIT any empty field (inherit). Never hardcode a literal. Log it once: `shipyard-data events emit dispatch_model_resolved role=<role> model=<model or inherit> effort=<effort>` (a logging failure never blocks the dispatch).
 
 ## The prompt
 
@@ -41,8 +40,8 @@ Mode: review-critique
 Stakes: [standard or high — match the feature's complexity]
 
 Read these files:
-  - Feature spec: <SHIPYARD_DATA>/spec/features/[FEATURE_ID]-*.md
-  - Task files: <SHIPYARD_DATA>/spec/tasks/ (filter by feature: [FEATURE_ID])
+  - Feature spec: <SHIPYARD_DATA>/spec/stories/[FEATURE_ID]-*.md
+  - Step files: <SHIPYARD_DATA>/spec/steps/ (filter by feature: [FEATURE_ID])
   - Codebase context: <SHIPYARD_DATA>/codebase-context.md
   - Project rules: .claude/rules/**/*.md
 
@@ -77,17 +76,3 @@ The critic returns a structured report (`STATUS: CHALLENGES` or `STATUS: NO_CHAL
 4. If the critic's finding is itself a false positive (the review was correct) → discard it.
 
 Do NOT re-run the full review pipeline based on critic output. The critic is a surgical second opinion, not a trigger for another pass.
-
-## Why this exists separately
-
-The critic prompt is ~40 lines of subagent instructions. Keeping it inline in `ship-review/SKILL.md` made the file's structural shape harder to scan — a reader looking for the review *pipeline* had to scroll past a chunk of subagent prose. As a reference, the prompt is easy to find (Stage 4.6 → "see references/critic-prompt.md") and easy to update without re-reading the rest of the skill.
-
-## Tuning the critic
-
-If the critic over-fires (lots of false positives in its own output, flagging things that are fine) or under-fires (consistently returns `NO_CHALLENGES` even on features that later need rework), tune the `Mode:` and `Stakes:` directives:
-
-- `Mode: review-critique` → standard adversarial reading.
-- `Stakes: high` → tighten thresholds. The critic flags anything plausibly risky.
-- Future extensions could add `Mode: blind-spot-only` (find what's missing, don't re-evaluate what's there) or `Mode: false-positive-hunt` (only challenge ✅ marks, don't surface gaps).
-
-Document any new modes here when added.

@@ -1,0 +1,57 @@
+{
+  "code": 1,
+  "stderr": "",
+  "other": [],
+  "cases": {
+    "valid-base": [],
+    "missing-id": [
+      "missing/empty field: id"
+    ],
+    "missing-title": [
+      "missing/empty field: title"
+    ],
+    "missing-status": [
+      "missing/empty field: status"
+    ],
+    "missing-effort": [
+      "missing/empty field: effort"
+    ],
+    "missing-dependencies": [
+      "missing/empty field: dependencies"
+    ],
+    "status-ok-pending": [],
+    "status-ok-in_progress": [],
+    "status-ok-done": [],
+    "status-ok-blocked": [],
+    "status-ok-needs_attention": [],
+    "status-ok-approved": [],
+    "status-ok-open": [],
+    "status-ok-dropped": [],
+    "status-invalid": [
+      "invalid status: \"bogus\""
+    ],
+    "id-ok-T1": [],
+    "id-ok-T001": [],
+    "id-ok-T_001": [],
+    "id-ok-T_HOT_12": [],
+    "id-ok-Tab1": [],
+    "id-bad-T": [
+      "id \"T\" does not match the expected pattern"
+    ],
+    "id-bad-T_": [
+      "id \"T-\" does not match the expected pattern"
+    ],
+    "id-bad-Tabc": [
+      "id \"Tabc\" does not match the expected pattern"
+    ],
+    "id-bad-T1a": [
+      "id \"T1a\" does not match the expected pattern"
+    ],
+    "id-bad-task1": [
+      "id \"task1\" does not match the expected pattern"
+    ],
+    "id-bad-t1": [
+      "id \"t1\" does not match the expected pattern"
+    ]
+  }
+}

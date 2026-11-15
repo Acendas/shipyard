@@ -1,7 +1,7 @@
 /**
  * skill-lock — single owner of both Shipyard skill-mutex lock files:
- *   `<SHIPYARD_DATA>/.active-session.json`   (kind: "planning"  — ship-discuss/ship-sprint/ship-quick's planning phase)
- *   `<SHIPYARD_DATA>/.active-execution.json` (kind: "execution" — ship-execute/ship-review/ship-quick's execution phase)
+ *   `<SHIPYARD_DATA>/.active-session.json`   (kind: "planning"  — ship-discuss/ship-sprint)
+ *   `<SHIPYARD_DATA>/.active-execution.json` (kind: "execution" — ship-execute/ship-review)
  *
  * Planning and execution are mutually exclusive except for the narrow
  * ship-discuss + ship-execute pair. That exception is intentional: discussion
@@ -59,14 +59,57 @@
  *     name-matching instead of hard-refusing every unverified release.
  */
 
+import { readEvents, liveAgents } from "./terminal-gate.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { hostname } from "node:os";
 import { atomicWrite, logEvent, sanitizeForLog, withLockfile } from "./_hook_lib.mjs";
+import { strayChanges } from "./stray.mjs";
+
+/** Tracked files changed with no commit in the project folder; null when there is no repository to ask. */
+function dirtyTracked(dataDir) {
+  try { const s = strayChanges(dataDir); return s ? s.tracked : null; } catch { return null; }
+}
+
+/** Of `files` (repo-relative), those the write hook recorded this session writing since `sinceIso`. */
+function wroteThisSession(dataDir, sessionId, sinceIso, files) {
+  if (!sessionId) return [];
+  const since = (Date.parse(sinceIso ?? "") || 0) - 1000; // event timestamps are whole seconds, the lock's start has milliseconds
+  let lines = [];
+  try { lines = readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8").split("\n").slice(-4000); } catch { return []; }
+  const wrote = [];
+  for (const l of lines) {
+    if (!l.includes("discuss_wrote_project_file")) continue;
+    try { const e = JSON.parse(l); if (e.type === "discuss_wrote_project_file" && String(e.session ?? "") === String(sessionId) && Date.parse(e.ts) >= since) wrote.push(String(e.file ?? "")); } catch { /* skip */ }
+  }
+  return files.filter((f) => wrote.some((w) => w === f || w.endsWith(`/${f}`) || f.endsWith(w)));
+}
 
 export const LOCK_FILES = Object.freeze({
   planning: ".active-session.json",
   execution: ".active-execution.json",
+  discuss: ".active-discuss.json",
 });
+
+/**
+ * One lock per command family (4.17). A lock stops a second copy of the SAME
+ * command; it never stops a different one:
+ *   discuss    /ship-discuss
+ *   planning   /ship-sprint
+ *   execution  /ship-execute, /ship-review, /ship-debug's fix phase (they all
+ *              act on the working tree and the current sprint, one at a time)
+ * So a discussion runs beside planning or a sprint, and the next sprint is
+ * drafted while the current one executes. What keeps them out of each other's
+ * way is where they write (the running sprint is read-only to the others; a
+ * sprint planned ahead lives in `sprints/next/`), not the lock.
+ *
+ * Before 4.17 discuss shared the planning lock with /ship-sprint, and planning
+ * and execution excluded each other except for discuss + execute. Callers that
+ * still say `planning --skill ship-discuss` are mapped to the discuss lock.
+ */
+export function resolveKind(kind, skill) {
+  return kind === "planning" && skill === "ship-discuss" ? "discuss" : kind;
+}
 
 // The one place the 2-hour stale-lock threshold is defined. Nothing else
 // (skill bodies, other CLIs) should hardcode this number.
@@ -76,7 +119,7 @@ const SKILL_ARG_RE = /^ship-[a-z-]+$/;
 
 function lockPath(dataDir, kind) {
   const base = LOCK_FILES[kind];
-  if (!base) throw new Error(`skill-lock: unknown lock kind "${kind}" — expected planning|execution`);
+  if (!base) throw new Error(`skill-lock: unknown lock kind "${kind}" — expected planning|execution|discuss`);
   return join(dataDir, base);
 }
 
@@ -88,18 +131,16 @@ function acquireMetaLockPath(dataDir) {
   return join(dataDir, ".skill-lock.acquire.lock");
 }
 
-function isAllowedConcurrentPair(requestedKind, requestedSkill, otherKind, otherSkill) {
-  return (
-    requestedKind === "planning" &&
-    requestedSkill === "ship-discuss" &&
-    otherKind === "execution" &&
-    otherSkill === "ship-execute"
-  ) || (
-    requestedKind === "execution" &&
-    requestedSkill === "ship-execute" &&
-    otherKind === "planning" &&
-    otherSkill === "ship-discuss"
-  );
+/** Other command families holding a lock in ANOTHER session right now: [{kind, skill, session_id}]. */
+export function runningBeside(dataDir, kind, sessionId, unverified, nowMs = Date.now()) {
+  const out = [];
+  for (const k of Object.keys(LOCK_FILES)) {
+    if (k === kind) continue;
+    const c = classify(dataDir, k, sessionId, unverified, nowMs);
+    if (c.state === "held") out.push({ kind: k, skill: c.read.obj?.skill ?? null, session_id: c.read.obj?.session_id ?? null, state: c.state });
+    else if (c.state === "mine") out.push({ kind: k, skill: c.read.obj?.skill ?? null, session_id: c.read.obj?.session_id ?? null, state: c.state });
+  }
+  return out;
 }
 
 /**
@@ -170,6 +211,31 @@ function ageMs(obj, nowMs) {
  *   "mine"     — held, session_id matches ours (never true when unverified)
  *   "held"     — held by someone else, fresh
  */
+/**
+ * The owning Claude Code process is gone (4.6). A hard kill, a crash or a
+ * closed terminal never runs the SessionEnd reaper, so the lock used to block
+ * the next session for the full 2-hour stale window. The lock records the
+ * owner's pid and host; a pid that no longer exists on this host means the
+ * session is dead and the lock is recoverable at once. Unknown pid, another
+ * host, or a permission error all read as "alive" — never steal a live lock.
+ */
+export function ownerIsDead(obj) {
+  const pid = Number(obj?.owner_pid);
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  if (obj.owner_host && obj.owner_host !== hostname()) return false;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (err) {
+    return err && err.code === "ESRCH";
+  }
+}
+
+function ownerIdentity() {
+  const pid = Number(process.env.CLAUDE_PID);
+  return Number.isInteger(pid) && pid > 1 ? { owner_pid: pid, owner_host: hostname() } : {};
+}
+
 function classify(dataDir, kind, sessionId, unverified, nowMs) {
   const read = readLockFile(dataDir, kind);
   if (!read.exists) return { state: "free", read };
@@ -177,11 +243,12 @@ function classify(dataDir, kind, sessionId, unverified, nowMs) {
   if (isReleased(read.obj)) return { state: "released", read };
   if (ageMs(read.obj, nowMs) > STALE_MS) return { state: "stale", read };
   if (!unverified && read.obj.session_id === sessionId) return { state: "mine", read };
+  if (ownerIsDead(read.obj)) return { state: "stale", read, dead_owner: true };
   return { state: "held", read };
 }
 
 function blockText(kind, obj) {
-  const label = kind === "planning" ? "planning session" : "execution lock";
+  const label = kind === "planning" ? "planning session" : kind === "discuss" ? "discussion" : "execution lock";
   return (
     `⛔ Another ${label} is active.\n` +
     `   Skill:      ${obj.skill ?? "(unknown)"}\n` +
@@ -208,6 +275,7 @@ export function acquireLock(dataDir, kind, opts) {
   if (!SKILL_ARG_RE.test(skill || "")) {
     return { ok: false, code: 2, message: `skill-lock: --skill must match ^ship-[a-z-]+$ (got "${skill}")` };
   }
+  kind = resolveKind(kind, skill);
 
   let result;
   withLockfile(acquireMetaLockPath(dataDir), () => {
@@ -220,21 +288,15 @@ export function acquireLock(dataDir, kind, opts) {
     // of a "both strangers" situation get reported together.
     const ownBlocked = own.state === "held";
 
-    const otherKind = kind === "planning" ? "execution" : "planning";
-    const other = classify(dataDir, otherKind, sessionId, unverified, nowMs);
-    const concurrentAllowed =
-      other.state === "held" &&
-      isAllowedConcurrentPair(kind, skill, otherKind, other.read.obj?.skill ?? null);
-    const otherBlocked = other.state === "held" && !concurrentAllowed;
+    // Other command families never block (4.17); they are reported so the
+    // caller knows what it is running beside.
+    const beside = runningBeside(dataDir, kind, sessionId, unverified, nowMs);
+    const others = beside.filter((b) => b.state === "held");
+    const concurrentAllowed = others.length > 0;
 
-    if (ownBlocked || otherBlocked) {
-      const blocks = [];
-      if (ownBlocked) blocks.push({ kind, ...own.read.obj });
-      if (otherBlocked) blocks.push({ kind: otherKind, ...other.read.obj });
-      let stderrText = blocks.map((b) => blockText(b.kind, b)).join("\n\n");
-      if (ownBlocked && otherBlocked) {
-        stderrText += "\n\nBoth lock files are held by other sessions — run /ship-status to clear a stale one.";
-      }
+    if (ownBlocked) {
+      const blocks = [{ kind, ...own.read.obj }];
+      const stderrText = blocks.map((b) => blockText(b.kind, b)).join("\n\n");
       logEvent(dataDir, "skill_lock_blocked", { kind, skill, holder_skill: own.read.obj?.skill ?? null });
       result = {
         ok: false,
@@ -260,6 +322,7 @@ export function acquireLock(dataDir, kind, opts) {
         prior_session_id: own.read.obj.session_id ?? null,
         prior_skill: own.read.obj.skill ?? null,
         prior_age_hours: Math.round((ageMs(own.read.obj, nowMs) / 3600000) * 10) / 10,
+        ...(own.dead_owner ? { reason: "owner_process_gone", prior_owner_pid: own.read.obj.owner_pid ?? null } : {}),
       };
     } else if (own.state === "corrupt") {
       recovered = "corrupt";
@@ -269,7 +332,9 @@ export function acquireLock(dataDir, kind, opts) {
     const newObj =
       reentry
         ? { ...own.read.obj, skill, sprint: sprint ?? own.read.obj.sprint ?? null, wave: wave ?? own.read.obj.wave ?? null, depth }
-        : { skill, sprint, wave, started: nowIso, session_id: sessionId, cleared: null, depth: 1 };
+        : { skill, sprint, wave, started: nowIso, session_id: sessionId, cleared: null, depth: 1, ...ownerIdentity(),
+            // what was already uncommitted when a planning command began (4.13.5): release compares
+            ...(kind === "planning" || kind === "discuss" ? { dirty_at_start: dirtyTracked(dataDir) } : {}) };
 
     writeLockObj(dataDir, kind, newObj);
 
@@ -282,12 +347,14 @@ export function acquireLock(dataDir, kind, opts) {
 
     let stderrText = "";
     if (recovered === "stale") {
-      stderrText = `(recovered stale ${priorForEvent.prior_skill ?? "unknown"} lock started ${priorForEvent.prior_age_hours}h ago)`;
+      stderrText = own.dead_owner
+        ? `(recovered the ${priorForEvent.prior_skill ?? "unknown"} lock of a session that is no longer running, pid ${priorForEvent.prior_owner_pid})`
+        : `(recovered stale ${priorForEvent.prior_skill ?? "unknown"} lock started ${priorForEvent.prior_age_hours}h ago)`;
     } else if (recovered === "corrupt") {
       stderrText = `(recovered corrupt ${kind} lock — previous content was not valid JSON)`;
     }
 
-    const crossLockSameSession = other.state === "mine";
+    const crossLockSameSession = beside.some((b) => b.state === "mine");
 
     result = {
       ok: true,
@@ -299,15 +366,15 @@ export function acquireLock(dataDir, kind, opts) {
         depth: newObj.depth,
         ...(recovered ? { recovered } : {}),
         ...(crossLockSameSession ? { cross_lock_same_session: true } : {}),
-        ...(concurrentAllowed ? { cross_lock_allowed: "ship-discuss+ship-execute" } : {}),
+        ...(concurrentAllowed ? { cross_lock_allowed: [skill, ...others.map((o) => o.skill)].sort().join("+"), running_beside: others.map((o) => o.skill) } : {}),
       },
     };
     if (concurrentAllowed) {
       logEvent(dataDir, "skill_lock_concurrent_allowed", {
         kind,
         skill,
-        other_kind: otherKind,
-        other_skill: other.read.obj?.skill ?? null,
+        other_kind: others.map((o) => o.kind).join(","),
+        other_skill: others.map((o) => o.skill).join(","),
       });
     }
   });
@@ -319,7 +386,8 @@ export function acquireLock(dataDir, kind, opts) {
  *   [--force] [--session <id>]`
  */
 export function releaseLock(dataDir, kind, opts = {}) {
-  const { skill, sessionId, unverified = true, force = false, bestEffort = false } = opts;
+  const { skill, sessionId, unverified = true, force = false, bestEffort = false, leaveChanges = "" } = opts;
+  kind = resolveKind(kind, skill);
 
   const run = () => {
     let result;
@@ -349,6 +417,71 @@ export function releaseLock(dataDir, kind, opts = {}) {
       }
 
       const depth = Number.isInteger(read.obj.depth) ? read.obj.depth : 1;
+      // A command does not end with its helpers still listed (4.9.1): a
+      // deep-dive or critic that finished is stopped, not left ticking in the
+      // agent list. Only agents the hook recorded for this lock's session
+      // since it was taken count; `--force` and the session-end reap skip this.
+      if (depth <= 1) {
+        let lingering = [];
+        try {
+          const since = Date.parse(read.obj.started ?? "");
+          lingering = liveAgents(readEvents(dataDir, 20000)).filter((a) => a.via === "hook" && (!read.obj.session_id || !a.session || a.session === read.obj.session_id) && (!Number.isFinite(since) || !a.since || Date.parse(a.since) >= since - 1000));
+        } catch { lingering = []; }
+        if (lingering.length) {
+          result = {
+            ok: false, code: 3,
+            message: `shipyard-data lock release: ${lingering.length} agent(s) this command started are still listed: ${lingering.map((a) => a.name).join(", ")}.\n  Stop each one (TaskStop <name>; the ledger records it by itself), then release again. An agent that already ended also needs the TaskStop: it only removes the listing.\n`,
+            json: { released: false, reason: "agents_live", agents: lingering.map((a) => a.name) },
+          };
+          return;
+        }
+      }
+      // A planning command commits what it wrote to the project (4.13.5). It
+      // records decisions in the project's own docs; the rule to commit that
+      // file by path was prose, and the next sprint then started on a dirty
+      // tree (seen twice). Only files that became dirty while this lock was
+      // held count: what the owner had open before is theirs.
+      if (depth <= 1 && (kind === "planning" || kind === "discuss") && Array.isArray(read.obj.dirty_at_start)) {
+        const now = dirtyTracked(dataDir);
+        const fresh = now ? now.filter((p) => !read.obj.dirty_at_start.includes(p)) : [];
+        // Another command is running in this repository (4.17): a file that
+        // turned dirty may be ITS work in progress, so this command cannot be
+        // held responsible for it. Say so and release; never suggest setting
+        // another command's files aside.
+        const besideNow = fresh.length ? runningBeside(dataDir, kind, sessionId, unverified).filter((b) => b.state === "held") : [];
+        // ...except the files the write hook SAW this session write (a
+        // discussion's decision record): those are known to be its own.
+        const mine = fresh.length && besideNow.length ? wroteThisSession(dataDir, sessionId, read.obj.started ?? read.obj.started_at, fresh) : [];
+        // No `--leave-changes` here (4.0): the file is this discussion's own,
+        // the owner listed it as the place decisions are written, and a build
+        // is running on the same checkout. A live discussion left it with "a
+        // commit is made only on request", and the sprint beside it could not
+        // record its final test proof on a changed tree.
+        if (mine.length) {
+          result = {
+            ok: false, code: 3,
+            message: `shipyard-data lock release: this discussion wrote ${mine.join(", ")} and it is not committed${leaveChanges ? " (--leave-changes is not accepted for a file this discussion wrote while another command runs here: the owner set this file up as the decision record, and committing it by path is part of the discussion)" : ""}. ${besideNow.map((b) => b.skill).join(" and ")} is running in the same folder, and an uncommitted file there gets in the way of its next merge.\n  Commit exactly that path now: git add -- ${mine.join(" ")} && git commit -m "docs: <what was decided>"\n  (or release with --leave-changes "<why>")`,
+            json: { released: false, reason: "uncommitted_own_changes", files: mine },
+          };
+          return;
+        }
+        if (fresh.length && besideNow.length && !leaveChanges) {
+          logEvent(dataDir, "lock_released_with_changes", { kind, skill: read.obj.skill, files: fresh.join(","), reason: `beside ${besideNow.map((b) => b.skill).join("+")}` });
+          writeLockObj(dataDir, kind, { skill: null, cleared: nowIso });
+          logEvent(dataDir, "skill_lock_released", { kind, skill: read.obj.skill, forced: false });
+          result = { ok: true, code: 0, message: `(released; ${fresh.length} uncommitted project file(s): ${fresh.join(", ")} — ${besideNow.map((b) => b.skill).join(" and ")} is running here too, so they may be its work. If YOU wrote one of them, commit that path now.)`, json: { released: true, depth: 0, uncommitted: fresh, beside: besideNow.map((b) => b.skill) } };
+          return;
+        }
+        if (fresh.length && !leaveChanges) {
+          result = {
+            ok: false, code: 3,
+            message: `shipyard-data lock release: ${fresh.length} project file(s) changed during this command and are not committed: ${fresh.join(", ")}.\n  If you wrote them (a decision record, a doc): commit exactly those paths — git add -- <paths> && git commit -m "docs: <what was decided>".\n  If you did not: shipyard-data stray set-aside --reason "<who or what>".\n  To end with them uncommitted on purpose: lock release ${kind} --skill ${read.obj.skill} --leave-changes "<why>".`,
+            json: { released: false, reason: "uncommitted_changes", files: fresh },
+          };
+          return;
+        }
+        if (fresh.length) logEvent(dataDir, "lock_released_with_changes", { kind, skill: read.obj.skill, files: fresh.join(","), reason: String(leaveChanges).slice(0, 200) });
+      }
       if (depth > 1) {
         writeLockObj(dataDir, kind, { ...read.obj, depth: depth - 1 });
         result = { ok: true, code: 0, message: "", json: { released: false, depth: depth - 1 } };
@@ -440,7 +573,7 @@ export function lockStatus(dataDir, opts) {
   const { sessionId, unverified } = opts;
   const nowMs = Date.now();
   const out = {};
-  for (const kind of ["planning", "execution"]) {
+  for (const kind of ["planning", "execution", "discuss"]) {
     const c = classify(dataDir, kind, sessionId, unverified, nowMs);
     out[kind] = {
       state: c.state === "corrupt" ? "released" : c.state,
@@ -474,21 +607,24 @@ export function skillLockCmd(dataDir, args) {
 
   if (sub === "acquire") {
     if (!kind || !LOCK_FILES[kind]) {
-      process.stderr.write("usage: lock acquire <planning|execution> --skill <ship-*> [--sprint <id>] [--wave <n>]\n");
+      process.stderr.write("usage: lock acquire <planning|execution|discuss> --skill <ship-*> [--sprint <id>] [--wave <n>]\n");
       process.exit(2);
     }
     return emit(acquireLock(dataDir, kind, { skill, sprint, wave, sessionId, unverified }));
   }
   if (sub === "release") {
     if (!kind || !LOCK_FILES[kind]) {
-      process.stderr.write("usage: lock release <planning|execution> [--skill <name>] [--force]\n");
+      process.stderr.write("usage: lock release <planning|execution|discuss> [--skill <name>] [--force] [--leave-changes \"<why>\"]\n");
       process.exit(2);
     }
-    return emit(releaseLock(dataDir, kind, { skill, sessionId, unverified, force }));
+    const lc = args.indexOf("--leave-changes");
+    const leaveChanges = lc !== -1 && args[lc + 1] && !String(args[lc + 1]).startsWith("--") ? String(args[lc + 1]) : "";
+    if (lc !== -1 && !leaveChanges) { process.stderr.write("lock release: --leave-changes needs a reason\n"); process.exit(2); }
+    return emit(releaseLock(dataDir, kind, { skill, sessionId, unverified, force, leaveChanges }));
   }
   if (sub === "check") {
     if (!kind || !LOCK_FILES[kind]) {
-      process.stderr.write("usage: lock check <planning|execution>\n");
+      process.stderr.write("usage: lock check <planning|execution|discuss>\n");
       process.exit(2);
     }
     return emit(checkLock(dataDir, kind, { sessionId, unverified }));

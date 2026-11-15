@@ -46,6 +46,7 @@ const STAGE_PATTERNS = {
     { re: /^wave_(?<wave>\d+)_tests$/, key: "wave_tests" },
     { re: /^wave_(?<wave>\d+)_verify$/, key: "wave_verify" },
     { re: /^wave_(?<wave>\d+)_gate$/, key: "wave_gate" },
+    { re: /^sprint_code_review$/, key: "sprint_code_review" },
     { re: /^sprint_refactor$/, key: "sprint_refactor" },
     { re: /^sprint_full_build$/, key: "sprint_full_build" },
     { re: /^sprint_tests_fix_iter_(?<iter>\d+)$/, key: "sprint_tests_fix_iter" },
@@ -60,6 +61,7 @@ const STAGE_PATTERNS = {
   ],
   "ship-review": [
     { re: /^preflight$/, key: "preflight" },
+    { re: /^review_pack$/, key: "review_pack" },
     { re: /^review_scan$/, key: "review_scan" },
     { re: /^review_plan$/, key: "review_plan" },
     { re: /^review_fix_wave_(?<iter>\d+)$/, key: "review_fix_wave" },
@@ -106,13 +108,22 @@ const GRAPH = {
     salvage: { next: ["load"] },
     load: { next: ["readiness", "wave_dispatch"] },
     readiness: { next: ["wave_dispatch"] },
+    // Overlap (4.4, execution.overlap_waves): wave N's boundary dispatches
+    // wave N+1 as soon as N is merged, then returns to N's trailing lane
+    // (build/refactor/tests/verify/gate) while N+1's builders work; N's gate
+    // then lands in N+1's waiting stage. The retreat edge dispatch(N+1) →
+    // build(N) is the only place a wave number goes down by one.
     wave_dispatch: {
-      next: ["wave_waiting", "wave_boundary", "wave_redispatch_iter"],
+      next: ["wave_waiting", "wave_boundary", "wave_redispatch_iter", "wave_build"],
+      waveRetreat: ["wave_build"],
     },
-    wave_waiting: { selfLoop: true, next: ["wave_recovery"] },
+    // 4.0: waiting(N+1) → build(N). An orchestrator that dispatched wave N+1
+    // and then waited on it had no legal way back to wave N's trailing lane,
+    // and forced the cursor (seen live). Same one-step-back rule as dispatch.
+    wave_waiting: { selfLoop: true, next: ["wave_recovery", "wave_build"], waveRetreat: ["wave_build"] },
     wave_recovery: { next: ["wave_boundary", "wave_redispatch_iter"] },
     wave_redispatch_iter: { selfLoop: true, next: ["wave_boundary"] },
-    wave_boundary: { next: ["wave_build"] },
+    wave_boundary: { next: ["wave_build", "wave_dispatch"], waveAdvance: ["wave_dispatch"] },
     wave_build: { next: ["wave_refactor", "wave_build_fix_iter"] },
     wave_build_fix_iter: { selfLoop: true, next: ["wave_build", "wave_refactor"] },
     wave_refactor: { next: ["wave_tests"] },
@@ -124,14 +135,21 @@ const GRAPH = {
     // stage (the default); the direct edge to sprint_full_build remains for
     // `refactor_scope: wave`, where refactoring already happened per wave.
     wave_gate: {
-      next: ["wave_dispatch", "sprint_refactor", "sprint_full_build"],
-      waveAdvance: ["wave_dispatch"],
+      next: ["wave_dispatch", "wave_waiting", "sprint_code_review", "sprint_refactor", "sprint_full_build"],
+      waveAdvance: ["wave_dispatch", "wave_waiting"],
     },
+    // 4.6: the cross-story code review of a multi-story sprint, inside execute
+    // (per-story code review already ran at each story's boundary). Self-loops
+    // while its fix steps land; the full build + suite after it validate them.
+    sprint_code_review: { selfLoop: true, next: ["sprint_refactor", "sprint_full_build"] },
     // Deliberately BEFORE the full build/suite: the sprint-wide refactor is
     // non-blocking on its own failure, so the thing that actually catches a
     // regression it introduces is sprint_full_build + sprint_full_tests
     // running after it.
-    sprint_refactor: { next: ["sprint_full_build"] },
+    // wave_dispatch: the cleanup pass's mutation check can find a behaviour no
+    // test protects; its fix step needs a wave. Without this edge the
+    // orchestrator had to force the cursor back (seen live).
+    sprint_refactor: { next: ["wave_dispatch", "sprint_full_build"] },
     sprint_full_build: { next: ["sprint_full_tests"] },
     sprint_full_tests: { next: ["sprint_demo_probes", "sprint_tests_fix_iter"] },
     sprint_tests_fix_iter: { selfLoop: true, next: ["sprint_full_tests", "sprint_demo_probes"] },
@@ -146,7 +164,12 @@ const GRAPH = {
   "ship-review": {
     // preflight → code review, straight to tests (--skip-code-review),
     // or retro (--retro-only). process_approved asks whether to run retro.
-    preflight: { entry: true, next: ["review_scan", "code_review_iter", "tests", "retro_step"] },
+    // 4.6: when /ship-execute did the quality work (execution.code_review),
+    // the review is a sprint review: preflight → review_pack (evidence, facts,
+    // verdict files) → demo_user (the owner's approval). The scan/fix stages
+    // below remain for legacy sprints, --hotfix and single-story reviews.
+    preflight: { entry: true, next: ["review_pack", "review_scan", "code_review_iter", "tests", "retro_step"] },
+    review_pack: { selfLoop: true, next: ["demo_user"] },
     review_scan: { next: ["review_plan"] },
     review_plan: { next: ["review_fix_wave", "review_validation"] },
     review_fix_wave: { selfLoop: true, next: ["review_validation"] },
@@ -254,7 +277,7 @@ export function validateTransition(pipeline, from, to) {
         reason: `no existing cursor — first stage must be an entry stage (${Object.entries(graph)
           .filter(([, v]) => v.entry)
           .map(([k]) => k)
-          .join(", ")}), got "${to}"`,
+          .join(", ")}), got "${to}" — create the cursor first: shipyard-data cursor advance ${pipeline.replace(/^ship-/, "")} ${Object.entries(graph).filter(([, v]) => v.entry).map(([k]) => k)[0]} --note "start", then advance to ${to}`,
       };
     }
     return { ok: true };
@@ -282,7 +305,15 @@ export function validateTransition(pipeline, from, to) {
   // Wave arithmetic.
   if (fromN.wave != null && toN.wave != null) {
     const advances = (fromNode.waveAdvance || []).includes(toN.key);
-    if (advances) {
+    const retreats = (fromNode.waveRetreat || []).includes(toN.key);
+    if (retreats) {
+      if (toN.wave !== fromN.wave - 1) {
+        return {
+          ok: false,
+          reason: `wave must step back by exactly 1 on ${fromN.key} → ${toN.key} (overlap: the previous wave's trailing lane; got wave ${fromN.wave} → ${toN.wave})`,
+        };
+      }
+    } else if (advances) {
       if (toN.wave !== fromN.wave + 1) {
         return {
           ok: false,

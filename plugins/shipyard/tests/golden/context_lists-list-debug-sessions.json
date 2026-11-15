@@ -1,0 +1,31 @@
+{
+  "populated": {
+    "code": 0,
+    "stderr": "",
+    "count": 2,
+    "lines": [
+      "stuck-oauth.md",
+      "sub.md"
+    ]
+  },
+  "truncated": {
+    "code": 0,
+    "stderr": "",
+    "count": 5
+  },
+  "limit2": {
+    "code": 0,
+    "stderr": "",
+    "count": 2
+  },
+  "limit50": {
+    "code": 0,
+    "stderr": "",
+    "count": 10
+  },
+  "zero": {
+    "code": 0,
+    "stdout": "No active debug sessions",
+    "stderr": ""
+  }
+}

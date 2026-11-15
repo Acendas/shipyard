@@ -23,6 +23,8 @@
  * feature-file write with a BACKLOG.md rewrite.
  */
 
+import { spawnSync as spawnSyncForGit } from "node:child_process";
+import { main as probeCommandMain, readProbeCommand, trailingSuite } from "./probe-command.mjs";
 import {
   existsSync,
   mkdirSync,
@@ -35,13 +37,53 @@ import {
 } from "node:fs";
 import { join, relative } from "node:path";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
+import { parseFrontmatterList } from "./frontmatter-list.mjs";
 import { readRequireParkEvidence } from "./config-read.mjs";
+import { FINDING_KINDS, FINDING_SEVERITIES } from "./sprint-findings.mjs";
+import { readDesign } from "./design.mjs";
+import { planGateProblems } from "./plan-score.mjs";
+import "./probes-at-base.mjs"; // registers the probe check with the plan gate
+import { approvalProblems as openQuestionProblems } from "./discuss-questions.mjs";
+import { sprintStoryIds as planSprintStoryIds } from "./terminal-gate.mjs";
+
+/** A UI story's design decision is on record: an approval (hash) or a waiver. */
+function designDecided(block) {
+  const d = readDesign(block);
+  return Boolean(d && (d.hash || d.waived));
+}
 import {
   BACKLOG_REMOVING_STATUSES,
-  FEATURE_TRANSITIONS,
+  STORY_TRANSITIONS,
+  LEGACY_BUG_STATUS_ALIASES,
   IDEA_TRANSITIONS,
+  IDEA_STATUS_ALIASES,
+  EPIC_TRANSITIONS,
+  TASK_TRANSITIONS,
+  normalizeStatus,
   validateStatusTransition,
 } from "./spec-lifecycle.mjs";
+import {
+  ENTITIES,
+  STORY_ID_RE,
+  LEGACY_FEATURE_ID_RE,
+  LEGACY_BUG_ID_RE,
+  HOTFIX_ID_RE,
+  isStoryId as isStoryIdVocab,
+  STEP_ID_RE,
+  TASK_ID_RE,
+  QUICK_ID_RE,
+  EPIC_ID_RE,
+  entityForVerb,
+  isBuilderRecord,
+  canonicalEventType,
+  TASK_KINDS,
+} from "./vocab.mjs";
+
+// v4 (F022): every mutating subcommand emits through the vocabulary table so
+// writers always use the new event names (patch_step_created, story_*) while
+// the historical log keeps the old ones untouched.
+const emit = (dataDir, type, fields) => logEvent(dataDir, canonicalEventType(type), fields);
+const FEATURE_TRANSITIONS = STORY_TRANSITIONS;
 
 // --- generic helpers -----------------------------------------------------
 
@@ -105,29 +147,44 @@ function escapeRe(s) {
 function setScalar(block, key, value) {
   const lineRe = new RegExp(`^${escapeRe(key)}:.*$`, "m");
   if (lineRe.test(block)) {
-    return block.replace(lineRe, `${key}: ${value}`);
+    // function replacer: a value containing `$&` / `$1` must be written literally
+    return block.replace(lineRe, () => `${key}: ${value}`);
   }
   return block.replace(/\s*$/, "") + `\n${key}: ${value}`;
 }
 
-/** Parse an inline flow-style array field: `key: [a, b, "c"]  # comment`. */
+/**
+ * Read a list field via the shared tolerant helper. Inline `[a, b]` lists —
+ * single- or multi-line — and absent/empty keys are safe to rewrite; block
+ * (`- a`) and bare (`a, b`) forms are REFUSED (exit 3) so a rewrite can never
+ * silently drop data.
+ */
 function getArrayField(block, key) {
-  const m = block.match(new RegExp(`^${key}:\\s*\\[([^\\]]*)\\]`, "m"));
-  if (!m) return [];
-  const inner = m[1].trim();
-  if (!inner) return [];
-  return inner
-    .split(",")
-    .map((s) => s.trim().replace(/^["']|["']$/g, ""))
-    .filter((s) => s.length > 0);
+  const { items, form } = parseFrontmatterList(block, key);
+  // A multiline inline list (`[a,\n b]`) is complete and rewrites safely as one line.
+  if (form === "block" || form === "bare") {
+    fail(
+      3,
+      `spec-state: "${key}" is a ${form} list — refusing to rewrite it (would risk data loss). Convert it to inline form \`${key}: [a, b]\` first.`,
+    );
+  }
+  return items;
 }
 
-/** Set an inline flow-style array field, preserving a trailing `# comment`. */
+/** Set an inline flow-style array field, preserving a trailing `# comment`. Never appends a duplicate key. */
 function setArrayField(block, key, arr) {
-  const re = new RegExp(`^(${key}:)\\s*\\[[^\\]]*\\](\\s*#.*)?$`, "m");
+  const { form } = parseFrontmatterList(block, key);
+  if (form === "block" || form === "bare") {
+    fail(3, `spec-state: "${key}" is a ${form} list — refusing to overwrite it. Convert it to inline form \`${key}: [a, b]\` first.`);
+  }
   const rendered = `[${arr.join(", ")}]`;
+  // Existing key line, inline or valueless (`key:` / `key: # c`): replace in place.
+  const re = new RegExp(`^(${escapeRe(key)}\\s*:)(?:[ \\t]*\\[[^\\]]*\\]|[ \\t]*(?=#|$))(\\s*#.*)?$`, "m");
   if (re.test(block)) {
     return block.replace(re, (_full, prefix, comment) => `${prefix} ${rendered}${comment ?? ""}`);
+  }
+  if (new RegExp(`^${escapeRe(key)}\\s*:`, "m").test(block)) {
+    fail(3, `spec-state: "${key}" has an unrecognised value form — refusing to append a duplicate key`);
   }
   return block.replace(/\s*$/, "") + `\n${key}: ${rendered}`;
 }
@@ -232,10 +289,14 @@ function withTwoFeatureLocks(dataDir, fidA, fidB, fn) {
  * and a multi-letter or uppercase suffix appears nowhere in the repo or the
  * docs, so widening further would accept ids nothing else can produce.
  */
-const FID_RE = /^F\d{3}[a-z]?$/;
-const IDEA_ID_RE = /^IDEA-\d{3}$/;
-const EPIC_ID_RE = /^E\d{3}$/;
-const TID_RE = /^T\d{3}$/;
+// v4 (F022): a story id is S### (new), or a legacy F###/B###/B-HOT-### alias
+// (terminology-v4 I-2, I-4); a builder-unit id is P### (step) or a legacy T###.
+const isStoryId = isStoryIdVocab; // one definition (vocab.mjs); every CLI accepts the same story spellings
+const FID_RE = { test: isStoryId };
+const IDEA_ID_RE = /^IDEA-\d{3,}$/;
+const TID_RE = { test: (id) => STEP_ID_RE.test(id) || TASK_ID_RE.test(id) || QUICK_ID_RE.test(id) };
+const STORY_ID_HINT = "expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d";
+const UNIT_ID_HINT = "expected P### (step) or T### (task), e.g. P004, T012";
 
 function resolveEntityFile(dataDir, subdir, id, { optional = false } = {}) {
   const dir = join(dataDir, "spec", subdir);
@@ -259,10 +320,22 @@ function resolveEntityFile(dataDir, subdir, id, { optional = false } = {}) {
   return join(dir, matches[0]);
 }
 
+/**
+ * Resolve a story by id across its directories: S### under spec/stories/,
+ * legacy F### under spec/features/, legacy B###/B-HOT-### under spec/bugs/
+ * (terminology-v4 A-01, A-04, A-05: legacy records are read in place).
+ */
 function resolveFeatureFile(dataDir, fid, opts) {
-  if (!FID_RE.test(fid)) fail(2, `spec-state: invalid feature id "${fid}" — expected F### or F###<letter> (e.g. F004, F071d)`);
-  return resolveEntityFile(dataDir, "features", fid, opts);
+  if (!isStoryId(fid)) fail(2, `spec-state: invalid story id "${fid}" — ${STORY_ID_HINT}`);
+  const subdirs = STORY_ID_RE.test(fid) ? ["stories"] : LEGACY_FEATURE_ID_RE.test(fid) ? ["features", "stories"] : ["bugs", "stories"];
+  for (let i = 0; i < subdirs.length; i++) {
+    const last = i === subdirs.length - 1;
+    const hit = resolveEntityFile(dataDir, subdirs[i], fid, { optional: !last || opts?.optional });
+    if (hit) return hit;
+  }
+  return null;
 }
+const resolveStoryFile = resolveFeatureFile;
 
 function resolveIdeaFile(dataDir, ideaId, opts) {
   if (!IDEA_ID_RE.test(ideaId)) fail(2, `spec-state: invalid idea id "${ideaId}" — expected IDEA-### (e.g. IDEA-045)`);
@@ -274,13 +347,19 @@ function epicExists(dataDir, epicId) {
   return resolveEntityFile(dataDir, "epics", epicId, { optional: true }) !== null;
 }
 
+/** Resolve a builder unit or task: P### under spec/steps/, T### / Q-### under spec/tasks/. */
 function resolveTaskFile(dataDir, tid, opts) {
-  if (!TID_RE.test(tid)) fail(2, `spec-state: invalid task id "${tid}" — expected T### (e.g. T004)`);
-  return resolveEntityFile(dataDir, "tasks", tid, opts);
+  if (!TID_RE.test(tid)) fail(2, `spec-state: invalid id "${tid}" — ${UNIT_ID_HINT}`);
+  return resolveEntityFile(dataDir, STEP_ID_RE.test(tid) ? "steps" : "tasks", tid, opts);
 }
 
 function validateTaskId(tid) {
-  if (!TID_RE.test(tid)) fail(2, `spec-state: invalid task id "${tid}" — expected T### (e.g. T004)`);
+  if (!TID_RE.test(tid)) fail(2, `spec-state: invalid id "${tid}" — ${UNIT_ID_HINT}`);
+}
+
+function resolveEpicFile(dataDir, eid, opts) {
+  if (!EPIC_ID_RE.test(eid)) fail(2, `spec-state: invalid epic id "${eid}" — expected E### (e.g. E002)`);
+  return resolveEntityFile(dataDir, "epics", eid, opts);
 }
 
 // --- RICE ------------------------------------------------------------------
@@ -388,11 +467,21 @@ function featureSetStatus(dataDir, args) {
   // `feature set-status F001 --force done` used to bind toStatus="--force",
   // which `--force` then waved past the transition graph: the CLI wrote
   // `status: --force` into the feature file and exited 0.
-  const positional = args.filter((a) => !a.startsWith("--"));
+  // `--reason` and `--replaced-by` take a value; it is lifted out first so it
+  // is never read as the id or the status.
+  let reason = "";
+  let replacedBy = [];
+  const bare = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--reason") reason = String(args[++i] ?? "").trim();
+    else if (args[i] === "--replaced-by") replacedBy = String(args[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    else bare.push(args[i]);
+  }
+  const positional = bare.filter((a) => !a.startsWith("--"));
   const fid = positional[0];
   const toStatus = positional[1];
   const force = args.includes("--force");
-  if (!fid || !toStatus) fail(2, "usage: feature set-status <FID> <status> [--force]");
+  if (!fid || !toStatus) fail(2, "usage: story set-status <SID> <status> [--force] [--reason \"<why>\"] [--replaced-by <SID,SID>]");
   // Vocabulary check runs BEFORE (and independently of) --force. --force
   // overrides the transition GRAPH — which edges are legal — not the set of
   // statuses that exist at all. Writing an unknown status is never a
@@ -401,7 +490,7 @@ function featureSetStatus(dataDir, args) {
   if (!Object.prototype.hasOwnProperty.call(FEATURE_TRANSITIONS, toStatus)) {
     fail(
       2,
-      `spec-state: unknown feature status "${toStatus}". Allowed: ${Object.keys(FEATURE_TRANSITIONS).join(", ")}`,
+      `spec-state: unknown story status "${toStatus}". Allowed: ${Object.keys(FEATURE_TRANSITIONS).join(", ")}`,
     );
   }
 
@@ -410,13 +499,64 @@ function featureSetStatus(dataDir, args) {
     const content = readFileSync(path, "utf8");
     const fm = parseFm(content);
     if (!fm) fail(3, `spec-state: ${fid} has no frontmatter block — refusing`);
-    const fromStatus = getScalar(fm.block, "status");
+    // A legacy bug record's `open` reads as `proposed` (spec-lifecycle alias).
+    const fromStatus = normalizeStatus(LEGACY_BUG_STATUS_ALIASES, getScalar(fm.block, "status"));
+    // v4: an imported (tracker pull) or captured story carries `refined: false`
+    // until /ship-discuss refines it; such a story is never sprint-ready, so it
+    // cannot be approved (and therefore cannot enter the backlog) — F027 AC-3.
+    if (toStatus === "approved" && String(getScalar(fm.block, "refined") ?? "").replace(/\s+#.*$/, "").trim() === "false") {
+      fail(3, `spec-state: ${fid} is unrefined (refined: false) — refine it with /ship-discuss ${fid} before approving; an imported ticket is never sprint-ready until refined`);
+    }
+    // E005: a UI story needs its design decision BEFORE it is sprint-ready —
+    // approved (`design approve`) or explicitly waived (`design waive`). Found
+    // live: /ship-discuss skipped the DESIGN stage in prose, /ship-sprint's
+    // Check 25 then refused the story, and the user was sent back to discuss.
+    if (toStatus === "approved" && /^ui:\s*true\b/m.test(fm.block) && !designDecided(fm.block)) {
+      fail(3, `spec-state: ${fid} is a UI story (ui: true) with no design decision — run the DESIGN stage: shipyard-data design approve ${fid} --file <snapshot>, or shipyard-data design waive ${fid} --reason "<why>"`);
+    }
+    // Behaviour-first (4.15.3): a story is approved from `proposed` only when
+    // its scenarios follow the rules (ids, one level tag each, a reason below
+    // the journey, a path map naming every scenario). The rule was first a
+    // reference text, then a separate check the lanes were told to run; the
+    // idea and chained lanes approved a story without either. Approval is the
+    // one call every lane makes. Not applied to a hotfix (minimal ceremony),
+    // to a story coming back from a sprint, or with `spec.behaviour_first: false`.
+    // The same check where a story enters a sprint (approved -> in-progress):
+    // a story approved before the rule is brought to it by the planner, never
+    // by a builder. Sprint planning's check 24b says to do this earlier; this
+    // is the call it cannot get past.
+    const entering = (toStatus === "approved" && fromStatus === "proposed") || (toStatus === "in-progress" && fromStatus === "approved");
+    if (entering && behaviourFirstOn(dataDir) && !/^lane:\s*hotfix\b/m.test(fm.block)) {
+      const problems = scenarioProblems(content);
+      if (problems.length) {
+        fail(3, `spec-state: ${fid} cannot ${toStatus === "approved" ? "be approved" : "enter a sprint"} yet — its scenarios do not start from the behaviour:\n${problems.map((p) => `  - ${p}`).join("\n")}\n  Rules: skills/tdd-cycle/references/test-economy.md. Fix the story, then run this again (shipyard-data story check-scenarios ${fid} shows the same list).`);
+      }
+    }
+    // The question list (4.20): a story is not approved while its discussion
+    // still has a question waiting, research running, or an answer the
+    // researcher never read. Only the topic bound to this story counts.
+    if (toStatus === "approved" && fromStatus === "proposed") {
+      const waiting = openQuestionProblems(dataDir, fid);
+      if (waiting.length) fail(3, `spec-state: ${fid} cannot be approved yet — its discussion is not finished:\n${waiting.map((p) => `  - ${p}`).join("\n")}`);
+    }
+    // The plan gate (4.19): a story enters a sprint only when that sprint's
+    // plan has no step later than it has to be, no two steps of one wave on
+    // the same file, and no solo mode over a wide wave. The planner shows
+    // `sprint plan-score` before approval; this is the call it cannot get past.
+    if (toStatus === "in-progress" && fromStatus === "approved" && !/^lane:\s*hotfix\b/m.test(fm.block)) {
+      let listed = false;
+      try { listed = planSprintStoryIds(readFileSync(join(dataDir, "sprints", "current", "SPRINT.md"), "utf8")).includes(fid); } catch { listed = false; }
+      const planProblems = listed ? planGateProblems(dataDir) : [];
+      if (planProblems.length) {
+        fail(3, `spec-state: ${fid} cannot enter the sprint yet — the plan can be more parallel or is not safe to run in parallel:\n${planProblems.map((p) => `  - ${p}`).join("\n")}\n  See it whole: shipyard-data sprint plan-score. Fix the plan (waves, \`dependencies:\`, \`touches:\`), never the check. The owner can turn it off with \`execution.parallel_plan: false\`.`);
+      }
+    }
     const check = validateStatusTransition(FEATURE_TRANSITIONS, fromStatus, toStatus);
     if (!check.ok && !force) {
       const known = FEATURE_TRANSITIONS[fromStatus];
       fail(
         3,
-        `spec-state: illegal feature status transition ${fromStatus} -> ${toStatus} for ${fid}. ` +
+        `spec-state: illegal story status transition ${fromStatus} -> ${toStatus} for ${fid}. ` +
           `Valid next states from "${fromStatus}": ${known ? (known.length ? known.join(", ") : "(none — terminal)") : "(unknown status)"}. ` +
           `Re-run with --force to override the graph (side effects still apply).`,
       );
@@ -424,6 +564,13 @@ function featureSetStatus(dataDir, args) {
 
     let block = setScalar(fm.block, "status", toStatus);
     block = setScalar(block, "updated", today());
+    // Why it ended and what replaced it (4.0), for a story that is retired or put off.
+    if (reason && ["rejected", "deferred"].includes(toStatus)) block = setScalar(block, "status_reason", JSON.stringify(reason.slice(0, 300)));
+    if (replacedBy.length && toStatus === "rejected") block = setArrayField(block, "replaced_by", replacedBy);
+    // The release date is the CLI's to write (4.13.3): the release step told
+    // the model to `story set released_at=`, a key `story set` refuses, so
+    // stories were released with no date.
+    if (toStatus === "released" && !/^released_at:\s*\S/m.test(block)) block = setScalar(block, "released_at", today());
     writeFrontmatteredFile(path, fm, block);
 
     if (BACKLOG_REMOVING_STATUSES.has(toStatus)) {
@@ -436,17 +583,47 @@ function featureSetStatus(dataDir, args) {
       });
     }
 
-    logEvent(dataDir, "feature_status_changed", {
+    emit(dataDir, "feature_status_changed", {
+      story: fid,
       feature: fid,
       from: fromStatus,
       to: toStatus,
       forced: !check.ok && force,
+      ...(reason && ["rejected", "deferred"].includes(toStatus) ? { reason: reason.slice(0, 180) } : {}),
+      ...(replacedBy.length && toStatus === "rejected" ? { replaced_by: replacedBy.join(",") } : {}),
     });
     process.stdout.write(`${fid}: ${fromStatus} -> ${toStatus}\n`);
+    // Retiring a story (4.0): say where the project still names it. A story was
+    // retired as "already built" while a code comment still read "placeholder
+    // until <that story> lands", and the owner found the placeholder on the
+    // device. A note, never a refusal: the mention may be history.
+    if (toStatus === "rejected") {
+      const where = projectMentions(dataDir, fid);
+      if (where.length) {
+        process.stderr.write(`note: the project still names ${fid} in ${where.length} file(s): ${where.slice(0, 6).join(", ")}${where.length > 6 ? ", ..." : ""}\n  Read them before the story is gone: a "until ${fid}" or "TODO ${fid}" line means work that nothing else covers now.\n`);
+        emit(dataDir, "retired_story_still_named", { story: fid, files: where.slice(0, 6).join(","), count: where.length });
+      }
+    }
   });
 }
 
+function spawnSyncGit(args, cwd) {
+  const r = spawnSyncForGit("git", args, { cwd, encoding: "utf8", timeout: 15000 });
+  return r.status === 0 ? r.stdout : r.status === 1 ? "" : null; // git grep exits 1 when nothing matches
+}
+
+/** Tracked project files that still contain this id as a whole word (best effort; [] when it cannot be told). */
+function projectMentions(dataDir, id) {
+  try {
+    const root = readFileSync(join(dataDir, ".project-root"), "utf8").trim();
+    if (!root || !/^[A-Za-z][A-Za-z0-9-]*$/.test(id)) return [];
+    const r = spawnSyncGit(["grep", "-l", "-w", "-F", "-e", id], root);
+    return r === null ? [] : r.split("\n").map((s) => s.trim()).filter(Boolean);
+  } catch { return []; }
+}
+
 const FEATURE_SET_ALLOWLIST = new Set([
+  "ui",
   "rice_reach",
   "rice_impact",
   "rice_confidence",
@@ -460,7 +637,8 @@ const FEATURE_SET_REFUSED_HINTS = {
   status: "use `feature set-status <FID> <status>` instead",
   id: "the id is fixed at creation — not settable",
   title: "title changes go through Edit on the feature file body/frontmatter directly (not CLI-owned)",
-  tasks: "use `feature set-tasks <FID> <TID,TID,...>` or `feature clear-tasks <FID>` instead",
+  tasks: "use `story set-steps <SID> <PID,PID,...>` or `story clear-steps <SID>` instead",
+  steps: "use `story set-steps <SID> <PID,PID,...>` or `story clear-steps <SID>` instead",
   references: "use `feature add-ref <FID> <path>` instead",
   external_refs: "use `feature add-external-ref <FID> <key>` instead",
 };
@@ -502,6 +680,7 @@ function featureSet(dataDir, args) {
       fail(3, `spec-state: story_points must be a positive integer (got "${kv.story_points}")`);
     }
   }
+  if ("ui" in kv && !["true", "false"].includes(kv.ui)) fail(3, `spec-state: ui must be true or false (got "${kv.ui}")`);
   if ("epic" in kv && kv.epic !== "") {
     if (!EPIC_ID_RE.test(kv.epic)) fail(3, `spec-state: epic must match E### or be "" to unassign (got "${kv.epic}")`);
   }
@@ -531,7 +710,7 @@ function featureSet(dataDir, args) {
       block = setScalar(block, "updated", today());
     }
     writeFrontmatteredFile(path, fm, block);
-    logEvent(dataDir, "feature_field_set", { feature: fid, keys: Object.keys(kv).join(",") });
+    emit(dataDir, "feature_field_set", { feature: fid, keys: Object.keys(kv).join(",") });
     process.stdout.write(`${fid}: ${Object.keys(kv).join(", ")} updated\n`);
   });
 }
@@ -575,7 +754,7 @@ function featureAddRef(dataDir, args) {
     }
     const block = setArrayField(fm.block, "references", [...existing, refPath]);
     writeFrontmatteredFile(path, fm, block);
-    logEvent(dataDir, "feature_ref_added", { feature: fid, path: refPath });
+    emit(dataDir, "feature_ref_added", { feature: fid, path: refPath });
     process.stdout.write(`${fid}: added reference ${refPath}\n`);
   });
 }
@@ -602,37 +781,49 @@ function featureAddExternalRef(dataDir, args) {
     }
     const block = setArrayField(fm.block, "external_refs", [...existing, key]);
     writeFrontmatteredFile(path, fm, block);
-    logEvent(dataDir, "feature_external_ref_added", { feature: fid, key });
+    emit(dataDir, "feature_external_ref_added", { feature: fid, key });
     process.stdout.write(`${fid}: added external ref ${key}\n`);
   });
 }
 
 /**
- * Bidirectional dependency link/unlink between two features. "A depends on
- * B" is stored on BOTH files (A's `dependencies:` gets B, B's gets A) so
- * either file alone tells the whole story without a cross-file query. No
- * cycle detection — the CLI trusts the caller's judgment on whether A->B
- * makes sense; it only guarantees both sides of whichever edge is asked for
- * stay in sync.
+ * Dependency link/unlink between two records. `add-dep A B` means "A waits
+ * for B": A's `dependencies:` gets B, and B's `dependents:` gets A, so either
+ * file alone tells the whole story without a cross-file query.
+ *
+ * Until 4.0.0 the reverse side was written into B's `dependencies:` too, so
+ * every link was a loop (A waits for B, B waits for A). An epic of eight
+ * stories came out with every pair depending on each other and was untangled
+ * by hand. A link that would close a loop is refused; `remove-dep A B` clears
+ * the pair in both directions, the old symmetric form included.
  */
 function featureDepLink(dataDir, args, { add }) {
   const fidA = args[0];
   const fidB = args[1];
   const verb = add ? "add-dep" : "remove-dep";
-  if (!fidA || !fidB) fail(2, `usage: feature ${verb} <A> <B>`);
-  if (!FID_RE.test(fidA)) fail(2, `spec-state: invalid feature id "${fidA}"`);
-  if (!FID_RE.test(fidB)) fail(2, `spec-state: invalid feature id "${fidB}"`);
-  if (fidA === fidB) fail(3, `spec-state: feature ${verb} refuses a self-dependency (${fidA} == ${fidB})`);
+  if (!fidA || !fidB) fail(2, `usage: story ${verb} <A> <B>  (B may be a story or a T### task, e.g. a debug spike that blocks the story)`);
+  if (!isStoryId(fidA)) fail(2, `spec-state: invalid story id "${fidA}" — ${STORY_ID_HINT}`);
+  // F025 AC-4: a bug with an unknown root cause gets a debug-spike TASK attached
+  // through dependencies, so the task blocks the story until it is done.
+  const bIsTask = TASK_ID_RE.test(fidB);
+  if (!isStoryId(fidB) && !bIsTask) fail(2, `spec-state: invalid id "${fidB}" — a story (${STORY_ID_HINT}) or a task (T###)`);
+  if (fidA === fidB) fail(3, `spec-state: story ${verb} refuses a self-dependency (${fidA} == ${fidB})`);
 
   withTwoFeatureLocks(dataDir, fidA, fidB, () => {
     const pathA = resolveFeatureFile(dataDir, fidA);
-    const pathB = resolveFeatureFile(dataDir, fidB);
+    const pathB = bIsTask ? resolveTaskFile(dataDir, fidB) : resolveFeatureFile(dataDir, fidB);
+    if (bIsTask) {
+      const fmB = parseFm(readFileSync(pathB, "utf8"));
+      if (fmB && isBuilderRecord({ type: getScalar(fmB.block, "type"), kind: getScalar(fmB.block, "kind"), feature: getScalar(fmB.block, "feature") })) {
+        fail(3, `spec-state: ${fidB} is a builder step, not a task — a story depends on tasks (spike|unblocker|study|debug|chore), its steps are listed in steps:`);
+      }
+    }
 
-    const applyOne = (path, otherId) => {
+    const applyOne = (path, otherId, key) => {
       const content = readFileSync(path, "utf8");
       const fm = parseFm(content);
       if (!fm) fail(3, `spec-state: feature has no frontmatter block — refusing (${path})`);
-      const existing = getArrayField(fm.block, "dependencies");
+      const existing = getArrayField(fm.block, key);
       let next;
       let changed;
       if (add) {
@@ -643,21 +834,34 @@ function featureDepLink(dataDir, args, { add }) {
         next = existing.filter((id) => id !== otherId);
       }
       if (changed) {
-        const block = setArrayField(fm.block, "dependencies", next);
+        const block = setArrayField(fm.block, key, next);
         writeFrontmatteredFile(path, fm, block);
       }
       return changed;
     };
 
-    const changedA = applyOne(pathA, fidB);
-    const changedB = applyOne(pathB, fidA);
+    let changedA, changedB;
+    if (add) {
+      // A waits for B. If B already waits for A, this link would close a loop.
+      const fmB = parseFm(readFileSync(pathB, "utf8"));
+      if (fmB && getArrayField(fmB.block, "dependencies").includes(fidA)) {
+        fail(3, `spec-state: story add-dep ${fidA} ${fidB} would make a loop: ${fidB} already waits for ${fidA}. If that is wrong, remove it first: shipyard-data story remove-dep ${fidB} ${fidA}`);
+      }
+      changedA = applyOne(pathA, fidB, "dependencies");
+      changedB = applyOne(pathB, fidA, "dependents");
+    } else {
+      // Unlink the pair in both directions (also clears a pre-4.0 symmetric pair).
+      const a1 = applyOne(pathA, fidB, "dependencies"), a2 = applyOne(pathA, fidB, "dependents");
+      const b1 = applyOne(pathB, fidA, "dependencies"), b2 = applyOne(pathB, fidA, "dependents");
+      changedA = a1 || a2; changedB = b1 || b2;
+    }
 
     if (!changedA && !changedB) {
-      process.stdout.write(`feature ${verb}: no-op — ${fidA} <-> ${fidB} already ${add ? "linked" : "unlinked"}\n`);
+      process.stdout.write(`story ${verb}: no-op — ${fidA} and ${fidB} already ${add ? "linked" : "unlinked"}\n`);
       return;
     }
-    logEvent(dataDir, add ? "feature_dep_added" : "feature_dep_removed", { a: fidA, b: fidB });
-    process.stdout.write(`feature ${verb}: ${fidA} <-> ${fidB}\n`);
+    emit(dataDir, add ? "feature_dep_added" : "feature_dep_removed", { a: fidA, b: fidB, ...(bIsTask ? { b_kind: "task" } : {}) });
+    process.stdout.write(add ? `story add-dep: ${fidA} waits for ${fidB}\n` : `story remove-dep: ${fidA} and ${fidB} unlinked\n`);
   });
 }
 
@@ -669,58 +873,68 @@ function featureDepLink(dataDir, args, { add }) {
  * features get re-decomposed fresh next planning cycle). No task-state
  * validation — this does not touch the task files themselves.
  */
+/** The story's step-list key: `steps:` (v4) when present or when neither exists; legacy `tasks:` is kept where it already exists. */
+function stepsKey(block) {
+  if (/^steps:/m.test(block)) return "steps";
+  if (/^tasks:/m.test(block)) return "tasks";
+  return "steps";
+}
+
 function featureClearTasks(dataDir, args) {
   const fid = args[0];
-  if (!fid) fail(2, "usage: feature clear-tasks <FID>");
+  if (!fid) fail(2, "usage: story clear-steps <SID>");
   withNamedLock(dataDir, `feature-${fid}`, () => {
     const path = resolveFeatureFile(dataDir, fid);
     const content = readFileSync(path, "utf8");
     const fm = parseFm(content);
     if (!fm) fail(3, `spec-state: ${fid} has no frontmatter block — refusing`);
-    const existing = getArrayField(fm.block, "tasks");
-    const block = setArrayField(fm.block, "tasks", []);
+    const key = stepsKey(fm.block);
+    const existing = getArrayField(fm.block, key);
+    const block = setArrayField(fm.block, key, []);
     writeFrontmatteredFile(path, fm, block);
-    logEvent(dataDir, "feature_tasks_cleared", { feature: fid, count: existing.length });
-    process.stdout.write(`${fid}: cleared ${existing.length} task(s) from tasks:\n`);
+    emit(dataDir, "feature_tasks_cleared", { story: fid, feature: fid, count: existing.length });
+    process.stdout.write(`${fid}: cleared ${existing.length} step(s) from ${key}:\n`);
   });
 }
 
 function featureSetTasks(dataDir, args) {
   const fid = args[0];
   const raw = args[1];
-  if (!fid || raw === undefined) fail(2, "usage: feature set-tasks <FID> <TID,TID,...>");
-  if (!FID_RE.test(fid)) fail(2, `spec-state: invalid feature id "${fid}" — expected F### or F###<letter> (e.g. F004, F071d)`);
+  if (!fid || raw === undefined) fail(2, "usage: story set-steps <SID> <PID,PID,...>");
+  if (!isStoryId(fid)) fail(2, `spec-state: invalid story id "${fid}" — ${STORY_ID_HINT}`);
   const tasks = raw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
   for (const tid of tasks) validateTaskId(tid);
   const deduped = [...new Set(tasks)];
-  if (deduped.length !== tasks.length) fail(3, `spec-state: feature set-tasks refuses duplicate task IDs`);
+  if (deduped.length !== tasks.length) fail(3, `spec-state: story set-steps refuses duplicate step IDs`);
 
   withNamedLock(dataDir, `feature-${fid}`, () => {
     const path = resolveFeatureFile(dataDir, fid);
     const validatedTasks = [];
     for (const tid of deduped) {
       const taskPath = resolveTaskFile(dataDir, tid, { optional: true });
-      if (!taskPath) fail(4, `spec-state: feature set-tasks refuses missing task ${tid}`);
+      if (!taskPath) fail(4, `spec-state: story set-steps refuses missing step ${tid}`);
       const taskContent = readFileSync(taskPath, "utf8");
       const taskFm = parseFm(taskContent);
-      if (!taskFm) fail(3, `spec-state: task ${tid} has no frontmatter block — refusing`);
-      const parentFeature = getScalar(taskFm.block, "feature");
+      if (!taskFm) fail(3, `spec-state: step ${tid} has no frontmatter block — refusing`);
+      // A step points at its story through `story:` (v4) or the legacy `feature:` key.
+      const parentFeature = getScalar(taskFm.block, "story") || getScalar(taskFm.block, "feature");
       if (parentFeature !== fid) {
-        fail(3, `spec-state: feature set-tasks refuses ${tid}: task feature is "${parentFeature || "(missing)"}", not "${fid}"`);
+        fail(3, `spec-state: story set-steps refuses ${tid}: step story is "${parentFeature || "(missing)"}", not "${fid}"`);
       }
       validatedTasks.push(tid);
     }
     const content = readFileSync(path, "utf8");
     const fm = parseFm(content);
     if (!fm) fail(3, `spec-state: ${fid} has no frontmatter block — refusing`);
-    let block = setArrayField(fm.block, "tasks", validatedTasks);
+    const key = stepsKey(fm.block);
+    let block = setArrayField(fm.block, key, validatedTasks);
     block = setScalar(block, "updated", today());
     writeFrontmatteredFile(path, fm, block);
-    logEvent(dataDir, "feature_tasks_set", { feature: fid, tasks: validatedTasks.join(","), count: validatedTasks.length });
-    process.stdout.write(`${fid}: tasks = [${validatedTasks.join(", ")}]\n`);
+    emit(dataDir, "feature_tasks_set", { story: fid, feature: fid, steps: validatedTasks.join(","), tasks: validatedTasks.join(","), count: validatedTasks.length });
+    process.stdout.write(`${fid}: ${key} = [${validatedTasks.join(", ")}]\n`);
   });
 }
 
@@ -792,8 +1006,17 @@ function featureRecordProof(dataDir, args) {
     kv[a.slice(0, eq)] = a.slice(eq + 1);
   }
   const usage =
-    'usage: feature record-proof <FID> verdict=pass|fail confirmed-by=<who> commit=<sha> [note="..."] [at=<ISO>]';
+    'usage: story record-proof <id> verdict=pass|fail confirmed-by=<who> commit=<sha> answer="<what that person said about THIS flow>" [note="..."] [at=<ISO>]';
   if (!fid || !("verdict" in kv) || !("confirmed-by" in kv) || !("commit" in kv)) fail(2, usage);
+  // A human verdict is that person's answer about THIS flow (4.12). At a real
+  // sprint review four "look at it on the device" checks were recorded as
+  // confirmed by the owner because the owner accepted the sprint; nobody had
+  // looked. Accepting a sprint is not looking at a screen, so the answer is
+  // required and kept, where a wrong one is plain to see.
+  const answer = String(kv.answer ?? "").replace(/\s+/g, " ").trim();
+  if (answer.length < 2) {
+    fail(3, `spec-state: record-proof needs answer="<what ${kv["confirmed-by"] || "that person"} said about this flow>". Accepting the sprint, or silence, is not a confirmation: leave the probe pending and list it as not verified.`);
+  }
 
   const verdict = kv.verdict;
   if (!PROOF_VERDICTS.includes(verdict)) {
@@ -840,16 +1063,18 @@ function featureRecordProof(dataDir, args) {
     block = setNestedScalarAppend(block, "user_flow_probe", "last_confirmed_by", JSON.stringify(confirmedBy));
     block = setNestedScalarAppend(block, "user_flow_probe", "last_confirmed_at", JSON.stringify(at));
     block = setNestedScalarAppend(block, "user_flow_probe", "last_commit", commit);
+    block = setNestedScalarAppend(block, "user_flow_probe", "last_answer", JSON.stringify(answer.slice(0, 300)));
     if (kv.note) block = setNestedScalarAppend(block, "user_flow_probe", "last_note", JSON.stringify(kv.note));
     block = setScalar(block, "updated", today());
     writeFrontmatteredFile(path, fm, block);
 
-    logEvent(dataDir, "user_flow_probe_confirmed", {
+    emit(dataDir, "user_flow_probe_confirmed", {
       feature: fid,
       kind: probe.kind,
       verdict,
       commit,
       confirmed_by: confirmedBy,
+      answer: answer.slice(0, 300),
     });
     if (probe.legacy) {
       process.stderr.write(
@@ -857,6 +1082,30 @@ function featureRecordProof(dataDir, args) {
       );
     }
     process.stdout.write(`${fid}: user_flow_probe ${probe.kind} verdict=${verdict} by ${confirmedBy} @ ${commit}\n`);
+  });
+}
+
+/**
+ * `story retract-proof <id> reason="..."` (4.12) — take back a human verdict
+ * that should not have been recorded. The event log is never rewritten: a
+ * `user_flow_probe_retracted` event follows the confirmation and readers take
+ * the later of the two.
+ */
+function featureRetractProof(dataDir, args) {
+  const fid = args[0];
+  const m = args.slice(1).join(" ").match(/reason=(.*)$/s);
+  const reason = (m ? m[1] : "").replace(/^["']|["']$/g, "").replace(/\s+/g, " ").trim();
+  if (!fid || reason.length < 2) fail(2, 'usage: story retract-proof <id> reason="<why the recorded verdict does not stand>"');
+  withNamedLock(dataDir, `feature-${fid}`, () => {
+    const path = resolveFeatureFile(dataDir, fid);
+    const fm = parseFm(readFileSync(path, "utf8"));
+    if (!fm) fail(3, `spec-state: ${fid} has no frontmatter block — refusing`);
+    let block = setNestedScalarAppend(fm.block, "user_flow_probe", "last_verdict", "retracted");
+    block = setNestedScalarAppend(block, "user_flow_probe", "last_note", JSON.stringify(`retracted: ${reason}`.slice(0, 300)));
+    block = setScalar(block, "updated", today());
+    writeFrontmatteredFile(path, fm, block);
+    emit(dataDir, "user_flow_probe_retracted", { feature: fid, reason: reason.slice(0, 300) });
+    process.stdout.write(`${fid}: the recorded human verdict is retracted — ${reason}\n`);
   });
 }
 
@@ -878,6 +1127,106 @@ function featureRecordProof(dataDir, args) {
  * eyeballing the field, matching the workspace rule that pipeline gates read
  * data artifacts rather than trust model self-review.
  */
+/**
+ * Advisory (4.15): scenarios start from a path map. A story with tagged
+ * scenarios and no `## Paths` section, or with a scenario the map never
+ * names, gets a note. Never a failure: stories written before the rule pass.
+ */
+export function pathMapNote(text) {
+  const ids = [...new Set((String(text).match(/@AC-\d+\b/g) || []))];
+  if (!ids.length) return "";
+  const lines = String(text).split(/\r?\n/);
+  const at = lines.findIndex((l) => /^##\s+Paths\s*$/i.test(l));
+  if (at === -1) return " — note: no `## Paths` section (every way the trigger can end, each with its scenario or the reason it cannot happen)";
+  let end = lines.findIndex((l, i) => i > at && /^##\s+/.test(l));
+  if (end === -1) end = lines.length;
+  const map = lines.slice(at, end).join("\n");
+  const missing = ids.filter((id) => !new RegExp(`${id.replace("@", "@?")}\\b`).test(map));
+  return missing.length ? ` — note: \`## Paths\` names no ending for ${missing.join(", ")}` : "";
+}
+
+const LEVEL_TAGS = ["@e2e", "@component", "@unit"];
+
+/** `spec.behaviour_first` (config.md, default true): the approval gate below. */
+function behaviourFirstOn(dataDir) {
+  try {
+    const cfg = readFileSync(join(dataDir, "config.md"), "utf8");
+    const m = /^spec:\s*\n((?:[ \t]+.*\n?)*)/m.exec(cfg);
+    return !(m && /^[ \t]+behaviour_first:\s*false\b/m.test(m[1]));
+  } catch { return true; }
+}
+
+/**
+ * What is wrong with a story's scenarios under the behaviour-first rules
+ * (4.15.2). Pure: text in, list of problems out.
+ *   - every scenario has an id (`@AC-n`) and exactly one level tag;
+ *   - a level below the journey says why, on the next line:
+ *     `# why not e2e: <reason>`;
+ *   - `## Paths` exists and names every scenario.
+ */
+export function scenarioProblems(text) {
+  const out = [];
+  const lines = String(text ?? "").split(/\r?\n/);
+  const scen = lines.map((l, i) => ({ l, i })).filter((x) => /^\s*Scenario( Outline)?:/.test(x.l));
+  if (!scen.length) return ["no Gherkin scenario"];
+  const ids = new Set();
+  for (const s of scen) {
+    // the tag lines directly above the scenario (comments allowed between)
+    const tags = []; let why = false;
+    for (let j = s.i - 1; j >= 0; j--) {
+      const t = lines[j].trim();
+      if (t.startsWith("@")) tags.push(...t.split(/\s+/));
+      else if (/^#\s*why not e2e:\s*\S/i.test(t)) why = true;
+      else if (t.startsWith("#")) continue;
+      else break;
+    }
+    const name = s.l.trim().replace(/^Scenario( Outline)?:\s*/, "").slice(0, 50);
+    const id = tags.find((t) => /^@AC-\d+$/.test(t));
+    if (!id) { out.push(`scenario "${name}" has no @AC-<n> id`); continue; }
+    ids.add(id);
+    const levels = tags.filter((t) => LEVEL_TAGS.includes(t));
+    if (levels.length !== 1) out.push(`${id} needs exactly one level tag (@e2e by default; @component or @unit with a reason), has ${levels.length ? levels.join(" ") : "none"}`);
+    else if (levels[0] !== "@e2e" && !why) out.push(`${id} is ${levels[0]} with no reason: add the line \`# why not e2e: <a fault, race or timing the journey cannot stage | a rule with many input values>\` under its tags`);
+  }
+  const at = lines.findIndex((l) => /^##\s+Paths\s*$/i.test(l));
+  if (at === -1) out.push("no `## Paths` section: list every way the trigger can end, each with its scenario or the reason it cannot happen");
+  else {
+    let end = lines.findIndex((l, i) => i > at && /^##\s+/.test(l));
+    if (end === -1) end = lines.length;
+    const map = lines.slice(at, end).join("\n");
+    const missing = [...ids].filter((id) => !new RegExp(`${id.slice(1)}\\b`).test(map));
+    if (missing.length) out.push(`\`## Paths\` names no ending for ${missing.join(", ")}`);
+  }
+  return out;
+}
+
+/**
+ * `story check-scenarios <ID> [<ID> ...]` — the behaviour-first gate, run
+ * where scenarios are written and where they enter a sprint (discuss
+ * finalize, sprint planning). Never part of execute: a sprint planned before
+ * the rule is not stopped mid-flight. Exit 0 all good, 3 with one line per
+ * problem.
+ */
+function featureCheckScenarios(dataDir, args) {
+  const fids = args.filter((a) => !a.startsWith("--"));
+  if (fids.length === 0) fail(2, "usage: story check-scenarios <ID> [<ID> ...]");
+  let bad = 0;
+  for (const fid of fids) {
+    if (!FID_RE.test(fid)) fail(2, `spec-state: invalid story id "${fid}"`);
+    const path = resolveFeatureFile(dataDir, fid, { optional: true });
+    if (!path) { bad++; process.stdout.write(`${fid}: MISSING-FILE\n`); continue; }
+    const problems = scenarioProblems(readFileSync(path, "utf8"));
+    if (!problems.length) { process.stdout.write(`${fid}: OK\n`); continue; }
+    bad++;
+    for (const p of problems) process.stdout.write(`${fid}: ${p}\n`);
+  }
+  if (bad) {
+    process.stdout.write(`check-scenarios: ${bad} of ${fids.length} stor${fids.length === 1 ? "y" : "ies"} need work (rules: skills/tdd-cycle/references/test-economy.md)\n`);
+    process.exit(3);
+  }
+  process.stdout.write(`check-scenarios: all ${fids.length} stor${fids.length === 1 ? "y" : "ies"} start from the behaviour\n`);
+}
+
 function featureCheckProbes(dataDir, args) {
   const fids = args.filter((a) => !a.startsWith("--"));
   if (fids.length === 0) fail(2, "usage: feature check-probes <FID> [<FID> ...]");
@@ -919,10 +1268,12 @@ function featureCheckProbes(dataDir, args) {
       } else {
         process.stdout.write(`${fid}: OK skip-with-reason${legacyNote}\n`);
       }
-    } else if (probe.shape === "scalar") {
-      process.stdout.write(`${fid}: OK kind=auto${legacyNote}\n`);
-    } else if (USER_FLOW_PROBE_KINDS.includes(probe.kind)) {
-      process.stdout.write(`${fid}: OK kind=${probe.kind}${legacyNote}\n`);
+    } else if (probe.shape === "scalar" || USER_FLOW_PROBE_KINDS.includes(probe.kind)) {
+      // A probe proves the story, not the project (4.14): one that ends with
+      // the full test command still passes, with a note to drop that part.
+      let suiteNote = "";
+      try { const pc = readProbeCommand(readFileSync(path, "utf8")); const t = pc ? trailingSuite(dataDir, pc.command) : null; if (t) suiteNote = ` — note: ends with the full ${t.tier} suite (\`${t.command}\`); the sprint proves the suite once, so drop it from the probe`; } catch { /* note only */ }
+      process.stdout.write(`${fid}: OK kind=${probe.shape === "scalar" ? "auto" : probe.kind}${legacyNote}${suiteNote}${pathMapNote(readFileSync(path, "utf8"))}\n`);
     } else {
       failures.push(fid);
       process.stdout.write(
@@ -1003,7 +1354,7 @@ function backlogAdd(dataDir, args) {
       const unscored = withScores.filter((x) => x.score === null);
       b.ids = [...scored, ...unscored].map((x) => x.id);
       serializeBacklog(b);
-      logEvent(dataDir, "backlog_added", { features: added.join(",") });
+      emit(dataDir, "backlog_added", { features: added.join(",") });
       process.stdout.write(`backlog add: added ${added.join(", ")}\n`);
     });
   });
@@ -1039,7 +1390,7 @@ function backlogRemove(dataDir, args) {
     if (missing.length) {
       process.stderr.write(`backlog remove: not present (no-op): ${missing.join(", ")}\n`);
     }
-    logEvent(dataDir, "backlog_removed", { features: removed.join(",") });
+    emit(dataDir, "backlog_removed", { features: removed.join(",") });
     process.stdout.write(`backlog remove: removed ${removed.join(", ")}\n`);
   });
 }
@@ -1054,7 +1405,7 @@ function backlogRank(dataDir) {
     b.ids = [...scored, ...unscored].map((x) => x.id);
     serializeBacklog(b);
     const missingIds = unscored.map((x) => x.id);
-    logEvent(dataDir, "backlog_ranked", { count: b.ids.length, missing_rice: missingIds.join(",") });
+    emit(dataDir, "backlog_ranked", { count: b.ids.length, missing_rice: missingIds.join(",") });
     process.stdout.write(
       `backlog rank: ${b.ids.length} item(s) ranked` +
         (missingIds.length ? `; missing RICE components (sunk to bottom): ${missingIds.join(", ")}\n` : "\n"),
@@ -1079,7 +1430,7 @@ function backlogSet(dataDir, args) {
     if (!fm) fail(1, "spec-state: BACKLOG.md has no frontmatter block — refusing");
     const block = setScalar(fm.block, "last_groomed", value);
     writeFrontmatteredFile(path, fm, block);
-    logEvent(dataDir, "backlog_groomed", { date: value });
+    emit(dataDir, "backlog_groomed", { date: value });
     process.stdout.write(`backlog: last_groomed = ${value}\n`);
   });
 }
@@ -1130,11 +1481,18 @@ function featureAssignAcIds(dataDir, args) {
       const scen = inSection ? lines[i].match(/^(\s*)(Scenario|Scenario Outline):/) : null;
       if (scen) {
         total += 1;
-        // Preceding non-blank line already carries an @AC tag? then keep as-is.
-        let j = out.length - 1;
-        while (j >= 0 && out[j].trim() === "") j--;
-        const prev = j >= 0 ? out[j] : "";
-        if (!/@AC-\d+\b/.test(prev)) {
+        // Already tagged? Look through everything that belongs to this scenario's
+        // header: blank lines, `# comment` lines (the `# why not e2e:` reason sits
+        // between the tag and `Scenario:`) and tag lines. Reading only the one
+        // line above gave a second id to every scenario with such a comment.
+        let tagged = false;
+        for (let j = out.length - 1; j >= 0; j--) {
+          const t = out[j].trim();
+          if (t === "" || t.startsWith("#")) continue;
+          if (!t.startsWith("@")) break;
+          if (/@AC-\d+\b/.test(t)) { tagged = true; break; }
+        }
+        if (!tagged) {
           maxId += 1;
           assigned += 1;
           out.push(`${scen[1]}@AC-${maxId}`);
@@ -1144,30 +1502,87 @@ function featureAssignAcIds(dataDir, args) {
     }
 
     if (assigned > 0) atomicWriteFile(path, out.join("\n"));
-    logEvent(dataDir, "feature_ac_ids_assigned", { feature: fid, assigned, total });
+    emit(dataDir, "feature_ac_ids_assigned", { feature: fid, assigned, total });
     process.stdout.write(`assign-ac-ids ${fid}: assigned ${assigned} (total ${total})\n`);
   });
 }
 
 // --- idea commands -----------------------------------------------------------
 
+/**
+ * `idea set-status <IDEA-NNN> <captured|assessing|promoted|rejected|parked> [--to <S###|F###|E###>]`
+ * (terminology-v4 D-9 / A-07). Old values are accepted on input and read from
+ * disk through IDEA_STATUS_ALIASES (`proposed` = captured, `graduated` =
+ * promoted); the file is written with the new value. `promoted` requires
+ * `--to` naming an existing story or epic; the target is written to
+ * `promoted_to:` (and `graduated_to:` when it is a story, so pre-v4 readers
+ * still find it). `rejected`/`parked` refuse `--to`.
+ */
+/**
+ * `idea triage <IDEA-NNN> --kind defect|improvement|question [--severity low|medium|high]
+ *              [--fixed-by <step id>] [--reason "..."]` (4.7.2)
+ *
+ * The decision on a finding, recorded where the gates read it. A defect needs
+ * a severity; calling a defect low (so it may wait in the backlog) needs a
+ * one-line reason, which the sprint review shows. `--fixed-by` names the patch
+ * step that fixes a defect in the sprint and must exist.
+ */
+function ideaTriage(dataDir, args) {
+  const ideaId = args[0];
+  const val = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
+  const kind = val("--kind"), severity = val("--severity"), fixedBy = val("--fixed-by"), reason = val("--reason");
+  const usage = 'usage: idea triage <IDEA-NNN> --kind defect|improvement|question [--severity low|medium|high] [--fixed-by <step id>] [--reason "..."]';
+  if (!ideaId || ideaId.startsWith("--") || !kind) fail(2, usage);
+  if (!FINDING_KINDS.includes(kind)) fail(2, `spec-state: idea triage: unknown kind "${kind}". Allowed: ${FINDING_KINDS.join(", ")}`);
+  if (severity !== undefined && !FINDING_SEVERITIES.includes(severity)) fail(2, `spec-state: idea triage: unknown severity "${severity}". Allowed: ${FINDING_SEVERITIES.join(", ")}`);
+  if (kind === "defect" && !severity) fail(3, "spec-state: idea triage: a defect needs --severity low|medium|high (how badly a user is affected)");
+  if (kind === "defect" && severity === "low" && !(reason && reason.trim())) fail(3, 'spec-state: idea triage: calling a defect low severity sends it to the backlog instead of fixing it in the sprint — say why in --reason "..." (the sprint review shows it)');
+  if (fixedBy !== undefined) {
+    if (kind !== "defect") fail(3, "spec-state: idea triage: --fixed-by applies to a defect only");
+    if (!resolveTaskFile(dataDir, fixedBy, { optional: true })) fail(3, `spec-state: idea triage: --fixed-by ${fixedBy} is not a step file under spec/steps/ (or the legacy spec/tasks/) — write the patch step first`);
+  }
+  withNamedLock(dataDir, `idea-${ideaId}`, () => {
+    const path = resolveIdeaFile(dataDir, ideaId);
+    const fm = parseFm(readFileSync(path, "utf8"));
+    if (!fm) fail(3, `spec-state: ${ideaId} has no frontmatter block — refusing`);
+    let block = setScalar(fm.block, "kind", kind);
+    if (severity) block = setScalar(block, "severity", severity);
+    if (fixedBy) block = setScalar(block, "fixed_by", fixedBy);
+    if (reason && reason.trim()) block = setScalar(block, "triage_reason", JSON.stringify(reason.trim().replace(/\s+/g, " ")));
+    writeFrontmatteredFile(path, fm, block);
+    emit(dataDir, "idea_triaged", { idea: ideaId, kind, ...(severity ? { severity } : {}), ...(fixedBy ? { fixed_by: fixedBy } : {}), ...(reason ? { reason: reason.trim() } : {}) });
+    process.stdout.write(`${ideaId}: ${kind}${severity ? `, ${severity}` : ""}${fixedBy ? `, fixed by ${fixedBy}` : ""}\n`);
+  });
+}
+
 function ideaSetStatus(dataDir, args) {
   const ideaId = args[0];
-  const toStatus = args[1];
+  const rawTo = args[1];
   const toIdx = args.indexOf("--to");
-  const toFeature = toIdx !== -1 ? args[toIdx + 1] : undefined;
-  if (!ideaId || !toStatus) fail(2, "usage: idea set-status <IDEA-NNN> <graduated|rejected> [--to FNNN]");
-
-  if (toStatus === "graduated" && !toFeature) {
-    fail(3, "spec-state: idea set-status graduated requires --to FNNN (which feature it graduated to)");
+  const target = toIdx !== -1 ? args[toIdx + 1] : undefined;
+  if (!ideaId || !rawTo || rawTo.startsWith("--")) {
+    fail(2, "usage: idea set-status <IDEA-NNN> <captured|assessing|promoted|rejected|parked> [--to <S###|E###>]");
   }
-  if (toStatus === "rejected" && toFeature) {
-    fail(3, "spec-state: idea set-status rejected refuses --to — a rejected idea has no graduation target");
+  const toStatus = normalizeStatus(IDEA_STATUS_ALIASES, rawTo);
+  if (!Object.prototype.hasOwnProperty.call(IDEA_TRANSITIONS, toStatus)) {
+    fail(2, `spec-state: unknown idea status "${rawTo}". Allowed: ${Object.keys(IDEA_TRANSITIONS).join(", ")} (legacy: proposed, graduated)`);
   }
-  if (toFeature) {
-    if (!FID_RE.test(toFeature)) fail(3, `spec-state: --to "${toFeature}" is not a valid feature id (expected F### or F###<letter>)`);
-    if (!resolveFeatureFile(dataDir, toFeature, { optional: true })) {
-      fail(3, `spec-state: --to ${toFeature} does not exist under spec/features/`);
+  if (toStatus === "promoted" && !target) {
+    fail(3, "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)");
+  }
+  if (toStatus !== "promoted" && target) {
+    fail(3, `spec-state: idea set-status ${toStatus} refuses --to — only a promoted idea has a target`);
+  }
+  let targetKind = null;
+  if (target) {
+    if (EPIC_ID_RE.test(target)) {
+      if (!resolveEpicFile(dataDir, target, { optional: true })) fail(3, `spec-state: --to ${target} does not exist under spec/epics/`);
+      targetKind = "epic";
+    } else if (isStoryId(target)) {
+      if (!resolveStoryFile(dataDir, target, { optional: true })) fail(3, `spec-state: --to ${target} does not exist under spec/stories/ (or the legacy spec/features/, spec/bugs/)`);
+      targetKind = "story";
+    } else {
+      fail(3, `spec-state: --to "${target}" is not a story or epic id (${STORY_ID_HINT}; or E###)`);
     }
   }
 
@@ -1176,37 +1591,139 @@ function ideaSetStatus(dataDir, args) {
     const content = readFileSync(path, "utf8");
     const fm = parseFm(content);
     if (!fm) fail(3, `spec-state: ${ideaId} has no frontmatter block — refusing`);
-    const fromStatus = getScalar(fm.block, "status");
+    const rawFrom = getScalar(fm.block, "status");
+    let fromStatus = normalizeStatus(IDEA_STATUS_ALIASES, rawFrom);
+    // A status the lifecycle does not know (`new`, `pending`, `open`, or none:
+    // what a builder writes when nobody told it the word) is the entry state.
+    // Nine of a real project's ideas were `status: new`, and this verb refused
+    // every one, so a promotion could not be recorded. `idea repair` still
+    // lists such records; a move from one is simply allowed and fixes it.
+    if (!Object.prototype.hasOwnProperty.call(IDEA_TRANSITIONS, fromStatus)) {
+      process.stderr.write(`spec-state: ${ideaId} had status "${rawFrom || "(none)"}", which is not a lifecycle state — read as captured\n`);
+      fromStatus = "captured";
+    }
     const check = validateStatusTransition(IDEA_TRANSITIONS, fromStatus, toStatus);
     if (!check.ok) {
       const known = IDEA_TRANSITIONS[fromStatus];
       fail(
         3,
-        `spec-state: illegal idea status transition ${fromStatus} -> ${toStatus} for ${ideaId}. ` +
+        `spec-state: illegal idea status transition ${rawFrom} -> ${toStatus} for ${ideaId}. ` +
           `Valid next states from "${fromStatus}": ${known ? (known.length ? known.join(", ") : "(none — terminal)") : "(unknown status)"}.`,
       );
     }
     let block = setScalar(fm.block, "status", toStatus);
-    if (toFeature) block = setScalar(block, "graduated_to", toFeature);
+    if (target) {
+      block = setScalar(block, "promoted_to", target);
+      if (targetKind === "story") block = setScalar(block, "graduated_to", target);
+    }
     writeFrontmatteredFile(path, fm, block);
-    // NOTE: the design spec says "event gains to= when present" — but this
-    // CLI's status-change events already use `to` for the destination
-    // STATUS (matching feature_status_changed's shape). Naming the target
-    // feature field `to` as well would silently clobber that field in the
-    // same JS object literal. Named `graduated_feature` instead so both
-    // survive; see spec-state-cli's dev-notes deviation log.
+    // `to` is the destination STATUS (same shape as story_status_changed);
+    // the promotion target travels as `promoted_to` (+ legacy `graduated_feature`).
     const fields = { idea: ideaId, from: fromStatus, to: toStatus };
-    if (toFeature) fields.graduated_feature = toFeature;
-    logEvent(dataDir, "idea_status_changed", fields);
-    process.stdout.write(`${ideaId}: ${fromStatus} -> ${toStatus}` + (toFeature ? ` (-> ${toFeature})` : "") + "\n");
+    if (target) {
+      fields.promoted_to = target;
+      fields.promoted_kind = targetKind;
+      if (targetKind === "story") fields.graduated_feature = target;
+    }
+    emit(dataDir, "idea_status_changed", fields);
+    process.stdout.write(`${ideaId}: ${fromStatus} -> ${toStatus}` + (target ? ` (-> ${target})` : "") + "\n");
   });
 }
 
-const IDEA_STATUSES = new Set(Object.keys(IDEA_TRANSITIONS));
+/**
+ * `epic set-status <E###> <decided|refined|in-progress|done> [--force]`
+ * (terminology-v4 D-10 / A-08). `proposed` is the pre-v4 template value and
+ * reads as the entry state.
+ */
+function epicSetStatus(dataDir, args) {
+  const positional = args.filter((a) => !a.startsWith("--"));
+  const eid = positional[0];
+  const toStatus = positional[1];
+  const force = args.includes("--force");
+  if (!eid || !toStatus) fail(2, "usage: epic set-status <E###> <decided|refined|in-progress|done> [--force]");
+  if (!Object.prototype.hasOwnProperty.call(EPIC_TRANSITIONS, toStatus) || toStatus === "proposed") {
+    fail(2, `spec-state: unknown epic status "${toStatus}". Allowed: ${Object.keys(EPIC_TRANSITIONS).filter((k) => k !== "proposed").join(", ")}`);
+  }
+  withNamedLock(dataDir, `epic-${eid}`, () => {
+    const path = resolveEpicFile(dataDir, eid);
+    const content = readFileSync(path, "utf8");
+    const fm = parseFm(content);
+    if (!fm) fail(3, `spec-state: ${eid} has no frontmatter block — refusing`);
+    const fromStatus = getScalar(fm.block, "status") || "proposed";
+    const check = validateStatusTransition(EPIC_TRANSITIONS, fromStatus, toStatus);
+    if (!check.ok && !force) {
+      const known = EPIC_TRANSITIONS[fromStatus];
+      fail(
+        3,
+        `spec-state: illegal epic status transition ${fromStatus} -> ${toStatus} for ${eid}. ` +
+          `Valid next states from "${fromStatus}": ${known ? (known.length ? known.join(", ") : "(none — terminal)") : "(unknown status)"}. ` +
+          `Re-run with --force to override the graph.`,
+      );
+    }
+    let block = setScalar(fm.block, "status", toStatus);
+    block = setScalar(block, "updated", today());
+    writeFrontmatteredFile(path, fm, block);
+    emit(dataDir, "epic_status_changed", { epic: eid, from: fromStatus, to: toStatus, forced: !check.ok && force });
+    process.stdout.write(`${eid}: ${fromStatus} -> ${toStatus}\n`);
+  });
+}
+
+/**
+ * `task set-status <T###> <open|in-progress|done|dropped> [--force]` for the
+ * v4 task entity (enabling work, terminology-v4 T-4). A legacy builder record
+ * reached through the `task` verb is routed to the step vocabulary instead
+ * (see dispatch); this function never sees one.
+ */
+function taskEntitySetStatus(dataDir, args) {
+  const positional = args.filter((a) => !a.startsWith("--"));
+  const tid = positional[0];
+  const toStatus = positional[1];
+  const force = args.includes("--force");
+  if (!tid || !toStatus) fail(2, "usage: task set-status <T###> <open|in-progress|done|dropped> [--force]");
+  if (!Object.prototype.hasOwnProperty.call(TASK_TRANSITIONS, toStatus)) {
+    fail(2, `spec-state: unknown task status "${toStatus}". Allowed: ${Object.keys(TASK_TRANSITIONS).join(", ")} (a builder step uses step set-status)`);
+  }
+  withNamedLock(dataDir, `task-${tid}`, () => {
+    const path = resolveTaskFile(dataDir, tid);
+    const content = readFileSync(path, "utf8");
+    const fm = parseFm(content);
+    if (!fm) fail(3, `spec-state: ${tid} has no frontmatter block — refusing`);
+    const fromStatus = getScalar(fm.block, "status") || "open";
+    const check = validateStatusTransition(TASK_TRANSITIONS, fromStatus, toStatus);
+    if (!check.ok && !force) {
+      const known = TASK_TRANSITIONS[fromStatus];
+      fail(
+        3,
+        `spec-state: illegal task status transition ${fromStatus} -> ${toStatus} for ${tid}. ` +
+          `Valid next states from "${fromStatus}": ${known ? (known.length ? known.join(", ") : "(none — terminal)") : "(unknown status)"}. ` +
+          `Re-run with --force to override the graph.`,
+      );
+    }
+    let block = setScalar(fm.block, "status", toStatus);
+    block = setScalar(block, "updated", today());
+    writeFrontmatteredFile(path, fm, block);
+    emit(dataDir, "task_status_set", { task: tid, entity: "task", from: fromStatus, to: toStatus, forced: !check.ok && force });
+    process.stdout.write(`${tid}: ${fromStatus} -> ${toStatus}\n`);
+  });
+}
+
+/** Read a unit record's frontmatter (null when the file or block is missing). */
+function readUnitFrontmatter(dataDir, tid) {
+  const path = resolveTaskFile(dataDir, tid, { optional: true });
+  if (!path) return null;
+  const fm = parseFm(readFileSync(path, "utf8"));
+  if (!fm) return null;
+  const out = {};
+  for (const key of ["type", "kind", "feature", "story", "status"]) out[key] = getScalar(fm.block, key) ?? "";
+  return out;
+}
+
+// Valid on disk: the v4 vocabulary plus the two pre-v4 values it aliases
+// (proposed = captured, graduated = promoted) — those are read, not repaired.
+const IDEA_STATUSES = new Set([...Object.keys(IDEA_TRANSITIONS), ...Object.keys(IDEA_STATUS_ALIASES)]);
 const LEGACY_IDEA_STATUSES = new Set([
   "open",
   "idea",
-  "captured",
   "new",
   "backlog",
   "resolved",
@@ -1270,7 +1787,7 @@ function ideaRepair(dataDir, args) {
         // Invalid historical terminal-looking states cannot safely be called
         // graduated without a verified feature target. Proposed is the only
         // lossless repair state: it makes the record reachable for grooming.
-        status = "proposed";
+        status = "captured";
       }
 
       if (record.filenameId && record.filenameId !== id) reasons.push("filename_id_changed");
@@ -1304,7 +1821,7 @@ function ideaRepair(dataDir, args) {
 
     if (fix && changes.length) {
       atomicWriteFile(seqPath, String(max) + "\n");
-      logEvent(dataDir, "ideas_repaired", { count: changes.length, highest_id: max });
+      emit(dataDir, "ideas_repaired", { count: changes.length, highest_id: max });
     }
     const result = { clean: changes.length === 0, fixed: fix ? changes.length : 0, findings: changes };
     if (json) process.stdout.write(JSON.stringify(result) + "\n");
@@ -1351,12 +1868,12 @@ function taskSetStatus(dataDir, args) {
   const evidenceIdx = args.indexOf("--evidence");
   const evidence = evidenceIdx !== -1 ? args[evidenceIdx + 1] : undefined;
   const force = args.includes("--force");
-  if (!tid || !toStatus) fail(2, "usage: task set-status <TID> <status> [--reason \"...\"] [--evidence <path>] [--force]");
+  if (!tid || !toStatus) fail(2, "usage: step set-status <PID> <status> [--reason \"...\"] [--evidence <path>] [--force]");
   if (!TASK_STATUS_ALLOWED.has(toStatus)) {
-    fail(2, `spec-state: task set-status: unknown status "${toStatus}". Allowed: ${[...TASK_STATUS_ALLOWED].join(", ")}`);
+    fail(2, `spec-state: step set-status: unknown status "${toStatus}". Allowed: ${[...TASK_STATUS_ALLOWED].join(", ")}`);
   }
   if (TASK_HELD_STATUS_FIELDS[toStatus] && !reason) {
-    fail(3, `spec-state: task set-status ${toStatus} requires --reason "<short reason>"`);
+    fail(3, `spec-state: step set-status ${toStatus} requires --reason "<short reason>"`);
   }
 
   withNamedLock(dataDir, `task-${tid}`, () => {
@@ -1386,7 +1903,7 @@ function taskSetStatus(dataDir, args) {
       if (!evidenceOk) {
         fail(
           3,
-          `spec-state: task set-status ${toStatus} from in-progress requires --evidence <path> to a non-empty capture/return file ` +
+          `spec-state: step set-status ${toStatus} from in-progress requires --evidence <path> to a non-empty capture/return file ` +
             `(execution.require_park_evidence is on). Point it at the builder's capture log or .subagent-returns/<id>.json, or pass --force.`,
         );
       }
@@ -1395,7 +1912,7 @@ function taskSetStatus(dataDir, args) {
     if (fromStatus === "done" && toStatus !== "done" && !force) {
       fail(
         3,
-        `spec-state: task ${tid} status "done" is terminal — leaving it requires --force (attempted done -> ${toStatus})`,
+        `spec-state: step ${tid} status "done" is terminal — leaving it requires --force (attempted done -> ${toStatus})`,
       );
     }
 
@@ -1417,11 +1934,13 @@ function taskSetStatus(dataDir, args) {
     }
     writeFrontmatteredFile(path, fm, block);
 
-    const eventFields = { task: tid, from: fromStatus, to: toStatus };
+    // v4: the builder unit is a step; writers emit step_status_set (readers
+    // accept the old task_status_set). task_blocked keeps its name (A-02).
+    const eventFields = { task: tid, step: tid, from: fromStatus, to: toStatus };
     if (reason) eventFields.reason = reason;
-    logEvent(dataDir, "task_status_set", eventFields);
+    emit(dataDir, "step_status_set", eventFields);
     if (toStatus === "blocked") {
-      logEvent(dataDir, "task_blocked", { task: tid, reason });
+      emit(dataDir, "task_blocked", { task: tid, reason });
     }
     process.stdout.write(`${tid}: ${fromStatus} -> ${toStatus}\n`);
   });
@@ -1473,7 +1992,7 @@ function taskAppendVerify(dataDir, args) {
     ];
     const block = appendBlockListEntry(fm.block, "verify_history", entryLines);
     writeFrontmatteredFile(path, fm, block);
-    logEvent(dataDir, "task_verify_appended", { task: tid, iteration, exit: exitCode });
+    emit(dataDir, "step_verify_appended", { task: tid, iteration, exit: exitCode });
     process.stdout.write(`${tid}: verify_history +iteration ${iteration}\n`);
   });
 }
@@ -1491,9 +2010,29 @@ function taskAppendVerify(dataDir, args) {
 // flow-style YAML array).
 const CONFIG_SET_ALLOWLIST = {
   "product-spec-path": { fmKey: "product_spec_path", type: "scalar" },
+  // 4.20.1: project files a discussion may write (where this project records
+  // its decisions); everything else in the project is read-only to /ship-discuss.
+  "discuss-writable": { fmKey: "discuss_writable", type: "array" },
+  "verify-ignore": { fmKey: "verify_ignore", type: "array" },
   "worktree-warm-enabled": { parent: "worktree_warm", fmKey: "enabled", type: "bool" },
   "worktree-warm-paths": { parent: "worktree_warm", fmKey: "paths", type: "array" },
   "test-commands-rerun-failed": { parent: "test_commands", fmKey: "rerun_failed", type: "scalar" },
+  // 4.4: the commands the pipeline runs were not settable by CLI, so the
+  // orchestrator hand-edited config.md (seen live) — now typed and atomic.
+  "test-commands-unit": { parent: "test_commands", fmKey: "unit", type: "scalar" },
+  "test-commands-integration": { parent: "test_commands", fmKey: "integration", type: "scalar" },
+  "test-commands-e2e": { parent: "test_commands", fmKey: "e2e", type: "scalar" },
+  "test-commands-scoped": { parent: "test_commands", fmKey: "scoped", type: "scalar" },
+  "build-commands-full": { parent: "build_commands", fmKey: "full", type: "scalar" },
+  "build-commands-scoped": { parent: "build_commands", fmKey: "scoped", type: "scalar" },
+  "project-type": { fmKey: "project_type", type: "scalar" },
+  "ui-adapter": { parent: "ui", fmKey: "adapter", type: "scalar" },
+  "routing-size-tiers": { parent: "routing", fmKey: "size_tiers", type: "scalar" },
+  "ui-frame-command": { parent: "ui", fmKey: "frame_command", type: "scalar" },
+  "ui-base-url": { parent: "ui", fmKey: "base_url", type: "scalar" },
+  "ui-playwright-root": { parent: "ui", fmKey: "playwright_root", type: "scalar" },
+  "testing-framework": { fmKey: "testing_framework", type: "scalar" },
+  "e2e-framework": { fmKey: "e2e_framework", type: "scalar" },
   "max-undispositioned-ideas": { parent: "execution", fmKey: "max_undispositioned_ideas", type: "scalar" },
 };
 
@@ -1628,7 +2167,7 @@ function configSet(dataDir, args) {
   writeFrontmatteredFile(configPath, fm, block);
 
   const loggedKey = parent ? `${parent}.${fmKey}` : fmKey;
-  logEvent(dataDir, "config_set", { key: loggedKey });
+  emit(dataDir, "config_set", { key: loggedKey });
   process.stdout.write(`config: ${loggedKey} = ${type === "array" ? `[${arrayValue.join(", ")}]` : writtenValue}\n`);
 }
 
@@ -1652,7 +2191,7 @@ function draftObsoleteResearch(dataDir, args) {
     }
     const block = setScalar(fm.block, "obsolete", "true");
     writeFrontmatteredFile(path, fm, block);
-    logEvent(dataDir, "research_draft_obsoleted", { topic: expectedTopic ?? null });
+    emit(dataDir, "research_draft_obsoleted", { topic: expectedTopic ?? null });
     process.stdout.write(".research-draft.md obsolete: true\n");
   });
 }
@@ -1661,9 +2200,10 @@ function draftSetSprintStatus(dataDir, args) {
   const status = args[0];
   const allowed = new Set(["superseded", "cancelled"]);
   if (!status || !allowed.has(status)) {
-    fail(2, "usage: draft set-sprint-status <superseded|cancelled>");
+    fail(2, "usage: draft set-sprint-status <superseded|cancelled> [--next]");
   }
-  const path = join(dataDir, "sprints", "current", "SPRINT-DRAFT.md");
+  // --next: the sprint drafted ahead while another one runs (4.17)
+  const path = join(dataDir, "sprints", args.includes("--next") ? "next" : "current", "SPRINT-DRAFT.md");
   if (!existsSync(path)) fail(4, `spec-state: no ${path}`);
 
   withNamedLock(dataDir, "sprint-draft", () => {
@@ -1672,42 +2212,153 @@ function draftSetSprintStatus(dataDir, args) {
     if (!fm) fail(3, "spec-state: SPRINT-DRAFT.md has no frontmatter block — refusing");
     const block = setScalar(fm.block, "status", status);
     writeFrontmatteredFile(path, fm, block);
-    logEvent(dataDir, "sprint_draft_status_set", { status });
+    emit(dataDir, "sprint_draft_status_set", { status });
     process.stdout.write(`SPRINT-DRAFT.md status: ${status}\n`);
   });
 }
 
 // --- dispatch ----------------------------------------------------------------
 
+function storyDispatch(dataDir, sub, rest) {
+  switch (sub) {
+    case "set-status":
+      return featureSetStatus(dataDir, rest);
+    case "set":
+      return featureSet(dataDir, rest);
+    case "add-ref":
+      return featureAddRef(dataDir, rest);
+    case "add-external-ref":
+      return featureAddExternalRef(dataDir, rest);
+    case "add-dep":
+      return featureDepLink(dataDir, rest, { add: true });
+    case "remove-dep":
+      return featureDepLink(dataDir, rest, { add: false });
+    case "clear-steps":
+    case "clear-tasks":
+      return featureClearTasks(dataDir, rest);
+    case "set-steps":
+    case "set-tasks":
+      return featureSetTasks(dataDir, rest);
+    case "retract-proof":
+      return featureRetractProof(dataDir, rest);
+    case "record-proof":
+      return featureRecordProof(dataDir, rest);
+    case "check-probes":
+      return featureCheckProbes(dataDir, rest);
+    case "probe-command":
+      return probeCommandMain(dataDir, rest);
+    case "check-scenarios":
+      return featureCheckScenarios(dataDir, rest);
+    case "assign-ac-ids":
+      return featureAssignAcIds(dataDir, rest);
+    default:
+      fail(2, `shipyard-data story: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|retract-proof|check-probes|check-scenarios|probe-command|assign-ac-ids`);
+  }
+}
+
+/**
+ * `step set-deps <PID> <PID,PID|none>` (4.0): the steps this one waits for.
+ * A step's frontmatter is CLI-owned, and there was no verb for this field: a
+ * planner repairing a plan could not move one step to an earlier wave without
+ * editing the file around the guard. Refuses an unknown step, the step
+ * itself, and a loop (a step it names already waits for it).
+ */
+function stepSetDeps(dataDir, args) {
+  const positional = args.filter((a) => !a.startsWith("--"));
+  const pid = positional[0];
+  const raw = positional[1];
+  if (!pid || raw === undefined) fail(2, "usage: step set-deps <PID> <PID,PID,...|none>");
+  const deps = raw === "none" ? [] : [...new Set(raw.split(",").map((s) => s.trim()).filter(Boolean))];
+  const depsOf = (id) => {
+    try { const fm = parseFm(readFileSync(resolveTaskFile(dataDir, id), "utf8")); return fm ? parseFrontmatterList(fm.block, "dependencies").items : []; } catch { return null; }
+  };
+  for (const d of deps) {
+    if (d === pid) fail(3, `spec-state: ${pid} cannot wait for itself`);
+    if (!TID_RE.test(d) || depsOf(d) === null) fail(3, `spec-state: ${d} is not a step that exists`);
+    // a loop: does d (or anything it waits for) wait for pid?
+    const seen = new Set();
+    const stack = [d];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      for (const n of depsOf(cur) ?? []) { if (n === pid) fail(3, `spec-state: ${d} already waits for ${pid} (through ${cur}): that would be a loop`); stack.push(n); }
+    }
+  }
+  withNamedLock(dataDir, `task-${pid}`, () => {
+    const path = resolveTaskFile(dataDir, pid);
+    const content = readFileSync(path, "utf8");
+    const fm = parseFm(content);
+    if (!fm) fail(3, `spec-state: ${pid} has no frontmatter block — refusing`);
+    const before = parseFrontmatterList(fm.block, "dependencies").items;
+    let block = setArrayField(fm.block, "dependencies", deps);
+    block = setScalar(block, "updated", today());
+    writeFrontmatteredFile(path, fm, block);
+    emit(dataDir, "step_dependencies_set", { step: pid, from: before.join(","), to: deps.join(",") });
+    process.stdout.write(`${pid}: waits for ${deps.length ? deps.join(", ") : "nothing"} (was ${before.length ? before.join(", ") : "nothing"})\n`);
+  });
+}
+
+function stepDispatch(dataDir, sub, rest) {
+  switch (sub) {
+    case "set-status":
+      return taskSetStatus(dataDir, rest);
+    case "append-verify":
+      return taskAppendVerify(dataDir, rest);
+    case "set-deps":
+      return stepSetDeps(dataDir, rest);
+    default:
+      fail(2, `shipyard-data step: unknown subcommand "${sub ?? ""}". Expected: set-status|append-verify|set-deps`);
+  }
+}
+
+/**
+ * v4 (F022, terminology-v4 §3): entity words are aliases — `story` (canonical),
+ * `feature`, `bug` all reach the story commands; `step` is the builder unit;
+ * `task` is the new enabling-work entity, except that a `task` verb aimed at a
+ * legacy builder record (type task, kind feature|operational|research) keeps
+ * working with the step vocabulary, so pre-v4 skill text and un-migrated data
+ * never break (A-02: "task set-status accepted, step set-status canonical").
+ */
 function dispatch(dataDir, entity, sub, rest) {
-  if (entity === "feature") {
+  const canonical = entityForVerb(entity);
+  if (canonical === "story") return storyDispatch(dataDir, sub, rest);
+  if (canonical === "step") return stepDispatch(dataDir, sub, rest);
+  if (canonical === "task") {
+    if (sub === "append-verify") return taskAppendVerify(dataDir, rest);
+    if (sub === "set-status") {
+      const positional = rest.filter((a) => !a.startsWith("--"));
+      const tid = positional[0];
+      const toStatus = positional[1];
+      const fm = tid && TID_RE.test(tid) ? readUnitFrontmatter(dataDir, tid) : null;
+      // A record is a NEW task only when it says so (kind in TASK_KINDS). Pre-v4
+      // builder files — including minimal ones with just id/status — keep the
+      // step vocabulary, so nothing written before v4 changes meaning.
+      const isNewTask = fm ? TASK_KINDS.includes(String(fm.kind ?? "").trim()) : false;
+      const taskOnlyStatus = !!(toStatus && TASK_TRANSITIONS[toStatus] && !TASK_STATUS_ALLOWED.has(toStatus));
+      if (fm && !STEP_ID_RE.test(tid) && (isNewTask || (taskOnlyStatus && !isBuilderRecord(fm)))) return taskEntitySetStatus(dataDir, rest);
+      if (!fm && taskOnlyStatus) return taskEntitySetStatus(dataDir, rest);
+      return taskSetStatus(dataDir, rest);
+    }
+    fail(2, `shipyard-data task: unknown subcommand "${sub ?? ""}". Expected: set-status|append-verify`);
+  }
+  if (canonical === "epic") {
+    if (sub === "set-status") return epicSetStatus(dataDir, rest);
+    fail(2, `shipyard-data epic: unknown subcommand "${sub ?? ""}". Expected: set-status`);
+  }
+  if (canonical === "idea") {
     switch (sub) {
       case "set-status":
-        return featureSetStatus(dataDir, rest);
-      case "set":
-        return featureSet(dataDir, rest);
-      case "add-ref":
-        return featureAddRef(dataDir, rest);
-      case "add-external-ref":
-        return featureAddExternalRef(dataDir, rest);
-      case "add-dep":
-        return featureDepLink(dataDir, rest, { add: true });
-      case "remove-dep":
-        return featureDepLink(dataDir, rest, { add: false });
-      case "clear-tasks":
-        return featureClearTasks(dataDir, rest);
-      case "set-tasks":
-        return featureSetTasks(dataDir, rest);
-      case "record-proof":
-        return featureRecordProof(dataDir, rest);
-      case "check-probes":
-        return featureCheckProbes(dataDir, rest);
-      case "assign-ac-ids":
-        return featureAssignAcIds(dataDir, rest);
+        return ideaSetStatus(dataDir, rest);
+      case "repair":
+        return ideaRepair(dataDir, rest);
+      case "triage":
+        return ideaTriage(dataDir, rest);
       default:
-        fail(2, `shipyard-data feature: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes|assign-ac-ids`);
+        fail(2, `shipyard-data idea: unknown subcommand "${sub ?? ""}". Expected: set-status|triage|repair`);
     }
-  } else if (entity === "backlog") {
+  }
+  if (entity === "backlog") {
     switch (sub) {
       case "add":
         return backlogAdd(dataDir, rest);
@@ -1720,32 +2371,12 @@ function dispatch(dataDir, entity, sub, rest) {
       default:
         fail(2, `shipyard-data backlog: unknown subcommand "${sub ?? ""}". Expected: add|remove|rank|set`);
     }
-  } else if (entity === "idea") {
-    switch (sub) {
-      case "set-status":
-        return ideaSetStatus(dataDir, rest);
-      case "repair":
-        return ideaRepair(dataDir, rest);
-      default:
-        fail(2, `shipyard-data idea: unknown subcommand "${sub ?? ""}". Expected: set-status|repair`);
-    }
-  } else if (entity === "task") {
-    switch (sub) {
-      case "set-status":
-        return taskSetStatus(dataDir, rest);
-      case "append-verify":
-        return taskAppendVerify(dataDir, rest);
-      default:
-        fail(2, `shipyard-data task: unknown subcommand "${sub ?? ""}". Expected: set-status|append-verify`);
-    }
-  } else if (entity === "config") {
-    switch (sub) {
-      case "set":
-        return configSet(dataDir, rest);
-      default:
-        fail(2, `shipyard-data config: unknown subcommand "${sub ?? ""}" (via spec-state-cli). Expected: set`);
-    }
-  } else if (entity === "draft") {
+  }
+  if (entity === "config") {
+    if (sub === "set") return configSet(dataDir, rest);
+    fail(2, `shipyard-data config: unknown subcommand "${sub ?? ""}" (via spec-state-cli). Expected: set`);
+  }
+  if (entity === "draft") {
     switch (sub) {
       case "obsolete-research":
         return draftObsoleteResearch(dataDir, rest);
@@ -1754,9 +2385,8 @@ function dispatch(dataDir, entity, sub, rest) {
       default:
         fail(2, `shipyard-data draft: unknown subcommand "${sub ?? ""}". Expected: obsolete-research|set-sprint-status`);
     }
-  } else {
-    fail(2, `shipyard-data: unknown entity "${entity ?? ""}". Expected: feature|backlog|idea|task|config|draft`);
   }
+  fail(2, `shipyard-data: unknown entity "${entity ?? ""}". Expected: story|step|task|epic|idea|backlog|config|draft (feature and bug are accepted aliases of story)`);
 }
 
 /**

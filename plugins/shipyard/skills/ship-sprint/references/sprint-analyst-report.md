@@ -2,24 +2,18 @@
 
 This file documents how `/ship-sprint` Step 3 delegates per-feature research to subagents.
 
-## Why delegate
-
-Each analyst loads its feature file + references + relevant codebase context + project rules and returns a structured `SPRINT ANALYST REPORT`. The orchestrator holds N reports (~2k each), not N feature trees + their references + all rules.
-
 ## Dispatch model
 
 For each selected feature, spawn one `general-purpose` subagent **in parallel** (single message, N tool calls).
 
 The analyst role is single-use to ship-sprint, so the prompt template is inline (not a Layer-2 capability skill). Substitute the literal SHIPYARD_DATA path before spawning.
 
-**Model tier (think)** — analysts do reasoning/investigation work: read `models.think` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it). If non-empty, pass `model: <value>` on each parallel `Agent(...)` call; if empty or absent, OMIT `model:` so the analyst inherits the session model. Never hardcode a literal.
-
-**Effort tier (think)** — read `agent_effort.think` from config.md; default `high`. If non-empty, pass `effort: <value>` on each parallel `Agent(...)` call; if empty or absent, OMIT `effort:`.
+**Model + effort (think)** — analysts do reasoning work: Run `shipyard-data resolve-model think` — one line `model=<m> effort=<e>`; pass each value as a string on the Agent call and OMIT any empty field (inherit). Never hardcode a literal. Log it once: `shipyard-data events emit dispatch_model_resolved role=<role> model=<model or inherit> effort=<effort>` (a logging failure never blocks the dispatch). Same values for each parallel `Agent(...)` call.
 
 ## Prompt template
 
 ```
-Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, effort: <agent_effort.think — omit if empty>, prompt: |
+Agent(subagent_type: "general-purpose", model: <model= from resolve-model think; omit if empty>, effort: <effort= from resolve-model think; omit if empty>, prompt: |
   You are a sprint analyst. Investigate one feature in depth and return a
   structured SPRINT ANALYST REPORT covering: architecture impact, files to
   modify, patterns to follow, reuse opportunities, strategy (clean addition /
@@ -27,7 +21,7 @@ Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>,
   risks/gotchas, and external doc URLs.
 
   Feature ID: F<NNN>
-  Feature path: <SHIPYARD_DATA>/spec/features/F<NNN>-*.md
+  Feature path: <SHIPYARD_DATA>/spec/stories/F<NNN>-*.md
   Codebase context: <SHIPYARD_DATA>/codebase-context.md
   Project rules glob: .claude/rules/project-*.md and .claude/rules/learnings/*.md
 
@@ -51,8 +45,6 @@ The reports cover:
 - Risks / gotchas
 - External docs (URLs)
 
-Use the analyst output directly in Step 4 task decomposition — it drops into the task Technical Notes template with minimal rework.
-
 ## Low-confidence findings
 
-If a report flags low-confidence findings, the orchestrator validates them inline before relying on them — use LSP first (`documentSymbol`, `findReferences`, `goToDefinition`) for code navigation, then Grep / WebSearch as fallback. The analysts already use LSP in their own runs; this is a final spot-check pass at the orchestrator level.
+The orchestrator validates low-confidence findings inline (LSP first, then Grep / WebSearch) before relying on them.

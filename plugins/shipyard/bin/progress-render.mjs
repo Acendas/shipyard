@@ -38,6 +38,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { eventMatches, inSprintWindow } from "./vocab.mjs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getDataDir, ShipyardResolverError } from "./shipyard-resolver.mjs";
@@ -140,11 +141,11 @@ function collectBlockers(events) {
 function collectPatchTasks(events) {
   const patches = [];
   for (const ev of events) {
-    if (ev.type !== "patch_task_created") continue;
+    if (!eventMatches(ev, "patch_step_created")) continue; // v4: patch_task_created is the legacy spelling
     patches.push({
-      task: ev.task_id || ev.task || "(unknown)",
-      feature: ev.feature || "",
-      source: ev.source || "",
+      task: ev.step || ev.task_id || ev.task || "(unknown)", // v4 events name the step
+      feature: ev.story || ev.feature || "",
+      source: ev.source || ev.reason || "",
       ts: ev.ts || "",
     });
   }
@@ -204,7 +205,15 @@ function renderTable(rows, columns) {
 export function renderProgress(dataDir) {
   const sprintFm = readSprintFrontmatter(dataDir);
   if (!sprintFm) return null;
-  const events = readEvents(dataDir);
+  // This sprint's events only (4.13.4). The live log is project-wide and
+  // append-only, so a sprint's progress file listed every earlier sprint's
+  // patch steps, blockers and activity (seen: T435–T443 in sprint-009).
+  // The window opens at the first event tagged with this sprint; a log with
+  // no sprint tags at all (older projects) is read whole, as before.
+  const all = readEvents(dataDir);
+  const sprintId = String(sprintFm.id ?? "").trim();
+  const firstTagged = sprintId ? all.findIndex((e) => inSprintWindow(e, sprintId)) : -1;
+  const events = !sprintId || !all.some((e) => typeof e.sprint === "string" && e.sprint) ? all : firstTagged === -1 ? [] : all.slice(firstTagged);
 
   const currentWave = deriveCurrentWave(events);
   const blockerRows = collectBlockers(events).map((b) => ({

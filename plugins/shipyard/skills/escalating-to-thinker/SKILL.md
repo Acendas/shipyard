@@ -6,11 +6,11 @@ disable-model-invocation: true
 
 # Capability: Escalating To Thinker
 
-**Render before asking.** Before any AskUserQuestion, render the decision context as assistant chat text. Content that exists only in a Read result, a subagent/Agent return, or the question/option strings **does not count as rendered** (the UI shows a compact card) — restate it in chat first.
+**Render before asking.** Render the decision context as chat text before any AskUserQuestion (rules printed at startup under SHIPYARD_STARTUP_RULES).
 
 Dispatch a one-shot consult subagent on the project's **think tier** (`models.think` from config) when the orchestrating pipeline is stuck in a way the documented recovery paths don't cover. The consult returns a structured recommendation; the orchestrator executes it. The consult never mutates anything — it reads, reasons, and recommends.
 
-Why this exists: the orchestrating session runs a mid-tier model tuned for stage-walking and dispatch, not for hard diagnosis. When the same fix fails twice or a gate hard-stops with no covered playbook, the cheap move is to buy one round of top-tier reasoning rather than burn iterations guessing. The per-sprint cap keeps this a scalpel, not a crutch.
+**Advisor last (4.5).** This consult comes before Claude Code's advisor on the decision ladder. When it declines, returns low confidence, has hit `escalation.max_consults_per_sprint`, or its recommendation fails, the caller consults the advisor (when the user has enabled it) as the final decision-maker before parking; say in your return what you could not settle so the advisor reads it in the conversation.
 
 ## When to invoke (the seven triggers — do NOT invoke outside these)
 
@@ -18,7 +18,7 @@ Why this exists: the orchestrating session runs a mid-tier model tuned for stage
 2. **Integration-gate hard stop** — `shipyard-data verify-wave-integrated` exit 3 whose named branches/tasks don't match the documented remediation (rebase + ff-merge, anchor-commit) after one attempt.
 3. **Uncovered blocked task** — a `BLOCKED` return whose `escalation_code` has no matching entry in the deviation rules / blocked-handling table.
 4. **Critic deadlock** — review Stages 4.6/4.7 produce contradictory verdicts that a second pass does not reconcile.
-5. **Recovery-path ambiguity** — the situation matches more than one documented recovery path, or matches one only partially, and picking between them (or adapting one to fit) requires judgment the shell isn't positioned to exercise. Since ship-execute now runs on Sonnet with a zero-thinking doctrine, this is the structural admission that "which documented path applies here" is itself sometimes a judgment call, not a lookup.
+5. **Recovery-path ambiguity** — the situation matches more than one documented recovery path, or matches one only partially, and picking between them (or adapting one to fit) requires judgment the shell isn't positioned to exercise.
 6. **Uninterpreted gate failure** — any CLI call exits 3 with a reason string that names a condition but no covered remediation exists for it in the skill body or references (distinct from trigger 2, which is specifically the integration gate; this covers any other gate — terminal-evidence, stale-cycle, task-state CLI refusals, etc.).
 7. **Deviation classification** — a discrepancy between expected and actual state (a task's diff doesn't match its spec, a probe passes but the implementation looks wrong, a wave's evidence is technically complete but suspicious) needs a bug-vs-structural-deviation call: is this a defect to fix, or a legitimate divergence from the plan that the Deviation Rules should log and proceed past? The shell does not make this call itself.
 
@@ -29,8 +29,8 @@ If the situation matches a documented recovery path, follow that path — do not
 Read from `<SHIPYARD_DATA>/config.md`:
 
 - `escalation.enabled` — if `false`, skip escalation entirely and fall back to AskUserQuestion — first render the trigger, the subject, and the attempt history (commands, exit codes, error tails) as chat text; that context lives only in the orchestrator's tool results and does not count as shown.
-- `escalation.max_consults_per_sprint` (default 6) — count prior `escalation_consult_dispatched` events for this sprint via `shipyard-context scan-events --tail 200 escalation_consult_dispatched`. If the cap is reached, do NOT dispatch; render the consult history (each trigger, subject, and outcome) as chat text, then AskUserQuestion. A summary packed into the question string does not count as rendered.
-- `models.think` — the consult model. If empty/absent, omit the `model:` field (the consult inherits the session model; still worth it — the value is the fresh, focused context).
+- `escalation.max_consults_per_sprint` (default 6) — count prior `escalation_consult_dispatched` events for this sprint via `shipyard-context scan-events --tail 200 escalation_consult_dispatched`. If the cap is reached, do NOT dispatch; render the consult history (each trigger, subject, and outcome) as chat text, then AskUserQuestion. A summary packed into the question string is not chat text.
+- Model/effort come from `shipyard-data resolve-model think` (prints `model=<m> effort=<e>`; empty means omit the field and inherit the session model — still worth it, the value is the fresh, focused context). Do not parse config.md by hand for either.
 
 ## Protocol
 
@@ -40,7 +40,7 @@ Read from `<SHIPYARD_DATA>/config.md`:
    shipyard-data events emit escalation_consult_dispatched pipeline=<ship-execute|ship-review> sprint=<id> trigger=<repeated_fix_failure|integration_gate|uncovered_blocked|critic_deadlock|recovery_path_ambiguity|uninterpreted_gate_failure|deviation_classification> subject=<task-or-stage-id>
    ```
 
-2. **Dispatch the consult** — read `agent_effort.think` from config.md (default `high`; omit `effort:` if empty/absent), then call `Agent(subagent_type: "general-purpose", model: <models.think — omit if empty>, effort: <agent_effort.think — omit if empty>)` with this prompt template, fully substituted (no placeholders left):
+2. **Dispatch the consult** — run `shipyard-data resolve-model think`, emit `shipyard-data events emit dispatch_model_resolved role=think model=<m or inherit> effort=<e or inherit> skill=escalating-to-thinker` (the wrapper logs; the resolver stays silent; a logging failure never blocks the dispatch), then call `Agent(subagent_type: "general-purpose", model: <model= from resolve-model — omit if empty>, effort: <effort= from resolve-model — omit if empty>)` with this prompt template, fully substituted (no placeholders left):
 
    ```
    You are a one-shot escalation consultant for a stuck Shipyard pipeline. You are
@@ -53,7 +53,7 @@ Read from `<SHIPYARD_DATA>/config.md`:
    - Subject: {{task_or_gate_id}}
    - What was attempted, in order, and how each attempt failed:
    {{attempt_history — concrete: commands, exit codes, error tails, diffs tried}}
-   - Relevant state: {{paths — task file, failing test output capture, event-log tail,
+   - Relevant state: {{paths — step file, failing test output capture, event-log tail,
      verify-wave-integrated stderr, code-review findings}}
 
    YOUR JOB

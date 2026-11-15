@@ -1,0 +1,322 @@
+{
+  "proposed->proposed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition proposed -> proposed for F001. Valid next states from \"proposed\": approved, deferred, rejected. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "proposed->approved": {
+    "code": 0,
+    "stdout": "F001: proposed -> approved",
+    "stderr": ""
+  },
+  "proposed->in-progress": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition proposed -> in-progress for F001. Valid next states from \"proposed\": approved, deferred, rejected. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "proposed->done": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition proposed -> done for F001. Valid next states from \"proposed\": approved, deferred, rejected. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "proposed->deployed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition proposed -> deployed for F001. Valid next states from \"proposed\": approved, deferred, rejected. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "proposed->deferred": {
+    "code": 0,
+    "stdout": "F001: proposed -> deferred",
+    "stderr": ""
+  },
+  "proposed->rejected": {
+    "code": 0,
+    "stdout": "F001: proposed -> rejected",
+    "stderr": ""
+  },
+  "proposed->released": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition proposed -> released for F001. Valid next states from \"proposed\": approved, deferred, rejected. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "approved->proposed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition approved -> proposed for F001. Valid next states from \"approved\": in-progress, deferred, rejected. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "approved->approved": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition approved -> approved for F001. Valid next states from \"approved\": in-progress, deferred, rejected. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "approved->in-progress": {
+    "code": 0,
+    "stdout": "F001: approved -> in-progress",
+    "stderr": ""
+  },
+  "approved->done": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition approved -> done for F001. Valid next states from \"approved\": in-progress, deferred, rejected. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "approved->deployed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition approved -> deployed for F001. Valid next states from \"approved\": in-progress, deferred, rejected. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "approved->deferred": {
+    "code": 0,
+    "stdout": "F001: approved -> deferred",
+    "stderr": ""
+  },
+  "approved->rejected": {
+    "code": 0,
+    "stdout": "F001: approved -> rejected",
+    "stderr": ""
+  },
+  "approved->released": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition approved -> released for F001. Valid next states from \"approved\": in-progress, deferred, rejected. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "in-progress->proposed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition in-progress -> proposed for F001. Valid next states from \"in-progress\": done, approved. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "in-progress->approved": {
+    "code": 0,
+    "stdout": "F001: in-progress -> approved",
+    "stderr": ""
+  },
+  "in-progress->in-progress": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition in-progress -> in-progress for F001. Valid next states from \"in-progress\": done, approved. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "in-progress->done": {
+    "code": 0,
+    "stdout": "F001: in-progress -> done",
+    "stderr": ""
+  },
+  "in-progress->deployed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition in-progress -> deployed for F001. Valid next states from \"in-progress\": done, approved. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "in-progress->deferred": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition in-progress -> deferred for F001. Valid next states from \"in-progress\": done, approved. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "in-progress->rejected": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition in-progress -> rejected for F001. Valid next states from \"in-progress\": done, approved. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "in-progress->released": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition in-progress -> released for F001. Valid next states from \"in-progress\": done, approved. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "done->proposed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition done -> proposed for F001. Valid next states from \"done\": deployed, released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "done->approved": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition done -> approved for F001. Valid next states from \"done\": deployed, released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "done->in-progress": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition done -> in-progress for F001. Valid next states from \"done\": deployed, released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "done->done": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition done -> done for F001. Valid next states from \"done\": deployed, released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "done->deployed": {
+    "code": 0,
+    "stdout": "F001: done -> deployed",
+    "stderr": ""
+  },
+  "done->deferred": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition done -> deferred for F001. Valid next states from \"done\": deployed, released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "done->rejected": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition done -> rejected for F001. Valid next states from \"done\": deployed, released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "done->released": {
+    "code": 0,
+    "stdout": "F001: done -> released",
+    "stderr": ""
+  },
+  "deployed->proposed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deployed -> proposed for F001. Valid next states from \"deployed\": released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deployed->approved": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deployed -> approved for F001. Valid next states from \"deployed\": released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deployed->in-progress": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deployed -> in-progress for F001. Valid next states from \"deployed\": released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deployed->done": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deployed -> done for F001. Valid next states from \"deployed\": released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deployed->deployed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deployed -> deployed for F001. Valid next states from \"deployed\": released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deployed->deferred": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deployed -> deferred for F001. Valid next states from \"deployed\": released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deployed->rejected": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deployed -> rejected for F001. Valid next states from \"deployed\": released. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deployed->released": {
+    "code": 0,
+    "stdout": "F001: deployed -> released",
+    "stderr": ""
+  },
+  "deferred->proposed": {
+    "code": 0,
+    "stdout": "F001: deferred -> proposed",
+    "stderr": ""
+  },
+  "deferred->approved": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deferred -> approved for F001. Valid next states from \"deferred\": proposed. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deferred->in-progress": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deferred -> in-progress for F001. Valid next states from \"deferred\": proposed. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deferred->done": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deferred -> done for F001. Valid next states from \"deferred\": proposed. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deferred->deployed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deferred -> deployed for F001. Valid next states from \"deferred\": proposed. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deferred->deferred": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deferred -> deferred for F001. Valid next states from \"deferred\": proposed. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deferred->rejected": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deferred -> rejected for F001. Valid next states from \"deferred\": proposed. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "deferred->released": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition deferred -> released for F001. Valid next states from \"deferred\": proposed. Re-run with --force to override the graph (side effects still apply)."
+  },
+  "rejected->proposed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition rejected -> proposed for F001. Valid next states from \"rejected\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "rejected->approved": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition rejected -> approved for F001. Valid next states from \"rejected\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "rejected->in-progress": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition rejected -> in-progress for F001. Valid next states from \"rejected\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "rejected->done": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition rejected -> done for F001. Valid next states from \"rejected\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "rejected->deployed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition rejected -> deployed for F001. Valid next states from \"rejected\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "rejected->deferred": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition rejected -> deferred for F001. Valid next states from \"rejected\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "rejected->rejected": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition rejected -> rejected for F001. Valid next states from \"rejected\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "rejected->released": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition rejected -> released for F001. Valid next states from \"rejected\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "released->proposed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition released -> proposed for F001. Valid next states from \"released\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "released->approved": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition released -> approved for F001. Valid next states from \"released\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "released->in-progress": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition released -> in-progress for F001. Valid next states from \"released\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "released->done": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition released -> done for F001. Valid next states from \"released\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "released->deployed": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition released -> deployed for F001. Valid next states from \"released\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "released->deferred": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition released -> deferred for F001. Valid next states from \"released\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "released->rejected": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition released -> rejected for F001. Valid next states from \"released\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  },
+  "released->released": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "spec-state: illegal story status transition released -> released for F001. Valid next states from \"released\": (none — terminal). Re-run with --force to override the graph (side effects still apply)."
+  }
+}

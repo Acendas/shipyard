@@ -1,0 +1,5 @@
+{
+  "code": 3,
+  "stdout": "verify-ac-coverage: 1 orphan AC(s) — no AC-<n> marker in <BASE>..<HEAD>:\n  - F001 AC-2\nAdd `// AC-<n>` / `# AC-<n>` markers (or the @AC-<n> tag in a test) for each orphan, or set execution.enforce_ac_coverage: false for advisory mode.",
+  "stderr": ""
+}

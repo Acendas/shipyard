@@ -1,1071 +1,2278 @@
 [
-  {
-    "name": "has_gherkin",
-    "type": "contains",
-    "pattern": "[Gg]herkin|Given.*When.*Then"
-  },
-  {
-    "name": "has_rice",
-    "type": "contains",
-    "pattern": "RICE"
-  },
-  {
-    "name": "has_acceptance_criteria",
-    "type": "contains",
-    "pattern": "acceptance criteria|acceptance scenario"
-  },
-  {
-    "name": "has_capture_mode",
-    "type": "contains",
-    "pattern": "CAPTURE [Mm]ode|CAPTURE mode"
-  },
-  {
-    "name": "has_idea_mode",
-    "type": "contains",
-    "pattern": "IDEA [Mm]ode|IDEA mode"
-  },
-  {
-    "name": "has_refine_mode",
-    "type": "contains",
-    "pattern": "REFINE [Mm]ode|REFINE mode"
-  },
-  {
-    "name": "has_new_mode",
-    "type": "contains",
-    "pattern": "NEW [Mm]ode|NEW mode"
-  },
-  {
-    "name": "has_epic_mode",
-    "type": "contains",
-    "pattern": "EPIC [Mm]ode|EPIC mode"
-  },
-  {
-    "name": "capture_is_fast",
-    "type": "contains",
-    "pattern": "zero ceremony|Be fast|Don't ask"
-  },
-  {
-    "name": "capture_offers_depth",
-    "type": "contains",
-    "pattern": "flesh.*out|save.*for later|Want to"
-  },
-  {
-    "name": "no_ship_idea_ref",
-    "type": "not_contains",
-    "pattern": "/ship-idea"
-  },
-  {
-    "name": "has_websearch",
-    "type": "contains",
-    "pattern": "WebSearch"
-  },
-  {
-    "name": "has_frontmatter_name",
-    "type": "frontmatter_field",
-    "field": "name",
-    "value": "ship-discuss"
-  },
-  {
-    "name": "has_simplification_scan_phase",
-    "type": "contains",
-    "pattern": "Phase 3\\.8.*[Ss]implification"
-  },
-  {
-    "name": "simplification_scan_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-discuss/references/simplification-scan.md"
-  },
-  {
-    "name": "simplification_scan_reads_protocol",
-    "type": "contains",
-    "pattern": "simplification-scan\\.md"
-  },
-  {
-    "name": "simplification_scan_creates_ideas",
-    "type": "contains",
-    "pattern": "IDEA file"
-  },
-  {
-    "name": "simplification_scan_in_idea_sequence",
-    "type": "contains",
-    "pattern": "Phase 3\\.8.*[Ss]implification.*Phase 4",
-    "dotall": true
-  },
-  {
-    "name": "has_session_guard",
-    "type": "contains",
-    "pattern": "lock acquire planning|lock release planning"
-  },
-  {
-    "name": "has_compaction_recovery",
-    "type": "contains",
-    "pattern": "[Cc]ompaction [Rr]ecovery"
-  },
-  {
-    "name": "has_research_draft",
-    "type": "contains",
-    "pattern": "\\.research-draft\\.md"
-  },
-  {
-    "name": "approval_uses_ask_user",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "has_viability_gate",
-    "type": "contains",
-    "pattern": "[Vv]iability [Gg]ate"
-  },
-  {
-    "name": "has_quality_gate",
-    "type": "contains",
-    "pattern": "Quality Gate|self-review loop"
-  },
-  {
-    "name": "has_impact_analysis",
-    "type": "contains",
-    "pattern": "Impact Analysis"
-  },
-  {
-    "name": "impact_analysis_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-discuss/references/impact-analysis.md"
-  },
-  {
-    "name": "has_backlog_reeval",
-    "type": "contains",
-    "pattern": "[Bb]acklog [Rr]e.evaluation"
-  },
-  {
-    "name": "backlog_reeval_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-discuss/references/backlog-reeval.md"
-  },
-  {
-    "name": "discovery_techniques_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-discuss/references/discovery-techniques.md"
-  },
-  {
-    "name": "has_constitution_check",
-    "type": "contains",
-    "pattern": "constitution|project-\\*\\.md"
-  },
-  {
-    "name": "has_feature_file_limit",
-    "type": "contains",
-    "pattern": "200 lines|hard limit"
-  },
-  {
-    "name": "has_epic_cascade",
-    "type": "contains",
-    "pattern": "cascade|propagat"
-  },
-  {
-    "name": "uses_ask_user_question",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "uses_shipyard_data_path",
-    "type": "contains",
-    "pattern": "shipyard-data|shipyard-context"
-  },
-  {
-    "name": "communication_design_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-discuss/references/communication-design.md"
-  },
-  {
-    "name": "has_communication_design_ref",
-    "type": "contains",
-    "pattern": "communication-design\\.md"
-  },
-  {
-    "name": "has_3_layer_pattern",
-    "type": "contains",
-    "pattern": "3-layer pattern|one-liner.*context.*detail"
-  },
-  {
-    "name": "has_cognitive_load_targets",
-    "type": "contains",
-    "pattern": "3.*4 new concepts|under 100 words|2.*3 options"
-  },
-  {
-    "name": "has_positive_framing",
-    "type": "contains",
-    "pattern": "[Ff]rame positively|needs X to be buildable"
-  },
-  {
-    "name": "has_visual_finding_summary",
-    "type": "contains",
-    "pattern": "compact visual summary|⚠️.*Finding.*recommend"
-  },
-  {
-    "name": "has_impact_diagram",
-    "type": "contains",
-    "pattern": "impact diagram|──impacts──|──depends──"
-  },
-  {
-    "name": "has_c4_diagram_ref",
-    "type": "contains",
-    "pattern": "C4 diagram|C4 pattern"
-  },
-  {
-    "name": "has_sequence_diagram_ref",
-    "type": "contains",
-    "pattern": "sequence diagram"
-  },
-  {
-    "name": "has_lsp_in_tools",
-    "type": "contains",
-    "pattern": "LSP"
-  },
-  {
-    "name": "has_lsp_first_principle",
-    "type": "contains",
-    "pattern": "LSP first|LSP.*before.*Grep|Use LSP"
-  },
-  {
-    "name": "no_shell_sd_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-data"
-  },
-  {
-    "name": "no_shell_sc_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-context"
-  },
-  {
-    "name": "no_sd_shell_var_assignment",
-    "type": "not_contains",
-    "pattern": "SD=\\$\\(shipyard-data"
-  },
-  {
-    "name": "has_triage_mode",
-    "type": "contains",
-    "pattern": "TRIAGE [Mm]ode|triage phrase"
-  },
-  {
-    "name": "has_triage_examples",
-    "type": "contains",
-    "pattern": "anything requires discussion|what.s open|what needs discussion"
-  },
-  {
-    "name": "has_session_mutex_check",
-    "type": "contains",
-    "pattern": "Session Mutex Check|session mutex check"
-  },
-  {
-    "name": "mutex_acquires_via_cli",
-    "type": "contains",
-    "pattern": "shipyard-context discuss-context"
-  },
-  {
-    "name": "mutex_avoids_second_acquire_call",
-    "type": "not_contains",
-    "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss"
-  },
-  {
-    "name": "mutex_has_2hr_staleness",
-    "type": "contains",
-    "pattern": "stale.*recovery line|stale/corrupt-lock recovery",
-    "why": "v3.7.0 wave 3: the 2h threshold itself is defined once in skill-lock.mjs (pinned in acquiring-skill-lock.json) — the calling skill only needs to know it must echo the CLI's recovery line."
-  },
-  {
-    "name": "mutex_hard_blocks_active",
-    "type": "contains",
-    "pattern": "⛔.*STOP|exit 3",
-    "dotall": true
-  },
-  {
-    "name": "triage_trigger_anything_else",
-    "type": "contains",
-    "pattern": "anything else"
-  },
-  {
-    "name": "triage_trigger_discuss_anything",
-    "type": "contains",
-    "pattern": "discuss anything"
-  },
-  {
-    "name": "triage_trigger_what_else",
-    "type": "contains",
-    "pattern": "what else"
-  },
-  {
-    "name": "triage_trigger_any_ideas",
-    "type": "contains",
-    "pattern": "any ideas"
-  },
-  {
-    "name": "prohibits_bash_redirect_for_state",
-    "type": "contains",
-    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
-  },
-  {
-    "name": "h1_mode_detection_requires_confirmation",
-    "type": "contains",
-    "pattern": "CAPTURE and EPIC still REQUIRE confirmation before routing",
-    "why": "the write/cascade one-way-door modes (CAPTURE, EPIC) still confirm before routing; only the two-way-door detailed-topic heuristic proceeds with a stated assumption"
-  },
-  {
-    "name": "h1_mode_detection_unambiguous_list_documented",
-    "type": "contains",
-    "pattern": "Unambiguous \\(auto-route, no confirmation needed\\)"
-  },
-  {
-    "name": "h1_mode_short_oneliner_confirms_before_capture",
-    "type": "contains",
-    "pattern": "Short one-liner heuristic.*inferred CAPTURE mode"
-  },
-  {
-    "name": "h2_viability_gate_echo_mandatory",
-    "type": "contains",
-    "pattern": "Verdict echo \\(MANDATORY"
-  },
-  {
-    "name": "h2_viability_gate_no_silent_pass",
-    "type": "contains",
-    "pattern": "silent-pass.*HIGH-risk|silent-pass leaves no feedback channel"
-  },
-  {
-    "name": "h2_viability_gate_asks_user_to_confirm_read",
-    "type": "contains",
-    "pattern": "I'm reading this as one feature, scoped to"
-  },
-  {
-    "name": "h3_phase5_quotes_ac_scenarios_verbatim",
-    "type": "contains",
-    "pattern": "ACCEPTANCE SCENARIOS \\(VERBATIM\\)"
-  },
-  {
-    "name": "h3_phase5_ac_signoff_gate_exists",
-    "type": "contains",
-    "pattern": "Consolidated approval gate"
-  },
-  {
-    "name": "h3_phase5_ac_signoff_gate_must_not_skip",
-    "type": "contains",
-    "pattern": "Do not skip rendering the verbatim scenarios"
-  },
-  {
-    "name": "h3_phase5_ac_signoff_loops_until_clean",
-    "type": "contains",
-    "pattern": "until the user picks \\*\\*Approve everything\\*\\*",
-    "dotall": true
-  },
-  {
-    "name": "h4_critic_classifies_fixes_by_shape",
-    "type": "contains",
-    "pattern": "Mechanical / non-semantic fix"
-  },
-  {
-    "name": "h4_critic_semantic_fixes_must_ask_user",
-    "type": "contains",
-    "pattern": "MUST go through .{1,5}AskUserQuestion.{1,5} even when the model judges them"
-  },
-  {
-    "name": "h4_critic_ambiguous_routes_to_user",
-    "type": "contains",
-    "pattern": "Cheap to ask, expensive to silently encode a wrong policy"
-  },
-  {
-    "name": "h4_silent_assumption_promotion_disallowed",
-    "type": "contains",
-    "pattern": "do NOT make them explicit in the spec silently"
-  },
-  {
-    "name": "h5_compaction_recovery_labels_topics_in_options",
-    "type": "contains",
-    "pattern": "Both topic strings must appear in the option labels"
-  },
-  {
-    "name": "h5_compaction_recovery_defaults_to_new_topic",
-    "type": "contains",
-    "pattern": "Continue with the new topic"
-  },
-  {
-    "name": "h5_compaction_recovery_never_defaults_to_old",
-    "type": "contains",
-    "pattern": "never default to it"
-  },
-  {
-    "name": "h6_backlog_reeval_other_feature_mutations_require_ask",
-    "type": "contains",
-    "pattern": "Other-feature mutations.*REQUIRE .AskUserQuestion"
-  },
-  {
-    "name": "h6_backlog_reeval_no_silent_apply_documented",
-    "type": "contains",
-    "pattern": "NEVER apply them silently"
-  },
-  {
-    "name": "h6_backlog_reeval_evidence_required_in_question",
-    "type": "contains",
-    "pattern": "Evidence:.*acceptance scenarios reference|model's evidence for inferring the edge"
-  },
-  {
-    "name": "bonus_high_scope_drift_check_exists",
-    "type": "contains",
-    "pattern": "Phase 4\\.97: Scope-Drift Check"
-  },
-  {
-    "name": "bonus_high_scope_drift_asks_about_dropped_intent",
-    "type": "contains",
-    "pattern": "Did anything important from the original idea NOT make it into the spec"
-  },
-  {
-    "name": "bonus_high_scope_drift_runs_exactly_once",
-    "type": "contains",
-    "pattern": "Run this check exactly once per discussion"
-  },
-  {
-    "name": "v240_audit_lesson_referenced",
-    "type": "contains",
-    "pattern": "v2\\.4\\.0 audit"
-  },
-  {
-    "name": "has_idea_capture_mode",
-    "type": "contains",
-    "pattern": "IDEA-CAPTURE [Mm]ode|IDEA-CAPTURE mode"
-  },
-  {
-    "name": "idea_flag_in_detect_mode",
-    "type": "contains",
-    "pattern": "--idea"
-  },
-  {
-    "name": "idea_capture_no_questions",
-    "type": "contains",
-    "pattern": "No.*AskUserQuestion|No clarifying questions|zero friction"
-  },
-  {
-    "name": "idea_capture_releases_mutex",
-    "type": "contains",
-    "pattern": "Release the session mutex|mutex.*Done"
-  },
-  {
-    "name": "has_e2e_validation_phase",
-    "type": "contains",
-    "pattern": "Phase 3\\.7.*E2E|Phase 3\\.7.*e2e"
-  },
-  {
-    "name": "e2e_validation_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-discuss/references/phase-e2e-validation.md"
-  },
-  {
-    "name": "has_tiered_ac_sections",
-    "type": "contains",
-    "pattern": "Core AC.*E2E AC|### Core AC"
-  },
-  {
-    "name": "has_epic_integration_ac",
-    "type": "contains",
-    "pattern": "Integration Acceptance Criteria|EP7"
-  },
-  {
-    "name": "epic_integration_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-discuss/references/epic-integration-ac.md"
-  },
-  {
-    "name": "has_refine_backfill",
-    "type": "contains",
-    "pattern": "[Bb]ackfill.*[Ee]2[Ee]|[Ee]2[Ee].*[Bb]ackfill"
-  },
-  {
-    "name": "simplification_scan_renumbered",
-    "type": "contains",
-    "pattern": "Phase 3\\.8.*[Ss]implification"
-  },
-  {
-    "name": "has_architecture_visualization_step",
-    "type": "contains",
-    "pattern": "[Aa]rchitecture [Vv]isualization|Step 4.*visualization|step 4.*diagram"
-  },
-  {
-    "name": "has_c4_diagram_instruction",
-    "type": "contains",
-    "pattern": "C4.*diagram|C4.*Context|C4.*Container"
-  },
-  {
-    "name": "has_sequence_diagram_instruction",
-    "type": "contains",
-    "pattern": "[Ss]equence diagram|sequenceDiagram"
-  },
-  {
-    "name": "has_state_machine_diagram_instruction",
-    "type": "contains",
-    "pattern": "[Ss]tate machine|stateDiagram"
-  },
-  {
-    "name": "has_mermaid_persistence",
-    "type": "contains",
-    "pattern": "[Mm]ermaid.*persist|persist.*[Mm]ermaid|[Mm]ermaid.*Flows|convert.*[Mm]ermaid"
-  },
-  {
-    "name": "has_diagram_quality_gate_check",
-    "type": "contains",
-    "pattern": "[Rr]ight diagram present|matching Mermaid type|type-aware",
-    "target": "ref:phase-quality-and-critique.md"
-  },
-  {
-    "name": "check16_only_demands_when_trigger_fired",
-    "type": "contains",
-    "pattern": "do NOT flag a simple feature that correctly skipped|no Step 4 trigger fired.*PASS",
-    "dotall": true,
-    "target": "ref:phase-quality-and-critique.md"
-  },
-  {
-    "name": "diagram_gate_is_significance_based",
-    "type": "contains",
-    "pattern": "significance, not participation|architectural significance",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "diagram_gate_rejects_participation",
-    "type": "contains",
-    "pattern": "reuses the same controller|traverses existing layers|reuses the existing structure",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "c4_trigger_relaxed_for_monoliths",
-    "type": "contains",
-    "pattern": "adds or changes a structural element|level monoliths actually need",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "c4_component_level_wired",
-    "type": "contains",
-    "pattern": "Component \\(Level 3\\)",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "c4_code_level_out_of_scope",
-    "type": "contains",
-    "pattern": "Code-level C4 is \\*\\*out of scope|Code.*out of scope at spec altitude",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "sequence_trigger_relaxed_two_party",
-    "type": "contains",
-    "pattern": "2\\+ components exchange messages|component count is \\*\\*not\\*\\* the gate",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "state_machine_trigger_includes_ui",
-    "type": "contains",
-    "pattern": "UI/view state machine|\\u22653 states or branching",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "state_machine_complements_check15",
-    "type": "contains",
-    "pattern": "complementary.*Check 15|Check 15 guarantees the states are handled",
-    "dotall": true,
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "has_er_diagram_trigger",
-    "type": "contains",
-    "pattern": "ER / data-model diagram|erDiagram",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "has_deployment_diagram_trigger",
-    "type": "contains",
-    "pattern": "Deployment / runtime-topology diagram|new runtime unit",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "has_dataflow_diagram_trigger",
-    "type": "contains",
-    "pattern": "Data-flow diagram|crosses a trust boundary",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "has_user_journey_diagram_trigger",
-    "type": "contains",
-    "pattern": "User-journey diagram|multi-step before.{0,4}trigger.{0,4}during.{0,4}after",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "persistence_list_is_canonical_source",
-    "type": "contains",
-    "pattern": "canonical diagram-type . Mermaid-syntax mapping",
-    "target": "ref:phase-3-write-spec.md"
-  },
-  {
-    "name": "persistence_includes_er",
-    "type": "contains",
-    "pattern": "erDiagram",
-    "target": "ref:phase-3-write-spec.md"
-  },
-  {
-    "name": "persistence_includes_deployment",
-    "type": "contains",
-    "pattern": "C4Deployment",
-    "target": "ref:phase-3-write-spec.md"
-  },
-  {
-    "name": "skill_persistence_line_lists_full_set",
-    "type": "contains",
-    "pattern": "C4, sequence, state machine, ER, deployment, data-flow, or user-journey"
-  },
-  {
-    "name": "impact_diagram_is_persisted",
-    "type": "contains",
-    "pattern": "persist it.*ripple|Impact diagram.*persist|graph LR",
-    "dotall": true,
-    "target": "ref:impact-analysis.md"
-  },
-  {
-    "name": "comm_design_has_er_pattern",
-    "type": "contains",
-    "pattern": "ER / data-model diagram|erDiagram",
-    "target": "ref:communication-design.md"
-  },
-  {
-    "name": "comm_design_has_deployment_pattern",
-    "type": "contains",
-    "pattern": "Deployment / runtime-topology diagram|C4Deployment",
-    "target": "ref:communication-design.md"
-  },
-  {
-    "name": "comm_design_code_level_out_of_scope",
-    "type": "contains",
-    "pattern": "Code.*out of scope at spec altitude|out of scope.*class internals",
-    "dotall": true,
-    "target": "ref:communication-design.md"
-  },
-  {
-    "name": "phase_1_research_has_step_4",
-    "type": "contains",
-    "pattern": "4\\..*[Aa]rchitecture [Vv]isualization|4\\..*[Dd]iagram",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "phase_3_write_spec_has_flows_mermaid",
-    "type": "contains",
-    "pattern": "Flows.*[Mm]ermaid|[Mm]ermaid.*Flows|convert.*[Mm]ermaid",
-    "target": "ref:phase-3-write-spec.md"
-  },
-  {
-    "name": "external_issue_fetch_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-discuss/references/external-issue-fetch.md"
-  },
-  {
-    "name": "has_external_mode_detection",
-    "type": "contains",
-    "pattern": "EXTERNAL [Mm]ode|external issue key|\\[A-Z\\]\\+-\\\\d\\+"
-  },
-  {
-    "name": "has_external_refs_linking",
-    "type": "contains",
-    "pattern": "external_refs"
-  },
-  {
-    "name": "has_mcp_tool_discovery",
-    "type": "contains",
-    "pattern": "MCP tool|MCP.*available|session.*MCP|tracker.*MCP"
-  },
-  {
-    "name": "data_modeling_guide_exists",
-    "type": "file_exists",
-    "path": "project-files/references/data-modeling-guide.md"
-  },
-  {
-    "name": "phase1_reads_data_modeling_guide",
-    "type": "contains",
-    "pattern": "data-modeling-guide\\.md",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "data_modeling_guide_is_gated",
-    "type": "contains",
-    "pattern": "[Ss]kip entirely for features with no persistence|over-engineering this gate prevents",
-    "target": "ref:phase-1-research.md"
-  },
-  {
-    "name": "skill_body_points_to_modeling_guide",
-    "type": "contains",
-    "pattern": "data-modeling-guide\\.md"
-  },
-  {
-    "name": "critic_challenges_data_modeling",
-    "type": "contains",
-    "pattern": "EAV, OTLT, god table|data-modeling decisions",
-    "target": "ref:phase-quality-and-critique.md"
-  },
-  {
-    "name": "critic_data_dimension_is_gated",
-    "type": "contains",
-    "pattern": "[Ss]kip entirely\\s+for features with no persistence",
-    "dotall": true,
-    "target": "ref:phase-quality-and-critique.md"
-  },
-  {
-    "name": "phase_checklist_created",
-    "type": "contains",
-    "pattern": "Phase 0: Create the Phase Checklist",
-    "why": "NEW mode creates the 15-phase task checklist so skipped phases are visible"
-  },
-  {
-    "name": "task_list_never_authority",
-    "type": "contains",
-    "pattern": "NEVER authority",
-    "why": "tasks are a progress mirror + recovery anchor; gating behavior on TaskList state would recreate the dual-authority drift class"
-  },
-  {
-    "name": "recovery_uses_tasklist_anchor",
-    "type": "contains",
-    "pattern": "Call `TaskList\\(\\)` first",
-    "why": "compaction recovery gets a structured position anchor before re-deriving from prose, but files win on disagreement"
-  },
-  {
-    "name": "skipped_phases_marked_not_deleted",
-    "type": "contains",
-    "pattern": "skipped: <reason>",
-    "why": "a silently-deleted checklist item is indistinguishable from a silently-skipped phase"
-  },
-  {
-    "name": "deep_dive_dispatch_exists",
-    "type": "contains",
-    "pattern": "design deep-dive",
-    "why": "v3.0.0 re-altitudes Phase 1.5's analytical bulk into one dispatched design deep-dive agent on the think tier"
-  },
-  {
-    "name": "deep_dive_reads_models_think",
-    "type": "contains",
-    "pattern": "models\\.think",
-    "why": "the deep-dive dispatch reads models.think from config and passes model: <value> only when non-empty (never a literal)"
-  },
-  {
-    "name": "deep_dive_dossier_goes_to_research_draft",
-    "type": "contains",
-    "pattern": "dossier to <SHIPYARD_DATA>/spec/\\.research-draft\\.md|dossier.*\\.research-draft\\.md",
-    "dotall": true,
-    "why": "the deep-dive extends the existing compaction-checkpoint file rather than inventing a new artifact"
-  },
-  {
-    "name": "viability_decision_authority_stays_in_shell",
-    "type": "contains",
-    "pattern": "viability decision authority stays with the shell|pre-assessment is analysis, not a decision",
-    "why": "the user-facing viability gate decision never moves into the dispatched agent — the agent only pre-assesses"
-  },
-  {
-    "name": "deep_dive_has_inline_fallback",
-    "type": "contains",
-    "pattern": "Fallback \\(dispatch failed|fall back to running the .phase-1-research\\.md. protocol .{0,20}inline",
-    "dotall": true,
-    "why": "if the deep-dive dispatch fails or returns an unusable dossier, the shell falls back to the pre-4.0 inline research path"
-  },
-  {
-    "name": "question_design_ref_exists",
-    "type": "file_exists",
-    "path": "skills/ship-discuss/references/question-design.md",
-    "why": "v3.3.0 question redesign: the confidence gate / rulebook / kill-list authority file must exist"
-  },
-  {
-    "name": "skill_points_to_question_design",
-    "type": "contains",
-    "pattern": "question-design\\.md",
-    "why": "Phase 1, 1.5b, and the Rules section route how-to-ask discipline to question-design.md"
-  },
-  {
-    "name": "concurrent_deep_dive_dispatch",
-    "type": "contains",
-    "pattern": "Dispatch it CONCURRENTLY|Phase 0\\.6",
-    "why": "v3.3.0 speed: the design deep-dive is seeded in the background at Phase 0.6 so its no-user-input passes overlap the Phase-1 conversation"
-  },
-  {
-    "name": "deep_dive_handoff_via_sendmessage",
-    "type": "contains",
-    "pattern": "SendMessage",
-    "why": "the concurrent deep-dive gets the Phase-1 summary via SendMessage once the conversation finishes; synchronous dispatch is the documented fallback"
-  },
-  {
-    "name": "bulk_ask_single_call_rule",
-    "type": "contains",
-    "pattern": "AT MOST ONE",
-    "why": "Round 1 bulk understanding asks everything remaining in at most one AskUserQuestion call of up to 4 questions"
-  },
-  {
-    "name": "confidence_gate_wired",
-    "type": "contains",
-    "pattern": "[Cc]onfidence gate",
-    "why": "the confidence gate (HIGH decide-and-inform / MEDIUM-LOW ask) replaces the old 'never assume technical decisions' rule"
-  },
-  {
-    "name": "kill_list_referenced",
-    "type": "contains",
-    "pattern": "kill-list",
-    "why": "'Don't ask obvious questions' now points at the question-design.md kill-list"
-  },
-  {
-    "name": "assumed_logging_wired",
-    "type": "contains",
-    "pattern": "ASSUMED:",
-    "why": "HIGH-tier decisions are logged as ASSUMED: in the Decision Log and read back in Phase 5's ASSUMPTIONS MADE section"
-  },
-  {
-    "name": "phase5_assumptions_made_section",
-    "type": "contains",
-    "pattern": "ASSUMPTIONS MADE",
-    "why": "Phase 5 approval summary surfaces all ASSUMED decisions as one cheap audit point with 'flag any to change before approval'"
-  },
-  {
-    "name": "round_budget_stated",
-    "type": "contains",
-    "pattern": "interruption round|4.5 interruption|≤5 asks",
-    "why": "the 15 phases collapse into a 4-5 interruption-round budget with ≤5 asks through Phases 1-2"
-  },
-  {
-    "name": "round2_challenge_viability_merged",
-    "type": "contains",
-    "pattern": "fuses the challenge with the Phase 2 viability echo",
-    "why": "Round 2 merges the 1.5b challenge and the mandatory Phase 2 viability echo into one AskUserQuestion call"
-  },
-  {
-    "name": "round3_consolidated_post_spec",
-    "type": "contains",
-    "pattern": "Round 3: Consolidated",
-    "why": "Phases 3.5/3.7/3.8/4.5 keep their tasks but merge their interruption points into one consolidated call"
-  },
-  {
-    "name": "concurrent_critic_dispatch",
-    "type": "contains",
-    "pattern": "Dispatch the critic CONCURRENTLY",
-    "why": "the 4.95 critic runs concurrently with composing the Phase 5 summary; findings are reconciled before asking"
-  },
-  {
-    "name": "detailed_topic_proceeds_with_assumption",
-    "type": "contains",
-    "pattern": "Do NOT ask a standalone confirmation|proceed into NEW mode immediately with a stated assumption",
-    "why": "the detailed-topic heuristic (two-way door) proceeds into NEW with a stated assumption instead of costing a confirmation round; CAPTURE/EPIC still confirm"
-  },
-  {
-    "name": "idea_graduation_uses_cli_with_to",
-    "type": "contains",
-    "pattern": "idea set-status.*graduated --to",
-    "why": "v3.6.0 wave 2: idea graduation (status + graduated_to) routes through the CLI in one atomic call instead of a hand-Edit. Un-targeted 'contains' check scans SKILL.md + references/ (per eval-run.py's check_skill_assertions — verified: contains checks rglob every *.md under the skill dir except SKILL.md itself, in addition to SKILL.md), so this single assertion covers both the SKILL.md:646 site and references/phase-finalize.md's steps 3 + 'Idea graduation target' section."
-  },
-  {
-    "name": "uses_lock_acquire_planning",
-    "type": "contains",
-    "pattern": "acquires the planning lock|planning lock",
-    "why": "v3.7.0 wave 3 + CLI-call merge: the Session Mutex Check routes through the bundled shipyard-context discuss-context call instead of hand-Read/Write or a second acquire call."
-  },
-  {
-    "name": "uses_lock_release",
-    "type": "contains",
-    "pattern": "lock release",
-    "why": "v3.7.0 wave 3: mutex release (Phase 6 finalize, IDEA-CAPTURE mode) routes through shipyard-data lock release instead of a hand Write."
-  },
-  {
-    "name": "no_hand_write_lock_file",
-    "type": "not_contains",
-    "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
-    "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore."
-  },
-  {
-    "name": "consolidated_approval_covers_ac_scope_spec",
-    "type": "contains",
-    "dotall": true,
-    "pattern": "approves the acceptance scenarios as written.*scope.*approves the spec",
-    "why": "v3.8.0: the consolidated gate's Approve-everything option must cover all three things it replaces — AC sign-off, scope-drift check, and spec approval — in one option description."
-  },
-  {
-    "name": "render_before_ask_rule_in_question_design",
-    "type": "contains",
-    "target": "ref:question-design.md",
-    "pattern": "## Render before asking",
-    "why": "v3.8.0: the render-before-ask rule's canonical definition lives in question-design.md — verified the assertion schema supports a ref: target the same way ship-review's not_contains checks target ref:pipeline-cursor.md."
-  },
-  {
-    "name": "render_before_ask_inline_rule",
-    "type": "contains",
-    "pattern": "Render before asking",
-    "why": "v3.8.0: ship-discuss's own Rules section restates the render-before-ask one-liner inline (every command skill that asks gets this, not just discuss)."
-  },
-  {
-    "name": "has_think_override_flag",
-    "type": "contains",
-    "pattern": "--think",
-    "why": "v3.9.0: per-invocation think-tier override, parsed from $ARGUMENTS."
-  },
-  {
-    "name": "emits_think_override_used_event",
-    "type": "contains",
-    "pattern": "think_override_used",
-    "why": "v3.9.0: emits shipyard-data events emit think_override_used model=<m> once at first use of the override."
-  },
-  {
-    "name": "has_spawn_failure_fallback",
-    "type": "contains",
-    "pattern": "unavailable.*falling back|falling back to .models\\.think.",
-    "why": "v3.9.0: if a think-tier dispatch errors at spawn because the model is unavailable, fall back to models.think and re-dispatch, printed as one line."
-  },
-  {
-    "name": "render_provenance_negation",
-    "type": "contains",
-    "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
-  },
-  {
-    "name": "render_before_ask_negation_in_question_design",
-    "type": "contains",
-    "pattern": "does not count as rendered",
-    "why": "v3.11.0: the canonical rule in question-design.md § 'Render before asking' states the provenance negation — context-only content (Read/dossier/subagent return) is not rendered."
-  },
-  {
-    "name": "option_packing_does_not_count",
-    "type": "contains",
-    "pattern": "compact card",
-    "why": "v3.11.0: packing tradeoffs into AskUserQuestion question/option strings is explicitly named as not-rendering (the UI shows a compact card)."
-  },
-  {
-    "name": "no_weak_render_verbs_at_ask_rounds",
-    "type": "not_contains",
-    "pattern": "fold into the conversation naturally",
-    "why": "v3.11.0: Rounds 1-3 used weak verbs that permitted blind asks; the confirmed Round-3 blind ask fired off a 21KB dossier Read with zero chat text. Rendering language must be explicit ('render as chat text'), not 'fold in naturally'."
-  },
-  {
-    "name": "round3_renders_before_single_ask",
-    "type": "contains",
-    "dotall": true,
-    "pattern": "Round 3.{0,1200}(chat text|render)",
-    "why": "v3.11.0: Round 3's consolidated decision ask must render the dossier-derived decision items as chat text before the one AskUserQuestion."
-  },
-  {
-    "name": "scenario_render_rule_in_question_design",
-    "type": "contains",
-    "target": "ref:question-design.md",
-    "pattern": "Render an example scenario",
-    "why": "v3.14.0: the scenario-render default (render a concrete example scenario above every non-trivial discuss ask; escalate to both-sides for hard/one-way-door questions; skip only genuinely self-evident asks) is canonical in question-design.md. Pins the anchor phrase so the behavior can't silently regress the way the v3.11.0 blind-ask class did when render rules were prose-only."
-  },
-  {
-    "name": "phase_1_5b_renders_mini_story_per_item",
-    "type": "contains",
-    "pattern": "mini-story per challenge item",
-    "why": "v3.14.0: Phase 1.5b's challenge block must give each item a one-line example scenario (mini-story, rule Q9) above the ask, not just the finding summary line."
-  },
-  {
-    "name": "phase_2_renders_primary_use_scenario",
-    "type": "contains",
-    "pattern": "primary use scenario",
-    "why": "v3.14.0: the Phase 2 viability echo renders the primary use scenario as chat text so 'does this match your intent?' is answered against a concrete flow, not the abstract gate labels."
-  },
-  {
-    "name": "round3_renders_before_after_example",
-    "type": "contains",
-    "pattern": "before/after example scenario",
-    "why": "v3.14.0: Round-3 impact ripples that change existing behavior carry a before/after example scenario, and simplification candidates a today-vs-lib example — extending the scenario-render default past Phase 1/Phase 5 into the middle rounds."
-  },
-  {
-    "name": "estimates_never_asked",
-    "type": "contains",
-    "target": "ref:phase-3-write-spec.md",
-    "pattern": "NEVER a user question",
-    "why": "Estimates (RICE, story points, etc.) are Shipyard-decided, never surfaced as an AskUserQuestion — closes the story-points-ask bad-ask incident."
-  },
-  {
-    "name": "estimates_no_ask_user_question_for_estimate_fields",
-    "type": "not_contains",
-    "target": "ref:phase-3-write-spec.md",
-    "pattern": "Use AskUserQuestion for `rice_reach`",
-    "why": "The old explicit instruction permitting AskUserQuestion for RICE fields must not regress back in."
-  },
-  {
-    "name": "kill_list_bans_estimation",
-    "type": "contains",
-    "target": "ref:question-design.md",
-    "pattern": "Derivable-by-analysis judgments",
-    "why": "Kill-list item 9 bans asking the user to produce story points, RICE components, or other analysis-derivable numbers."
-  },
-  {
-    "name": "kill_list_bans_orchestration_asks",
-    "type": "contains",
-    "target": "ref:question-design.md",
-    "pattern": "never ask whether to wait",
-    "why": "Kill-list item 10 bans asking whether to wait for/skip/retry the skill's own background dispatches — closes the wait-for-critique bad-ask incident."
-  },
-  {
-    "name": "backlog_reeval_decide_and_inform",
-    "type": "not_contains",
-    "target": "ref:backlog-reeval.md",
-    "pattern": "Apply these RICE updates\\?",
-    "why": "RICE re-scoring in backlog re-evaluation is decide-and-inform (rendered + ASSUMED-logged), not an AskUserQuestion approval. Step 1's dependency-edge AskUserQuestion is untouched and lives elsewhere in this file."
-  },
-  {
-    "name": "phase_15_wait_semantics",
-    "type": "contains",
-    "pattern": "waiting is never a user decision",
-    "why": "CI-pinned, do not reword. Phase 1.5 (deep-dive) and Phase 4.95 (critic) both state that waiting on background work is never a user decision/AskUserQuestion — closes the wait-for-critique/wait-for-dossier bad-ask incident."
-  },
-  {
-    "name": "phase_495_wait_semantics_count",
-    "type": "contains",
-    "dotall": true,
-    "pattern": "waiting is never a user decision.*waiting is never a user decision",
-    "why": "CI-pinned, do not reword. Pins that the wait-semantics phrase appears at BOTH join points (Phase 1.5 and Phase 4.95), not just one."
-  },
-  {
-    "name": "quiet_by_default",
-    "type": "contains",
-    "pattern": "Quiet by default"
-  },
-  {
-    "name": "authors_user_flow_probe",
-    "type": "contains",
-    "pattern": "user_flow_probe",
-    "why": "v3.17.0: nothing authored this field before — the template claimed /ship-discuss did, but it had zero references, which is why it was reliably discovered missing after the sprint had built."
-  },
-  {
-    "name": "finalize_gates_user_flow_probe_via_cli",
-    "type": "contains",
-    "pattern": "feature check-probes",
-    "why": "v3.22.2: Finalize runs `shipyard-data feature check-probes` before flipping any feature to approved, so a feature can no longer finalize without a user_flow_probe. Before this the authoring instruction was prose-only and the model skipped it (sprint-034 F120/F121 reached a sprint with no probe)."
-  },
-  {
-    "name": "mutex_before_context_load",
-    "type": "contains",
-    "pattern": "Absolute first context action.{0,180}discuss-context",
-    "dotall": true,
-    "why": "/ship-discuss must acquire the planning mutex as part of its bundled startup context before any manual reads."
-  },
-  {
-    "name": "concurrent_execute_discuss_future_work_mode",
-    "type": "contains",
-    "pattern": "Concurrent execution safety",
-    "why": "ship-discuss is allowed to overlap ship-execute only in future-work mode."
-  },
-  {
-    "name": "concurrent_execute_discuss_active_sprint_read_only",
-    "type": "contains",
-    "pattern": "active-sprint read-only set",
-    "why": "When discussion overlaps execution, features/tasks in the running sprint must be treated as read-only."
-  },
-  {
-    "name": "concurrent_execute_discuss_allows_future_backlog",
-    "type": "contains",
-    "pattern": "future/backlog work",
-    "why": "The concurrency exception is for future backlog/spec work, not active sprint mutation."
-  },
-  {
-    "name": "phase6_constitution_before_next_up",
-    "type": "contains",
-    "pattern": "4\\. \\*\\*Constitution amendment prompt[\\s\\S]*6\\. \\*\\*Print the Next Up block[\\s\\S]*7\\. \\*\\*Last action",
-    "dotall": true,
-    "why": "Phase 6 finalize ordering keeps constitution updates and Next Up inside the mutex, with lock release last."
-  },
-  {
-    "name": "discuss_deep_dive_sets_think_effort",
-    "type": "contains",
-    "pattern": "agent_effort\\.think",
-    "why": "Discuss deep-dive and critic subagents should use the configurable think-effort tier."
-  }
+ {
+  "name": "has_gherkin",
+  "type": "contains",
+  "pattern": "[Gg]herkin|Given.*When.*Then",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "has_rice",
+  "type": "contains",
+  "pattern": "RICE"
+ },
+ {
+  "name": "has_acceptance_criteria",
+  "type": "contains",
+  "pattern": "acceptance criteria|acceptance scenario"
+ },
+ {
+  "name": "has_capture_mode",
+  "type": "contains",
+  "pattern": "CAPTURE [Mm]ode|CAPTURE mode"
+ },
+ {
+  "name": "has_idea_mode",
+  "type": "contains",
+  "pattern": "IDEA [Mm]ode|IDEA mode"
+ },
+ {
+  "name": "has_refine_mode",
+  "type": "contains",
+  "pattern": "REFINE [Mm]ode|REFINE mode"
+ },
+ {
+  "name": "has_new_mode",
+  "type": "contains",
+  "pattern": "NEW [Mm]ode|NEW mode"
+ },
+ {
+  "name": "has_epic_mode",
+  "type": "contains",
+  "pattern": "EPIC [Mm]ode|EPIC mode"
+ },
+ {
+  "name": "capture_is_fast",
+  "type": "contains",
+  "pattern": "zero ceremony|Be fast|Don't ask"
+ },
+ {
+  "name": "capture_offers_depth",
+  "type": "contains",
+  "pattern": "flesh.*out|save.*for later|Want to"
+ },
+ {
+  "name": "no_ship_idea_ref",
+  "type": "not_contains",
+  "pattern": "/ship-idea"
+ },
+ {
+  "name": "has_websearch",
+  "type": "contains",
+  "pattern": "WebSearch"
+ },
+ {
+  "name": "has_frontmatter_name",
+  "type": "frontmatter_field",
+  "field": "name",
+  "value": "ship-discuss"
+ },
+ {
+  "name": "has_simplification_scan_phase",
+  "type": "contains",
+  "pattern": "Phase 3\\.8.*[Ss]implification",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "simplification_scan_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-discuss/references/simplification-scan.md"
+ },
+ {
+  "name": "simplification_scan_reads_protocol",
+  "type": "contains",
+  "pattern": "simplification-scan\\.md",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "simplification_scan_creates_ideas",
+  "type": "contains",
+  "pattern": "IDEA file"
+ },
+ {
+  "name": "simplification_scan_in_idea_sequence",
+  "type": "contains",
+  "pattern": "Phase 3\\.8.*[Ss]implification.*Phase 4",
+  "dotall": true,
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_session_guard",
+  "type": "contains",
+  "pattern": "lock acquire planning|lock release planning"
+ },
+ {
+  "name": "has_compaction_recovery",
+  "type": "contains",
+  "pattern": "[Cc]ompaction [Rr]ecovery"
+ },
+ {
+  "name": "has_research_draft",
+  "type": "contains",
+  "pattern": "\\.research-draft\\.md",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "approval_uses_ask_user",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "has_viability_gate",
+  "type": "contains",
+  "pattern": "[Vv]iability [Gg]ate"
+ },
+ {
+  "name": "has_quality_gate",
+  "type": "contains",
+  "pattern": "Quality Gate|self-review loop"
+ },
+ {
+  "name": "has_impact_analysis",
+  "type": "contains",
+  "pattern": "Impact Analysis"
+ },
+ {
+  "name": "impact_analysis_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-discuss/references/impact-analysis.md"
+ },
+ {
+  "name": "has_backlog_reeval",
+  "type": "contains",
+  "pattern": "[Bb]acklog [Rr]e.evaluation",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "backlog_reeval_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-discuss/references/backlog-reeval.md"
+ },
+ {
+  "name": "discovery_techniques_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-discuss/references/discovery-techniques.md"
+ },
+ {
+  "name": "has_constitution_check",
+  "type": "contains",
+  "pattern": "constitution|project-\\*\\.md",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "has_feature_file_limit",
+  "type": "contains",
+  "pattern": "200 lines|hard limit",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_epic_cascade",
+  "type": "contains",
+  "pattern": "cascade|propagat"
+ },
+ {
+  "name": "uses_ask_user_question",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "uses_shipyard_data_path",
+  "type": "contains",
+  "pattern": "shipyard-data|shipyard-context"
+ },
+ {
+  "name": "communication_design_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-discuss/references/communication-design.md"
+ },
+ {
+  "name": "has_communication_design_ref",
+  "type": "contains",
+  "pattern": "communication-design\\.md"
+ },
+ {
+  "name": "has_3_layer_pattern",
+  "type": "contains",
+  "pattern": "3-layer pattern|one-liner.*context.*detail",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_cognitive_load_targets",
+  "type": "contains",
+  "pattern": "3.*4 new concepts|under 100 words|2.*3 options",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_positive_framing",
+  "type": "contains",
+  "pattern": "[Ff]rame positively|needs X to be buildable",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "has_visual_finding_summary",
+  "type": "contains",
+  "pattern": "compact visual summary|⚠️.*Finding.*recommend",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_impact_diagram",
+  "type": "contains",
+  "pattern": "impact diagram|──impacts──|──depends──",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_c4_diagram_ref",
+  "type": "contains",
+  "pattern": "C4 diagram|C4 pattern"
+ },
+ {
+  "name": "has_sequence_diagram_ref",
+  "type": "contains",
+  "pattern": "sequence diagram"
+ },
+ {
+  "name": "has_lsp_in_tools",
+  "type": "contains",
+  "pattern": "LSP"
+ },
+ {
+  "name": "has_lsp_first_principle",
+  "type": "contains",
+  "pattern": "LSP first|LSP.*before.*Grep|Use LSP"
+ },
+ {
+  "name": "no_shell_sd_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data"
+ },
+ {
+  "name": "no_shell_sc_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context"
+ },
+ {
+  "name": "no_sd_shell_var_assignment",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data"
+ },
+ {
+  "name": "has_triage_mode",
+  "type": "contains",
+  "pattern": "TRIAGE [Mm]ode|triage phrase"
+ },
+ {
+  "name": "has_triage_examples",
+  "type": "contains",
+  "pattern": "anything requires discussion|what.s open|what needs discussion"
+ },
+ {
+  "name": "has_session_mutex_check",
+  "type": "contains",
+  "pattern": "Session Mutex Check|session mutex check"
+ },
+ {
+  "name": "mutex_acquires_via_cli",
+  "type": "contains",
+  "pattern": "shipyard-context discuss-context"
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss"
+ },
+ {
+  "name": "mutex_has_2hr_staleness",
+  "type": "contains",
+  "pattern": "stale.*recovery line|stale/corrupt-lock recovery",
+  "why": "v3.7.0 wave 3: the 2h threshold itself is defined once in skill-lock.mjs (pinned in acquiring-skill-lock.json) — the calling skill only needs to know it must echo the CLI's recovery line."
+ },
+ {
+  "name": "mutex_hard_blocks_active",
+  "type": "contains",
+  "pattern": "⛔.*STOP|exit 3",
+  "dotall": true
+ },
+ {
+  "name": "triage_trigger_anything_else",
+  "type": "contains",
+  "pattern": "anything else"
+ },
+ {
+  "name": "triage_trigger_discuss_anything",
+  "type": "contains",
+  "pattern": "discuss anything"
+ },
+ {
+  "name": "triage_trigger_what_else",
+  "type": "contains",
+  "pattern": "what else"
+ },
+ {
+  "name": "triage_trigger_any_ideas",
+  "type": "contains",
+  "pattern": "any ideas"
+ },
+ {
+  "name": "prohibits_bash_redirect_for_state",
+  "type": "contains",
+  "pattern": "never use echo, printf, or shell redirects",
+  "target": "plugin:bin/shipyard-context.mjs",
+  "why": "S016/P061: canonical home is CANONICAL_STARTUP_RULES in the startup CLI."
+ },
+ {
+  "name": "h1_mode_detection_requires_confirmation",
+  "type": "contains",
+  "pattern": "the confirmation is never skipped",
+  "why": "F023 AC-4: free text goes through the CLI ladder and the user confirms the lane in one keypress; wrong-lane-by-default is the failure this guards"
+ },
+ {
+  "name": "h1_mode_detection_unambiguous_list_documented",
+  "type": "contains",
+  "pattern": "Unambiguous \\(auto-route, no confirmation needed\\)"
+ },
+ {
+  "name": "h1_mode_short_oneliner_confirms_before_capture",
+  "type": "contains",
+  "pattern": "confirm the lane in ONE AskUserQuestion",
+  "why": "F023 AC-4: one-keypress lane confirmation (capture is one of the four options), replacing the old short-one-liner heuristic ask"
+ },
+ {
+  "name": "h2_viability_gate_echo_mandatory",
+  "type": "contains",
+  "pattern": "Verdict echo \\(MANDATORY",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "h2_viability_gate_no_silent_pass",
+  "type": "contains",
+  "pattern": "silent-pass.*HIGH-risk|silent-pass leaves no feedback channel",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "h2_viability_gate_asks_user_to_confirm_read",
+  "type": "contains",
+  "pattern": "I'm reading this as one feature, scoped to",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "h3_phase5_quotes_ac_scenarios_verbatim",
+  "type": "contains",
+  "pattern": "ACCEPTANCE SCENARIOS \\(VERBATIM\\)",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "h3_phase5_ac_signoff_gate_exists",
+  "type": "contains",
+  "pattern": "One approval card, asked last",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "h3_phase5_ac_signoff_gate_must_not_skip",
+  "type": "contains",
+  "pattern": "Do not skip rendering the verbatim scenarios",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "h3_phase5_ac_signoff_loops_until_clean",
+  "type": "contains",
+  "pattern": "until the user picks \\*\\*Approve everything\\*\\*",
+  "dotall": true,
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "h4_critic_classifies_fixes_by_shape",
+  "type": "contains",
+  "pattern": "Mechanical / non-semantic fix",
+  "target": "ref:phase-quality-and-critique.md"
+ },
+ {
+  "name": "h4_critic_semantic_fixes_must_ask_user",
+  "type": "contains",
+  "pattern": "MUST go through .{1,5}AskUserQuestion.{1,5} even when the model judges them",
+  "target": "ref:phase-quality-and-critique.md"
+ },
+ {
+  "name": "h4_critic_ambiguous_routes_to_user",
+  "type": "contains",
+  "pattern": "Cheap to ask, expensive to silently encode a wrong policy",
+  "target": "ref:phase-quality-and-critique.md"
+ },
+ {
+  "name": "h4_silent_assumption_promotion_disallowed",
+  "type": "contains",
+  "pattern": "do NOT make them explicit in the spec silently",
+  "target": "ref:phase-quality-and-critique.md"
+ },
+ {
+  "name": "h5_compaction_recovery_labels_topics_in_options",
+  "type": "contains",
+  "pattern": "Both topic strings must appear in the option labels",
+  "target": "ref:compaction-recovery.md"
+ },
+ {
+  "name": "h5_compaction_recovery_defaults_to_new_topic",
+  "type": "contains",
+  "pattern": "Continue with the new topic",
+  "target": "ref:compaction-recovery.md"
+ },
+ {
+  "name": "h5_compaction_recovery_never_defaults_to_old",
+  "type": "contains",
+  "pattern": "never default to it",
+  "target": "ref:compaction-recovery.md"
+ },
+ {
+  "name": "h6_backlog_reeval_other_feature_mutations_require_ask",
+  "type": "contains",
+  "pattern": "Other-feature mutations.*REQUIRE .AskUserQuestion",
+  "target": "ref:backlog-reeval.md"
+ },
+ {
+  "name": "h6_backlog_reeval_no_silent_apply_documented",
+  "type": "contains",
+  "pattern": "NEVER apply them silently",
+  "target": "ref:backlog-reeval.md"
+ },
+ {
+  "name": "h6_backlog_reeval_evidence_required_in_question",
+  "type": "contains",
+  "pattern": "Evidence:.*acceptance scenarios reference|model's evidence for inferring the edge",
+  "target": "ref:backlog-reeval.md"
+ },
+ {
+  "name": "bonus_high_scope_drift_check_exists",
+  "type": "contains",
+  "pattern": "Phase 4\\.97: Scope-Drift Check",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "bonus_high_scope_drift_asks_about_dropped_intent",
+  "type": "contains",
+  "pattern": "Did anything important from the original idea NOT make it into the spec",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "bonus_high_scope_drift_runs_exactly_once",
+  "type": "contains",
+  "pattern": "Run this check exactly once per discussion",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "v240_audit_lesson_referenced",
+  "type": "contains",
+  "pattern": "it stays MANDATORY however few decisions the discussion needed",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "has_idea_capture_mode",
+  "type": "contains",
+  "pattern": "IDEA-CAPTURE [Mm]ode|IDEA-CAPTURE mode"
+ },
+ {
+  "name": "idea_flag_in_detect_mode",
+  "type": "contains",
+  "pattern": "--idea"
+ },
+ {
+  "name": "idea_capture_no_questions",
+  "type": "contains",
+  "pattern": "No.*AskUserQuestion|No clarifying questions|zero friction"
+ },
+ {
+  "name": "idea_capture_releases_mutex",
+  "type": "contains",
+  "pattern": "Release the session mutex|mutex.*Done",
+  "target": "ref:idea-capture-mode.md"
+ },
+ {
+  "name": "has_e2e_validation_phase",
+  "type": "contains",
+  "pattern": "Phase 3\\.7.*E2E|Phase 3\\.7.*e2e",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "e2e_validation_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-discuss/references/phase-e2e-validation.md"
+ },
+ {
+  "name": "has_tiered_ac_sections",
+  "type": "contains",
+  "pattern": "Core AC.*E2E AC|### Core AC"
+ },
+ {
+  "name": "has_epic_integration_ac",
+  "type": "contains",
+  "pattern": "Integration Acceptance Criteria|EP7"
+ },
+ {
+  "name": "epic_integration_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-discuss/references/epic-integration-ac.md"
+ },
+ {
+  "name": "has_refine_backfill",
+  "type": "contains",
+  "pattern": "[Bb]ackfill.*[Ee]2[Ee]|[Ee]2[Ee].*[Bb]ackfill",
+  "target": "ref:refine-mode.md"
+ },
+ {
+  "name": "simplification_scan_renumbered",
+  "type": "contains",
+  "pattern": "Phase 3\\.8.*[Ss]implification",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_architecture_visualization_step",
+  "type": "contains",
+  "pattern": "[Aa]rchitecture [Vv]isualization|Step 4.*visualization|step 4.*diagram",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_c4_diagram_instruction",
+  "type": "contains",
+  "pattern": "C4.*diagram|C4.*Context|C4.*Container",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_sequence_diagram_instruction",
+  "type": "contains",
+  "pattern": "[Ss]equence diagram|sequenceDiagram"
+ },
+ {
+  "name": "has_state_machine_diagram_instruction",
+  "type": "contains",
+  "pattern": "[Ss]tate machine|stateDiagram",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_mermaid_persistence",
+  "type": "contains",
+  "pattern": "[Mm]ermaid.*persist|persist.*[Mm]ermaid|[Mm]ermaid.*Flows|convert.*[Mm]ermaid",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_diagram_quality_gate_check",
+  "type": "contains",
+  "pattern": "[Rr]ight diagram present|matching Mermaid type|type-aware",
+  "target": "ref:phase-quality-and-critique.md"
+ },
+ {
+  "name": "check16_only_demands_when_trigger_fired",
+  "type": "contains",
+  "pattern": "do NOT flag a simple feature that correctly skipped|no Step 4 trigger fired.*PASS",
+  "dotall": true,
+  "target": "ref:phase-quality-and-critique.md"
+ },
+ {
+  "name": "diagram_gate_is_significance_based",
+  "type": "contains",
+  "pattern": "significance, not participation|architectural significance",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "diagram_gate_rejects_participation",
+  "type": "contains",
+  "pattern": "reuses the same controller|traverses existing layers|reuses the existing structure",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "c4_trigger_relaxed_for_monoliths",
+  "type": "contains",
+  "pattern": "adds or changes a structural element|level monoliths actually need",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "c4_component_level_wired",
+  "type": "contains",
+  "pattern": "Component \\(Level 3\\)",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "c4_code_level_out_of_scope",
+  "type": "contains",
+  "pattern": "Code-level C4 is \\*\\*out of scope|Code.*out of scope at spec altitude",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "sequence_trigger_relaxed_two_party",
+  "type": "contains",
+  "pattern": "2\\+ components exchange messages|component count is \\*\\*not\\*\\* the gate",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "state_machine_trigger_includes_ui",
+  "type": "contains",
+  "pattern": "UI/view state machine|\\u22653 states or branching",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "state_machine_complements_check15",
+  "type": "contains",
+  "pattern": "complementary.*Check 15|Check 15 guarantees the states are handled",
+  "dotall": true,
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "has_er_diagram_trigger",
+  "type": "contains",
+  "pattern": "ER / data-model diagram|erDiagram",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "has_deployment_diagram_trigger",
+  "type": "contains",
+  "pattern": "Deployment / runtime-topology diagram|new runtime unit",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "has_dataflow_diagram_trigger",
+  "type": "contains",
+  "pattern": "Data-flow diagram|crosses a trust boundary",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "has_user_journey_diagram_trigger",
+  "type": "contains",
+  "pattern": "User-journey diagram|multi-step before.{0,4}trigger.{0,4}during.{0,4}after",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "persistence_list_is_canonical_source",
+  "type": "contains",
+  "pattern": "canonical diagram-type . Mermaid-syntax mapping",
+  "target": "ref:phase-3-write-spec.md"
+ },
+ {
+  "name": "persistence_includes_er",
+  "type": "contains",
+  "pattern": "erDiagram",
+  "target": "ref:phase-3-write-spec.md"
+ },
+ {
+  "name": "persistence_includes_deployment",
+  "type": "contains",
+  "pattern": "C4Deployment",
+  "target": "ref:phase-3-write-spec.md"
+ },
+ {
+  "name": "skill_persistence_line_lists_full_set",
+  "type": "contains",
+  "pattern": "C4, sequence, state machine, ER, deployment, data-flow, or user-journey",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "impact_diagram_is_persisted",
+  "type": "contains",
+  "pattern": "persist it.*ripple|Impact diagram.*persist|graph LR",
+  "dotall": true,
+  "target": "ref:impact-analysis.md"
+ },
+ {
+  "name": "comm_design_has_er_pattern",
+  "type": "contains",
+  "pattern": "ER / data-model diagram|erDiagram",
+  "target": "ref:communication-design.md"
+ },
+ {
+  "name": "comm_design_has_deployment_pattern",
+  "type": "contains",
+  "pattern": "Deployment / runtime-topology diagram|C4Deployment",
+  "target": "ref:communication-design.md"
+ },
+ {
+  "name": "comm_design_code_level_out_of_scope",
+  "type": "contains",
+  "pattern": "Code.*out of scope at spec altitude|out of scope.*class internals",
+  "dotall": true,
+  "target": "ref:communication-design.md"
+ },
+ {
+  "name": "phase_1_research_has_step_4",
+  "type": "contains",
+  "pattern": "4\\..*[Aa]rchitecture [Vv]isualization|4\\..*[Dd]iagram",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "phase_3_write_spec_has_flows_mermaid",
+  "type": "contains",
+  "pattern": "Flows.*[Mm]ermaid|[Mm]ermaid.*Flows|convert.*[Mm]ermaid",
+  "target": "ref:phase-3-write-spec.md"
+ },
+ {
+  "name": "external_issue_fetch_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-discuss/references/external-issue-fetch.md"
+ },
+ {
+  "name": "has_external_mode_detection",
+  "type": "contains",
+  "pattern": "EXTERNAL [Mm]ode|external issue key|\\[A-Z\\]\\+-\\\\d\\+"
+ },
+ {
+  "name": "has_external_refs_linking",
+  "type": "contains",
+  "pattern": "external_refs",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "has_mcp_tool_discovery",
+  "type": "contains",
+  "pattern": "MCP tool|MCP.*available|session.*MCP|tracker.*MCP"
+ },
+ {
+  "name": "data_modeling_guide_exists",
+  "type": "file_exists",
+  "path": "project-files/references/data-modeling-guide.md"
+ },
+ {
+  "name": "phase1_reads_data_modeling_guide",
+  "type": "contains",
+  "pattern": "data-modeling-guide\\.md",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "data_modeling_guide_is_gated",
+  "type": "contains",
+  "pattern": "[Ss]kip entirely for features with no persistence|over-engineering this gate prevents",
+  "target": "ref:phase-1-research.md"
+ },
+ {
+  "name": "skill_body_points_to_modeling_guide",
+  "type": "contains",
+  "pattern": "data-modeling-guide\\.md",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "critic_challenges_data_modeling",
+  "type": "contains",
+  "pattern": "EAV, OTLT, god table|data-modeling decisions",
+  "target": "ref:phase-quality-and-critique.md"
+ },
+ {
+  "name": "critic_data_dimension_is_gated",
+  "type": "contains",
+  "pattern": "[Ss]kip entirely\\s+for features with no persistence",
+  "dotall": true,
+  "target": "ref:phase-quality-and-critique.md"
+ },
+ {
+  "name": "phase_checklist_created",
+  "type": "contains",
+  "pattern": "Phase 0: Create the Phase Checklist",
+  "why": "NEW mode creates the 15-phase task checklist so skipped phases are visible",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "task_list_never_authority",
+  "type": "contains",
+  "pattern": "NEVER authority",
+  "why": "tasks are a progress mirror + recovery anchor; gating behavior on TaskList state would recreate the dual-authority drift class",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "recovery_uses_tasklist_anchor",
+  "type": "contains",
+  "pattern": "Call `TaskList\\(\\)` first",
+  "why": "compaction recovery gets a structured position anchor before re-deriving from prose, but files win on disagreement"
+ },
+ {
+  "name": "skipped_phases_marked_not_deleted",
+  "type": "contains",
+  "pattern": "skipped: <reason>",
+  "why": "a silently-deleted checklist item is indistinguishable from a silently-skipped phase",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "deep_dive_dispatch_exists",
+  "type": "contains",
+  "pattern": "design deep-dive",
+  "why": "v3.0.0 re-altitudes Phase 1.5's analytical bulk into one dispatched design deep-dive agent on the think tier"
+ },
+ {
+  "name": "deep_dive_reads_models_think",
+  "type": "contains",
+  "pattern": "models\\.think",
+  "why": "the deep-dive dispatch reads models.think from config and passes model: <value> only when non-empty (never a literal)"
+ },
+ {
+  "name": "deep_dive_dossier_goes_to_research_draft",
+  "type": "contains",
+  "pattern": "dossier to <SHIPYARD_DATA>/spec/\\.research-draft\\.md|dossier.*\\.research-draft\\.md",
+  "dotall": true,
+  "why": "the deep-dive extends the existing compaction-checkpoint file rather than inventing a new artifact"
+ },
+ {
+  "name": "viability_decision_authority_stays_in_shell",
+  "type": "contains",
+  "pattern": "viability decision authority stays with the shell|pre-assessment is analysis, not a decision",
+  "why": "the user-facing viability gate decision never moves into the dispatched agent — the agent only pre-assesses",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "deep_dive_has_inline_fallback",
+  "type": "contains",
+  "pattern": "Fallback \\(dispatch failed|fall back to running the .phase-1-research\\.md. protocol .{0,20}inline",
+  "dotall": true,
+  "why": "if the deep-dive dispatch fails or returns an unusable dossier, the shell falls back to the pre-4.0 inline research path",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "question_design_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-discuss/references/question-design.md",
+  "why": "v3.3.0 question redesign: the confidence gate / rulebook / kill-list authority file must exist"
+ },
+ {
+  "name": "skill_points_to_question_design",
+  "type": "contains",
+  "pattern": "question-design\\.md",
+  "why": "Phase 1, 1.5b, and the Rules section route how-to-ask discipline to question-design.md"
+ },
+ {
+  "name": "concurrent_deep_dive_dispatch",
+  "type": "contains",
+  "pattern": "Dispatch it CONCURRENTLY|Phase 0\\.6",
+  "why": "v3.3.0 speed: the design deep-dive is seeded in the background at Phase 0.6 so its no-user-input passes overlap the Phase-1 conversation",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "deep_dive_handoff_via_sendmessage",
+  "type": "contains",
+  "pattern": "SendMessage",
+  "why": "the concurrent deep-dive gets the Phase-1 summary via SendMessage once the conversation finishes; synchronous dispatch is the documented fallback"
+ },
+ {
+  "name": "questions_go_on_the_list",
+  "type": "contains",
+  "pattern": "Add everything that remains to the question list",
+  "why": "4.20 (owner): no batches and no rounds; each question goes on the list and is asked as soon as it exists",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "confidence_gate_wired",
+  "type": "contains",
+  "pattern": "[Cc]onfidence gate",
+  "why": "the confidence gate (HIGH decide-and-inform / MEDIUM-LOW ask) replaces the old 'never assume technical decisions' rule"
+ },
+ {
+  "name": "kill_list_referenced",
+  "type": "contains",
+  "pattern": "kill-list",
+  "why": "'Don't ask obvious questions' now points at the question-design.md kill-list"
+ },
+ {
+  "name": "assumed_logging_wired",
+  "type": "contains",
+  "pattern": "ASSUMED:",
+  "why": "HIGH-tier decisions are logged as ASSUMED: in the Decision Log and read back in Phase 5's ASSUMPTIONS MADE section"
+ },
+ {
+  "name": "phase5_assumptions_made_section",
+  "type": "contains",
+  "pattern": "ASSUMPTIONS MADE",
+  "why": "Phase 5 approval summary surfaces all ASSUMED decisions as one cheap audit point with 'flag any to change before approval'",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "budget_is_held_by_the_list",
+  "type": "contains",
+  "pattern": "The list holds the budget",
+  "why": "4.20: the CLI holds the budget; past it the smaller questions become one table and one card"
+ },
+ {
+  "name": "viability_echo_is_an_approval",
+  "type": "contains",
+  "pattern": "the Phase 2 viability echo as an approval",
+  "why": "4.20: the echo is a gate on the list, shown after the decisions",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "post_spec_decisions_on_the_list",
+  "type": "contains",
+  "pattern": "put each decision that needs the person on the question list",
+  "why": "4.20: post-spec decisions go through the list",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "concurrent_critic_dispatch",
+  "type": "contains",
+  "pattern": "Dispatch the critic CONCURRENTLY",
+  "why": "the 4.95 critic runs concurrently with composing the Phase 5 summary; findings are reconciled before asking",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "detailed_topic_proceeds_with_assumption",
+  "type": "contains",
+  "pattern": "say 'just stash it' to capture as an IDEA instead",
+  "why": "F023: a refine proposal keeps the live veto to stash as an idea instead of costing another round"
+ },
+ {
+  "name": "idea_graduation_uses_cli_with_to",
+  "type": "contains",
+  "pattern": "idea set-status.*promoted --to",
+  "why": "v3.6.0 wave 2: idea graduation (status + graduated_to) routes through the CLI in one atomic call instead of a hand-Edit. Un-targeted 'contains' check scans SKILL.md + references/ (per eval-run.py's check_skill_assertions — verified: contains checks rglob every *.md under the skill dir except SKILL.md itself, in addition to SKILL.md), so this single assertion covers both the SKILL.md:646 site and references/phase-finalize.md's steps 3 + 'Idea graduation target' section.",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "uses_lock_acquire_planning",
+  "type": "contains",
+  "pattern": "acquires the planning lock|planning lock",
+  "why": "v3.7.0 wave 3 + CLI-call merge: the Session Mutex Check routes through the bundled shipyard-context discuss-context call instead of hand-Read/Write or a second acquire call."
+ },
+ {
+  "name": "uses_lock_release",
+  "type": "contains",
+  "pattern": "lock release",
+  "why": "v3.7.0 wave 3: mutex release (Phase 6 finalize, IDEA-CAPTURE mode) routes through shipyard-data lock release instead of a hand Write."
+ },
+ {
+  "name": "no_hand_write_lock_file",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore."
+ },
+ {
+  "name": "consolidated_approval_covers_ac_scope_spec",
+  "type": "contains",
+  "dotall": true,
+  "pattern": "approves the acceptance scenarios as written.*scope.*approves the spec",
+  "why": "v3.8.0: the consolidated gate's Approve-everything option must cover all three things it replaces — AC sign-off, scope-drift check, and spec approval — in one option description.",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "render_before_ask_rule_in_question_design",
+  "type": "contains",
+  "target": "ref:question-design.md",
+  "pattern": "## Render before asking",
+  "why": "v3.8.0: the render-before-ask rule's canonical definition lives in question-design.md — verified the assertion schema supports a ref: target the same way ship-review's not_contains checks target ref:pipeline-cursor.md."
+ },
+ {
+  "name": "render_before_ask_inline_rule",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "v3.8.0: ship-discuss's own Rules section restates the render-before-ask one-liner inline (every command skill that asks gets this, not just discuss)."
+ },
+ {
+  "name": "has_think_override_flag",
+  "type": "contains",
+  "pattern": "--think",
+  "why": "v3.9.0: per-invocation think-tier override, parsed from $ARGUMENTS."
+ },
+ {
+  "name": "emits_think_override_used_event",
+  "type": "contains",
+  "pattern": "think_override_used",
+  "why": "v3.9.0: emits shipyard-data events emit think_override_used model=<m> once at first use of the override."
+ },
+ {
+  "name": "has_spawn_failure_fallback",
+  "type": "contains",
+  "pattern": "unavailable.*falling back|falling back to .models\\.think.",
+  "why": "v3.9.0: if a think-tier dispatch errors at spawn because the model is unavailable, fall back to models.think and re-dispatch, printed as one line.",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "render_provenance_negation",
+  "type": "contains",
+  "pattern": "does not count as rendered",
+  "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P061: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+  "target": "plugin:bin/shipyard-context.mjs"
+ },
+ {
+  "name": "render_before_ask_negation_in_question_design",
+  "type": "contains",
+  "pattern": "does not count as rendered",
+  "why": "v3.11.0: the canonical rule in question-design.md § 'Render before asking' states the provenance negation — context-only content (Read/dossier/subagent return) is not rendered. S016/P061: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+  "target": "plugin:bin/shipyard-context.mjs"
+ },
+ {
+  "name": "option_packing_does_not_count",
+  "type": "contains",
+  "pattern": "compact card",
+  "why": "v3.11.0: packing tradeoffs into AskUserQuestion question/option strings is explicitly named as not-rendering (the UI shows a compact card). S016/P061: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+  "target": "plugin:bin/shipyard-context.mjs"
+ },
+ {
+  "name": "no_weak_render_verbs_at_ask_rounds",
+  "type": "not_contains",
+  "pattern": "fold into the conversation naturally",
+  "why": "v3.11.0: Rounds 1-3 used weak verbs that permitted blind asks; the confirmed Round-3 blind ask fired off a 21KB dossier Read with zero chat text. Rendering language must be explicit ('render as chat text'), not 'fold in naturally'."
+ },
+ {
+  "name": "approval_gate_no_separate_ac_round_history",
+  "type": "not_contains",
+  "pattern": "used to justify a separate AC round",
+  "why": "Incident-history sweep: the historical rationale sentence is stripped; the render-before-ask rule itself stays (pinned by consolidated_approval_covers_ac_scope_spec and round3_renders_before_single_ask)."
+ },
+ {
+  "name": "post_spec_examples_in_show_block",
+  "type": "contains",
+  "dotall": true,
+  "pattern": "before/after example scenario.{0,80}in its show block",
+  "why": "4.20: the example the person reasons from travels with the question",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "scenario_render_rule_in_question_design",
+  "type": "contains",
+  "target": "ref:question-design.md",
+  "pattern": "Render an example scenario",
+  "why": "v3.14.0: the scenario-render default (render a concrete example scenario above every non-trivial discuss ask; escalate to both-sides for hard/one-way-door questions; skip only genuinely self-evident asks) is canonical in question-design.md. Pins the anchor phrase so the behavior can't silently regress the way the v3.11.0 blind-ask class did when render rules were prose-only."
+ },
+ {
+  "name": "phase_1_5b_renders_mini_story_per_item",
+  "type": "contains",
+  "pattern": "mini-story per challenge item",
+  "why": "v3.14.0: Phase 1.5b's challenge block must give each item a one-line example scenario (mini-story, rule Q9) above the ask, not just the finding summary line.",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "phase_2_renders_primary_use_scenario",
+  "type": "contains",
+  "pattern": "primary use scenario",
+  "why": "v3.14.0: the Phase 2 viability echo renders the primary use scenario as chat text so 'does this match your intent?' is answered against a concrete flow, not the abstract gate labels.",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "round3_renders_before_after_example",
+  "type": "contains",
+  "pattern": "before/after example scenario",
+  "why": "v3.14.0: Round-3 impact ripples that change existing behavior carry a before/after example scenario, and simplification candidates a today-vs-lib example — extending the scenario-render default past Phase 1/Phase 5 into the middle rounds.",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "estimates_never_asked",
+  "type": "contains",
+  "target": "ref:phase-3-write-spec.md",
+  "pattern": "NEVER a user question",
+  "why": "Estimates (RICE, story points, etc.) are Shipyard-decided, never surfaced as an AskUserQuestion — closes the story-points-ask bad-ask incident."
+ },
+ {
+  "name": "estimates_no_ask_user_question_for_estimate_fields",
+  "type": "not_contains",
+  "target": "ref:phase-3-write-spec.md",
+  "pattern": "Use AskUserQuestion for `rice_reach`",
+  "why": "The old explicit instruction permitting AskUserQuestion for RICE fields must not regress back in."
+ },
+ {
+  "name": "kill_list_bans_estimation",
+  "type": "contains",
+  "target": "ref:question-design.md",
+  "pattern": "Derivable-by-analysis judgments",
+  "why": "Kill-list item 9 bans asking the user to produce story points, RICE components, or other analysis-derivable numbers."
+ },
+ {
+  "name": "kill_list_bans_orchestration_asks",
+  "type": "contains",
+  "target": "ref:question-design.md",
+  "pattern": "never ask whether to wait",
+  "why": "Kill-list item 10 bans asking whether to wait for/skip/retry the skill's own background dispatches — closes the wait-for-critique bad-ask incident."
+ },
+ {
+  "name": "backlog_reeval_decide_and_inform",
+  "type": "not_contains",
+  "target": "ref:backlog-reeval.md",
+  "pattern": "Apply these RICE updates\\?",
+  "why": "RICE re-scoring in backlog re-evaluation is decide-and-inform (rendered + ASSUMED-logged), not an AskUserQuestion approval. Step 1's dependency-edge AskUserQuestion is untouched and lives elsewhere in this file."
+ },
+ {
+  "name": "phase_15_wait_semantics",
+  "type": "contains",
+  "pattern": "waiting is never a user decision",
+  "why": "CI-pinned, do not reword. Phase 1.5 (deep-dive) and Phase 4.95 (critic) both state that waiting on background work is never a user decision/AskUserQuestion — closes the wait-for-critique/wait-for-dossier bad-ask incident.",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "phase_495_wait_semantics_count",
+  "type": "contains",
+  "dotall": true,
+  "pattern": "waiting is never a user decision.*waiting is never a user decision",
+  "why": "CI-pinned, do not reword. Pins that the wait-semantics phrase appears at BOTH join points (Phase 1.5 and Phase 4.95), not just one.",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "quiet_by_default",
+  "type": "contains",
+  "pattern": "Quiet by default"
+ },
+ {
+  "name": "authors_user_flow_probe",
+  "type": "contains",
+  "pattern": "user_flow_probe",
+  "why": "v3.17.0: nothing authored this field before — the template claimed /ship-discuss did, but it had zero references, which is why it was reliably discovered missing after the sprint had built.",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "finalize_gates_user_flow_probe_via_cli",
+  "type": "contains",
+  "pattern": "story check-probes",
+  "why": "v3.22.2: Finalize runs `shipyard-data story check-probes` before flipping any feature to approved, so a feature can no longer finalize without a user_flow_probe. Before this the authoring instruction was prose-only and the model skipped it (sprint-034 S120/S121 reached a sprint with no probe).",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "mutex_before_context_load",
+  "type": "contains",
+  "pattern": "Absolute first context action.{0,180}discuss-context",
+  "dotall": true,
+  "why": "/ship-discuss must acquire the planning mutex as part of its bundled startup context before any manual reads."
+ },
+ {
+  "name": "concurrent_execute_discuss_future_work_mode",
+  "type": "contains",
+  "pattern": "Running beside other commands",
+  "why": "ship-discuss is allowed to overlap ship-execute only in future-work mode. | 4.17 (owner): different commands never block each other; the lock stops a second copy of the same command"
+ },
+ {
+  "name": "concurrent_execute_discuss_active_sprint_read_only",
+  "type": "contains",
+  "pattern": "SHIPYARD_READONLY_STORIES",
+  "why": "When discussion overlaps execution, features/tasks in the running sprint must be treated as read-only. | 4.17 (owner): different commands never block each other; the lock stops a second copy of the same command"
+ },
+ {
+  "name": "concurrent_execute_discuss_allows_future_backlog",
+  "type": "contains",
+  "pattern": "future-work mode",
+  "why": "The concurrency exception is for future backlog/spec work, not active sprint mutation. | 4.17 (owner): different commands never block each other; the lock stops a second copy of the same command"
+ },
+ {
+  "name": "phase6_constitution_before_next_up",
+  "type": "contains",
+  "pattern": "4\\. \\*\\*Constitution amendment prompt[\\s\\S]*6\\. \\*\\*Print the Next Up block[\\s\\S]*7\\. \\*\\*Last action",
+  "dotall": true,
+  "why": "Phase 6 finalize ordering keeps constitution updates and Next Up inside the mutex, with lock release last.",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "discuss_deep_dive_sets_think_effort",
+  "type": "contains",
+  "pattern": "agent_effort\\.think",
+  "why": "Discuss deep-dive and critic subagents should use the configurable think-effort tier.",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "ship_discuss_uses_resolve_model",
+  "type": "contains",
+  "pattern": "resolve-model",
+  "why": "S003/P019: model+effort for dispatches come from `shipyard-data resolve-model <role>` (one deterministic answer), not prose re-derivation from config.md."
+ },
+ {
+  "name": "no_ship_idea_ref__triage-mode",
+  "type": "not_contains",
+  "pattern": "/ship-idea",
+  "target": "ref:triage-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_ship_idea_ref__idea-capture-mode",
+  "type": "not_contains",
+  "pattern": "/ship-idea",
+  "target": "ref:idea-capture-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_ship_idea_ref__capture-mode",
+  "type": "not_contains",
+  "pattern": "/ship-idea",
+  "target": "ref:capture-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_ship_idea_ref__idea-mode",
+  "type": "not_contains",
+  "pattern": "/ship-idea",
+  "target": "ref:idea-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_shell_sd_substitution__triage-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:triage-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_shell_sd_substitution__idea-capture-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:idea-capture-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_shell_sd_substitution__capture-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:capture-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_shell_sd_substitution__idea-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:idea-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_shell_sc_substitution__triage-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:triage-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_shell_sc_substitution__idea-capture-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:idea-capture-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_shell_sc_substitution__capture-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:capture-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_shell_sc_substitution__idea-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:idea-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_sd_shell_var_assignment__triage-mode",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:triage-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_sd_shell_var_assignment__idea-capture-mode",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:idea-capture-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_sd_shell_var_assignment__capture-mode",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:capture-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_sd_shell_var_assignment__idea-mode",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:idea-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__triage-mode",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss",
+  "target": "ref:triage-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__idea-capture-mode",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss",
+  "target": "ref:idea-capture-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__capture-mode",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss",
+  "target": "ref:capture-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__idea-mode",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss",
+  "target": "ref:idea-mode.md",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_hand_write_lock_file__triage-mode",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:triage-mode.md"
+ },
+ {
+  "name": "no_hand_write_lock_file__idea-capture-mode",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:idea-capture-mode.md"
+ },
+ {
+  "name": "no_hand_write_lock_file__capture-mode",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:capture-mode.md"
+ },
+ {
+  "name": "no_hand_write_lock_file__idea-mode",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:idea-mode.md"
+ },
+ {
+  "name": "no_weak_render_verbs_at_ask_rounds__triage-mode",
+  "type": "not_contains",
+  "pattern": "fold into the conversation naturally",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:triage-mode.md"
+ },
+ {
+  "name": "no_weak_render_verbs_at_ask_rounds__idea-capture-mode",
+  "type": "not_contains",
+  "pattern": "fold into the conversation naturally",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:idea-capture-mode.md"
+ },
+ {
+  "name": "no_weak_render_verbs_at_ask_rounds__capture-mode",
+  "type": "not_contains",
+  "pattern": "fold into the conversation naturally",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:capture-mode.md"
+ },
+ {
+  "name": "no_weak_render_verbs_at_ask_rounds__idea-mode",
+  "type": "not_contains",
+  "pattern": "fold into the conversation naturally",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:idea-mode.md"
+ },
+ {
+  "name": "approval_gate_no_separate_ac_round_history__triage-mode",
+  "type": "not_contains",
+  "pattern": "used to justify a separate AC round",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:triage-mode.md"
+ },
+ {
+  "name": "approval_gate_no_separate_ac_round_history__idea-capture-mode",
+  "type": "not_contains",
+  "pattern": "used to justify a separate AC round",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:idea-capture-mode.md"
+ },
+ {
+  "name": "approval_gate_no_separate_ac_round_history__capture-mode",
+  "type": "not_contains",
+  "pattern": "used to justify a separate AC round",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:capture-mode.md"
+ },
+ {
+  "name": "approval_gate_no_separate_ac_round_history__idea-mode",
+  "type": "not_contains",
+  "pattern": "used to justify a separate AC round",
+  "why": "P054: skill-level ban copied to the extracted mode file (eval-run checks not_contains against SKILL.md only).",
+  "target": "ref:idea-mode.md"
+ },
+ {
+  "name": "no_ship_idea_ref__compaction-recovery",
+  "type": "not_contains",
+  "pattern": "/ship-idea",
+  "target": "ref:compaction-recovery.md"
+ },
+ {
+  "name": "no_shell_sd_substitution__compaction-recovery",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:compaction-recovery.md"
+ },
+ {
+  "name": "no_shell_sc_substitution__compaction-recovery",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:compaction-recovery.md"
+ },
+ {
+  "name": "no_sd_shell_var_assignment__compaction-recovery",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:compaction-recovery.md"
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__compaction-recovery",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss",
+  "target": "ref:compaction-recovery.md"
+ },
+ {
+  "name": "no_hand_write_lock_file__compaction-recovery",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore.",
+  "target": "ref:compaction-recovery.md"
+ },
+ {
+  "name": "no_weak_render_verbs_at_ask_rounds__compaction-recovery",
+  "type": "not_contains",
+  "pattern": "fold into the conversation naturally",
+  "why": "v3.11.0: Rounds 1-3 used weak verbs that permitted blind asks; the confirmed Round-3 blind ask fired off a 21KB dossier Read with zero chat text. Rendering language must be explicit ('render as chat text'), not 'fold in naturally'.",
+  "target": "ref:compaction-recovery.md"
+ },
+ {
+  "name": "approval_gate_no_separate_ac_round_history__compaction-recovery",
+  "type": "not_contains",
+  "pattern": "used to justify a separate AC round",
+  "why": "Incident-history sweep: the historical rationale sentence is stripped; the render-before-ask rule itself stays (pinned by consolidated_approval_covers_ac_scope_spec and round3_renders_before_single_ask).",
+  "target": "ref:compaction-recovery.md"
+ },
+ {
+  "name": "estimates_no_ask_user_question_for_estimate_fields__compaction-recovery",
+  "type": "not_contains",
+  "target": "ref:compaction-recovery.md",
+  "pattern": "Use AskUserQuestion for `rice_reach`",
+  "why": "The old explicit instruction permitting AskUserQuestion for RICE fields must not regress back in."
+ },
+ {
+  "name": "backlog_reeval_decide_and_inform__compaction-recovery",
+  "type": "not_contains",
+  "target": "ref:compaction-recovery.md",
+  "pattern": "Apply these RICE updates\\?",
+  "why": "RICE re-scoring in backlog re-evaluation is decide-and-inform (rendered + ASSUMED-logged), not an AskUserQuestion approval. Step 1's dependency-edge AskUserQuestion is untouched and lives elsewhere in this file."
+ },
+ {
+  "name": "no_ship_idea_ref__refine-mode",
+  "type": "not_contains",
+  "pattern": "/ship-idea",
+  "target": "ref:refine-mode.md"
+ },
+ {
+  "name": "no_shell_sd_substitution__refine-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:refine-mode.md"
+ },
+ {
+  "name": "no_shell_sc_substitution__refine-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:refine-mode.md"
+ },
+ {
+  "name": "no_sd_shell_var_assignment__refine-mode",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:refine-mode.md"
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__refine-mode",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss",
+  "target": "ref:refine-mode.md"
+ },
+ {
+  "name": "no_hand_write_lock_file__refine-mode",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore.",
+  "target": "ref:refine-mode.md"
+ },
+ {
+  "name": "no_weak_render_verbs_at_ask_rounds__refine-mode",
+  "type": "not_contains",
+  "pattern": "fold into the conversation naturally",
+  "why": "v3.11.0: Rounds 1-3 used weak verbs that permitted blind asks; the confirmed Round-3 blind ask fired off a 21KB dossier Read with zero chat text. Rendering language must be explicit ('render as chat text'), not 'fold in naturally'.",
+  "target": "ref:refine-mode.md"
+ },
+ {
+  "name": "approval_gate_no_separate_ac_round_history__refine-mode",
+  "type": "not_contains",
+  "pattern": "used to justify a separate AC round",
+  "why": "Incident-history sweep: the historical rationale sentence is stripped; the render-before-ask rule itself stays (pinned by consolidated_approval_covers_ac_scope_spec and round3_renders_before_single_ask).",
+  "target": "ref:refine-mode.md"
+ },
+ {
+  "name": "estimates_no_ask_user_question_for_estimate_fields__refine-mode",
+  "type": "not_contains",
+  "target": "ref:refine-mode.md",
+  "pattern": "Use AskUserQuestion for `rice_reach`",
+  "why": "The old explicit instruction permitting AskUserQuestion for RICE fields must not regress back in."
+ },
+ {
+  "name": "backlog_reeval_decide_and_inform__refine-mode",
+  "type": "not_contains",
+  "target": "ref:refine-mode.md",
+  "pattern": "Apply these RICE updates\\?",
+  "why": "RICE re-scoring in backlog re-evaluation is decide-and-inform (rendered + ASSUMED-logged), not an AskUserQuestion approval. Step 1's dependency-edge AskUserQuestion is untouched and lives elsewhere in this file."
+ },
+ {
+  "name": "no_ship_idea_ref__new-mode",
+  "type": "not_contains",
+  "pattern": "/ship-idea",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "no_shell_sd_substitution__new-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "no_shell_sc_substitution__new-mode",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "no_sd_shell_var_assignment__new-mode",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__new-mode",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "no_hand_write_lock_file__new-mode",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore.",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "no_weak_render_verbs_at_ask_rounds__new-mode",
+  "type": "not_contains",
+  "pattern": "fold into the conversation naturally",
+  "why": "v3.11.0: Rounds 1-3 used weak verbs that permitted blind asks; the confirmed Round-3 blind ask fired off a 21KB dossier Read with zero chat text. Rendering language must be explicit ('render as chat text'), not 'fold in naturally'.",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "approval_gate_no_separate_ac_round_history__new-mode",
+  "type": "not_contains",
+  "pattern": "used to justify a separate AC round",
+  "why": "Incident-history sweep: the historical rationale sentence is stripped; the render-before-ask rule itself stays (pinned by consolidated_approval_covers_ac_scope_spec and round3_renders_before_single_ask).",
+  "target": "ref:new-mode.md"
+ },
+ {
+  "name": "no_ship_idea_ref__viability-and-scope-drift",
+  "type": "not_contains",
+  "pattern": "/ship-idea",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "no_shell_sd_substitution__viability-and-scope-drift",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "no_shell_sc_substitution__viability-and-scope-drift",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "no_sd_shell_var_assignment__viability-and-scope-drift",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__viability-and-scope-drift",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "no_hand_write_lock_file__viability-and-scope-drift",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "why": "v3.7.0 wave 3: skill-mutex lock files are CLI-owned — no skill body hand-Writes them anymore.",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "no_weak_render_verbs_at_ask_rounds__viability-and-scope-drift",
+  "type": "not_contains",
+  "pattern": "fold into the conversation naturally",
+  "why": "v3.11.0: Rounds 1-3 used weak verbs that permitted blind asks; the confirmed Round-3 blind ask fired off a 21KB dossier Read with zero chat text. Rendering language must be explicit ('render as chat text'), not 'fold in naturally'.",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "approval_gate_no_separate_ac_round_history__viability-and-scope-drift",
+  "type": "not_contains",
+  "pattern": "used to justify a separate AC round",
+  "why": "Incident-history sweep: the historical rationale sentence is stripped; the render-before-ask rule itself stays (pinned by consolidated_approval_covers_ac_scope_spec and round3_renders_before_single_ask).",
+  "target": "ref:viability-and-scope-drift.md"
+ },
+ {
+  "name": "refine_mode_reads_viability_and_scope_drift",
+  "type": "contains",
+  "pattern": "Read and follow.{0,200}viability-and-scope-drift\\.md",
+  "target": "ref:refine-mode.md",
+  "why": "REFINE re-runs the viability gate and Phase 5 needs the 4.97 diff; both moved out of SKILL.md into a shared reference, so refine-mode must Read it or REFINE silently loses the gates."
+ },
+ {
+  "name": "refine_mode_reads_scope_drift_section",
+  "type": "contains",
+  "pattern": "viability-and-scope-drift\\.md.{0,10} § \"Phase 4\\.97",
+  "target": "ref:refine-mode.md",
+  "why": "REFINE's Phase 5 hand-off must load the scope-drift section."
+ },
+ {
+  "name": "new_mode_reads_viability_and_scope_drift",
+  "type": "contains",
+  "pattern": "Read and follow.{0,200}viability-and-scope-drift\\.md",
+  "target": "ref:new-mode.md",
+  "why": "NEW mode must Read the shared viability/scope-drift reference (Phase 2) now that the definitions live there."
+ },
+ {
+  "name": "shared_ref_has_user_value_gate",
+  "type": "contains",
+  "pattern": "USER VALUE",
+  "target": "ref:viability-and-scope-drift.md",
+  "why": "the five-gate block lives only in the shared reference."
+ },
+ {
+  "name": "shared_ref_has_scope_drift_diff_marker",
+  "type": "contains",
+  "pattern": "Started with:.*Landed at:",
+  "target": "ref:viability-and-scope-drift.md",
+  "why": "the Phase 4.97 two-column diff lives only in the shared reference."
+ },
+ {
+  "name": "skill_phase5_points_scope_drift_to_shared_ref",
+  "type": "contains",
+  "pattern": "viability-and-scope-drift\\.md",
+  "why": "SKILL.md Phase 5 SCOPE-DRIFT DIFF must resolve to the shared reference, not '(below)'.",
+  "target": "ref:phase-finalize.md"
+ },
+ {
+  "name": "no_ship_idea_ref__phase-finalize",
+  "type": "not_contains",
+  "pattern": "/ship-idea",
+  "target": "ref:phase-finalize.md",
+  "why": "P057: skill-level ban copied to the extracted phase-finalize.md (eval-run checks untargeted not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_shell_sd_substitution__phase-finalize",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data",
+  "target": "ref:phase-finalize.md",
+  "why": "P057: skill-level ban copied to the extracted phase-finalize.md (eval-run checks untargeted not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_shell_sc_substitution__phase-finalize",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context",
+  "target": "ref:phase-finalize.md",
+  "why": "P057: skill-level ban copied to the extracted phase-finalize.md (eval-run checks untargeted not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_sd_shell_var_assignment__phase-finalize",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data",
+  "target": "ref:phase-finalize.md",
+  "why": "P057: skill-level ban copied to the extracted phase-finalize.md (eval-run checks untargeted not_contains against SKILL.md only)."
+ },
+ {
+  "name": "mutex_avoids_second_acquire_call__phase-finalize",
+  "type": "not_contains",
+  "pattern": "Run `shipyard-data lock acquire planning --skill ship-discuss`|Run shipyard-data lock acquire planning --skill ship-discuss",
+  "target": "ref:phase-finalize.md",
+  "why": "P057: skill-level ban copied to the extracted phase-finalize.md (eval-run checks untargeted not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_hand_write_lock_file__phase-finalize",
+  "type": "not_contains",
+  "pattern": "use the Write tool.*active-(session|execution)|Use Write.*active-(session|execution)",
+  "target": "ref:phase-finalize.md",
+  "why": "P057: skill-level ban copied to the extracted phase-finalize.md (eval-run checks untargeted not_contains against SKILL.md only)."
+ },
+ {
+  "name": "no_weak_render_verbs_at_ask_rounds__phase-finalize",
+  "type": "not_contains",
+  "pattern": "fold into the conversation naturally",
+  "target": "ref:phase-finalize.md",
+  "why": "P057: skill-level ban copied to the extracted phase-finalize.md (eval-run checks untargeted not_contains against SKILL.md only)."
+ },
+ {
+  "name": "approval_gate_no_separate_ac_round_history__phase-finalize",
+  "type": "not_contains",
+  "pattern": "used to justify a separate AC round",
+  "target": "ref:phase-finalize.md",
+  "why": "P057: skill-level ban copied to the extracted phase-finalize.md (eval-run checks untargeted not_contains against SKILL.md only)."
+ },
+ {
+  "name": "skill_router_reads_phase_finalize",
+  "type": "contains",
+  "pattern": "\\*\\*Read and follow\\*\\* `\\$\\{CLAUDE_PLUGIN_ROOT\\}/skills/ship-discuss/references/phase-finalize\\.md`",
+  "why": "P057: Phase 5/6 live in phase-finalize.md; the router must carry an explicit Read-and-follow sentence (the token counter only counts a reference a sentence tells the model to Read)."
+ },
+ {
+  "name": "skill_keeps_terminal_lock_release",
+  "type": "contains",
+  "pattern": "Last action[\\s\\S]*shipyard-data lock release planning --skill ship-discuss",
+  "dotall": true,
+  "why": "P057: the terminal lock release stays in the router, not the extracted reference."
+ },
+ {
+  "name": "skill_no_bang_reference_injection",
+  "type": "not_contains",
+  "pattern": "(?m)^!`shipyard-context reference",
+  "why": "P057: no `!` reference injection lines remain in SKILL.md; references load via explicit Reads in the mode that needs them."
+ },
+ {
+  "name": "refine_mode_reads_phase_finalize",
+  "type": "contains",
+  "target": "ref:refine-mode.md",
+  "pattern": "Read and follow\\*\\* `\\$\\{CLAUDE_PLUGIN_ROOT\\}/skills/ship-discuss/references/phase-finalize\\.md`",
+  "why": "P057: REFINE runs Phase 5/6 and must load phase-finalize.md itself."
+ },
+ {
+  "name": "new_mode_reads_backlog_reeval",
+  "type": "contains",
+  "target": "ref:new-mode.md",
+  "pattern": "Read the full protocol:\\*\\* `\\$\\{CLAUDE_PLUGIN_ROOT\\}/skills/ship-discuss/references/backlog-reeval\\.md`",
+  "why": "P057: the former `!` backlog-reeval injection (truncated at 55 of 65 lines) is replaced by this full Read."
+ },
+ {
+  "name": "phase_finalize_has_phase5_gate",
+  "type": "contains",
+  "target": "ref:phase-finalize.md",
+  "pattern": "## Phase 5: Spec Approval Gate",
+  "why": "P057: Phase 5 moved here verbatim."
+ },
+ {
+  "name": "render_before_ask_short_reminder_present",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "S016/P061: the command keeps only the short reminder; the full doctrine is printed at startup (CANONICAL_STARTUP_RULES)."
+ },
+ {
+  "name": "f023_ladder_is_cli_output",
+  "type": "contains",
+  "pattern": "shipyard-data route-intake",
+  "why": "F023 AC-3: the ceremony ladder is CLI output; the router only proposes"
+ },
+ {
+  "name": "f023_four_lanes_named",
+  "type": "contains",
+  "pattern": "\\| \\*\\*capture\\*\\* \\|[\\s\\S]*\\| \\*\\*refine\\*\\* \\|[\\s\\S]*\\| \\*\\*land-now\\*\\* \\|[\\s\\S]*\\| \\*\\*hotfix\\*\\* \\|",
+  "target": "ref:lanes.md",
+  "why": "F023 AC-2: the four lanes exist"
+ },
+ {
+  "name": "f023_capture_and_hotfix_lock_free",
+  "type": "contains",
+  "pattern": "continue \\*\\*lock-free\\*\\*",
+  "why": "F023 AC-5: capture and hotfix never wait on the planning lock"
+ },
+ {
+  "name": "f023_hotfix_hands_off",
+  "type": "contains",
+  "pattern": "/ship-execute --hotfix S<id>",
+  "target": "ref:bug-lane.md",
+  "why": "F023 AC-6: the hotfix lane files a minimal story and hands off to ship-execute --hotfix and ship-debug"
+ },
+ {
+  "name": "f023_routing_logged",
+  "type": "contains",
+  "pattern": "route-intake --confirm",
+  "target": "ref:lanes.md",
+  "why": "F023 AC-4: every routing decision is logged with reasons (intake_routed + intake_lane_confirmed)"
+ },
+ {
+  "name": "f023_landnow_files_task_and_hands_off",
+  "type": "contains",
+  "pattern": "/ship-execute --task T<id>",
+  "target": "ref:lanes.md",
+  "why": "F023/F024: land-now files a T### task and hands off; building never happens inside discuss"
+ },
+ {
+  "name": "f025_bug_fields_recorded",
+  "type": "contains",
+  "pattern": "Reproduction steps[\\s\\S]*Expected vs actual[\\s\\S]*Environment[\\s\\S]*Severity",
+  "target": "ref:bug-lane.md",
+  "why": "F025 AC-1: a refined bug records reproduction, expected vs actual, environment and severity"
+ },
+ {
+  "name": "f025_failing_test_first_ac",
+  "type": "contains",
+  "pattern": "First acceptance criterion is always a failing test",
+  "target": "ref:bug-lane.md",
+  "why": "F025 AC-2"
+ },
+ {
+  "name": "f025_unknown_root_cause_debug_task",
+  "type": "contains",
+  "pattern": "shipyard-data story add-dep S<id> T<id>",
+  "target": "ref:bug-lane.md",
+  "why": "F025 AC-4: an unknown root cause attaches a debug-spike task that blocks the story through dependencies"
+ },
+ {
+  "name": "f025_hotfix_paths_kept",
+  "type": "contains",
+  "pattern": "ship-execute --hotfix S###` and `/ship-debug` keep working",
+  "target": "ref:bug-lane.md",
+  "why": "F025 AC-5"
+ },
+ {
+  "name": "f026_chain_flag_routes_to_chained",
+  "type": "contains",
+  "pattern": "--chain",
+  "why": "F026: a --chain <ids> input enters CHAINED mode over a CLI-owned queue"
+ },
+ {
+  "name": "f026_resume_from_context",
+  "type": "contains",
+  "pattern": "SHIPYARD_DISCUSS_QUEUE_ACTIVE=true",
+  "why": "F026 AC-2: the context block reports an active queue and CHAINED mode resumes at the recorded position"
+ },
+ {
+  "name": "f026_queue_is_cli_owned",
+  "type": "contains",
+  "pattern": "shipyard-data discuss-queue start --items",
+  "target": "ref:chained-mode.md",
+  "why": "F026 AC-1: queue items, position and status live in the CLI, never in chat memory"
+ },
+ {
+  "name": "f026_fresh_context_per_item",
+  "type": "contains",
+  "pattern": "Do not re-open a previous item's files",
+  "target": "ref:chained-mode.md",
+  "why": "F026 AC-3: each item starts with only the queue state and the decisions-so-far note"
+ },
+ {
+  "name": "f026_stop_skip_defer_at_every_ask",
+  "type": "contains",
+  "pattern": "Skip this item[\\s\\S]*Defer it[\\s\\S]*Stop the queue",
+  "target": "ref:chained-mode.md",
+  "why": "F026 AC-4: stop, skip and defer are offered at every ask"
+ },
+ {
+  "name": "f026_cadence_summary",
+  "type": "contains",
+  "pattern": "SHIPYARD_DISCUSS_QUEUE_SUMMARY_DUE=true",
+  "target": "ref:chained-mode.md",
+  "why": "F026 AC-4: a cadence summary is shown every N items, on the CLI's signal"
+ },
+ {
+  "name": "f026_atomic_finalize_before_mark",
+  "type": "contains",
+  "pattern": "complete before you touch the queue",
+  "target": "ref:chained-mode.md",
+  "why": "F026 AC-5: an item's spec write finishes before it is marked; a stop leaves no half-written item"
+ },
+ {
+  "name": "f026_fast_accept",
+  "type": "contains",
+  "pattern": "Accept as-is \\(Recommended\\)",
+  "target": "ref:chained-mode.md",
+  "why": "F026 AC-6: a well-formed item is confirmed in one step"
+ },
+ {
+  "name": "f026_lookahead_bounded",
+  "type": "contains",
+  "pattern": "--peek 2",
+  "target": "ref:chained-mode.md",
+  "why": "F026 AC-7: read-only lookahead is capped at two items by the CLI"
+ },
+ {
+  "name": "f026_queue_file_never_hand_written",
+  "type": "contains",
+  "pattern": "never Write/Edit `.discuss-queue.json`",
+  "target": "ref:chained-mode.md",
+  "why": "F026: the queue file is CLI-owned (hook-denied for the model)"
+ },
+ {
+  "name": "f026_triage_multi_pick_chains",
+  "type": "contains",
+  "pattern": "discuss-queue start",
+  "target": "ref:triage-mode.md",
+  "why": "F026: several picks or 'all' in TRIAGE enter CHAINED mode through the CLI queue"
+ },
+ {
+  "name": "f027_pull_flag_routes_to_pull",
+  "type": "contains",
+  "pattern": "--pull",
+  "why": "F027: --pull <query|my-sprint> enters PULL mode"
+ },
+ {
+  "name": "f027_adapter_seam_no_plugin_name",
+  "type": "contains",
+  "pattern": "Never hardcode a plugin name",
+  "target": "ref:tracker-pull.md",
+  "why": "F027 AC-7: the tracker adapter is discovered by tool-name scan; Shipyard works with no tracker plugin"
+ },
+ {
+  "name": "f027_pull_is_cli",
+  "type": "contains",
+  "pattern": "shipyard-data tracker pull --input",
+  "target": "ref:tracker-pull.md",
+  "why": "F027 AC-1/AC-2: the CLI creates or updates stories by external_ref, never a duplicate"
+ },
+ {
+  "name": "f027_dry_run_then_confirm",
+  "type": "contains",
+  "pattern": "--dry-run",
+  "target": "ref:tracker-pull.md",
+  "why": "F027: the plan is rendered from a dry run and confirmed in one keypress before any write"
+ },
+ {
+  "name": "f027_imports_unrefined",
+  "type": "contains",
+  "pattern": "refined: false",
+  "target": "ref:tracker-pull.md",
+  "why": "F027 AC-3: an imported story is not sprint-ready; the CLI refuses approval until refined"
+ },
+ {
+  "name": "f027_ticket_text_is_data",
+  "type": "contains",
+  "pattern": "untrusted input",
+  "target": "ref:tracker-pull.md",
+  "why": "F027 AC-6: ticket text is copied verbatim and treated as data, never as instructions"
+ },
+ {
+  "name": "f027_one_writer_per_field",
+  "type": "contains",
+  "pattern": "mirrored read-only",
+  "target": "ref:tracker-pull.md",
+  "why": "F027 AC-4: the tracker owns status/assignee under upstream:, Shipyard owns the refined spec"
+ },
+ {
+  "name": "f027_writeback_opt_in",
+  "type": "contains",
+  "pattern": "Off by default",
+  "target": "ref:tracker-pull.md",
+  "why": "F027 AC-5: comments, transitions and links are opt-in per action, never bulk"
+ },
+ {
+  "name": "f027_many_to_many",
+  "type": "contains",
+  "pattern": "story add-external-ref",
+  "target": "ref:tracker-pull.md",
+  "why": "F027 AC-8: one ticket links many stories and one story many tickets"
+ },
+ {
+  "name": "e004_haiku_escalator_opt_in",
+  "type": "contains",
+  "pattern": "routing.haiku_router: true",
+  "target": "ref:lanes.md",
+  "why": "E004-S4: the Haiku router is opt-in and disclosed"
+ },
+ {
+  "name": "e004_haiku_raises_never_lowers",
+  "type": "contains",
+  "pattern": "never lower anything, never change size",
+  "target": "ref:lanes.md",
+  "why": "E004-S4: Haiku is an escalator for the ambiguous middle only"
+ },
+ {
+  "name": "e005_design_stage_pointer",
+  "type": "contains",
+  "pattern": "references/design-stage.md",
+  "why": "E005-S3: UI stories get an optional DESIGN stage"
+ },
+ {
+  "name": "e005_design_signoff_is_cli",
+  "type": "contains",
+  "pattern": "shipyard-data design approve <S###> --file <snapshot>",
+  "target": "ref:design-stage.md",
+  "why": "E005-S3: sign-off records version and hash through the CLI, never a hand-written design block"
+ },
+ {
+  "name": "e005_design_never_publish_without_confirmation",
+  "type": "contains",
+  "pattern": "Never publish an artifact without the user's explicit confirmation",
+  "target": "ref:design-stage.md",
+  "why": "E005-S3: artifacts stay private unless the user says otherwise; DesignSync is not used"
+ },
+ {
+  "name": "e005_design_within_repo_tokens",
+  "type": "contains",
+  "pattern": "design \\*\\*within\\*\\* them",
+  "target": "ref:design-stage.md",
+  "why": "E005-S3: prototypes use the repo's existing components and tokens"
+ },
+ {
+  "name": "design_decision_is_gating",
+  "type": "contains",
+  "pattern": "design waive --reason",
+  "why": "a UI story cannot be approved without a recorded design decision"
+ },
+ {
+  "name": "design_on_claude_design_artifact",
+  "type": "contains",
+  "pattern": "Prototype on a Claude Design artifact",
+  "target": "ref:design-stage.md",
+  "why": "prototyping and the user's design interaction happen on the Design artifact"
+ },
+ {
+  "name": "design_no_above_in_terminal",
+  "type": "contains",
+  "pattern": "a terminal cannot show",
+  "target": "ref:design-stage.md",
+  "why": "sign-off names the artifact link or PNG path, never 'the image above'"
+ },
+ {
+  "name": "scenario_level_tags",
+  "type": "contains",
+  "pattern": "Scenario level tags \\(test economy\\)",
+  "target": "ref:phase-3-write-spec.md",
+  "why": "the level of a scenario's single proof is chosen in discuss"
+ },
+ {
+  "name": "design_fidelity_mockup",
+  "type": "contains",
+  "pattern": "--fidelity mockup",
+  "target": "ref:design-stage.md",
+  "why": "4.8: a drawing is approved as a mockup and compared by eye, not pixel for pixel"
+ },
+ {
+  "name": "discuss_stops_its_helpers",
+  "type": "contains",
+  "pattern": "Stop your helpers first",
+  "why": "4.9.1: a design deep-dive lingered in the agent list for a quarter of an hour after a real discussion; lock release now refuses while a helper is listed"
+ },
+ {
+  "name": "discuss_commits_its_decision_record",
+  "type": "contains",
+  "pattern": "Commit the decision record this discussion wrote",
+  "target": "ref:phase-finalize.md",
+  "why": "4.12.3: the planner asked 'may I commit the design doc' at the start of two sprints in a row because discuss left its decision lines uncommitted"
+ },
+ {
+  "name": "planning_lock_refuses_uncommitted_record",
+  "type": "contains",
+  "pattern": "`lock release` is refused while a project file this command changed is uncommitted",
+  "target": "ref:phase-finalize.md",
+  "why": "4.13.5: the commit-by-path rule was prose and was skipped when the session skipped its final question"
+ },
+ {
+  "name": "probe_proves_the_story_not_the_project",
+  "type": "contains",
+  "pattern": "A probe proves this story, not the project",
+  "target": "ref:phase-3-write-spec.md",
+  "why": "4.14: probes written with a trailing full test command cost one suite run per story"
+ },
+ {
+  "name": "path_map_written_before_scenarios",
+  "type": "contains",
+  "pattern": "written BEFORE the scenarios",
+  "target": "ref:phase-3-write-spec.md",
+  "why": "4.15: the path map belongs where scenarios are written, not only at build time"
+ },
+ {
+  "name": "then_is_observable_from_outside",
+  "type": "contains",
+  "pattern": "what someone outside the system can observe",
+  "target": "ref:phase-3-write-spec.md",
+  "why": "4.15: a Then names a screen, a record, a message or money, never an internal state"
+ },
+ {
+  "name": "default_level_is_e2e",
+  "type": "contains",
+  "pattern": "The default is `@e2e`",
+  "target": "ref:phase-3-write-spec.md",
+  "why": "4.15: reversed from '@component when unsure'"
+ },
+ {
+  "name": "check_scenarios_gate_at_finalize",
+  "type": "contains",
+  "pattern": "shipyard-data story check-scenarios",
+  "target": "ref:phase-finalize.md",
+  "why": "4.15.2: the first stories written after the behaviour-first rules had no path map and unit-level tags; prose did not carry the rule"
+ },
+ {
+  "name": "comms_no_assumed_expertise",
+  "type": "contains",
+  "pattern": "Do not assume the reader is an expert",
+  "target": "ref:communication-design.md",
+  "why": "4.16 (owner): explanations in simple words; users are not expected to be subject-matter experts. Reverses the 'architects and lead engineers' audience"
+ },
+ {
+  "name": "comms_fifteen_second_summary_first",
+  "type": "contains",
+  "pattern": "15-second summary",
+  "target": "ref:communication-design.md",
+  "why": "4.16 (owner): every explanation and question starts with a 15-second summary, then visuals, scenarios and examples before words"
+ },
+ {
+  "name": "comms_show_it_layer",
+  "type": "contains",
+  "pattern": "Layer 2: Show it",
+  "target": "ref:communication-design.md",
+  "why": "4.16: more picture, table and example than prose"
+ },
+ {
+  "name": "comms_helper_return_is_not_a_boundary",
+  "type": "contains",
+  "pattern": "A helper finishing is not a boundary",
+  "target": "ref:communication-design.md",
+  "why": "4.16 (owner): quiet while it works; live sprints printed a line per builder and reviewer return"
+ },
+ {
+  "name": "question_context_shape",
+  "type": "contains",
+  "pattern": "Shape of what you render",
+  "target": "ref:question-design.md",
+  "why": "4.16: the context above a question follows the same summary-then-show shape"
+ },
+ {
+  "name": "progress_line_words_plus_visual",
+  "type": "contains",
+  "pattern": "a few words and a small visual, on one line",
+  "target": "ref:communication-design.md",
+  "why": "4.16 (owner): a progress update is a one-liner, few words plus a visual"
+ },
+ {
+  "name": "one_question_per_card_written_in_chat_first",
+  "type": "contains",
+  "pattern": "One question per card, written in the chat first",
+  "target": "ref:question-design.md",
+  "why": "4.16 (owner): each question is written in the main chat, then the tool is triggered for it; the card holds only the question and the choices"
+ },
+ {
+  "name": "card_holds_question_and_choices_only",
+  "type": "contains",
+  "pattern": "The card holds the question and the choices, nothing else",
+  "target": "ref:question-design.md",
+  "why": "4.16 (owner): explanations and details are in the main chat, never in the question tool"
+ },
+ {
+  "name": "discuss_never_blocked_by_other_commands",
+  "type": "contains",
+  "pattern": "A discussion is never blocked by sprint planning or by a running sprint",
+  "why": "4.17 (owner): the lock prevents two discussions, not a discussion beside planning or execution"
+ },
+ {
+  "name": "discuss_readonly_set_from_context",
+  "type": "contains",
+  "pattern": "SHIPYARD_READONLY_STORIES",
+  "why": "4.17: the stories a discussion must leave alone are computed by the CLI"
+ },
+ {
+  "name": "async_questions_reference_exists",
+  "type": "file_exists",
+  "target": "ref:async-questions.md",
+  "why": "4.20 (owner): research in the background queues questions and keeps going; the person answers one card at a time"
+ },
+ {
+  "name": "async_loop_table",
+  "type": "contains",
+  "target": "ref:async-questions.md",
+  "pattern": "discuss-questions next` prints",
+  "why": "4.20: the main session's loop is driven by what the CLI hands out"
+ },
+ {
+  "name": "async_researcher_never_waits",
+  "type": "contains",
+  "target": "ref:async-questions.md",
+  "pattern": "carry on with every branch that does not depend on it",
+  "why": "4.20 (owner): a question never blocks research"
+ },
+ {
+  "name": "async_answers_are_pulled",
+  "type": "contains",
+  "target": "ref:async-questions.md",
+  "pattern": "answers --topic <slug> --after",
+  "why": "probe 2026-11-14: a message to a busy agent is read only when it finishes, so the researcher pulls answers at checkpoints"
+ },
+ {
+  "name": "async_wait_is_cli",
+  "type": "contains",
+  "target": "ref:async-questions.md",
+  "pattern": "discuss-questions wait` as a \\*\\*background command\\*\\*",
+  "why": "4.20: the wake-up is CLI-owned; it does not depend on the researcher remembering to send a message"
+ },
+ {
+  "name": "new_mode_has_no_rounds",
+  "type": "not_contains",
+  "target": "ref:new-mode.md",
+  "pattern": "Round [1-4]",
+  "why": "4.20: question rounds are replaced by the question list"
+ },
+ {
+  "name": "new_mode_starts_the_list",
+  "type": "contains",
+  "target": "ref:new-mode.md",
+  "pattern": "discuss-questions start --topic",
+  "why": "4.20: the list is started before the first question so the card hook covers the whole discussion"
+ },
+ {
+  "name": "no_handoff_message",
+  "type": "contains",
+  "target": "ref:new-mode.md",
+  "pattern": "There is no hand-off message",
+  "why": "probe 2026-11-14: the old hand-off relied on a message reaching a running agent"
+ },
+ {
+  "name": "approval_is_a_gate_on_the_list",
+  "type": "contains",
+  "target": "ref:phase-finalize.md",
+  "pattern": "add --kind gate",
+  "why": "4.20: the approval is shown last, after every decision and after research ends"
+ },
+ {
+  "name": "discussion_never_edits_project",
+  "type": "contains",
+  "pattern": "A discussion never edits the project",
+  "why": "4.20: a chained discussion edited the game's docs and a test file itself; the write hook now refuses"
+ },
+ {
+  "name": "chained_item_never_builds",
+  "type": "contains",
+  "target": "ref:chained-mode.md",
+  "pattern": "An item never builds",
+  "why": "4.20: seen live on IDEA-042 and IDEA-043"
+ },
+ {
+  "name": "critic_checks_criteria_against_code",
+  "type": "contains",
+  "target": "ref:phase-quality-and-critique.md",
+  "pattern": "Check the criteria against the code",
+  "why": "4.0: sprint-014's planner asked four questions about approved criteria that could not be met (a night floor already under its limit, a contrast rule the art could never pass); the discussion's critic never opened the code"
+ },
+ {
+  "name": "critic_returns_unmeetable_criteria",
+  "type": "contains",
+  "target": "ref:phase-quality-and-critique.md",
+  "pattern": "UNMEETABLE_CRITERIA:",
+  "why": "4.0: the finding needs its own return field with file:line and the measured value"
+ },
+ {
+  "name": "refine_mode_uses_question_list",
+  "type": "contains",
+  "target": "ref:refine-mode.md",
+  "pattern": "Questions come from the list",
+  "why": "4.0: REFINE still used free cards and told the model to bundle gaps into one question; every discussion mode now asks from the CLI-owned list"
+ },
+ {
+  "name": "epic_mode_uses_question_list",
+  "type": "contains",
+  "target": "ref:epic-mode.md",
+  "pattern": "Questions come from the list",
+  "why": "4.0: EPIC told the model to put four questions on one card, which the card hook refuses"
+ },
+ {
+  "name": "epic_mode_no_four_question_card",
+  "type": "not_contains",
+  "target": "ref:epic-mode.md",
+  "pattern": "Bundle all four context questions into ONE",
+  "why": "the hook refuses a card with more than one question inside any Shipyard command"
+ },
+ {
+  "name": "hotfix_lane_writes_and_checks_probe",
+  "type": "contains",
+  "target": "ref:bug-lane.md",
+  "pattern": "shipyard-data story check-probes S<id>",
+  "why": "4.0: the hotfix lane wrote a story with no user_flow_probe and /ship-execute --hotfix refused it 27 seconds later; the lane meant to reach a fix in seconds bounced the owner back to discussion"
+ }
 ]

@@ -1,0 +1,5 @@
+{
+  "code": 0,
+  "stdout": "verify-ac-coverage: OK — 1 feature(s) with tagged ACs fully covered in <BASE>..<HEAD>",
+  "stderr": ""
+}

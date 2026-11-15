@@ -1,198 +1,219 @@
 [
-  {
-    "name": "has_rice",
-    "type": "contains",
-    "pattern": "RICE"
-  },
-  {
-    "name": "has_grooming",
-    "type": "contains",
-    "pattern": "[Gg]room"
-  },
-  {
-    "name": "has_bankruptcy",
-    "type": "contains",
-    "pattern": "[Bb]ankruptcy"
-  },
-  {
-    "name": "has_frontmatter_name",
-    "type": "frontmatter_field",
-    "field": "name",
-    "value": "ship-backlog"
-  },
-  {
-    "name": "has_rank_mode",
-    "type": "contains",
-    "pattern": "rank"
-  },
-  {
-    "name": "has_approve_mode",
-    "type": "contains",
-    "pattern": "approve"
-  },
-  {
-    "name": "has_archive_mode",
-    "type": "contains",
-    "pattern": "archive"
-  },
-  {
-    "name": "approval_uses_ask_user",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "has_compaction_recovery",
-    "type": "contains",
-    "pattern": "[Cc]ompaction [Rr]ecovery"
-  },
-  {
-    "name": "has_stale_detection",
-    "type": "contains",
-    "pattern": "stale|60.*days"
-  },
-  {
-    "name": "has_zombie_detection",
-    "type": "contains",
-    "pattern": "[Zz]ombie"
-  },
-  {
-    "name": "has_oversize_detection",
-    "type": "contains",
-    "pattern": "13.*points|oversize|split"
-  },
-  {
-    "name": "uses_ask_user_question",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "uses_shipyard_data_path",
-    "type": "contains",
-    "pattern": "shipyard-data|shipyard-context"
-  },
-  {
-    "name": "has_browse_loop",
-    "type": "contains",
-    "pattern": "done|drill.?down"
-  },
-  {
-    "name": "no_data_duplication",
-    "type": "contains",
-    "pattern": "ID.*order|ID.only|never duplicate"
-  },
-  {
-    "name": "no_shell_sd_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-data"
-  },
-  {
-    "name": "no_shell_sc_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-context"
-  },
-  {
-    "name": "no_sd_shell_var_assignment",
-    "type": "not_contains",
-    "pattern": "SD=\\$\\(shipyard-data"
-  },
-  {
-    "name": "backlog_has_ideas_section",
-    "type": "contains",
-    "pattern": "IDEAS \\(captured observations|IDEAS section"
-  },
-  {
-    "name": "backlog_reads_spec_ideas",
-    "type": "contains",
-    "pattern": "spec/ideas/IDEA-"
-  },
-  {
-    "name": "backlog_filters_graduated_ideas",
-    "type": "contains",
-    "pattern": "graduated.*rejected|rejected.*graduated",
-    "dotall": true
-  },
-  {
-    "name": "backlog_ideas_paginated_5_plus_5",
-    "type": "contains",
-    "pattern": "5 newest \\+ 5 oldest|cap at 10",
-    "dotall": true
-  },
-  {
-    "name": "backlog_ideas_no_drilldown",
-    "type": "contains",
-    "pattern": "No drill-down for ideas|refined via.*ship-discuss IDEA",
-    "dotall": true
-  },
-  {
-    "name": "backlog_ideas_section_omitted_when_empty",
-    "type": "contains",
-    "pattern": "omit the IDEAS section|no ideas.*omit"
-  },
-  {
-    "name": "prohibits_bash_redirect_for_state",
-    "type": "contains",
-    "pattern": "echo.*redirect.*Write tool|Never use.*echo.*Write tool"
-  },
-  {
-    "name": "no_subagent_gather",
-    "type": "contains",
-    "pattern": "NEVER dispatch a subagent"
-  },
-  {
-    "name": "board_before_first_ask",
-    "type": "contains",
-    "pattern": "[Bb]oard.*BEFORE the first AskUserQuestion"
-  },
-  {
-    "name": "model_not_haiku",
-    "type": "not_contains",
-    "pattern": "model: haiku"
-  },
-  {
-    "name": "uses_backlog_rank",
-    "type": "contains",
-    "pattern": "backlog rank"
-  },
-  {
-    "name": "uses_backlog_add",
-    "type": "contains",
-    "pattern": "backlog add"
-  },
-  {
-    "name": "groom_uses_set_status",
-    "type": "contains",
-    "pattern": "feature set-status"
-  },
-  {
-    "name": "allows_shipyard_data_bash",
-    "type": "contains",
-    "pattern": "Bash\\(shipyard-data"
-  },
-  {
-    "name": "last_groomed_via_cli",
-    "type": "contains",
-    "pattern": "backlog set last_groomed"
-  },
-  {
-    "name": "board_always_groups_by_epic",
-    "type": "contains",
-    "pattern": "ALWAYS group by epic"
-  },
-  {
-    "name": "render_provenance_negation",
-    "type": "contains",
-    "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
-  },
-  {
-    "name": "render_before_ask_rule",
-    "type": "contains",
-    "pattern": "Render before asking",
-    "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule."
-  },
-  {
-    "name": "quiet_by_default",
-    "type": "contains",
-    "pattern": "Quiet by default"
-  }
+ {
+  "name": "has_rice",
+  "type": "contains",
+  "pattern": "RICE"
+ },
+ {
+  "name": "has_grooming",
+  "type": "contains",
+  "pattern": "[Gg]room"
+ },
+ {
+  "name": "has_bankruptcy",
+  "type": "contains",
+  "pattern": "[Bb]ankruptcy"
+ },
+ {
+  "name": "has_frontmatter_name",
+  "type": "frontmatter_field",
+  "field": "name",
+  "value": "ship-backlog"
+ },
+ {
+  "name": "has_rank_mode",
+  "type": "contains",
+  "pattern": "rank"
+ },
+ {
+  "name": "has_approve_mode",
+  "type": "contains",
+  "pattern": "approve"
+ },
+ {
+  "name": "has_archive_mode",
+  "type": "contains",
+  "pattern": "archive"
+ },
+ {
+  "name": "approval_uses_ask_user",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "has_compaction_recovery",
+  "type": "contains",
+  "pattern": "[Cc]ompaction [Rr]ecovery"
+ },
+ {
+  "name": "has_stale_detection",
+  "type": "contains",
+  "pattern": "stale|60.*days"
+ },
+ {
+  "name": "has_zombie_detection",
+  "type": "contains",
+  "pattern": "[Zz]ombie"
+ },
+ {
+  "name": "has_oversize_detection",
+  "type": "contains",
+  "pattern": "13.*points|oversize|split"
+ },
+ {
+  "name": "uses_ask_user_question",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "uses_shipyard_data_path",
+  "type": "contains",
+  "pattern": "shipyard-data|shipyard-context"
+ },
+ {
+  "name": "has_browse_loop",
+  "type": "contains",
+  "pattern": "done|drill.?down"
+ },
+ {
+  "name": "no_data_duplication",
+  "type": "contains",
+  "pattern": "ID.*order|ID.only|never duplicate"
+ },
+ {
+  "name": "no_shell_sd_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data"
+ },
+ {
+  "name": "no_shell_sc_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context"
+ },
+ {
+  "name": "no_sd_shell_var_assignment",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data"
+ },
+ {
+  "name": "backlog_has_ideas_section",
+  "type": "contains",
+  "pattern": "IDEAS \\(captured observations|IDEAS section"
+ },
+ {
+  "name": "backlog_reads_spec_ideas",
+  "type": "contains",
+  "pattern": "spec/ideas/IDEA-"
+ },
+ {
+  "name": "backlog_filters_graduated_ideas",
+  "type": "contains",
+  "pattern": "graduated.*rejected|rejected.*graduated",
+  "dotall": true
+ },
+ {
+  "name": "backlog_ideas_paginated_5_plus_5",
+  "type": "contains",
+  "pattern": "5 newest \\+ 5 oldest|cap at 10",
+  "dotall": true
+ },
+ {
+  "name": "backlog_ideas_no_drilldown",
+  "type": "contains",
+  "pattern": "No drill-down for ideas|refined via.*ship-discuss IDEA",
+  "dotall": true
+ },
+ {
+  "name": "backlog_ideas_section_omitted_when_empty",
+  "type": "contains",
+  "pattern": "omit the IDEAS section|no ideas.*omit"
+ },
+ {
+  "name": "prohibits_bash_redirect_for_state",
+  "type": "contains",
+  "pattern": "never use echo, printf, or shell redirects",
+  "target": "plugin:bin/shipyard-context.mjs",
+  "why": "S016/P062: canonical home is CANONICAL_STARTUP_RULES in the startup CLI."
+ },
+ {
+  "name": "no_subagent_gather",
+  "type": "contains",
+  "pattern": "NEVER dispatch a subagent"
+ },
+ {
+  "name": "board_before_first_ask",
+  "type": "contains",
+  "pattern": "[Bb]oard.*BEFORE the first AskUserQuestion"
+ },
+ {
+  "name": "model_not_haiku",
+  "type": "not_contains",
+  "pattern": "model: haiku"
+ },
+ {
+  "name": "uses_backlog_rank",
+  "type": "contains",
+  "pattern": "backlog rank"
+ },
+ {
+  "name": "uses_backlog_add",
+  "type": "contains",
+  "pattern": "backlog add"
+ },
+ {
+  "name": "groom_uses_set_status",
+  "type": "contains",
+  "pattern": "story set-status"
+ },
+ {
+  "name": "allows_shipyard_data_bash",
+  "type": "contains",
+  "pattern": "Bash\\(shipyard-data"
+ },
+ {
+  "name": "last_groomed_via_cli",
+  "type": "contains",
+  "pattern": "backlog set last_groomed"
+ },
+ {
+  "name": "board_always_groups_by_epic",
+  "type": "contains",
+  "pattern": "ALWAYS group by epic"
+ },
+ {
+  "name": "render_provenance_negation",
+  "type": "contains",
+  "pattern": "does not count as rendered",
+  "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P062: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+  "target": "plugin:bin/shipyard-context.mjs"
+ },
+ {
+  "name": "render_before_ask_rule",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule."
+ },
+ {
+  "name": "quiet_by_default",
+  "type": "contains",
+  "pattern": "Quiet by default"
+ },
+ {
+  "name": "render_before_ask_short_reminder_present",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "S016/P062: the command keeps only the short reminder; the full doctrine is printed at startup (CANONICAL_STARTUP_RULES)."
+ },
+ {
+  "name": "empty_board_no_question",
+  "type": "contains",
+  "pattern": "Nothing to groom",
+  "why": "a board with nothing groomable has no decision in it"
+ },
+ {
+  "name": "backlog_knows_landed",
+  "type": "contains",
+  "pattern": "idea set-status <IDEA-id> landed",
+  "why": "4.12.2: grooming asked whether to reject an idea that had been fixed; landed is the status for that"
+ }
 ]

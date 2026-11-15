@@ -108,6 +108,41 @@ test("hook-runner: dispatches auto-approve-data and approves write inside SHIPYA
   });
 });
 
+test("a discussion cannot edit a project file; its own rule files, another session and a session that is building are left alone (4.20)", () => {
+  withTempProject(({ projectDir, pluginData }) => {
+    const env = { CLAUDE_PROJECT_DIR: projectDir, CLAUDE_PLUGIN_DATA: pluginData, SHIPYARD_DATA: pluginData };
+    const edit = (file, session) => runHook("auto-approve-data", { tool_name: "Edit", session_id: session, tool_input: { file_path: file } }, env);
+    const decision = (r) => (r.stdout ? JSON.parse(r.stdout).hookSpecificOutput.permissionDecision : "pass");
+    const src = join(projectDir, "src.c");
+    writeFileSync(src, "int x;\n");
+    assert.equal(decision(edit(src, "s1")), "pass", "no discussion is running");
+    writeFileSync(join(pluginData, ".active-discuss.json"), JSON.stringify({ skill: "ship-discuss", session_id: "s1", pid: process.pid }));
+    const denied = edit(src, "s1");
+    assert.equal(decision(denied), "deny");
+    assert.match(JSON.parse(denied.stdout).hookSpecificOutput.permissionDecisionReason, /a discussion writes specs, never the project/);
+    assert.match(JSON.parse(denied.stdout).hookSpecificOutput.permissionDecisionReason, /ship-execute --task/);
+    assert.equal(decision(edit(src, "builder-session")), "pass", "a sprint running beside the discussion still builds");
+    assert.equal(decision(edit(src, undefined)), "pass", "no session id: never guessed");
+    mkdirSync(join(projectDir, ".claude", "rules"), { recursive: true });
+    writeFileSync(join(projectDir, ".claude", "rules", "project-ui.md"), "x\n");
+    assert.equal(decision(edit(join(projectDir, ".claude", "rules", "project-ui.md"), "s1")), "pass", "the project's rule files may be amended");
+    writeFileSync(join(projectDir, "CLAUDE.md"), "x\n");
+    assert.equal(decision(edit(join(projectDir, "CLAUDE.md"), "s1")), "pass", "CLAUDE.md is a rule file too");
+    assert.equal(decision(edit(join(pluginData, "spec.md"), "s1")), "allow", "its own data is still its own");
+    // the owner lists where this project records its decisions (4.20.1)
+    mkdirSync(join(projectDir, "docs", "ui"), { recursive: true });
+    writeFileSync(join(projectDir, "docs", "game-design.md"), "x\n"); writeFileSync(join(projectDir, "docs", "ui", "rules.md"), "x\n"); writeFileSync(join(projectDir, "docs", "notes.md"), "x\n");
+    assert.equal(decision(edit(join(projectDir, "docs", "game-design.md"), "s1")), "deny");
+    writeFileSync(join(pluginData, "config.md"), "---\nconfig_version: 5\ndiscuss_writable: [docs/game-design.md, docs/ui/**]\n---\n");
+    assert.equal(decision(edit(join(projectDir, "docs", "game-design.md"), "s1")), "pass");
+    assert.equal(decision(edit(join(projectDir, "docs", "ui", "rules.md"), "s1")), "pass");
+    assert.equal(decision(edit(join(projectDir, "docs", "notes.md"), "s1")), "deny", "a document that is not listed stays read-only");
+    assert.equal(decision(edit(src, "s1")), "deny", "source code is never on the list by accident");
+    writeFileSync(join(pluginData, ".active-execution.json"), JSON.stringify({ skill: "ship-execute", session_id: "s1", pid: process.pid }));
+    assert.equal(decision(edit(src, "s1")), "pass", "the same session went on to build: the execution lock wins");
+  });
+});
+
 test("hook-runner: dispatches auto-approve-data and stays silent for non-guarded tool", () => {
   withTempProject(({ projectDir, pluginData }) => {
     const result = runHook(

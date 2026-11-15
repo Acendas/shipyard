@@ -2,6 +2,10 @@
 
 Any skill that schedules a wakeup (the wave-completion verifier, long-probe pollers, deferred re-checks, any caller of the `ScheduleWakeup` tool) picks its delay against the **5-minute prompt-cache TTL**. Sleeping past 300s burns the entire conversation context on the next read — slower and more expensive than reasoning about the sleep length up front.
 
+## When a wakeup is the wrong tool (4.5)
+
+`ScheduleWakeup` belongs to self-paced `/loop` runs and to waits nothing will notify you about (an external CI job, a device someone has to plug in, a remote queue). Do **not** schedule one for work the session itself started: a background builder, reviewer or shell command re-invokes the orchestrator when it finishes, and under `/goal` Claude Code holds the goal check while that work runs. Polling harness-tracked work with wakeups only adds turns. Shipyard's pipelines are driven by a plain run or by `/goal`; `/loop` is for the things around them — re-checking a parked sprint that waits on a person (`/loop 30m /ship-status`), or watching an external build.
+
 ## Picking `delaySeconds`
 
 | Delay window | When to use | Why |

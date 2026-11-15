@@ -11,7 +11,7 @@ Run each gate in order. The first failure emits `sprint_goal_preflight_failed` v
 | Gate | Check | Why | Actionable fix |
 |---|---|---|---|
 | `sprint_plan_accepted` | SPRINT.md frontmatter `status: planned` or `status: in-progress` (not `proposed`) | A plan not accepted may be wrong; running it as /goal compounds the wrong-ness | `/ship-sprint --accept` or edit SPRINT.md frontmatter |
-| `every_feature_has_user_flow_probe` **(all modes)** | `shipyard-data feature check-probes <SPRINT.md feature IDs>` exits 0 (exit 3 = fail, names offenders). Valid = any `kind`, or a `skip-with-reason` with populated reason; legacy scalar `demo_probe:` counts | Step 5.3 gates sprint completion on it; discovering it missing there means the sprint already built | `/ship-discuss <feature-id>` to author one |
+| `every_feature_has_user_flow_probe` **(all modes)** | `shipyard-data story check-probes <SPRINT.md feature IDs>` exits 0 (exit 3 = fail, names offenders). Valid = any `kind`, or a `skip-with-reason` with populated reason; legacy scalar `demo_probe:` counts | Step 5.3 gates sprint completion on it; discovering it missing there means the sprint already built | `/ship-discuss <feature-id>` to author one |
 | `every_feature_has_ac_signal` | Each feature in SPRINT.md has at least one `acceptance_probe:`-bearing task OR a `user_flow_probe:` on the feature | Without acceptance signals, the sprint-complete predicate is undefined — invariant 4 (orphan AC) becomes vacuously true | `/ship-discuss <feature-id>` to add probes |
 | `no_open_spec_ambiguities` | grep linked feature/AC files for `ambiguity:` markers — none must be present | These are the `design_ambiguity` escalation in disguise; surface them now, not after /goal halts | Resolve via `/ship-discuss <feature-id>` or remove the marker |
 | `sprint_verify_defined` | `config.md` has at least one of `test_commands.unit`, `test_commands.integration`, `test_commands.e2e`, or `build_commands.full` set | Without one, sprint-complete invariant 2 (sprint-boundary probe) is undefined | Edit `<SHIPYARD_DATA>/config.md` to set at least one of `test_commands.unit`/`.integration`/`.e2e` or `build_commands.full` |
@@ -23,12 +23,6 @@ Run each gate in order. The first failure emits `sprint_goal_preflight_failed` v
 
 All gates green → proceed. Any gate red → emit the failure event, show the user the failing gate name plus the actionable fix from the table, and halt. Do NOT proceed in degraded /goal mode — partial /goal is worse than user-driven execution because the partial bits hide real failure modes.
 
-## Why this exists
-
-/goal-mode is /ship-execute's most powerful surface and its most opaque. Without pre-flight gates, the orchestrator could enter /goal on a plan that's missing acceptance signals, hit a wall mid-flight, and surface a confusing failure to the user — *"why did /goal halt? I don't see what's broken."*
-
-The gates frame the halt up front with concrete remediation, before any tokens get spent on actual work. Users see "Pre-flight failed: sprint_verify_defined — set `test_commands.unit` (or `.integration`/`.e2e`/`build_commands.full`) in config.md" instead of "Sprint-complete predicate failed at invariant 2 after 4 hours of execution."
-
 ## Per-gate detail
 
 ### `sprint_plan_accepted`
@@ -39,13 +33,13 @@ The check is a one-line YAML frontmatter read; no CLI primitive needed.
 
 ### `every_feature_has_user_flow_probe` (all modes)
 
-Run `shipyard-data feature check-probes <all SPRINT.md feature IDs>` (one call, space-separated, bare from the project root — it resolves the data dir itself). Exit 0 = pass; **exit 3 is the gate failure** — its stdout lists one `<FID>: <verdict>` line per feature and its stderr names the offenders. A feature passes when it carries a valid `user_flow_probe:` (any `kind` — `auto`/`assisted`/`manual`), or an explicit `skip-with-reason` with a populated `user_flow_probe_skip_reason`; a legacy scalar `demo_probe:` counts. **Do not re-implement this by reading each frontmatter in-model** — the CLI is the single `readUserFlowProbe`-backed source of truth, and the same verb backs `/ship-discuss` Finalize and `/ship-sprint` Check 24, so all three stages agree by construction. On exit 3, emit the `sprint_goal_preflight_failed gate=every_feature_has_user_flow_probe` event and halt with the named features.
+Run `shipyard-data story check-probes <all SPRINT.md feature IDs>` (one call, space-separated, bare from the project root — it resolves the data dir itself). Exit 0 = pass; **exit 3 is the gate failure** — its stdout lists one `<SID>: <verdict>` line per feature and its stderr names the offenders. A feature passes when it carries a valid `user_flow_probe:` (any `kind` — `auto`/`assisted`/`manual`), or an explicit `skip-with-reason` with a populated `user_flow_probe_skip_reason`; a legacy scalar `demo_probe:` counts. **Do not re-implement this by reading each frontmatter in-model** — the CLI is the single `readUserFlowProbe`-backed source of truth, and the same verb backs `/ship-discuss` Finalize and `/ship-sprint` Check 24, so all three stages agree by construction. On exit 3, emit the `sprint_goal_preflight_failed gate=every_feature_has_user_flow_probe` event and halt with the named features.
 
 This runs regardless of mode because it is a **planning-time** requirement enforced at the last possible moment. `/ship-discuss` authors the probe with the acceptance criteria and `/ship-sprint` refuses to plan a feature without one — both now via the same `check-probes` gate; this stage is the backstop for a feature that predates both, or was hand-created. Failing here costs one command (`/ship-discuss <F>`); failing at Step 5.3 costs the whole sprint's build first.
 
 ### `every_feature_has_ac_signal`
 
-For each `feature_id` in SPRINT.md, read the feature file and its linked task files. The feature passes if EITHER:
+For each `feature_id` in SPRINT.md, read the story file and its linked step files. The feature passes if EITHER:
 
 - One or more linked tasks has `acceptance_probe:` set in its frontmatter, OR
 - The feature itself has `user_flow_probe:` set in its frontmatter.
@@ -56,8 +50,8 @@ The two probe layers are: per-task probes prove wiring works within the task; th
 
 Recursive grep for `ambiguity:` markers in:
 
-- Every feature file in this sprint
-- Every task file linked to those features
+- Every story file in this sprint
+- Every step file linked to those features
 - Every AC entry referenced by those features
 
 Spec ambiguities are intentional placeholders — "this AC needs clarification before we ship." A subagent encountering one would return `ESCALATION_CODE: design_ambiguity`, halting the wave. Catching them at pre-flight is cheaper than halting mid-sprint.
@@ -70,7 +64,7 @@ Read `<SHIPYARD_DATA>/config.md` and check that at least one of `test_commands.u
 
 ### `working_branch_correct`
 
-`git branch --show-current` against SPRINT.md's `branch:` field. Already done by the existing Pre-spawn Branch Check in /ship-execute Step 2; lifted to pre-flight because the cost of getting this wrong (worktrees branch from the wrong commit, hours of merge work to recover) is higher than the cost of one extra check.
+`git branch --show-current` against SPRINT.md's `branch:` field. Already done by the existing Pre-spawn Branch Check in /ship-execute Step 2 (`pipeline-wave.md`); lifted to pre-flight because the cost of getting this wrong (worktrees branch from the wrong commit, hours of merge work to recover) is higher than the cost of one extra check.
 
 ### `no_active_discussion_lock`
 

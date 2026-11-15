@@ -1,0 +1,37 @@
+{
+  "wrongWorker": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "shipyard-data queue complete: task ship-execute:wave_1_dispatch:T001 is claimed by w1, not w2"
+  },
+  "wrongPath": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "shipyard-data queue complete: result artifact must match expected_artifact for ship-execute:wave_1_dispatch:T001: <DIR>/sprints/current/returns/T001.json"
+  },
+  "badJson": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "shipyard-data queue complete: result artifact is not parseable JSON: <DIR>/sprints/current/returns/T001.json"
+  },
+  "mismatchedId": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "shipyard-data queue complete: result artifact id OTHER does not match T001"
+  },
+  "relativeCapture": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "shipyard-data queue complete: result artifact capture_file must be an existing absolute path"
+  },
+  "missingArtifact": {
+    "code": 3,
+    "stdout": "",
+    "stderr": "shipyard-data queue complete: result artifact does not exist: <ROOT>/nope.json"
+  },
+  "stillClaimed": {
+    "code": 0,
+    "stdout": "{\n  \"tasks\": [\n    {\n      \"id\": \"T001\",\n      \"pipeline\": \"ship-execute\",\n      \"stage\": \"wave_1_dispatch\",\n      \"kind\": \"work\",\n      \"status\": \"claimed\",\n      \"files\": [],\n      \"expected_artifact\": \"returns/T001.json\",\n      \"required_validation\": [],\n      \"payload\": null,\n      \"source\": null,\n      \"effort\": null,\n      \"base_sha\": null,\n      \"idempotent\": true,\n      \"attempt\": 1,\n      \"claimed_by\": \"w1\",\n      \"claimed_at\": \"<TS>\",\n      \"deadline_at\": \"<TS>\",\n      \"completed_at\": null,\n      \"failed_at\": null,\n      \"result\": null,\n      \"artifact_status\": null,\n      \"reason\": null,\n      \"ttl_seconds\": 1800\n    }\n  ]\n}",
+    "stderr": ""
+  }
+}

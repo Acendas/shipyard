@@ -28,7 +28,7 @@ import {
   symlinkSync,
   unlinkSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -211,7 +211,23 @@ function currentBreadcrumbTag(opts = {}) {
   if (selfDir) return configTagForPluginsDir(selfDir);
   const envDir = configPluginsDirFromPluginData(process.env.CLAUDE_PLUGIN_DATA);
   if (envDir) return configTagForPluginsDir(envDir);
+  // A dev checkout loaded with `--plugin-dir` has no cache path, and a skill's
+  // `!` backtick subprocess has no CLAUDE_PLUGIN_DATA — but the SessionStart
+  // hook (which does) tagged the breadcrumb with the install's plugins dir.
+  // Claude Code hands every subprocess CLAUDE_CONFIG_DIR (default ~/.claude),
+  // and `<configDir>/plugins` is exactly that dir, so derive the same tag
+  // from it rather than falling back to the untagged name nobody wrote.
+  // (Observed 2026-11-13: every `shipyard-context` preamble in a --plugin-dir
+  // session failed with "cannot resolve plugin data directory".)
+  const cfgDir = configPluginsDirFromConfigDir(process.env.CLAUDE_CONFIG_DIR);
+  if (cfgDir) return configTagForPluginsDir(cfgDir);
   return null;
+}
+
+/** `<CLAUDE_CONFIG_DIR or ~/.claude>/plugins`, normalized exactly as the breadcrumb writer normalizes it. */
+export function configPluginsDirFromConfigDir(configDir) {
+  const base = configDir && configDir.trim() ? configDir.trim() : join(homedir(), ".claude");
+  return configPluginsDirFromPluginData(join(base, "plugins", "data"));
 }
 
 /**
@@ -780,6 +796,13 @@ export function getDataDir(opts = {}) {
   //    hash) and per-install (keyed by config-root tag); survives skill
   //    invocations within a session; mode 0600.
   const candidates = breadcrumbCandidates(projectHash);
+  // No install tag of our own (dev checkout, no CLAUDE_PLUGIN_DATA): the tag
+  // above came from the CLAUDE_CONFIG_DIR fallback, so an older hook's
+  // untagged breadcrumb is still worth probing last. A tagged install never
+  // reads a legacy crumb (it could belong to another install).
+  if (!configPluginsDirFromSelf() && !configPluginsDirFromPluginData(process.env.CLAUDE_PLUGIN_DATA)) {
+    for (const c of breadcrumbCandidates(projectHash, { legacy: true })) if (!candidates.includes(c)) candidates.push(c);
+  }
   if (!pluginData) {
     for (const candidate of candidates) {
       const value = readBreadcrumb(candidate);

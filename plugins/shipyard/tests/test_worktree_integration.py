@@ -101,15 +101,25 @@ class WorktreeTestBase(unittest.TestCase):
 # ensure-worktree-baseref
 # --------------------------------------------------------------------------
 class TestEnsureWorktreeBaseref(WorktreeTestBase):
-    def test_creates_settings_when_absent(self):
+    # 4.4: the baseRef goes into .claude/settings.local.json (merged by Claude
+    # Code like settings.json) and that path is excluded repo-locally, so the
+    # user's tree stays clean and nothing of theirs gets committed for them.
+    LOCAL = os.path.join('.claude', 'settings.local.json')
+
+    def test_creates_local_settings_when_absent(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = make_repo(tmp)
             plugin_data = os.path.join(tmp, 'pdata')
             os.makedirs(plugin_data)
             proc = self.run_data(repo, plugin_data, 'ensure-worktree-baseref')
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            settings = json.load(open(os.path.join(repo, '.claude', 'settings.json')))
+            settings = json.load(open(os.path.join(repo, self.LOCAL)))
             self.assertEqual(settings['worktree']['baseRef'], 'head')
+            self.assertFalse(os.path.exists(os.path.join(repo, '.claude', 'settings.json')))
+            exclude = open(os.path.join(repo, '.git', 'info', 'exclude')).read()
+            self.assertIn('.claude/settings.local.json', exclude.split('\n'))
+            status = subprocess.run(['git', 'status', '--porcelain'], cwd=repo, capture_output=True, text=True).stdout
+            self.assertEqual(status.strip(), '')
 
     def test_idempotent_second_run_is_noop(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -117,12 +127,26 @@ class TestEnsureWorktreeBaseref(WorktreeTestBase):
             plugin_data = os.path.join(tmp, 'pdata')
             os.makedirs(plugin_data)
             self.run_data(repo, plugin_data, 'ensure-worktree-baseref')
-            before = open(os.path.join(repo, '.claude', 'settings.json')).read()
+            before = open(os.path.join(repo, self.LOCAL)).read()
             proc = self.run_data(repo, plugin_data, 'ensure-worktree-baseref')
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIn('already', proc.stdout)
-            after = open(os.path.join(repo, '.claude', 'settings.json')).read()
+            after = open(os.path.join(repo, self.LOCAL)).read()
             self.assertEqual(before, after)
+
+    def test_shared_setting_is_honored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = make_repo(tmp)
+            plugin_data = os.path.join(tmp, 'pdata')
+            os.makedirs(plugin_data)
+            cdir = os.path.join(repo, '.claude')
+            os.makedirs(cdir)
+            with open(os.path.join(cdir, 'settings.json'), 'w') as fh:
+                json.dump({'worktree': {'baseRef': 'head'}}, fh)
+            proc = self.run_data(repo, plugin_data, 'ensure-worktree-baseref')
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn('already', proc.stdout)
+            self.assertFalse(os.path.exists(os.path.join(repo, self.LOCAL)))
 
     def test_preserves_unrelated_keys(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -131,12 +155,12 @@ class TestEnsureWorktreeBaseref(WorktreeTestBase):
             os.makedirs(plugin_data)
             cdir = os.path.join(repo, '.claude')
             os.makedirs(cdir)
-            with open(os.path.join(cdir, 'settings.json'), 'w') as fh:
+            with open(os.path.join(repo, self.LOCAL), 'w') as fh:
                 json.dump({'permissions': {'allow': ['Bash(ls:*)']},
                            'worktree': {'cleanupPeriodDays': 7}}, fh)
             proc = self.run_data(repo, plugin_data, 'ensure-worktree-baseref')
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            settings = json.load(open(os.path.join(cdir, 'settings.json')))
+            settings = json.load(open(os.path.join(repo, self.LOCAL)))
             self.assertEqual(settings['worktree']['baseRef'], 'head')
             # sibling keys preserved
             self.assertEqual(settings['worktree']['cleanupPeriodDays'], 7)
@@ -150,12 +174,12 @@ class TestEnsureWorktreeBaseref(WorktreeTestBase):
             cdir = os.path.join(repo, '.claude')
             os.makedirs(cdir)
             bad = '{ this is not valid json '
-            with open(os.path.join(cdir, 'settings.json'), 'w') as fh:
+            with open(os.path.join(repo, self.LOCAL), 'w') as fh:
                 fh.write(bad)
             proc = self.run_data(repo, plugin_data, 'ensure-worktree-baseref')
             self.assertNotEqual(proc.returncode, 0)
             # File is left untouched — never half-written.
-            self.assertEqual(open(os.path.join(cdir, 'settings.json')).read(), bad)
+            self.assertEqual(open(os.path.join(repo, self.LOCAL)).read(), bad)
 
     def test_emits_event(self):
         with tempfile.TemporaryDirectory() as tmp:

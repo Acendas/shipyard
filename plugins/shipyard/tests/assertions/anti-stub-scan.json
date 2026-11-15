@@ -53,7 +53,7 @@
   {
     "name": "needs_attention_uses_task_state_cli",
     "type": "contains",
-    "pattern": "task set-status.*needs-attention --reason",
+    "pattern": "step set-status.*needs-attention --reason",
     "why": "v3.6.0 wave 2 follow-up: persistent HIGH stub findings route the needs-attention transition through the task-state CLI instead of a hand-Edit."
   }
 ]

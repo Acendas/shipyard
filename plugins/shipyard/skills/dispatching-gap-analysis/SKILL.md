@@ -30,23 +30,15 @@ and Required Return Shape live in the registered agent
 `agents/shipyard-gap-analyst.md` — read it once if you need to know exactly
 what it does; do not re-inline it here.
 
-**Model tier (think).** Read `models.think` from config.md — the invoking
-command skill's `!` context block, or a Read of `<SHIPYARD_DATA>/config.md`. If
-the value is non-empty, pass `model: <value>` in the Agent call; if empty or
-absent, OMIT the `model:` field entirely so the subagent inherits the session
-model. Never hardcode a model literal.
-
-**Effort tier (think).** Read `agent_effort.think` from config.md; default
-`high`. If the value is non-empty, pass `effort: <value>` in the Agent call; if
-empty or absent, OMIT `effort:` so the subagent inherits the runtime default.
+**Model + effort (resolved by CLI).** Run `shipyard-data resolve-model think` — it prints one line `model=<m> effort=<e>` from config.md (an empty value means OMIT that field on the Agent call so the subagent inherits; `inherit` is already normalized to empty). Never derive either from config.md prose and never hardcode a model literal. Then log it: `shipyard-data events emit dispatch_model_resolved role=think model=<m or inherit> effort=<e or inherit> skill=<this skill>` — the wrapper logs, the resolver stays silent, and a logging failure never blocks the dispatch.
 
 Dispatch:
 
 ```
 Agent(
   subagent_type: "shipyard:shipyard-gap-analyst",
-  model: <models.think value, or omit>,
-  effort: <agent_effort.think value, or omit>,
+  model: <model= from resolve-model, or omit if empty>,
+  effort: <effort= from resolve-model, or omit if empty>,
   prompt: "
     Scope:              {{scope}}
     Target IDs:          {{target_ids}}
@@ -74,7 +66,7 @@ and `CHECKS:` unless it is BLOCKED.
    side effects itself; the command skill owns them.
 
 3. **`STATUS: BLOCKED`** — quote the `REASON:` paragraph as chat text before
-   any ask. None of these are recoverable by inventing a hand-rolled fallback.
+   any ask. Do not invent a hand-rolled fallback; the failure is not recoverable that way.
 
 4. **Silent return** — the Agent return is present but no `STATUS:` line
    appears, or the body is empty/whitespace. Treat this as a distinct outcome:
@@ -94,9 +86,3 @@ and `CHECKS:` unless it is BLOCKED.
 previous tick, passes `stuck_counter=0` only when the set changed, advances
 `gap_analysis` for another tick while gaps are changing, and advances to
 `critic` when the list stabilizes.
-
-## Bottom Line
-
-- One dispatch to the registered `shipyard-gap-analyst` agent.
-- Read-only; structured gaps plus 10-check self-review.
-- No generic fallback agent; failures become BLOCKED or one audited re-dispatch.

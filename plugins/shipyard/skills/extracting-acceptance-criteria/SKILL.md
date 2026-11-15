@@ -17,7 +17,7 @@ The output is the **input** to `authoring-acceptance-probe` (which probes each A
 | `/ship-discuss` | Right after the user's feature pitch crystallizes — convert prose into ACs before edge-case discovery |
 | `/ship-spec` | When auditing or rewriting a feature spec; pull ACs out of buried prose |
 | `/ship-sprint` | When breaking a feature into tasks, each task gets a slice of the feature's ACs |
-| `/ship-bug` | Convert a bug report into a regression AC ("the system shall not <symptom>") |
+| `/ship-discuss` (bug lane) | Convert a bug report into a regression AC ("the system shall not <symptom>"; the first AC is a failing test) |
 
 If the spec already has a clean numbered AC list with one observable per item, don't invoke this skill — there's nothing to extract. Read and follow `discovering-edge-cases` instead to find missing ACs.
 
@@ -34,12 +34,6 @@ An AC is a single, observable, testable statement about what the system does (or
 > **Given** \<context\>, **when** \<action\>, **then** \<observable outcome\>.
 
 Literal Given/When/Then phrasing is optional. The shape enforces three properties: a starting condition, a triggering action, and an observable outcome that a probe can check.
-
-Examples (good):
-
-- "When a user submits a signup form with a valid email and ≥8-char password, the system creates a `User` row, returns `201` with the user's `id`, and sends a verification email to that address."
-- "When a user submits a signup form with an email already in use, the system returns `409 Conflict` with body `{"error":"email_taken"}` and does NOT create a user row or send any email."
-- "Verification links expire 24 hours after the verification email was sent. After expiry, clicking the link returns a `Link expired` page (HTTP 410) and offers a 'Resend' button."
 
 What an AC is NOT:
 
@@ -116,12 +110,7 @@ Before returning, run each AC through:
 - [ ] **Owner layer assigned** — knowing which layer owns it helps `/ship-sprint` distribute tasks.
 - [ ] **Tier assigned** — `tier` is `"core"` or `"e2e"`; `e2e_category` populated if and only if `tier` is `"e2e"`.
 
-## Hard Cases
-
-- **Performance ACs.** Convert "fast" into a budget: "P95 latency for the signup endpoint stays under 500ms when called at 100 req/s." If you can't pick a number, the AC isn't ready — surface to user via the calling skill.
-- **Security ACs.** Phrase as observable absences: "The signup response shall not contain the user's password hash, salt, or any field of the `User.private` namespace." Observable = response body.
-- **UX ACs.** "User-friendly" → "The signup form shows an inline error within 200ms of an invalid email field losing focus, and the error references the specific field name." Observable = DOM state.
-- **Backward compatibility ACs.** "Existing v1 clients that POST to `/api/users` continue to receive the v1 response shape (no new required fields)." Observable = response schema diff.
+Hard cases: turn performance into a numeric budget (no number means the AC is not ready; surface it to the user via the calling skill), and phrase security, UX and compatibility ACs as observable absences, DOM state or schema diffs.
 
 ## E2E Acceptance Criteria Tiers
 
@@ -162,12 +151,3 @@ This skill produces a structured list; it does NOT edit the feature draft. The c
 - **`discovering-edge-cases`** runs after this — extracts ACs first, then surfaces what's missing. Edge cases become new ACs in a follow-up extraction pass.
 - **`authoring-acceptance-probe`** runs per-AC after extraction stabilizes — each AC's `observable` field guides probe authoring.
 - **`dispatching-spec-review`** verifies each AC during review — the AC list is the reviewer's checklist.
-
-## Bottom Line
-
-- Convert prose features into atomic, observable, testable ACs.
-- Three passes: surface obvious, split compounds, add negatives.
-- Each AC has a concrete `observable` field — the bridge to probes.
-- No padding, no scope expansion, no implementation leaks.
-- Read-only; calling skill folds output into the spec.
-- A capability skill (`disable-model-invocation: true`), read and followed from `/ship-discuss`.

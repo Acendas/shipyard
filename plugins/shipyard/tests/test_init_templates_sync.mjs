@@ -18,7 +18,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -92,4 +92,24 @@ test("concurrent inits against one data dir never crash (cpSync ENOENT race)", a
     readFileSync(join(TEMPLATES_SRC, "config.md"), "utf8"),
     "templates/config.md content is intact after concurrent inits",
   );
+});
+
+test("init seeds backlog/BACKLOG.md once and never overwrites it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "init-backlog-"));
+  try {
+    const projectRoot = join(root, "repo");
+    const dataDir = join(root, "data");
+    mkdirSync(projectRoot, { recursive: true });
+    await runInit(projectRoot, dataDir);
+    const p = join(dataDir, "backlog", "BACKLOG.md");
+    assert.ok(existsSync(p), "BACKLOG.md seeded on first init");
+    const seeded = readFileSync(p, "utf8");
+    assert.equal(seeded, readFileSync(join(TEMPLATES_SRC, "BACKLOG.md"), "utf8"));
+    const edited = seeded.replace("| Rank | ID |", "| Rank | ID |\n|------|----|\n| 1 | F001 |");
+    writeFileSync(p, edited);
+    await runInit(projectRoot, dataDir);
+    assert.equal(readFileSync(p, "utf8"), edited, "a populated index is never overwritten");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

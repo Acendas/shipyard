@@ -63,55 +63,6 @@ If any of these are true, you are about to claim done without verification:
 
 When you notice any of these, **stop, run the verifier, then proceed with real evidence**.
 
-## Rationalization Prevention
-
-| Excuse you will be tempted by | The actual rule |
-|---|---|
-| "Should work now" | RUN the verifier. Read the output. |
-| "I'm confident in the change" | Confidence is not evidence. |
-| "Just this once" | No exceptions. The rule has no carve-outs. |
-| "The linter passed" | Linter ≠ build ≠ tests ≠ acceptance probe. |
-| "Subagent reported success" | Verify independently: `git log`, probe output, file existence. |
-| "The probe is the same as last time" | Ran-this-turn = evidence. Last turn's run = stale. |
-| "Partial check is enough" | Partial proves nothing about the whole. |
-| "I'm tired" | Exhaustion is not an excuse for false claims. |
-| "Different words so the rule doesn't apply" | Spirit over letter. Any implication of completion triggers the rule. |
-
-## Patterns to Apply
-
-**Per-task acceptance probe (Shipyard task loop):**
-```
-✓ Run probe → exit 0 with last-N lines pasted into commit body → state "task done"
-✗ "Tests passed earlier" → claim → flip [x]
-```
-
-**TDD Red→Green:**
-```
-✓ Write test → run (FAIL with expected message) → write code → run (PASS) → claim
-✗ "Test passes" without observing the FAIL phase → no evidence the test exercises the right code
-```
-
-**Subagent return:**
-```
-✓ Subagent returns STATUS: COMPLETE + COMMIT: <sha> + PROBE_OUTPUT_TAIL → orchestrator
-   verifies the sha exists in git AND the probe output matches what the task required.
-✗ Subagent says "done" → orchestrator marks done.
-```
-
-**Wave/sprint roll-up:**
-```
-✓ Each task's evidence captured at task time → wave boundary re-runs scoped tests in this
-   turn → sprint completion runs full suite in this turn → claim.
-✗ "Wave 1 was green, wave 2 was green, so sprint must be green."
-```
-
-**Code review approval:**
-```
-✓ Reviewer runs the demo path probe in this turn AND maps each acceptance criterion to a
-   pass signal AND checks the diff for stubs → approval with evidence inline.
-✗ Reviewer reads the diff and reasons it should work → approval.
-```
-
 ## When to Apply
 
 **Always before:**
@@ -127,18 +78,4 @@ When you notice any of these, **stop, run the verifier, then proceed with real e
 - Exact phrases ("tests pass", "fixed", "done")
 - Paraphrases ("everything looks good", "all green", "ready to ship")
 - Implications ("wrapping up Wave 2")
-- Status transitions in any tracked artifact (task file, sprint file, action items file)
-
-## Why This Matters
-
-False completion is the #1 reliability failure in agentic development. Every false-done claim costs you: (1) trust with the user, (2) hours of "I thought this was done" rework, (3) production incidents when the gap surfaces under load.
-
-The Iron Law is the cheapest insurance: one extra command run per claim, no infrastructure, no scanners, no enforcement code. It works because the model can reason about its own output but cannot fabricate a fresh shell exit code it didn't actually run.
-
-## The Bottom Line
-
-**No shortcuts. No exceptions. No "just this once."**
-
-Run the command. Read the output. THEN claim.
-
-This is non-negotiable.
+- Status transitions in any tracked artifact (step file, sprint file, action items file)

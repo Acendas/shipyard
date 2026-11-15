@@ -14,12 +14,12 @@ After research, identify every point where there's a meaningful choice — don't
 Score every decision point through the confidence gate + kill-list in `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/question-design.md` before asking — the same discipline `/ship-discuss` uses.
 
 - **HIGH tier** (evidence converges AND two-way door — most library picks, internal structure, naming) → **decide and inform.** Print one line: `Going with X — [≤10-word why]. (say 'change' to override)`, and log an `ASSUMED: <decision> — <evidence> — reversible: yes` entry in the feature's `## Decision Log`. NEVER for one-way doors (data-model shapes, API/external contracts, auth, migration strategy) — those stay asks.
-- **MEDIUM / LOW** → carry into the **batched** planning-decisions AskUserQuestion (the shell composes ONE call across Steps 3.5–3.75, ≤4 questions). For each such point still prepare: a plain-text explanation (options, tradeoffs, what the codebase uses, what research found, recommendation) and the recommended-first option set. Render that explanation as chat text immediately before the batched call fires — 'prepared' is not 'shown'; research findings living in an analyst report or Read result, or tradeoffs squeezed into option labels, do not count as rendered.
+- **MEDIUM / LOW** → carry into the planning decisions the shell asks after Steps 3.5–3.75, **one card at a time** (one question per call). For each such point still prepare: a plain-text explanation (options, tradeoffs, what the codebase uses, what research found, recommendation) and the recommended-first option set. Render that explanation as chat text immediately before its card — 'prepared' is not 'shown'; research findings living in an analyst report or Read result, or tradeoffs squeezed into option labels, do not count as rendered.
 
 All HIGH `ASSUMED:` entries surface in the Step 11 **ASSUMPTIONS MADE** list — the single veto point.
 
 ```
-State management approach for F001:
+State management approach for S001:
 
 1. Library A — already used in the project, team knows it, well-documented
 2. Library B — newer, less boilerplate, but no team experience
@@ -42,10 +42,10 @@ Recommended: 1 — the risk of picking wrong is high enough to justify a quick s
 
 ### POC spike flow (if user chooses spike)
 
-A POC spike does not fit `dispatching-task-loop`'s contract (no tests, no atomic commit, no acceptance probe — the deliverable is a recommendation, not production code). Dispatch directly via `general-purpose` with `isolation: "worktree"` so the spike runs in throwaway isolation. **Model tier (build)** — a spike is exploratory build labor: read `models.build` from `<SHIPYARD_DATA>/config.md` (the `/ship-sprint` context block already carries config, or Read it); if non-empty pass `model: <value>` on the Agent call, if empty or absent OMIT `model:` so it inherits the session model. Never hardcode a literal. **Effort tier (build)** — read `agent_effort.build` from config.md (default `medium`); if non-empty pass `effort: <value>`, if empty/absent OMIT `effort:`.
+A POC spike does not fit `dispatching-task-loop`'s contract (no tests, no atomic commit, no acceptance probe — the deliverable is a recommendation, not production code). Dispatch directly via `general-purpose` with `isolation: "worktree"` so the spike runs in throwaway isolation. **Model + effort (build)** — a spike is exploratory build labor: Run `shipyard-data resolve-model build` — one line `model=<m> effort=<e>`; pass each value as a string on the Agent call and OMIT any empty field (inherit). Never hardcode a literal. Log it once: `shipyard-data events emit dispatch_model_resolved role=<role> model=<model or inherit> effort=<effort>` (a logging failure never blocks the dispatch).
 
 ```
-Agent(subagent_type: "general-purpose", model: <models.build — omit if empty>, effort: <agent_effort.build — omit if empty>, isolation: "worktree", prompt: |
+Agent(subagent_type: "general-purpose", model: <model= from resolve-model build; omit if empty>, effort: <effort= from resolve-model build; omit if empty>, isolation: "worktree", prompt: |
   Build a minimal proof-of-concept to test: <SPECIFIC QUESTION>.
   No tests needed. No production quality. Just prove whether <APPROACH>
   works in this project's context.
@@ -67,9 +67,9 @@ The POC takes minutes, not hours. It answers "will this work?" with evidence ins
 
 **If no meaningful choices exist** (the codebase already uses a framework, there's only one sensible approach, or the feature is straightforward) — skip this step for that feature and note in Technical Notes: "No implementation decisions — approach follows existing patterns."
 
-**Record all decisions** in the feature file's `## Decision Log` with date and reasoning. These decisions flow into task Technical Notes so the builder knows what was decided and why.
+**Record all decisions** in the story file's `## Decision Log` with date and reasoning. These decisions flow into task Technical Notes so the builder knows what was decided and why.
 
-**Write findings to each task file `## Technical Notes`** (after Step 4 creates task files). The full template lives in `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-tech-notes-template.md` — Read it once at the start of Step 4, then fill it in per task and Write directly to the task file. **Do not echo the template back into conversation.** Task specs must be executable: a builder follows them mechanically without re-reading the feature file.
+**Write findings to each step file `## Technical Notes`** (after Step 4 creates step files). The full template lives in `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-tech-notes-template.md` — Read it once at the start of Step 4, then fill it in per task and Write directly to the step file. **Do not echo the template back into conversation.** Task specs must be executable: a builder follows them mechanically without re-reading the story file.
 
 ## Step 3.75 — Simplification Opportunity Scan
 

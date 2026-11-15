@@ -2,7 +2,7 @@
 
 When a feature introduces new libraries, utilities, patterns, or abstractions, scan the codebase for places that currently hand-roll what the new thing provides. Small wins get folded into the current work; larger opportunities become backlog items.
 
-This scan is deliberately conservative — only surface high-confidence opportunities where the replacement is clear and the benefit is measurable (less code, fewer dependencies, or better consistency).
+Only surface high-confidence opportunities with a clear replacement and measurable benefit.
 
 ## When to Run
 
@@ -23,12 +23,7 @@ Skip if the feature is purely additive (new endpoint, new UI page) with no reusa
 **Process:**
 1. Identify what the library provides (from research findings or WebSearch: "[library] replaces hand-rolled [what]")
 2. Grep the codebase for hand-rolled equivalents:
-   - **Date libraries** (date-fns, dayjs, luxon) → search for raw `new Date()` arithmetic, manual formatting, timezone string manipulation
-   - **Validation libraries** (zod, yup, joi) → search for manual if/else validation chains, regex-based input checks
-   - **HTTP clients** (axios, ky) → search for raw `fetch()` wrappers with retry/timeout logic
-   - **State management** → search for hand-rolled pub/sub, manual context propagation, ad-hoc event emitters
-   - **ORM/query builders** → search for raw SQL string concatenation, manual connection pooling
-   - **General pattern:** search for the *problem the library solves*, not the library name
+   - Search for the *problem the library solves*, not the library name (e.g. date libs → raw `new Date()` arithmetic; validation libs → manual if/else chains)
 3. For each match, assess: is the hand-rolled version doing essentially the same thing the library does? Or is it solving a subtly different problem?
 
 **Output per finding:**
@@ -47,9 +42,7 @@ Skip if the feature is purely additive (new endpoint, new UI page) with no reusa
 **Process:**
 1. Identify the core operation the utility performs (e.g., "formats currency strings", "validates email addresses", "retries with exponential backoff")
 2. Grep the codebase for inline code that does the same operation:
-   - Search for the domain keywords (e.g., "currency", "format", "cents", "decimal")
-   - Search for the algorithmic pattern (e.g., `setTimeout` + increasing delay for retry logic)
-   - Search for copy-pasted code blocks that vary slightly from the new utility
+   - Search for domain keywords, the algorithmic pattern, and near-copies of the utility
 3. Exclude the feature's own files from results
 
 **Confidence filter:** Only report if the inline code is doing ≥80% of what the new utility does. If the inline version handles a special case the utility doesn't, note the gap — it may mean the utility needs to be more general, not that the inline code should be replaced.
@@ -61,20 +54,10 @@ Skip if the feature is purely additive (new endpoint, new UI page) with no reusa
 **Process:**
 1. From the feature's Technical Notes, identify the pattern being introduced (e.g., "repository pattern for data access", "Result type for error handling", "command pattern for mutations")
 2. Search for existing code that solves the same problem differently:
-   - Grep for the operation type (e.g., all database access code, all error handling, all API calls)
-   - Compare the existing approaches with the new pattern
-   - Count how many variations exist — 3+ variations of the same operation is a strong signal
+   - Grep for the operation type and count variations — 3+ is a strong signal
 3. Group by similarity — which existing code is closest to the new pattern and easiest to migrate?
 
-**Output per cluster:**
-```
-Pattern: [what the code does]
-  New way: [the pattern being introduced]
-  Existing variations: [N] files
-    - [file:line] — [brief description of variation] (migration effort: trivial/small/medium)
-    - [file:line] — [brief description of variation] (migration effort: trivial/small/medium)
-  Consistency win: replacing [N] ad-hoc approaches with one pattern
-```
+**Output per cluster:** pattern, new way, existing variations (file:line, migration effort).
 
 ### Strategy 4: Abstraction Opportunity Scan
 
@@ -83,9 +66,6 @@ Pattern: [what the code does]
 **Process:**
 1. Identify the abstraction boundary the feature creates (interface, base class, protocol, generic type)
 2. Search for concrete implementations of similar behavior elsewhere:
-   - If the feature creates `PaymentProvider` interface → search for direct Stripe/PayPal/etc. API calls
-   - If the feature creates a `Cacheable` decorator → search for manual cache-check-then-fetch patterns
-   - If the feature creates a pagination helper → search for manual offset/limit/cursor code
 3. Only report if 2+ additional places would benefit (single instances aren't worth abstracting)
 
 ### Strategy 5: Dead Code / Supersession Scan

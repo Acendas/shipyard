@@ -36,13 +36,6 @@ Not all language servers support every operation. When an operation fails or ret
 - **Call hierarchy unsupported (`incomingCalls`/`outgoingCalls`):** Use `findReferences` recursively — find references to a method, then find references to each caller.
 - **Workspace-wide search:** `workspaceSymbol` is broken (bug #30948). Grep with the symbol name is fast and reliable.
 
-## Token Savings
-
-- `documentSymbol` on a 500-line file: ~20 tokens (symbol list) vs ~2000 tokens (reading the whole file)
-- `findReferences`: ~10 tokens per reference vs grep output with surrounding context
-- `goToDefinition`: 1 line vs searching across files
-- `hover`: type info in ~5 tokens vs reading + inferring from code
-
 ## Operation Reliability
 
 | Operation | Widely Supported? | If Unsupported |
@@ -55,33 +48,3 @@ Not all language servers support every operation. When an operation fails or ret
 | `incomingCalls` | ⚠️ Varies | `findReferences` recursively |
 | `outgoingCalls` | ⚠️ Varies | `findReferences` recursively |
 | `workspaceSymbol` | ❌ Broken | Grep for the symbol name |
-
-## Practical Patterns
-
-**Understanding a file before modifying it:**
-```
-1. documentSymbol → get the structure (classes, methods, fields)
-2. Only Read specific methods you need to change
-```
-
-**Tracing a bug:**
-```
-1. goToDefinition → find where the suspect symbol lives
-2. incomingCalls → who calls it? (narrows the call chain)
-3. outgoingCalls → what does it depend on?
-4. findReferences → where else is this used? (impact radius)
-```
-
-**Assessing change impact:**
-```
-1. findReferences → all usages of the symbol being changed
-2. goToImplementation → all concrete implementations of an interface
-3. hover → check types at each usage site
-```
-
-**Code review:**
-```
-1. documentSymbol → get overview of changed file
-2. findReferences → verify all usages covered by tests
-3. hover → check types without reading imports
-```

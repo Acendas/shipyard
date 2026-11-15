@@ -15,11 +15,9 @@ Read all project state, validate it, auto-fix issues, and present a clear dashbo
 !`shipyard-context diagnose`
 !`shipyard-context status-dashboard`
 
-**Paths.** All file ops use the absolute SHIPYARD_DATA prefix from the context block. No `~`, `$HOME`, or shell variables in `file_path`. Bash is for `shipyard-context` (reads), the onboarding command surfaced by context, and `shipyard-data lock status|release` plus `shipyard-data metrics regenerate` (CLI-owned housekeeping — see Check 6/7) ONLY — no other `shipyard-data` subcommand and no other shell. **Never use `echo`/`printf`/shell redirects to write state files** — use the Write tool (auto-approved for SHIPYARD_DATA) for the reconcile-log and sentinel files this skill maintains. Metrics are CLI-owned: `memory/metrics.json` is authoritative and `memory/metrics.md` is generated; never Write/Edit either metrics file. **`/ship-status` consumes pipeline cursor, PROGRESS.md, and SPRINT.md summaries from `shipyard-context status-dashboard`; it never writes them and never parses cursor frontmatter itself** (the PreToolUse hook denies model writes to those; the `shipyard-data`/`shipyard-context` CLIs are their only state interface). HANDOFF.md is retired — a paused pipeline is a cursor with `status: paused`. The two skill-mutex lock files (`.active-session.json`, `.active-execution.json`) are CLI-owned too — this skill never hand-Writes them, only `shipyard-data lock status` (read) / `lock release ... --force` (clear).
+**Shell.** Bash is for `shipyard-context` (reads), the onboarding command surfaced by context, and `shipyard-data lock status|release`, `shipyard-data reconcile [--fix]` (state drift left by an ended cycle: run it, apply `--fix`, and report what it repaired under STATE) plus `shipyard-data metrics regenerate` (CLI-owned housekeeping — see Check 6/7) ONLY — no other `shipyard-data` subcommand and no other shell. Use the Write tool for the reconcile-log and sentinel files this skill maintains. Metrics are CLI-owned: `memory/metrics.json` is authoritative and `memory/metrics.md` is generated; never Write/Edit either metrics file. **`/ship-status` consumes pipeline cursor, PROGRESS.md, and SPRINT.md summaries from `shipyard-context status-dashboard`; it never writes them and never parses cursor frontmatter itself** (the PreToolUse hook denies model writes to those; the `shipyard-data`/`shipyard-context` CLIs are their only state interface). HANDOFF.md is retired — a paused pipeline is a cursor with `status: paused`. The two skill-mutex lock files (`.active-session.json`, `.active-execution.json`) are CLI-owned too — this skill never hand-Writes them, only `shipyard-data lock status` (read) / `lock release ... --force` (clear).
 
-**Onboarding gate.** If the bundled context contains `SHIPYARD_ONBOARDING_REQUIRED=true`, run the exact `SHIPYARD_ONBOARDING_COMMAND` once with Bash, report the CLI output to the user, and STOP. Do not infer setup state by reading or writing Shipyard state files; onboarding decisions are CLI-owned.
-
-**Render before asking.** Before every AskUserQuestion, render the decision context — the scenarios, concrete examples, tradeoffs, and any verbatim content being approved — as chat text; the tool call then carries only the short question and option labels. A bare AskUserQuestion with no rendered context above it is a bug (the window is too small to carry a real decision). Content that exists only in a Read result, a subagent/Agent return, a dossier file, or the question/option strings themselves does not count as rendered (the UI shows a compact card) — restate it as assistant chat text immediately above the ask.
+**Render before asking.** Follow SHIPYARD_STARTUP_RULES and SHIPYARD_ONBOARDING_INSTRUCTION from startup. When `SHIPYARD_ONBOARDING_REQUIRED=true`, run `SHIPYARD_ONBOARDING_COMMAND` immediately and render the dashboard from the result — it writes only Shipyard's own `config.md` and is reversible, so it is never something to ask about first ("say the word" on an empty dashboard is the blind first impression this rule exists to prevent).
 
 ## Input
 
@@ -27,9 +25,8 @@ $ARGUMENTS
 
 If arguments specify a section (sprint, backlog, health, spec, diagnose), show only that section in detail.
 If no arguments, show the full dashboard.
-If onboarding is required → run the CLI command surfaced in `SHIPYARD_ONBOARDING_COMMAND`, report the CLI output, and stop.
 
-**diagnose section** — when invoked as `/ship-status diagnose`, print only the resolver diagnostic block from the context above (SHIPYARD_DATA, PROJECT_ROOT, PROJECT_HASH, env vars, .auto-approve.log tail). This is the self-serve format for filing actionable bug reports about permission prompts or state divergence. Include a one-line interpretation note: if `AUTO_APPROVE_LOG=(does not exist)` the auto-approve hook has never fired for this project; if `CLAUDE_PLUGIN_DATA=(unset)` the resolver is using its discovery probe or legacy fallback.
+**diagnose section** — when invoked as `/ship-status diagnose`, print only the resolver diagnostic block from the context above (SHIPYARD_DATA, PROJECT_ROOT, PROJECT_HASH, env vars, .auto-approve.log tail). Include a one-line interpretation note: if `AUTO_APPROVE_LOG=(does not exist)` the auto-approve hook has never fired for this project; if `CLAUDE_PLUGIN_DATA=(unset)` the resolver is using its discovery probe or legacy fallback.
 
 **Pipeline cursors.** `/ship-status` uses the `SHIPYARD_EXECUTE_CURSOR_*` and `SHIPYARD_REVIEW_CURSOR_*` fields from `shipyard-context status-dashboard` and renders their state in the PIPELINE section of the dashboard (see Step 2). Do not Read or parse `EXECUTE-CURSOR.md` / `REVIEW-CURSOR.md` directly; cursor reads and writes are CLI-owned. Each cursor records where its pipeline (`ship-execute` or `ship-review`) is in the multi-stage flow, whether it's terminal, and whether stuck detection has fired. Schema details live in `<repo>/plugins/shipyard/skills/ship-execute/references/pipeline-cursor.md` and the matching ship-review reference.
 
@@ -41,13 +38,13 @@ Before showing the dashboard, run health checks and fix what can be fixed automa
 
 ### Check 1: Frontmatter Schema (incremental, CLI-backed)
 
-Run `shipyard-data doctor` (read-only). This used to be a whole-tree Glob-every-`.md`-under-`spec/`-then-Read-each-one sweep — measured at **779 files and growing** on one customer project, re-paid on every `/ship-status` invocation AND every `/ship-execute` preflight. The CLI applies the identical schema rules incrementally instead: it tracks a watermark (`<SHIPYARD_DATA>/.doctor-watermark.json`, `{lastCleanAt, schemaVersion}`) and only re-validates files whose mtime is newer than the last fully-clean run. It falls back to a full sweep automatically when the watermark is absent, corrupted, or its recorded `schemaVersion` doesn't match the CLI's current one (a rule-set change invalidates every prior "this file was clean" claim) — pass `--full` to force a whole-tree sweep on demand (e.g. after a manual bulk edit under `spec/`). The watermark only advances past a scan with **zero** findings — a dirty scan never lets an unfixed file silently age out of a future incremental check.
+Run `shipyard-data doctor` (read-only). It applies the schema rules incrementally, so no whole-tree sweep: it tracks a watermark (`<SHIPYARD_DATA>/.doctor-watermark.json`, `{lastCleanAt, schemaVersion}`) and only re-validates files whose mtime is newer than the last fully-clean run. It falls back to a full sweep when the watermark is absent, corrupted, or from a different `schemaVersion` (a rule-set change invalidates prior clean claims); pass `--full` to force one (e.g. after a manual bulk edit under `spec/`). The watermark only advances past a zero-finding scan, so an unfixed file never ages out of a later check.
 
-`doctor` validates the same fields Check 1 always has — it just no longer requires Reading every file into this skill's context to do it:
+`doctor` validates these fields:
 
-**Feature files** — required: `id` (F+digits), `title` (non-empty), `type` (feature), `epic` (string), `status` (proposed|approved|in-progress|done|deployed|released|deferred|rejected), `story_points` (≥0), `complexity` (low|medium|high|""), `token_estimate` (≥0), `rice_reach` (0-10), `rice_impact` (0-3), `rice_confidence` (0-100), `rice_effort` (>0), `rice_score` (≥0, cached derived value), `dependencies` (list), `references` (list), `tasks` (list), `created` (date)
+**Story files** — required: `id` (F+digits), `title` (non-empty), `type` (feature), `epic` (string), `status` (proposed|approved|in-progress|done|deployed|released|deferred|rejected), `story_points` (≥0), `complexity` (low|medium|high|""), `token_estimate` (≥0), `rice_reach` (0-10), `rice_impact` (0-3), `rice_confidence` (0-100), `rice_effort` (>0), `rice_score` (≥0, cached derived value), `dependencies` (list), `references` (list), `tasks` (list), `created` (date)
 
-**Task files** — required: `id` (T+digits), `title` (non-empty), `feature` (valid feature ID), `status` (pending|in-progress|done|blocked|needs-attention), `effort` (S|M|L), `dependencies` (list). The `needs-attention` status is set by the operational fix-findings loop or the research dispatcher when escalation triggers — it means "prior attempt produced a full audit trail but the task did not converge; needs a human decision." Distinct from `blocked` (waiting on an external dependency). See `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-kinds.md` for the escalation semantics.
+**Step files** — required: `id` (T+digits), `title` (non-empty), `feature` (valid feature ID), `status` (pending|in-progress|done|blocked|needs-attention), `effort` (S|M|L), `dependencies` (list). The `needs-attention` status is set by the operational fix-findings loop or the research dispatcher when escalation triggers — it means "prior attempt produced a full audit trail but the task did not converge; needs a human decision." Distinct from `blocked` (waiting on an external dependency). See `${CLAUDE_PLUGIN_ROOT}/skills/ship-sprint/references/task-kinds.md` for the escalation semantics.
 
 **Bug files** — required: `id` (B+digits), `title`, `status`, `severity`
 
@@ -57,7 +54,7 @@ Run `shipyard-data doctor` (read-only). This used to be a whole-tree Glob-every-
 
 `doctor`'s output names, per finding, the `kind` (features/tasks/bugs/ideas/epics), the `file`, and the `problem` (missing/empty required field, invalid status, malformed id) — it does NOT auto-fix.
 
-**Auto-fix:** for each finding whose field has a safe default (`dependencies: []`, `references: []`, `tasks: []`), Edit that specific file named in the finding — never re-Glob-and-Read the whole tree to locate it, `doctor` already named the file. **Log unfixable issues** (wrong type, invalid status, malformed id) exactly as before. `/ship-execute`'s preflight calls the same `shipyard-data doctor` CLI directly instead of asking the model to Glob-and-Read every spec file into its own context.
+**Auto-fix:** for each finding whose field has a safe default (`dependencies: []`, `references: []`, `tasks: []`), Edit that specific file named in the finding — never re-Glob-and-Read the whole tree to locate it, `doctor` already named the file. **Log unfixable issues** (wrong type, invalid status, malformed id) exactly as before.
 
 ### Check 2: ID & Reference Integrity
 
@@ -91,14 +88,14 @@ Skip if not a git repo. Otherwise:
 State files use the soft-delete sentinel pattern: overwrite with a "cleared" marker rather than physically deleting. The relevant hooks treat the sentinel as inactive.
 
 - Empty spec files → surface as a repair recommendation; do not hand-Edit frontmatter. Spec frontmatter mutations must go through typed `shipyard-data feature|idea|task|draft ...` commands.
-- Orphan task files (not in any feature's `tasks:` array) → log as warning
+- Orphan step files (not in any feature's `tasks:` array) → log as warning
 - Epic files with `features:` arrays → remove the array (membership is derived)
 - Stale autonomous-driver state from older plugin versions → surface as dead state only; do not preserve or restart it. Command skills are driven by their CLI cursor state and `/goal`, not a legacy loop state file.
 - Stale `<SHIPYARD_DATA>/.compaction-count` file (legacy) → harmless dead state from an older plugin version; ignore it (no longer written or read). Do not shell out to `rm` — `/ship-status` never invokes generic shell commands against the data dir (see Paths rule above); `shipyard-data lock ...` is the one sanctioned exception.
-- **Skill-mutex locks** — run `shipyard-data lock status` to read both `.active-session.json` (planning) and `.active-execution.json` (execution) in one call; never Read/parse the raw JSON by hand and never hand-Write either file (both are CLI-owned — see Paths rule above). The CLI's own 2-hour stale threshold applies to both locks uniformly (the old 24h-for-planning / 2h-for-execution split is gone — one constant, defined once in `bin/skill-lock.mjs`). `lock status` reports each lock's `state` as one of `free | released | stale | mine | held`. Render:
-  - **`state: "stale"`** (either kind) → run `shipyard-data lock release <planning|execution> --force` automatically, no AskUserQuestion — matches the old auto-clear-when-stale behavior for planning, and extends the same auto-clear to a stale execution lock (previously execution never auto-cleared even when stale).
+- **Skill-mutex locks** — run `shipyard-data lock status` to read all three locks in one call (`planning` for `/ship-sprint`, `execution` for execute/review/debug, `discuss` for `/ship-discuss`; different commands never block each other, 4.17); never Read/parse the raw JSON by hand and never hand-Write either file (both are CLI-owned — see Paths rule above). The CLI's own 2-hour stale threshold applies to both locks uniformly (the old 24h-for-planning / 2h-for-execution split is gone — one constant, defined once in `bin/skill-lock.mjs`). `lock status` reports each lock's `state` as one of `free | released | stale | mine | held`. Render:
+  - **`state: "stale"`** (any kind) → run `shipyard-data lock release <planning|execution|discuss> --force` automatically, no AskUserQuestion — matches the old auto-clear-when-stale behavior for planning, and extends the same auto-clear to a stale execution lock (previously execution never auto-cleared even when stale).
   - **Execution, `state: "held"` or `"mine"`** (fresh) → show it in the dashboard and AskUserQuestion: "Execution lock found ([skill], started [time]). Still running? (yes, leave it / no, clear it)". On "no, clear it" → run `shipyard-data lock release execution --force`.
-  - **Planning, `state: "held"` or `"mine"`** (fresh) → informational only in this check (surfaced elsewhere in the dashboard's pipeline/state sections) — do not auto-clear or ask here; a live planning session ending normally releases its own lock.
+  - **Planning or discuss, `state: "held"` or `"mine"`** (fresh) → informational only in this check (surfaced elsewhere in the dashboard's pipeline/state sections) — do not auto-clear or ask here; a live planning session ending normally releases its own lock.
   - `state: "free"` or `"released"` → nothing to report.
 
 ### Check 7a: Pipeline Cursor Health
@@ -118,7 +115,7 @@ Detection rules:
 ### Check 7: File Size Health
 
 - `metrics.md` > 80 lines or missing while `metrics.json` exists → run `shipyard-data metrics regenerate`. The CLI rewrites the generated markdown summary from the bounded JSON ledger; do not roll, truncate, Write, or Edit metrics files by hand.
-- `BACKLOG.md` > 200 lines → surface it, do not mutate it (`/ship-status` is read-only and BACKLOG.md IDs are CLI-owned as of v3.5.0 — `shipyard-data backlog remove/rank`, not a hand-Edit): "BACKLOG.md over 200 lines — run `/ship-backlog archive`."
+- `BACKLOG.md` > 200 lines → surface it, do not mutate it (`/ship-status` is read-only and BACKLOG.md IDs are CLI-owned — `shipyard-data backlog remove/rank`, not a hand-Edit): "BACKLOG.md over 200 lines — run `/ship-backlog archive`."
 - `reconcile-log.md` > 200 lines → Read it, then use Write to overwrite with the last 10 entries.
 
 **All fixes are silent.** The dashboard shows a summary line at the bottom: "Auto-fixed: N items" with a brief list. Only AskUserQuestion for destructive ambiguous issues — and render the conflicting records as chat text first (the duplicate IDs with both file paths, or the task ID and the missing feature it references) before asking. Validation findings sitting in Read results don't count as shown.
@@ -145,9 +142,9 @@ Detection rules:
   Progress: [████████░░] [done pts]/[total pts] pts | [done]/[total] tasks
   Waves: [current wave] of [M]
     Wave 1: ✅ [N] tasks done
-    Wave 2: [██░░░] 2/5 tasks | T012 blocked
+    Wave 2: [██░░░] 2/5 tasks | P012 blocked
     Wave 3: ⬜ [N] tasks pending
-  Critical path: [T001 → T003 → T007] — [on track / delayed by T003]
+  Critical path: [P001 → P003 → P007] — [on track / delayed by P003]
   Blocked: [N] ([task IDs + reasons])
   Time: ~[N]hrs elapsed | ~[M]hrs remaining (at [X] pts/hr)
 
@@ -208,13 +205,10 @@ Determine the single most important action:
 
 ## Rules
 
-- Compute ALL metrics from **source files** (feature files, task files) — never from aggregate views
+- Compute ALL metrics from **source files** (story files, step files) — never from aggregate views
 - Never guess or use placeholder numbers
 - If a section has no data, say so briefly — don't show empty tables
 - Always end with NEXT ACTION
-- Flag issues: ⚠️ warnings, ❌ blockers
-- Keep output scannable — tables and bullets, no paragraphs
-- Auto-fix silently. Only AskUserQuestion for destructive ambiguous issues.
 - Append fixes to `<SHIPYARD_DATA>/reconcile-log.md` (use Read to get current contents, then Write back with the appended line — one line per fix with date)
 
 ## Detailed Views
@@ -229,25 +223,25 @@ Per-feature progress within the sprint, then per-wave task breakdown:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
  FEATURES
-  F001: [title]  [████████░░] 4/5 tasks | 8 pts
-  F005: [title]  [██████████] 3/3 tasks | 5 pts ✅
+  S001: [title]  [████████░░] 4/5 tasks | 8 pts
+  S005: [title]  [██████████] 3/3 tasks | 5 pts ✅
 
  WAVES
   Wave 1: ✅ complete
-    ✅ T001: [title] (S) — feat(T001): [commit msg]
-    ✅ T002: [title] (M) — feat(T002): [commit msg]
+    ✅ P001: [title] (S) — feat(P001): [commit msg]
+    ✅ P002: [title] (M) — feat(P002): [commit msg]
 
   Wave 2: in-progress
-    ✅ T003: [title] (M) — feat(T003): [commit msg]
-    🔄 T004: [title] (L) — in-progress
-    ⛔ T005: [title] (S) — blocked: [reason]
+    ✅ P003: [title] (M) — feat(P003): [commit msg]
+    🔄 P004: [title] (L) — in-progress
+    ⛔ P005: [title] (S) — blocked: [reason]
 
   Wave 3: pending
-    ⬜ T006: [title] (M) — depends on T004
-    ⬜ T007: [title] (S)
+    ⬜ P006: [title] (M) — depends on P004
+    ⬜ P007: [title] (S)
 
- CRITICAL PATH: T001 → T003 → T004 → T006
-   Status: delayed at T004 (in-progress longer than estimate)
+ CRITICAL PATH: P001 → P003 → P004 → P006
+   Status: delayed at P004 (in-progress longer than estimate)
 
  TIMING
   Started: [date] | Elapsed: [N]hrs active
@@ -310,16 +304,16 @@ Per-epic completion matrix with feature status indicators and overall product pr
  Overall: [████████░░] 72% | 86/120 pts shipped
 
  E001: Auth System        [██████████] 100% | 30/30 pts
-   ✅ F001: Login          ✅ F002: Register     ✅ F003: Password Reset
+   ✅ S001: Login          ✅ S002: Register     ✅ S003: Password Reset
 
  E002: Payments           [██████░░░░]  60% | 12/20 pts
-   ✅ F004: Card Pay       🔄 F005: Refunds      ⬜ F006: Split Pay
+   ✅ S004: Card Pay       🔄 S005: Refunds      ⬜ S006: Split Pay
 
  E003: Notifications      [██░░░░░░░░]  20% | 4/20 pts
-   ✅ F007: Email          ⬜ F008: Push          ⬜ F009: In-App
+   ✅ S007: Email          ⬜ S008: Push          ⬜ S009: In-App
 
  Ungrouped:               [░░░░░░░░░░]   0% | 0/10 pts
-   ⬜ F010: Dark Mode      ⬜ F011: Export
+   ⬜ S010: Dark Mode      ⬜ S011: Export
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```

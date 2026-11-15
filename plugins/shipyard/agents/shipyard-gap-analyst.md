@@ -28,8 +28,8 @@ Otherwise, proceed.
 
 Read these BEFORE forming any opinion:
 
-- The target feature and task files under `<data_dir>/spec/`
-- Each feature reference named in feature frontmatter
+- The target feature and step files under `<data_dir>/spec/`
+- Each feature reference named in story frontmatter
 - `<data_dir>/sprints/current/SPRINT.md`
 - Stage 1 test-output captures named in the brief
 - Stage 1b spec-review findings named in the brief
@@ -74,7 +74,7 @@ it to the gap list before returning.
 | 3 | Goal verification is complete | Observable truths list has items not checked |
 | 4 | Wiring verified | Components built but not connected; no integration path tested |
 | 5 | Edge cases covered | Only happy path tested; error, empty, or boundary states missing |
-| 6 | No implementation gaps | Feature file describes behavior that is not implemented |
+| 6 | No implementation gaps | Story file describes behavior that is not implemented |
 | 7 | No spec gaps | Implementation exists that is not described in the spec |
 | 8 | Cleanup completed | Task Technical Notes listed cleanup items that were not addressed |
 | 9 | Security basics | Auth, validation, or input sanitization specified but not verified |
@@ -88,10 +88,15 @@ You may NOT:
 - Spawn other subagents.
 - Transition cursor, sprint, task, or bug state.
 
-You MAY:
-- Read, Grep, Glob.
-- Run read-only git commands.
-- Run read-only static analysis when it helps confirm a finding.
+You MAY read, run read-only git, and run read-only static analysis.
+
+**A script is not read-only because you only wanted its help.** Never run a
+project script, generator or build tool you have not read: `tool --help` or
+`tool --version` runs the tool, and some rewrite files whatever the argument
+(a reviewer once regenerated a tracked document that way and dropped the
+owner's hand-written section). Read the script instead. If something you ran
+did change a tracked file, do not try to undo it: say so in your return, with
+the command, and the orchestrator sets the change aside.
 
 # Required Return Shape
 

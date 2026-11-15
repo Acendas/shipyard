@@ -15,7 +15,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -105,11 +105,14 @@ function makeProject() {
   execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"], { cwd: repo });
   const env = { ...process.env, CLAUDE_PLUGIN_DATA: data };
   delete env.SHIPYARD_DATA;
+  delete env.CLAUDE_PROJECT_DIR; // a host project dir would redirect git/anchor operations away from the temp repo
+  // Deterministic session identity: the host's own id must not leak into tests.
+  delete env.CLAUDE_CODE_SESSION_ID;
   const run = (args, opts = {}) => {
     try {
       const stdout = execFileSync("node", [CLI, ...args], {
         cwd: repo,
-        env,
+        env: opts.env ? { ...env, ...opts.env } : env,
         encoding: "utf8",
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -178,6 +181,32 @@ test("cursor CLI: illegal transition exits 3; --force overrides graph only", () 
   }
 });
 
+test("cursor CLI: leaving wave_N_boundary is refused while the latest integration verdict is failed (IDEA-009)", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    for (const s of ["preflight", "salvage", "load", "wave_1_dispatch", "wave_1_boundary"]) {
+      assert.equal(p.run(["cursor", "advance", "execute", s]).code, 0, s);
+    }
+    p.run(["events", "emit", "wave_integration_failed", "working_branch=main"]);
+    const r = p.run(["cursor", "advance", "execute", "wave_1_build"]);
+    assert.equal(r.code, 3, r.stdout + r.stderr);
+    assert.match(r.stderr, /wave integration gate/);
+    const forced = p.run(["cursor", "advance", "execute", "wave_1_build", "--force"]);
+    assert.equal(forced.code, 3, "--force never bypasses an evidence gate");
+    p.run(["events", "emit", "wave_integration_verified", "working_branch=main"]);
+    const ok = p.run(["cursor", "advance", "execute", "wave_1_build"]);
+    assert.equal(ok.code, 0, ok.stdout + ok.stderr);
+    // A failure from an EARLIER boundary never leaks into the next wave's boundary.
+    for (const s of ["wave_1_refactor", "wave_1_tests", "wave_1_verify", "wave_1_gate", "wave_2_dispatch", "wave_2_boundary"]) {
+      assert.equal(p.run(["cursor", "advance", "execute", s]).code, 0, s);
+    }
+    assert.equal(p.run(["cursor", "advance", "execute", "wave_2_build"]).code, 0, "no verdict in this window = not refused");
+  } finally {
+    p.cleanup();
+  }
+});
+
 test("cursor CLI: terminal advance without evidence is refused even with --force", () => {
   const p = makeProject();
   try {
@@ -203,6 +232,7 @@ test("cursor CLI: terminal advance with complete evidence succeeds; stop marker 
     }
     p.run(["events", "emit", "task_dispatch_returned", "pipeline=ship-execute", "task=T001", "status=complete", "commit_sha=abc1234"]);
     p.run(["events", "emit", "sprint_complete_passed", "sprint=sprint-001"]);
+    p.run(["story-review", "record", "F001", "--verdict", "approve", "--code", "CLEAN"], { expectFail: false }); // F028
     const r = p.run(["cursor", "advance", "execute", "terminal_handoff_to_review", "reason=sprint_complete"], { expectFail: false });
     const lines = r.stdout.trim().split("\n");
     const last = lines[lines.length - 1];
@@ -304,6 +334,143 @@ test("cursor CLI: pending_subagents JSON round-trips and carries forward", () =>
     p.run(["cursor", "advance", "execute", "wave_1_waiting", "pending_subagents=[]"], { expectFail: false });
     cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
     assert.ok(!cursor.includes("pending_subagents:"), "drained list is removed");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cursor CLI: session_started_at is set on preflight, survives advances, refreshed on resume, not settable", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    const cpath = join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md");
+    const field = () => (readFileSync(cpath, "utf8").match(/^session_started_at: (.+)$/m) ?? [])[1];
+    p.run(["cursor", "advance", "execute", "preflight"]);
+    const first = field();
+    assert.ok(first && !Number.isNaN(Date.parse(first.replace(/"/g, ""))), "set on preflight");
+    p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
+    p.run(["cursor", "advance", "execute", "load"], { expectFail: false });
+    p.run(["cursor", "advance", "execute", "wave_1_dispatch"], { expectFail: false });
+    assert.equal(field(), first, "unchanged across advances");
+    const r = p.run(["cursor", "set", "execute", "session_started_at=x"]);
+    assert.notEqual(r.code, 0, "cursor set refuses session_started_at");
+    assert.equal(field(), first);
+    // Resume refreshes it.
+    p.run(["cursor", "pause", "execute", "--note", "pause for test"]);
+    writeFileSync(cpath, readFileSync(cpath, "utf8").replace(/^session_started_at: .+\n/m, ""));
+    assert.equal(field(), undefined, "absent field tolerated");
+    const rr = p.run(["cursor", "resume", "execute"]);
+    assert.equal(rr.code, 0, rr.stderr);
+    assert.ok(field(), "set on resume");
+  } finally {
+    p.cleanup();
+  }
+});
+
+function budgetSetup(p, { max = 1, ageMinutes = 120 } = {}) {
+  seedSprint(p);
+  writeFileSync(join(p.dataDir, "config.md"), `---\nexecution:\n  max_session_minutes: ${max}\n---\n`);
+  const cpath = join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md");
+  p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+  p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
+  p.run(["cursor", "advance", "execute", "load"], { expectFail: false });
+  const old = new Date(Date.now() - ageMinutes * 60000).toISOString();
+  writeFileSync(cpath, readFileSync(cpath, "utf8").replace(/^session_started_at: .+$/m, `session_started_at: "${old}"`));
+  const events = () => readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+  return { cpath, events };
+}
+
+test("session_budget: exceeded budget pauses before wave_N_dispatch with exit 0, even with --force", () => {
+  for (const extra of [[], ["--force"]]) {
+    const p = makeProject();
+    try {
+      const { cpath, events } = budgetSetup(p);
+      const r = p.run(["cursor", "advance", "execute", "wave_1_dispatch", ...extra]);
+      assert.equal(r.code, 0, r.stderr);
+      const cursor = readFileSync(cpath, "utf8");
+      assert.match(cursor, /stage: load/, "paused at the prior stage, advance not performed");
+      assert.match(cursor, /status: paused/);
+      const ev = events().split("\n").filter((l) => l.includes("session_budget_reached"));
+      assert.equal(ev.length, 1);
+      const e = JSON.parse(ev[0]);
+      assert.equal(e.max, 1);
+      assert.ok(e.elapsed >= 119, `elapsed ${e.elapsed}`);
+      assert.equal(e.stage, "wave_1_dispatch");
+      assert.match(events(), /pipeline_paused/);
+      assert.ok(!/"next_stage":"wave_1_dispatch"/.test(events()), "no tick into the wave");
+      assert.match(r.stdout, /cursor resume execute/, "resume hint");
+      const lines = r.stdout.trimEnd().split("\n");
+      assert.match(lines[lines.length - 1], /\/goal should stop\./, "stop marker is last");
+    } finally {
+      p.cleanup();
+    }
+  }
+});
+
+test("session_budget: forced recovery entry into a later wave is gated too", () => {
+  const p = makeProject();
+  try {
+    const { cpath } = budgetSetup(p);
+    const r = p.run(["cursor", "advance", "execute", "wave_3_dispatch", "--force"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /status: paused/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("session_budget: off, within budget, and absent clock all proceed; no event", () => {
+  const cases = [
+    { max: 0, ageMinutes: 500 },
+    { max: 240, ageMinutes: 30 },
+  ];
+  for (const c of cases) {
+    const p = makeProject();
+    try {
+      const { cpath, events } = budgetSetup(p, c);
+      const r = p.run(["cursor", "advance", "execute", "wave_1_dispatch"]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.match(readFileSync(cpath, "utf8"), /stage: wave_1_dispatch/);
+      assert.ok(!events().includes("session_budget_reached"));
+    } finally {
+      p.cleanup();
+    }
+  }
+  const p = makeProject();
+  try {
+    const { cpath, events } = budgetSetup(p);
+    writeFileSync(cpath, readFileSync(cpath, "utf8").replace(/^session_started_at: .+\n/m, ""));
+    const r = p.run(["cursor", "advance", "execute", "wave_1_dispatch"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /stage: wave_1_dispatch/);
+    assert.ok(!events().includes("session_budget_reached"));
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("session_budget: mid-wave and sprint-level stages are never gated", () => {
+  const p = makeProject();
+  try {
+    const { cpath, events } = budgetSetup(p, { max: 240, ageMinutes: 30 });
+    p.run(["cursor", "advance", "execute", "wave_1_dispatch"], { expectFail: false });
+    // Budget now exceeded.
+    const old = new Date(Date.now() - 600 * 60000).toISOString();
+    writeFileSync(cpath, readFileSync(cpath, "utf8").replace(/^session_started_at: .+$/m, `session_started_at: "${old}"`));
+    writeFileSync(join(p.dataDir, "config.md"), `---\nexecution:\n  max_session_minutes: 1\n---\n`);
+    for (const st of ["wave_1_waiting", "wave_1_recovery", "wave_1_boundary"]) {
+      const r = p.run(["cursor", "advance", "execute", st], { expectFail: false });
+      assert.equal(r.code, 0, r.stderr);
+      assert.match(readFileSync(cpath, "utf8"), new RegExp(`stage: ${st}`));
+    }
+    // Sprint-level: forced entry (graph skipped) must not be budget-gated.
+    const r = p.run(["cursor", "advance", "execute", "sprint_full_build", "--force"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /stage: sprint_full_build/);
+    assert.ok(!events().includes("session_budget_reached"));
+    // Pausing and recording are never refused.
+    const pz = p.run(["cursor", "pause", "execute", "--note", "x"]);
+    assert.equal(pz.code, 0, pz.stderr);
   } finally {
     p.cleanup();
   }
@@ -771,12 +938,15 @@ test("config set-model: flips think tier opus <-> fable atomically, preserves th
     p.run(["config", "set-model", "build", "inherit"], { expectFail: false });
     cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
     assert.match(cfg, /^  build: ""$/m);
-    p.run(["config", "set-model", "think", "claude-opus-4-8"], { expectFail: false });
+    for (const bad of ["claude-opus-4-8", "claude-sonnet-5"]) {
+      const rej = p.run(["config", "set-model", "think", bad]);
+      assert.equal(rej.code, 2, `${bad} rejected`);
+      assert.match(rej.stderr, /think\|build\|light\|orchestrate/);
+      assert.match(rej.stderr, /fable\|opus\|sonnet\|haiku\|inherit/);
+      assert.doesNotMatch(rej.stderr, /claude-\*/);
+    }
     cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
-    assert.match(cfg, /^  think: claude-opus-4-8\s*# comment kept$/m);
-    p.run(["config", "set-model", "build", "claude-sonnet-5"], { expectFail: false });
-    cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
-    assert.match(cfg, /^  build: claude-sonnet-5$/m);
+    assert.match(cfg, /^  think: opus\s*# comment kept$/m, "rejected value never written");
     assert.equal(p.run(["config", "set-model", "think", "gpt5"]).code, 2);
     assert.equal(p.run(["config", "set-model", "think", "anthropic.claude-opus-5"]).code, 2);
     assert.equal(p.run(["config", "set-model", "reviewer", "opus"]).code, 2);
@@ -787,26 +957,40 @@ test("config set-model: flips think tier opus <-> fable atomically, preserves th
   }
 });
 
-test("config set-model: orchestrate syncs command skill frontmatter and accepts versioned Claude IDs", () => {
+test("config set-model: orchestrate syncs command skill frontmatter (hermetic copy) and rejects claude-* ids", () => {
   const p = makeProject();
   const skillNames = ["ship-execute", "ship-review", "ship-sprint", "ship-discuss"];
-  const skillPaths = skillNames.map((name) => join(PLUGIN_ROOT, "skills", name, "SKILL.md"));
-  const originals = new Map(skillPaths.map((path) => [path, readFileSync(path, "utf8")]));
+  // Operate on a COPY of the four SKILL.md files so a killed run can never
+  // leave stray `model:` lines in the real plugin tree.
+  const fakeRoot = mkdtempSync(join(tmpdir(), "cursor-cli-pluginroot-"));
+  const skillPaths = skillNames.map((name) => join(fakeRoot, "skills", name, "SKILL.md"));
+  for (const name of skillNames) {
+    mkdirSync(join(fakeRoot, "skills", name), { recursive: true });
+    copyFileSync(join(PLUGIN_ROOT, "skills", name, "SKILL.md"), join(fakeRoot, "skills", name, "SKILL.md"));
+  }
+  const env = { SHIPYARD_PLUGIN_ROOT: fakeRoot };
   try {
     writeFileSync(
       join(p.dataDir, "config.md"),
       `---\nconfig_version: 4\nproject_name: "x"\nmodels:\n  think: opus\n  build: sonnet\n  orchestrate: opus\n---\n\n# Project Configuration\n`,
     );
 
-    const r = p.run(["config", "set-model", "orchestrate", "claude-opus-4-8"], { expectFail: false });
-    assert.match(r.stdout, /models\.orchestrate: claude-opus-4-8 synced=4/);
+    const r = p.run(["config", "set-model", "orchestrate", "sonnet"], { expectFail: false, env });
+    assert.match(r.stdout, /models\.orchestrate: sonnet synced=4/);
     const cfg = readFileSync(join(p.dataDir, "config.md"), "utf8");
-    assert.match(cfg, /^  orchestrate: claude-opus-4-8$/m);
+    assert.match(cfg, /^  orchestrate: sonnet$/m);
     for (const path of skillPaths) {
-      assert.match(readFileSync(path, "utf8"), /^model: claude-opus-4-8$/m, `${path} synced`);
+      assert.match(readFileSync(path, "utf8"), /^model: sonnet$/m, `${path} synced`);
+    }
+
+    const bad = p.run(["config", "set-model", "orchestrate", "claude-opus-4-8"], { env });
+    assert.equal(bad.code, 2);
+    assert.match(readFileSync(join(p.dataDir, "config.md"), "utf8"), /^  orchestrate: sonnet$/m, "config untouched on reject");
+    for (const path of skillPaths) {
+      assert.doesNotMatch(readFileSync(path, "utf8"), /claude-opus/, "skill untouched on reject");
     }
   } finally {
-    for (const [path, content] of originals) writeFileSync(path, content, "utf8");
+    rmSync(fakeRoot, { recursive: true, force: true });
     p.cleanup();
   }
 });
@@ -967,8 +1151,9 @@ test("stage graph: sprint_refactor sits between the last wave gate and the full 
   assert.equal(validateTransition("ship-execute", "sprint_refactor", "sprint_full_build").ok, true);
   // refactor_scope: wave keeps the direct edge.
   assert.equal(validateTransition("ship-execute", "wave_2_gate", "sprint_full_build").ok, true);
-  // It is not a back door into the wave loop or straight to tests.
-  assert.equal(validateTransition("ship-execute", "sprint_refactor", "wave_3_dispatch").ok, false);
+  // It never jumps straight to tests.
+  // 4.0: the cleanup pass's mutation check can need a fix wave (the orchestrator had to force the cursor back before)
+  assert.equal(validateTransition("ship-execute", "sprint_refactor", "wave_3_dispatch").ok, true);
   assert.equal(validateTransition("ship-execute", "sprint_refactor", "sprint_full_tests").ok, false);
 });
 
@@ -1000,6 +1185,47 @@ test("cursor CLI: --via collapses pass-through stages into one tick with a full 
       assert.match(events, new RegExp(`"next_stage":"${s}"`), `missing tick_completed hop for ${s}`);
       assert.match(events, new RegExp(`"pipeline_tick_started"[^\\n]*"stage":"${s}"`), `missing tick_started for ${s}`);
     }
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("a wave made only of fix steps may skip its build and test run; an ordinary wave may not (4.0)", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p, { waves: "### Wave 1\nTasks: [T001, T002]\n" });
+    for (const s of ["preflight", "salvage", "load", "readiness", "wave_1_dispatch", "wave_1_waiting", "wave_1_recovery", "wave_1_boundary"]) {
+      p.run(["cursor", "advance", "execute", s, "sprint=sprint-001"], { expectFail: false });
+    }
+    const skip = ["cursor", "advance", "execute", "wave_1_verify", "--via", "wave_1_build", "--via", "wave_1_refactor", "--via", "wave_1_tests", "sprint=sprint-001"];
+    let r = p.run(skip);
+    assert.notEqual(r.code, 0, "planned steps: the suite is not skipped");
+    assert.match(r.stderr, /--via wave_1_tests is not collapsible/);
+    // one of the two is a fix step: still an ordinary wave
+    p.run(["events", "emit", "patch_step_created", "step=T001", "source=story-review"], { expectFail: false });
+    assert.notEqual(p.run(skip).code, 0);
+    p.run(["events", "emit", "patch_step_created", "step=T002", "source=wave-verify"], { expectFail: false });
+    r = p.run(skip, { expectFail: false });
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /collapsed 4 stages into one tick/);
+    const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(events, /"next_stage":"wave_1_tests"/, "the skipped stage still leaves its tick, marked collapsed");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("execution.patch_wave_tests: wave keeps a build and test run after every fix wave", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    writeFileSync(join(p.dataDir, "config.md"), "---\nconfig_version: 5\nexecution:\n  patch_wave_tests: wave\n---\n");
+    for (const s of ["preflight", "salvage", "load", "readiness", "wave_1_dispatch", "wave_1_waiting", "wave_1_recovery", "wave_1_boundary"]) {
+      p.run(["cursor", "advance", "execute", s, "sprint=sprint-001"], { expectFail: false });
+    }
+    p.run(["events", "emit", "patch_step_created", "step=T001", "source=story-review"], { expectFail: false });
+    const r = p.run(["cursor", "advance", "execute", "wave_1_verify", "--via", "wave_1_build", "--via", "wave_1_refactor", "--via", "wave_1_tests", "sprint=sprint-001"]);
+    assert.notEqual(r.code, 0);
   } finally {
     p.cleanup();
   }
@@ -1119,3 +1345,404 @@ test("cursor CLI: --via refuses gate/verdict stages whose tick IS downstream evi
 
 
 
+
+// ---- T033: session clock keyed on CLAUDE_CODE_SESSION_ID (F005 AC-14, AC-16) ----
+// Behavior across /compact, --continue, --resume is UNVERIFIED (session-id-probe.md);
+// the design fails safe: ambiguity never resets the clock.
+function clockSetup(p, envId, { max = 60, ageMinutes = 120 } = {}) {
+  seedSprint(p);
+  writeFileSync(join(p.dataDir, "config.md"), `---\nexecution:\n  max_session_minutes: ${max}\n---\n`);
+  const cpath = join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md");
+  const env = envId ? { CLAUDE_CODE_SESSION_ID: envId } : {};
+  for (const st of ["preflight", "salvage", "load"]) p.run(["cursor", "advance", "execute", st], { expectFail: false, env });
+  const old = new Date(Date.now() - ageMinutes * 60000).toISOString();
+  writeFileSync(cpath, readFileSync(cpath, "utf8").replace(/^session_started_at: .+$/m, `session_started_at: "${old}"`));
+  const field = (k) => ((readFileSync(cpath, "utf8").match(new RegExp(`^${k}: (.+)$`, "m")) ?? [])[1] ?? "").replace(/"/g, "");
+  return { cpath, env, field, old };
+}
+
+test("new_session: preflight stores the env id; it is not settable", () => {
+  const p = makeProject();
+  try {
+    const { field } = clockSetup(p, "sess-A");
+    assert.equal(field("session_id"), "sess-A");
+    assert.equal(field("session_key"), "env");
+    const r = p.run(["cursor", "set", "execute", "session_id=x"]);
+    assert.notEqual(r.code, 0);
+    assert.equal(field("session_id"), "sess-A");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("session_clock: differing env id resets the clock, logs session_clock_reset, no budget trip", () => {
+  const p = makeProject();
+  try {
+    const { cpath, field, old } = clockSetup(p, "sess-A");
+    const r = p.run(["cursor", "advance", "execute", "wave_1_dispatch"], { env: { CLAUDE_CODE_SESSION_ID: "sess-B" } });
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /stage: wave_1_dispatch/);
+    assert.ok(!readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8").includes("session_budget_reached"));
+    assert.equal(field("session_id"), "sess-B");
+    assert.ok(Date.parse(field("session_started_at")) > Date.parse(old) + 60 * 60000, "clock restarted");
+    const evs = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8").split("\n").filter((l) => l.includes("session_clock_reset"));
+    assert.equal(evs.length, 1);
+    const e = JSON.parse(evs[0]);
+    assert.equal(e.key, "env");
+    assert.equal(e.prior_started_at, old);
+    assert.equal(e.prior_session_id, "sess-A");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("session_clock: same env id after a 2h gap does not reset and still trips", () => {
+  const p = makeProject();
+  try {
+    const { cpath, field, old } = clockSetup(p, "sess-A");
+    const r = p.run(["cursor", "advance", "execute", "wave_1_dispatch"], { env: { CLAUDE_CODE_SESSION_ID: "sess-A" } });
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /status: paused/);
+    assert.equal(field("session_started_at"), old);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("new_session: legacy cursor without a stored id adopts the env id without resetting", () => {
+  const p = makeProject();
+  try {
+    const { cpath, field, old } = clockSetup(p, null);
+    assert.equal(field("session_id"), "");
+    const r = p.run(["cursor", "advance", "execute", "wave_1_dispatch"], { env: { CLAUDE_CODE_SESSION_ID: "sess-A" } });
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /status: paused/, "clock kept, budget tripped");
+    assert.equal(field("session_started_at"), old);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("session_clock: env id missing never resets on a time gap; ambiguity keeps", () => {
+  // No env id, recent events: keep the clock (trips).
+  let p = makeProject();
+  try {
+    const { cpath, field, old } = clockSetup(p, "sess-A");
+    const r = p.run(["cursor", "advance", "execute", "wave_1_dispatch"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /status: paused/);
+    assert.equal(field("session_started_at"), old);
+    assert.equal(field("session_id"), "sess-A", "stored id kept");
+  } finally {
+    p.cleanup();
+  }
+  // No env id, last event 45 min old: a time gap never resets (31+ min quiet keeps the clock).
+  p = makeProject();
+  try {
+    const { cpath, field, old } = clockSetup(p, null);
+    const ev = join(p.dataDir, ".shipyard-events.jsonl");
+    const stale = new Date(Date.now() - 45 * 60000).toISOString();
+    writeFileSync(ev, readFileSync(ev, "utf8").split("\n").filter(Boolean).map((l) => l.replace(/"ts":"[^"]+"/, `"ts":"${stale}"`)).join("\n") + "\n");
+    const r = p.run(["cursor", "advance", "execute", "wave_1_dispatch"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /status: paused/);
+    assert.equal(field("session_started_at"), old);
+    assert.ok(!readFileSync(ev, "utf8").includes("session_clock_reset"));
+  } finally {
+    p.cleanup();
+  }
+  // No env id and no event log at all: ambiguity, keep.
+  p = makeProject();
+  try {
+    const { cpath, field, old } = clockSetup(p, null);
+    rmSync(join(p.dataDir, ".shipyard-events.jsonl"), { force: true });
+    const r = p.run(["cursor", "advance", "execute", "wave_1_dispatch"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /status: paused/);
+    assert.equal(field("session_started_at"), old);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("new_session: resume records the current env id", () => {
+  const p = makeProject();
+  try {
+    const { field } = clockSetup(p, "sess-A");
+    p.run(["cursor", "pause", "execute", "--note", "x"]);
+    const r = p.run(["cursor", "resume", "execute"], { env: { CLAUDE_CODE_SESSION_ID: "sess-C" } });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(field("session_id"), "sess-C");
+  } finally {
+    p.cleanup();
+  }
+});
+
+// --- F013/T042: presumed-dead detector wired into cursor advance ----------
+
+function deadQueue(p, over = {}) {
+  const ago = (m) => new Date(Date.now() - m * 60000).toISOString();
+  const item = {
+    id: "T001", pipeline: "execute", stage: "wave_1_dispatch", status: "claimed",
+    claimed_by: "builder-9", claimed_at: ago(90), deadline_at: ago(60), attempt: 1, ...over,
+  };
+  const qpath = join(p.dataDir, "sprints", "current", ".worker-queue.json");
+  writeFileSync(qpath, JSON.stringify({ version: 1, tasks: [item] }));
+  return qpath;
+}
+
+test("presumed_dead: advance reports a dead builder once, never mutates queue/cursor, quiet otherwise", () => {
+  // AC-1 AC-4 AC-5 AC-6 AC-8
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    const clean = p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
+    assert.ok(!/presumed dead/.test(clean.stdout), "quiet with no queue items");
+
+    const qpath = deadQueue(p);
+    const queueBefore = readFileSync(qpath, "utf8");
+    const r = p.run(["cursor", "advance", "execute", "load"], { expectFail: false });
+    assert.match(r.stdout, /presumed dead: T001 \(claimed_by builder-9/);
+    const lines = r.stdout.trimEnd().split("\n");
+    assert.match(lines[lines.length - 1], /TICK COMPLETE/, "detector line precedes tick marker");
+    assert.equal(readFileSync(qpath, "utf8"), queueBefore, "queue byte-identical");
+    const ev = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8")
+      .split("\n").filter((l) => l.includes("subagent_presumed_dead"));
+    assert.equal(ev.length, 1);
+    assert.equal(JSON.parse(ev[0]).claimed_by, "builder-9");
+
+    const again = p.run(["cursor", "advance", "execute", "wave_1_dispatch"], { expectFail: false });
+    assert.ok(!/presumed dead/.test(again.stdout), "reported once");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("presumed_dead: completed_unacked flag reaches the emitted event and printed line", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
+    deadQueue(p);
+    const done = new Date(Date.now() - 30 * 60000).toISOString().replace(/\.\d{3}Z$/, "+00:00");
+    writeFileSync(join(p.dataDir, ".shipyard-events.jsonl"),
+      JSON.stringify({ ts: done, type: "subagent_completed", task: "T001" }) + "\n", { flag: "a" });
+    const r = p.run(["cursor", "advance", "execute", "load"], { expectFail: false });
+    assert.match(r.stdout, /completed but not acknowledged: reconcile via the return gate/);
+    assert.ok(!/no completion or recent heartbeat/.test(r.stdout));
+    const ev = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8")
+      .split("\n").filter((l) => l.includes("subagent_presumed_dead"));
+    assert.equal(ev.length, 1);
+    assert.equal(JSON.parse(ev[0]).completed_unacked, true);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("presumed_dead: heartbeat and missing claimed_at are not reported", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    p.run(["cursor", "advance", "execute", "preflight"], { expectFail: false });
+    deadQueue(p, { claimed_at: undefined, deadline_at: undefined });
+    const r = p.run(["cursor", "advance", "execute", "salvage"], { expectFail: false });
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(!/presumed dead/.test(r.stdout));
+  } finally {
+    p.cleanup();
+  }
+});
+
+// AC-18 AC-20
+function trigAdvance(p, extra) {
+  seedSprint(p);
+  for (const s of ["preflight", "salvage", "load", "readiness", "wave_1_dispatch", "wave_1_waiting", "wave_1_recovery"]) {
+    p.run(["cursor", "advance", "execute", s, "sprint=sprint-001"], { expectFail: false });
+  }
+  return p.run(["cursor", "advance", "execute", "wave_1_redispatch_iter_1", ...extra, "sprint=sprint-001"], { expectFail: extra[0] === "--trigger" && extra[1] === "bogus" });
+}
+test("cursor CLI: trigger_enum_valid records trigger on the tick event", () => {
+  const p = makeProject();
+  try {
+    const r = trigAdvance(p, ["--trigger", "gate_failure"]);
+    assert.equal(r.code, 0);
+    const ev = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(ev, /"next_stage":"wave_1_redispatch_iter_1"[^\n]*"trigger":"gate_failure"/);
+  } finally { p.cleanup(); }
+});
+test("cursor CLI: trigger_invalid_rejected", () => {
+  const p = makeProject();
+  try {
+    const r = trigAdvance(p, ["--trigger", "bogus"]);
+    assert.notEqual(r.code, 0);
+    assert.match(r.stderr, /--trigger must be one of/);
+  } finally { p.cleanup(); }
+});
+test("cursor CLI: trigger_missing_event logs trigger_missing, no guess", () => {
+  const p = makeProject();
+  try {
+    const r = trigAdvance(p, []);
+    assert.equal(r.code, 0);
+    const ev = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+    assert.match(ev, /"next_stage":"wave_1_redispatch_iter_1"[^\n]*"trigger_missing":true/);
+    assert.doesNotMatch(ev, /"trigger":"/);
+  } finally { p.cleanup(); }
+});
+
+// --- T097: F005 AC-6 / AC-8 / AC-9 coverage gaps ---
+
+test("session_budget AC-6: task-return, events emit, anchor-commit and cursor pause are never refused when over budget", () => {
+  // AC-6
+  const p = makeProject();
+  try {
+    const { cpath } = budgetSetup(p);
+    const trip = p.run(["cursor", "advance", "execute", "wave_1_dispatch"]);
+    assert.equal(trip.code, 0, trip.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /status: paused/, "budget is exceeded and tripped");
+    const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: p.repo, encoding: "utf8" }).trim();
+
+    const tr = p.run(["task-return", "T001", "status=COMPLETE", `commit=${sha}`, "probe-exit=0", "--data-dir", p.dataDir]);
+    assert.equal(tr.code, 0, `task-return refused over budget: ${tr.stderr}`);
+    const ev = p.run(["events", "emit", "budget_probe_event", "k=v", "--data-dir", p.dataDir]);
+    assert.equal(ev.code, 0, `events emit refused over budget: ${ev.stderr}`);
+    assert.match(readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"), /budget_probe_event/);
+    const an = p.run(["anchor-commit", "T001", sha, "--data-dir", p.dataDir]);
+    assert.equal(an.code, 0, `anchor-commit refused over budget: ${an.stderr}`);
+    execFileSync("git", ["cat-file", "-e", "shipyard/keep-T001^{commit}"], { cwd: p.repo });
+    const pz = p.run(["cursor", "pause", "execute", "--note", "still allowed"]);
+    assert.equal(pz.code, 0, pz.stderr);
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("session_budget AC-8: pause on budget, resume, then advance into wave_N_dispatch succeeds", () => {
+  // AC-8
+  const p = makeProject();
+  try {
+    const { cpath, events } = budgetSetup(p);
+    const trip = p.run(["cursor", "advance", "execute", "wave_1_dispatch"]);
+    assert.equal(trip.code, 0, trip.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /status: paused/);
+    const stale = (readFileSync(cpath, "utf8").match(/^session_started_at: (.+)$/m) ?? [])[1];
+    const rr = p.run(["cursor", "resume", "execute"]);
+    assert.equal(rr.code, 0, rr.stderr);
+    const fresh = (readFileSync(cpath, "utf8").match(/^session_started_at: (.+)$/m) ?? [])[1];
+    assert.notEqual(fresh, stale, "resume reset the clock");
+    const adv = p.run(["cursor", "advance", "execute", "wave_1_dispatch"]);
+    assert.equal(adv.code, 0, adv.stderr);
+    const after = readFileSync(cpath, "utf8");
+    assert.match(after, /stage: wave_1_dispatch/);
+    assert.match(after, /status: in_progress/);
+    assert.equal(events().split("\n").filter((l) => l.includes("session_budget_reached")).length, 1, "only the first trip");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("session_budget AC-9: SPRINT.md started_at is unchanged by cursor resume", () => {
+  // AC-9
+  const p = makeProject();
+  try {
+    const { cpath } = budgetSetup(p);
+    const sprintPath = join(p.dataDir, "sprints", "current", "SPRINT.md");
+    const original = "2020-01-02T03:04:05.000Z";
+    writeFileSync(sprintPath, readFileSync(sprintPath, "utf8").replace(/^---\n/, `---\nstarted_at: "${original}"\n`));
+    const before = readFileSync(sprintPath, "utf8");
+    assert.match(before, /started_at: "2020-01-02T03:04:05.000Z"/);
+    p.run(["cursor", "advance", "execute", "wave_1_dispatch"]); // budget pause
+    const rr = p.run(["cursor", "resume", "execute"]);
+    assert.equal(rr.code, 0, rr.stderr);
+    assert.match(readFileSync(cpath, "utf8"), /status: in_progress/);
+    assert.equal(readFileSync(sprintPath, "utf8"), before, "SPRINT.md untouched by resume");
+    assert.doesNotMatch(readFileSync(cpath, "utf8"), new RegExp(original), "cursor clock is not the sprint started_at");
+  } finally {
+    p.cleanup();
+  }
+});
+
+test("cursor CLI: parked --task/--hotfix escalates from the real stage, and resume returns to it (C-2)", () => {
+  for (const stage of ["single_task", "hotfix"]) {
+    const p = makeProject();
+    try {
+      seedSprint(p);
+      p.run(["cursor", "advance", "execute", stage], { expectFail: false });
+      const r = p.run(["cursor", "escalate", "execute", "reason=task_needs_attention"], { expectFail: false });
+      assert.equal(r.code, 0, `${r.stdout}${r.stderr}`);
+      assert.match(r.stdout.trim().split("\n").pop(), /\/goal should stop\./);
+      const cursor = readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8");
+      assert.match(cursor, /status: escalated/);
+      assert.match(cursor, /terminal: true/);
+      const events = readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8");
+      const term = events.split("\n").filter((l) => l.includes('"pipeline_terminal"')).pop() || "";
+      assert.match(term, /"outcome":"escalated"/);
+      assert.match(term, /"reason":"task_needs_attention"/);
+      const rr = p.run(["cursor", "resume", "execute"], { expectFail: false });
+      assert.equal(rr.code, 0, `${rr.stdout}${rr.stderr}`);
+      assert.match(rr.stdout, new RegExp(`resumed at stage ${stage}`));
+    } finally {
+      p.cleanup();
+    }
+  }
+});
+
+test("an escalation with nothing in flight leaves no cursor behind (4.0): a task that outgrew its lane does not block the sprint", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    const r = p.run(["cursor", "escalate", "execute", "reason=escalate_to_discuss", "next_action=/ship-discuss T462"], { expectFail: false });
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /nothing was in flight, so no cursor is left behind\. Next: \/ship-discuss T462/);
+    assert.equal(existsSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md")), false);
+    assert.match(readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"), /"pipeline_terminal"[^\n]*"outcome":"escalated"[^\n]*"reason":"escalate_to_discuss"/);
+    // the sprint's own run starts normally
+    assert.equal(p.run(["cursor", "advance", "execute", "preflight", "sprint=sprint-001"], { expectFail: false }).code, 0);
+    // and a run that IS in flight still leaves its escalated cursor to resume
+    p.run(["cursor", "escalate", "execute", "reason=blocked"], { expectFail: false });
+    assert.match(readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8"), /status: escalated/);
+  } finally { p.cleanup(); }
+});
+
+test("accept-return takes a hotfix story id: commit anchored, event written, the story's own status left alone (4.0)", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    mkdirSync(join(p.dataDir, "spec", "stories"), { recursive: true });
+    const story = join(p.dataDir, "spec", "stories", "S069-real-art.md");
+    writeFileSync(story, `---\nid: S069\ntype: bug\nlane: hotfix\nstatus: approved\n---\n\n# Real art\n`);
+    const sha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: p.repo, encoding: "utf8" }).trim();
+    const r = p.run(["step", "accept-return", "S069", "sprint=none", "wave=0", `commit=${sha}`, "--data-dir", p.dataDir], { expectFail: false });
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /story S069 accepted complete return/);
+    execFileSync("git", ["cat-file", "-e", `shipyard/keep-S069^{commit}`], { cwd: p.repo });
+    assert.match(readFileSync(story, "utf8"), /^status: approved$/m);
+    assert.match(readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"), /"type":"task_dispatch_returned"[^\n]*"task":"S069"/);
+  } finally { p.cleanup(); }
+});
+
+test("a sprint starts over the finished cursor of a hotfix or single task; any other finished cursor still refuses (4.0)", () => {
+  const p = makeProject();
+  try {
+    seedSprint(p);
+    const cur = join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md");
+    writeFileSync(cur, "---\npipeline: ship-execute\nstage: terminal_hotfix\nstatus: complete\nterminal: true\n---\n");
+    let r = p.run(["cursor", "advance", "execute", "preflight", "sprint=sprint-001"], { expectFail: false });
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(readFileSync(cur, "utf8"), /stage: preflight/);
+    assert.match(readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"), /"finished_short_run_cursor_replaced"[^\n]*"was":"terminal_hotfix"/);
+    // a finished sprint is not started over this way
+    writeFileSync(cur, "---\npipeline: ship-execute\nstage: terminal_handoff_to_review\nstatus: complete\nterminal: true\nsprint: sprint-001\n---\n");
+    r = p.run(["cursor", "advance", "execute", "preflight", "sprint=sprint-001"]);
+    assert.notEqual(r.code, 0);
+    assert.match(r.stderr, /already terminal/);
+  } finally { p.cleanup(); }
+});
+
+test("stage graph: from waiting on wave N+1 the cursor may step back to wave N's build, and nowhere else backwards (4.0)", () => {
+  assert.equal(validateTransition("ship-execute", "wave_2_waiting", "wave_1_build").ok, true);
+  assert.equal(validateTransition("ship-execute", "wave_2_waiting", "wave_2_build").ok, false, "its own wave's build comes after its boundary");
+  assert.equal(validateTransition("ship-execute", "wave_3_waiting", "wave_1_build").ok, false);
+  assert.equal(validateTransition("ship-execute", "wave_2_waiting", "wave_1_tests").ok, false);
+});

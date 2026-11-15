@@ -24,8 +24,8 @@ If the validation runs but returns zero activated categories (no touch surfaces 
 ### Step 1: Invoke validating-e2e-coverage
 
 Follow the `validating-e2e-coverage` playbook with:
-- **feature_file_path**: the feature spec just written (e.g., `<SHIPYARD_DATA>/spec/features/F009-payment-endpoint.md`)
-- **existing_ac**: the AC list from the feature file's `## Acceptance Criteria` section
+- **feature_file_path**: the feature spec just written (e.g., `<SHIPYARD_DATA>/spec/stories/S009-payment-endpoint.md`)
+- **existing_ac**: the AC list from the story file's `## Acceptance Criteria` section
 - **domain_hints**: domain tags from the discussion context (e.g., `["payments", "auth"]`)
 
 The skill reads the taxonomy at `${CLAUDE_PLUGIN_ROOT}/skills/discovering-edge-cases/references/e2e-taxonomy.md`, detects touch surfaces, and returns structured gaps.
@@ -61,7 +61,7 @@ Options:
 
 ### Step 4: Write Approved E2E AC
 
-For accepted gaps, use Edit to add to the feature file. Place them under a new `### E2E AC` subsection within the existing `## Acceptance Criteria` section. Each scenario is written in Given/When/Then format with its category tag:
+For accepted gaps, use Edit to add to the story file. Place them under a new `### E2E AC` subsection within the existing `## Acceptance Criteria` section. Each scenario is written in Given/When/Then format with its category tag:
 
 ```markdown
 ### E2E AC
@@ -73,10 +73,10 @@ For accepted gaps, use Edit to add to the feature file. Place them under a new `
 
 ### Step 5: Handle 200-Line Overflow
 
-If adding E2E AC would push the feature file over 200 lines:
-1. Extract the entire `### E2E AC` section to `<SHIPYARD_DATA>/spec/references/FNNN-e2e-ac.md`
-2. Run `shipyard-data feature add-ref FNNN <SHIPYARD_DATA>/spec/references/FNNN-e2e-ac.md` to add the reference path to the feature's `references:` array
-3. Replace the `### E2E AC` section in the feature body with: `### E2E AC → see references/FNNN-e2e-ac.md`
+If adding E2E AC would push the story file over 200 lines:
+1. Extract the entire `### E2E AC` section to `<SHIPYARD_DATA>/spec/references/SNNN-e2e-ac.md`
+2. Run `shipyard-data story add-ref SNNN <SHIPYARD_DATA>/spec/references/SNNN-e2e-ac.md` to add the reference path to the feature's `references:` array
+3. Replace the `### E2E AC` section in the feature body with: `### E2E AC → see references/SNNN-e2e-ac.md`
 
 ## Backfill Protocol (REFINE Mode)
 
@@ -92,5 +92,5 @@ When `/ship-discuss` enters REFINE mode and reads an existing feature:
 
 On completion, emit a structured event:
 ```
-shipyard-data events emit e2e_validation_completed feature=FNNN activated_categories=N gaps_found=N gaps_accepted=N gaps_skipped=N
+shipyard-data events emit e2e_validation_completed feature=SNNN activated_categories=N gaps_found=N gaps_accepted=N gaps_skipped=N
 ```

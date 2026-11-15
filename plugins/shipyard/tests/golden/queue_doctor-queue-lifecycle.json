@@ -1,0 +1,27 @@
+{
+  "enqueue": {
+    "code": 0,
+    "stdout": "{\"enqueued\":1,\"total_input\":1}",
+    "stderr": ""
+  },
+  "claim": {
+    "code": 0,
+    "stdout": "{\"claimed\":true,\"task\":{\"id\":\"T001\",\"pipeline\":\"ship-execute\",\"stage\":\"wave_1_dispatch\",\"kind\":\"build\",\"status\":\"claimed\",\"files\":[\"src/a.ts\"],\"expected_artifact\":null,\"required_validation\":[],\"payload\":null,\"source\":null,\"effort\":null,\"base_sha\":null,\"idempotent\":true,\"attempt\":1,\"claimed_by\":\"w1\",\"claimed_at\":\"<TS>\",\"deadline_at\":\"<TS>\",\"completed_at\":null,\"failed_at\":null,\"result\":null,\"artifact_status\":null,\"reason\":null,\"ttl_seconds\":1800}}",
+    "stderr": ""
+  },
+  "claimSecondWorker": {
+    "code": 0,
+    "stdout": "{\"claimed\":false,\"pipeline\":\"ship-execute\",\"stage\":\"wave_1_dispatch\"}",
+    "stderr": ""
+  },
+  "complete": {
+    "code": 0,
+    "stdout": "{\"completed\":true,\"task\":{\"id\":\"T001\",\"pipeline\":\"ship-execute\",\"stage\":\"wave_1_dispatch\",\"kind\":\"build\",\"status\":\"complete\",\"files\":[\"src/a.ts\"],\"expected_artifact\":null,\"required_validation\":[],\"payload\":null,\"source\":null,\"effort\":null,\"base_sha\":null,\"idempotent\":true,\"attempt\":1,\"claimed_by\":\"w1\",\"claimed_at\":\"<TS>\",\"deadline_at\":\"<TS>\",\"completed_at\":\"<TS>\",\"failed_at\":null,\"result\":\"<ROOT>/T001-result.json\",\"artifact_status\":\"COMPLETE\",\"reason\":null,\"ttl_seconds\":1800}}",
+    "stderr": ""
+  },
+  "list": {
+    "code": 0,
+    "stdout": "{\n  \"tasks\": [\n    {\n      \"id\": \"T001\",\n      \"pipeline\": \"ship-execute\",\n      \"stage\": \"wave_1_dispatch\",\n      \"kind\": \"build\",\n      \"status\": \"complete\",\n      \"files\": [\n        \"src/a.ts\"\n      ],\n      \"expected_artifact\": null,\n      \"required_validation\": [],\n      \"payload\": null,\n      \"source\": null,\n      \"effort\": null,\n      \"base_sha\": null,\n      \"idempotent\": true,\n      \"attempt\": 1,\n      \"claimed_by\": \"w1\",\n      \"claimed_at\": \"<TS>\",\n      \"deadline_at\": \"<TS>\",\n      \"completed_at\": \"<TS>\",\n      \"failed_at\": null,\n      \"result\": \"<ROOT>/T001-result.json\",\n      \"artifact_status\": \"COMPLETE\",\n      \"reason\": null,\n      \"ttl_seconds\": 1800\n    }\n  ]\n}",
+    "stderr": ""
+  }
+}

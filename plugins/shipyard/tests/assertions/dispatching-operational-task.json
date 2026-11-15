@@ -1,202 +1,247 @@
 [
-  {
-    "name": "dispatches_registered_agent",
-    "type": "contains",
-    "pattern": "subagent_type: \"shipyard:shipyard-operational-task\""
-  },
-  {
-    "name": "no_registered_shipyard_agent",
-    "type": "not_contains",
-    "pattern": "general-purpose"
-  },
-  {
-    "name": "has_two_phase_flow",
-    "type": "contains",
-    "pattern": "## Two-Phase Flow"
-  },
-  {
-    "name": "has_iron_law_exit_zero",
-    "type": "contains",
-    "pattern": "NO COMPLETION CLAIM WITHOUT exit-0 CAPTURE",
-    "target": "agent:shipyard-operational-task"
-  },
-  {
-    "name": "has_iron_law_no_stub_fixes",
-    "type": "contains",
-    "pattern": "NO STUB FIXES",
-    "target": "agent:shipyard-operational-task"
-  },
-  {
-    "name": "has_iron_law_no_scope_creep",
-    "type": "contains",
-    "pattern": "NO SCOPE CREEP",
-    "target": "agent:shipyard-operational-task"
-  },
-  {
-    "name": "has_status_complete_return",
-    "type": "contains",
-    "pattern": "STATUS: COMPLETE"
-  },
-  {
-    "name": "has_verify_output_field",
-    "type": "contains",
-    "pattern": "VERIFY_OUTPUT"
-  },
-  {
-    "name": "has_last_lines_field",
-    "type": "contains",
-    "pattern": "LAST_LINES"
-  },
-  {
-    "name": "operational_agent_return_is_machine_contract",
-    "type": "contains",
-    "target": "agent:shipyard-operational-task",
-    "pattern": "machine contract, not a progress update"
-  },
-  {
-    "name": "operational_wrapper_does_not_forward_chatter",
-    "type": "contains",
-    "pattern": "does not forward subagent preamble, epilogue, or incidental commentary"
-  },
-  {
-    "name": "has_bogus_pass_event",
-    "type": "contains",
-    "pattern": "operational_task_bogus_pass"
-  },
-  {
-    "name": "has_max_iterations",
-    "type": "contains",
-    "pattern": "max_iterations"
-  },
-  {
-    "name": "uses_monitor_for_verify_run",
-    "type": "contains",
-    "pattern": "Monitor\\("
-  },
-  {
-    "name": "monitor_filter_covers_failures",
-    "type": "contains",
-    "pattern": "Silence is not success"
-  },
-  {
-    "name": "monitor_uses_logcap_filter",
-    "type": "contains",
-    "pattern": "shipyard-logcap run.*--filter",
-    "dotall": true
-  },
-  {
-    "name": "monitor_logcap_writes_exit_file",
-    "type": "contains",
-    "pattern": "--exit-file"
-  },
-  {
-    "name": "monitor_filter_progress_token_required",
-    "type": "contains",
-    "pattern": "Progress tokens"
-  },
-  {
-    "name": "monitor_filter_failure_token_required",
-    "type": "contains",
-    "pattern": "Failure tokens"
-  },
-  {
-    "name": "monitor_pipefail_or_sentinel_documented",
-    "type": "contains",
-    "pattern": "pipefail|run-<N>\\.exit"
-  },
-  {
-    "name": "monitor_notification_budget_documented",
-    "type": "contains",
-    "pattern": "Notification budget|~50 notifications"
-  },
-  {
-    "name": "monitor_filters_reference_exists",
-    "type": "contains",
-    "pattern": "monitor-filters\\.md"
-  },
-  {
-    "name": "documents_goal_mode_default",
-    "type": "contains",
-    "pattern": "Goal-mode default|/goal-shaped"
-  },
-  {
-    "name": "emits_operational_iteration_event",
-    "type": "contains",
-    "pattern": "operational_iteration"
-  },
-  {
-    "name": "accepts_operational_completion_via_bundled_cli",
-    "type": "contains",
-    "pattern": "shipyard-data task accept-operational",
-    "why": "Once the operational gate passes, task status plus both evidence events should be recorded by one CLI command instead of a hand-rolled status/event/event sequence."
-  },
-  {
-    "name": "operational_completion_avoids_handrolled_status_and_events",
-    "type": "not_contains",
-    "pattern": "mark task `done`[\\s\\S]*events emit operational_task_completed[\\s\\S]*events emit task_dispatch_returned",
-    "dotall": true,
-    "why": "The complete path should not regress to separate model-selected state mutations after the gate passes."
-  },
-  {
-    "name": "documents_escalation_code_enum",
-    "type": "contains",
-    "pattern": "ESCALATION_CODE.*verify_flaky",
-    "dotall": true
-  },
-  {
-    "name": "uses_task_append_verify_cli",
-    "type": "contains",
-    "pattern": "task append-verify"
-  },
-  {
-    "name": "render_provenance_negation",
-    "type": "contains",
-    "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires."
-  },
-  {
-    "name": "render_before_ask_rule",
-    "type": "contains",
-    "pattern": "Render before asking",
-    "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule."
-  },
-  {
-    "name": "documents_rerun_failed_config_key",
-    "type": "contains",
-    "pattern": "test_commands.rerun_failed|rerun_failed_command",
-    "why": "P2 fix (a 13-minute tier costs 26+ minutes on one failure, 39+ on two): the wrapper must name the config key that drives narrowed fix-loop reruns so a reader can find where the behavior is switched on."
-  },
-  {
-    "name": "documents_rerun_failed_absent_is_unchanged",
-    "type": "contains",
-    "pattern": "byte-identical",
-    "why": "P2 constraint: absent rerun_failed must leave today's full-rerun-every-iteration behavior byte-identical — Shipyard cannot know the user's runner, so narrowing is opt-in only. Pins that the wrapper states this explicitly rather than leaving it implicit."
-  },
-  {
-    "name": "documents_final_iteration_always_full",
-    "type": "contains",
-    "pattern": "always runs the FULL verify command",
-    "why": "P2 constraint: the loop may never exit green on a narrowed run, so the last iteration in the budget must be structurally reserved as a full-suite confirmation. Regression guard against silently letting the cap land on a narrowed attempt."
-  },
-  {
-    "name": "documents_narrowed_pass_is_not_proof",
-    "type": "contains",
-    "pattern": "narrowed run that exits 0 is not proof",
-    "target": "agent:shipyard-operational-task",
-    "why": "P2 constraint: a narrowed rerun_failed pass only proves the previously-failing subset now passes, not the whole suite. The agent must never let that short-circuit STATUS: COMPLETE — the structured return contract and the verification ledger both treat a recorded pass as authoritative, so a narrowed pass recorded as full would be a false green."
-  },
-  {
-    "name": "documents_no_argument_substitution",
-    "type": "contains",
-    "pattern": "no argument substitution",
-    "target": "agent:shipyard-operational-task",
-    "why": "P2 constraint (config-driven, never inferred): the agent must run rerun_failed verbatim rather than parsing capture output to build a test-name filter — Shipyard cannot know the runner's failure-report format, and guessing one would be exactly the kind of inference this feature is designed to avoid."
-  },
-  {
-    "name": "operational_dispatch_sets_effort_tiers",
-    "type": "contains",
-    "pattern": "agent_effort\\.operational.*agent_effort\\.operational_fix",
-    "dotall": true,
-    "why": "Command runners should default low effort, while failure-fix iterations should have a configurable medium-effort tier."
-  }
+ {
+  "name": "dispatches_registered_agent",
+  "type": "contains",
+  "pattern": "subagent_type: \"shipyard:shipyard-operational-task\""
+ },
+ {
+  "name": "no_registered_shipyard_agent",
+  "type": "not_contains",
+  "pattern": "general-purpose"
+ },
+ {
+  "name": "has_two_phase_flow",
+  "type": "contains",
+  "pattern": "## Two-Phase Flow"
+ },
+ {
+  "name": "has_iron_law_exit_zero",
+  "type": "contains",
+  "pattern": "NO COMPLETION CLAIM WITHOUT exit-0 CAPTURE",
+  "target": "agent:shipyard-operational-task"
+ },
+ {
+  "name": "has_iron_law_no_stub_fixes",
+  "type": "contains",
+  "pattern": "NO STUB FIXES",
+  "target": "agent:shipyard-operational-task"
+ },
+ {
+  "name": "has_iron_law_no_scope_creep",
+  "type": "contains",
+  "pattern": "NO SCOPE CREEP",
+  "target": "agent:shipyard-operational-task"
+ },
+ {
+  "name": "has_status_complete_return",
+  "type": "contains",
+  "pattern": "STATUS: COMPLETE"
+ },
+ {
+  "name": "has_verify_output_field",
+  "type": "contains",
+  "pattern": "VERIFY_OUTPUT"
+ },
+ {
+  "name": "has_last_lines_field",
+  "type": "contains",
+  "pattern": "LAST_LINES"
+ },
+ {
+  "name": "operational_agent_return_is_machine_contract",
+  "type": "contains",
+  "target": "agent:shipyard-operational-task",
+  "pattern": "machine contract, not a progress update"
+ },
+ {
+  "name": "operational_wrapper_does_not_forward_chatter",
+  "type": "contains",
+  "pattern": "does not forward subagent preamble, epilogue, or incidental commentary"
+ },
+ {
+  "name": "has_bogus_pass_event",
+  "type": "contains",
+  "pattern": "operational_task_bogus_pass"
+ },
+ {
+  "name": "has_max_iterations",
+  "type": "contains",
+  "pattern": "max_iterations"
+ },
+ {
+  "name": "uses_monitor_for_verify_run",
+  "type": "contains",
+  "pattern": "Monitor\\("
+ },
+ {
+  "name": "monitor_filter_covers_failures",
+  "type": "contains",
+  "pattern": "Silence is not success"
+ },
+ {
+  "name": "monitor_uses_logcap_filter",
+  "type": "contains",
+  "pattern": "shipyard-logcap run.*--filter",
+  "dotall": true
+ },
+ {
+  "name": "monitor_logcap_writes_exit_file",
+  "type": "contains",
+  "pattern": "--exit-file"
+ },
+ {
+  "name": "monitor_filter_progress_token_required",
+  "type": "contains",
+  "pattern": "Progress tokens"
+ },
+ {
+  "name": "monitor_filter_failure_token_required",
+  "type": "contains",
+  "pattern": "Failure tokens"
+ },
+ {
+  "name": "monitor_pipefail_or_sentinel_documented",
+  "type": "contains",
+  "pattern": "pipefail|run-<N>\\.exit"
+ },
+ {
+  "name": "monitor_notification_budget_documented",
+  "type": "contains",
+  "pattern": "Notification budget|~50 notifications"
+ },
+ {
+  "name": "monitor_filters_reference_exists",
+  "type": "contains",
+  "pattern": "monitor-filters\\.md"
+ },
+ {
+  "name": "documents_goal_mode_default",
+  "type": "contains",
+  "pattern": "Goal-mode default|/goal-shaped"
+ },
+ {
+  "name": "emits_operational_iteration_event",
+  "type": "contains",
+  "pattern": "operational_iteration"
+ },
+ {
+  "name": "accepts_operational_completion_via_bundled_cli",
+  "type": "contains",
+  "pattern": "shipyard-data step accept-operational",
+  "why": "Once the operational gate passes, task status plus both evidence events should be recorded by one CLI command instead of a hand-rolled status/event/event sequence."
+ },
+ {
+  "name": "operational_completion_avoids_handrolled_status_and_events",
+  "type": "not_contains",
+  "pattern": "mark task `done`[\\s\\S]*events emit operational_task_completed[\\s\\S]*events emit task_dispatch_returned",
+  "dotall": true,
+  "why": "The complete path should not regress to separate model-selected state mutations after the gate passes."
+ },
+ {
+  "name": "documents_escalation_code_enum",
+  "type": "contains",
+  "pattern": "ESCALATION_CODE.*verify_flaky",
+  "dotall": true
+ },
+ {
+  "name": "uses_task_append_verify_cli",
+  "type": "contains",
+  "pattern": "step append-verify"
+ },
+ {
+  "name": "render_provenance_negation",
+  "type": "contains",
+  "pattern": "does not count as rendered",
+  "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P063: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+  "target": "plugin:bin/shipyard-context.mjs"
+ },
+ {
+  "name": "render_before_ask_rule",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "v3.11.0: capability skills were out of scope in v3.8.0; any skill body mentioning AskUserQuestion now states the render-before-ask rule. S016/P063: skill keeps only the short reminder."
+ },
+ {
+  "name": "documents_rerun_failed_config_key",
+  "type": "contains",
+  "pattern": "test_commands.rerun_failed|rerun_failed_command",
+  "why": "P2 fix (a 13-minute tier costs 26+ minutes on one failure, 39+ on two): the wrapper must name the config key that drives narrowed fix-loop reruns so a reader can find where the behavior is switched on."
+ },
+ {
+  "name": "documents_rerun_failed_absent_is_unchanged",
+  "type": "contains",
+  "pattern": "byte-identical",
+  "why": "P2 constraint: absent rerun_failed must leave today's full-rerun-every-iteration behavior byte-identical — Shipyard cannot know the user's runner, so narrowing is opt-in only. Pins that the wrapper states this explicitly rather than leaving it implicit."
+ },
+ {
+  "name": "documents_final_iteration_always_full",
+  "type": "contains",
+  "pattern": "always runs the FULL verify command",
+  "why": "P2 constraint: the loop may never exit green on a narrowed run, so the last iteration in the budget must be structurally reserved as a full-suite confirmation. Regression guard against silently letting the cap land on a narrowed attempt."
+ },
+ {
+  "name": "documents_narrowed_pass_is_not_proof",
+  "type": "contains",
+  "pattern": "narrowed run that exits 0 is not proof",
+  "target": "agent:shipyard-operational-task",
+  "why": "P2 constraint: a narrowed rerun_failed pass only proves the previously-failing subset now passes, not the whole suite. The agent must never let that short-circuit STATUS: COMPLETE — the structured return contract and the verification ledger both treat a recorded pass as authoritative, so a narrowed pass recorded as full would be a false green."
+ },
+ {
+  "name": "documents_no_argument_substitution",
+  "type": "contains",
+  "pattern": "no argument substitution",
+  "target": "agent:shipyard-operational-task",
+  "why": "P2 constraint (config-driven, never inferred): the agent must run rerun_failed verbatim rather than parsing capture output to build a test-name filter — Shipyard cannot know the runner's failure-report format, and guessing one would be exactly the kind of inference this feature is designed to avoid."
+ },
+ {
+  "name": "operational_dispatch_sets_effort_tiers",
+  "type": "contains",
+  "pattern": "resolve-model operational.*resolve-model operational_fix",
+  "dotall": true,
+  "why": "Command runners should default low effort, while failure-fix iterations should have a configurable medium-effort tier."
+ },
+ {
+  "name": "model_resolved_via_cli",
+  "type": "contains",
+  "pattern": "shipyard-data resolve-model",
+  "why": "S003 AC-8: model/effort come from the CLI resolver, not prose derivation of config.md."
+ },
+ {
+  "name": "no_prose_model_derivation",
+  "type": "not_contains",
+  "pattern": "Read `(models\\.(think|build)|agent_effort\\.\\w+)` from config\\.md",
+  "why": "S003 AC-8: prose config reads for model/effort are replaced by resolve-model."
+ },
+ {
+  "name": "wrapper_emits_dispatch_model_resolved",
+  "type": "contains",
+  "pattern": "dispatch_model_resolved",
+  "why": "S003 AC-9: the wrapper (not the resolver) logs the resolution."
+ },
+ {
+  "name": "render_before_ask_short_reminder_present",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "S016/P063: capability skill keeps only the short reminder; full doctrine printed at startup (CANONICAL_STARTUP_RULES)."
+ },
+ {
+  "name": "operational_agent_waits_without_polling",
+  "type": "contains",
+  "pattern": "one Monitor, then silence",
+  "target": "agent:shipyard-operational-task",
+  "why": "4.8.1: a real device session polled a 60-minute run ~16 times a minute; waiting is one Monitor on the exit sentinel"
+ },
+ {
+  "name": "operational_agent_never_ends_turn_to_wait",
+  "type": "contains",
+  "pattern": "Never end your turn to wait",
+  "target": "agent:shipyard-operational-task",
+  "why": "4.11.1: a verify agent ended its turn every minute to say it was still waiting, costing the orchestrator a turn each time"
+ },
+ {
+  "name": "test_tiers_run_with_reuse",
+  "type": "contains",
+  "pattern": "Evidence before a second run",
+  "why": "4.0: a config test tier already proven on this exact code is not run again"
+ }
 ]

@@ -112,6 +112,16 @@ class TestShipyardDataOnboarding(unittest.TestCase):
             self.assertIn('project_name: "project"', f.read())
 
 
+def seed_review_evidence(data_dir, sprint_id):
+    """Append a ship-review pipeline_terminal success event (F043 review gate)."""
+    with open(os.path.join(data_dir, '.shipyard-events.jsonl'), 'a') as f:
+        f.write(json.dumps({
+            'type': 'pipeline_terminal', 'pipeline': 'ship-review',
+            'sprint': sprint_id, 'outcome': 'success',
+            'ts': '2026-11-01T00:00:00Z',
+        }) + '\n')
+
+
 class TestShipyardDataArchiveSprint(unittest.TestCase):
     """Tests for the `archive-sprint <sprint-id>` subcommand.
 
@@ -143,6 +153,7 @@ class TestShipyardDataArchiveSprint(unittest.TestCase):
             f.write('---\nid: sprint-042\nstatus: completed\n---\n')
         with open(os.path.join(self.current, 'PROGRESS.md'), 'w') as f:
             f.write('done\n')
+        seed_review_evidence(self.data_dir, 'sprint-042')
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -179,6 +190,241 @@ class TestShipyardDataArchiveSprint(unittest.TestCase):
         # Current recreated empty (directory exists, contents gone)
         self.assertTrue(os.path.isdir(self.current))
         self.assertEqual(os.listdir(self.current), [])
+
+    # ---- F043 review gate ----
+    def _gate_sprint(self, status='completed', features=None):
+        fm = f'---\nid: sprint-042\nstatus: {status}\n'
+        if features:
+            fm += f'features: "{features}"\n'
+        with open(os.path.join(self.current, 'SPRINT.md'), 'w') as f:
+            f.write(fm + '---\n')
+
+    def _gate_clear_events(self):
+        p = os.path.join(self.data_dir, '.shipyard-events.jsonl')
+        if os.path.exists(p):
+            os.remove(p)
+
+    def _gate_event(self, **ev):
+        ev.setdefault('pipeline', 'ship-review')
+        ev.setdefault('sprint', 'sprint-042')
+        ev.setdefault('ts', '2026-11-01T00:00:00Z')
+        with open(os.path.join(self.data_dir, '.shipyard-events.jsonl'), 'a') as f:
+            f.write(json.dumps(ev) + '\n')
+
+    def _gate_review_cursor(self, stage='release_step_3'):
+        with open(os.path.join(self.current, 'REVIEW-CURSOR.md'), 'w') as f:
+            f.write(f'---\nstage: {stage}\nsprint: sprint-042\n---\n')
+
+    def _gate_feature(self, fid, status):
+        d = os.path.join(self.data_dir, 'spec', 'features')
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, f'{fid}-x.md'), 'w') as f:
+            f.write(f'---\nid: {fid}\nstatus: {status}\nstory_points: 1\n---\n')
+
+    def _gate_archived(self):
+        return os.path.isdir(os.path.join(self.data_dir, 'sprints', 'sprint-042'))
+
+    def test_cancel_cannot_bypass_review_gate(self):
+        self._gate_clear_events()
+        self._gate_sprint(features='F001')
+        self._gate_feature('F001', 'in-progress')
+        _, err, code = run_cli(['sprint', 'set', 'status', 'cancelled'], env_extra=self.env)
+        self.assertNotEqual(code, 0)
+        self.assertIn('/ship-review', err)
+        self.assertIn('--unreviewed', err)
+        self.assertIn('status: completed', open(os.path.join(self.current, 'SPRINT.md')).read())
+        _, _, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertNotEqual(code, 0)
+        self.assertFalse(self._gate_archived())
+        # explicit override still works and audits
+        _, _, code = run_cli(['archive-sprint', 'sprint-042', '--unreviewed'], env_extra=self.env)
+        self.assertEqual(code, 0)
+        self.assertTrue(self._gate_archived())
+        self.assertIn('sprint_archived_unreviewed', open(os.path.join(self.data_dir, '.shipyard-events.jsonl')).read())
+
+    def test_cancel_active_sprint_still_works(self):
+        self._gate_clear_events()
+        self._gate_sprint(status='in-progress', features='F001')
+        self._gate_feature('F001', 'in-progress')
+        _, _, code = run_cli(['sprint', 'set', 'status', 'cancelled'], env_extra=self.env)
+        self.assertEqual(code, 0)
+        _, _, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertEqual(code, 0)
+        self.assertTrue(self._gate_archived())
+
+    def test_review_gate_refuses_unreviewed_completed_sprint(self):
+        self._gate_clear_events()
+        _, err, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertNotEqual(code, 0)
+        self.assertIn('/ship-review', err)
+        self.assertIn('--unreviewed', err)
+        self.assertTrue(os.path.isfile(os.path.join(self.current, 'SPRINT.md')))
+        self.assertFalse(self._gate_archived())
+        ev = os.path.join(self.data_dir, '.shipyard-events.jsonl')
+        self.assertFalse(os.path.exists(ev) and 'sprint_velocity_recorded' in open(ev).read())
+
+    def test_review_gate_refusal_with_force_keeps_existing_archive(self):
+        self._gate_clear_events()
+        arch = os.path.join(self.data_dir, 'sprints', 'sprint-042')
+        os.makedirs(arch)
+        _, err, code = run_cli(['archive-sprint', 'sprint-042', '--force'], env_extra=self.env)
+        self.assertNotEqual(code, 0)
+        self.assertTrue(os.path.isdir(arch))
+        self.assertTrue(os.path.isfile(os.path.join(self.current, 'SPRINT.md')))
+
+    def test_review_gate_refuses_in_progress_feature(self):
+        self._gate_clear_events()
+        self._gate_event(type='pipeline_terminal', outcome='success')
+        self._gate_sprint(features='F001')
+        self._gate_feature('F001', 'in-progress')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertNotEqual(code, 0)
+        self.assertIn('F001', err)
+        self.assertFalse(self._gate_archived())
+
+    def test_review_gate_refuses_tick_without_release_stage(self):
+        self._gate_clear_events()
+        self._gate_event(type='pipeline_tick', stage='(fresh)', next_stage='preflight')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertNotEqual(code, 0)
+        self.assertFalse(self._gate_archived())
+
+    def test_review_gate_allows_reviewed_sprint(self):
+        self._gate_clear_events()
+        self._gate_event(type='pipeline_tick', stage='release_step_2', next_stage='release_step_3')
+        self._gate_sprint(features='F001')
+        self._gate_feature('F001', 'done')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(self._gate_archived())
+
+    def test_review_gate_allows_escalated_terminal(self):
+        self._gate_clear_events()
+        self._gate_event(type='pipeline_terminal', outcome='escalated')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(self._gate_archived())
+
+    def test_review_gate_allows_cancelled_sprint(self):
+        self._gate_clear_events()
+        self._gate_sprint(status='cancelled')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(self._gate_archived())
+
+    def test_review_gate_via_review_archives_in_progress_sprint(self):
+        self._gate_clear_events()
+        self._gate_review_cursor()
+        self._gate_sprint(features='F001')
+        self._gate_feature('F001', 'in-progress')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042', '--via-review'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(self._gate_archived())
+
+    def test_via_review_without_cursor_is_refused(self):
+        self._gate_clear_events()
+        _, err, code = run_cli(['archive-sprint', 'sprint-042', '--via-review'], env_extra=self.env)
+        self.assertNotEqual(code, 0)
+        self.assertFalse(self._gate_archived())
+
+    def test_via_review_with_wrong_stage_cursor_is_refused(self):
+        self._gate_clear_events()
+        self._gate_review_cursor('release_step_1')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042', '--via-review'], env_extra=self.env)
+        self.assertNotEqual(code, 0)
+        self.assertFalse(self._gate_archived())
+
+    def test_via_review_with_release_cursor_archives_unreviewed(self):
+        self._gate_clear_events()
+        self._gate_review_cursor('release_step_3')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042', '--via-review'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(self._gate_archived())
+
+    def test_review_gate_reads_rotated_archive_evidence(self):
+        self._gate_clear_events()
+        self._gate_sprint(features='F001')
+        self._gate_feature('F001', 'done')
+        d = os.path.join(self.data_dir, 'events-archive')
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'events-2026-11-01.jsonl'), 'w') as f:
+            f.write(json.dumps({'type': 'pipeline_terminal', 'outcome': 'success', 'pipeline': 'ship-review',
+                                'sprint': 'sprint-042', 'ts': '2026-11-01T00:00:00Z'}) + '\n')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(self._gate_archived())
+
+    def test_review_gate_refuses_same_sprint_without_via_review(self):
+        self._gate_clear_events()
+        self._gate_sprint(features='F001')
+        self._gate_feature('F001', 'in-progress')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertNotEqual(code, 0)
+        self.assertFalse(self._gate_archived())
+
+    def test_review_gate_unreviewed_flag_emits_event(self):
+        # AC-5 (F043)
+        self._gate_clear_events()
+        self._gate_sprint(features='F001')
+        self._gate_feature('F001', 'in-progress')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042', '--unreviewed'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(self._gate_archived())
+        lines = [json.loads(l) for l in open(os.path.join(self.data_dir, '.shipyard-events.jsonl'))]
+        evs = [e for e in lines if e.get('type') == 'sprint_archived_unreviewed']
+        self.assertEqual(len(evs), 1)
+        self.assertEqual(evs[0]['sprint'], 'sprint-042')
+        self.assertEqual(evs[0]['in_progress_features'], 'F001')
+
+    def _gate_events_text(self):
+        ev = os.path.join(self.data_dir, '.shipyard-events.jsonl')
+        return open(ev).read() if os.path.exists(ev) else ''
+
+    def test_unreviewed_existing_destination_without_force_writes_no_event(self):
+        self._gate_clear_events()
+        self._gate_sprint(features='F001')
+        self._gate_feature('F001', 'in-progress')
+        os.makedirs(os.path.join(self.data_dir, 'sprints', 'sprint-042'))
+        _, err, code = run_cli(['archive-sprint', 'sprint-042', '--unreviewed'], env_extra=self.env)
+        self.assertNotEqual(code, 0)
+        self.assertIn('already exists', err)
+        self.assertNotIn('sprint_archived_unreviewed', self._gate_events_text())
+
+    def test_unreviewed_and_via_review_together_refused(self):
+        self._gate_clear_events()
+        self._gate_sprint(features='F001')
+        self._gate_feature('F001', 'in-progress')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042', '--unreviewed', '--via-review'], env_extra=self.env)
+        self.assertNotEqual(code, 0)
+        self.assertIn('mutually exclusive', err)
+        self.assertFalse(self._gate_archived())
+        self.assertNotIn('sprint_archived_unreviewed', self._gate_events_text())
+
+    def test_unreviewed_when_gate_would_pass_writes_no_event(self):
+        self._gate_clear_events()
+        self._gate_sprint(features='F001')
+        self._gate_feature('F001', 'done')
+        self._gate_event(type='pipeline_terminal', outcome='success')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042', '--unreviewed'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn('sprint_archived_unreviewed', self._gate_events_text())
+
+    def test_review_gate_via_review_no_event(self):
+        self._gate_clear_events()
+        self._gate_review_cursor()
+        self._gate_sprint(features='F001')
+        self._gate_feature('F001', 'in-progress')
+        _, err, code = run_cli(['archive-sprint', 'sprint-042', '--via-review'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        ev = os.path.join(self.data_dir, '.shipyard-events.jsonl')
+        self.assertFalse(os.path.exists(ev) and 'sprint_archived_unreviewed' in open(ev).read())
+
+    def test_review_gate_usage_lists_flags(self):
+        # AC-7 (F043)
+        _, err, code = run_cli(['archive-sprint'], env_extra=self.env)
+        self.assertEqual(code, 1)
+        self.assertIn('--unreviewed', err)
+        self.assertIn('--via-review', err)
 
     def test_archive_refuses_when_destination_exists(self):
         """Safety guard: second archive to same ID fails without --force."""
@@ -335,6 +581,7 @@ class TestShipyardDataArchiveSprint(unittest.TestCase):
                     f'story_points: {n}\n'
                     '---\n'
                 )
+            seed_review_evidence(self.data_dir, sprint_id)
             _, err, code = run_cli(
                 ['archive-sprint', sprint_id], env_extra=self.env
             )
@@ -357,7 +604,6 @@ class TestShipyardDataArchiveSprint(unittest.TestCase):
         _, err, code = run_cli([
             'metrics', 'record-retro',
             'sprint=sprint-042',
-            'throughput=4.25',
             'carry_over=1 task',
             'bug_rate=0',
             'estimate_accuracy=90%',
@@ -366,12 +612,97 @@ class TestShipyardDataArchiveSprint(unittest.TestCase):
         self.assertEqual(code, 0, f'metrics record-retro failed: {err}')
         with open(os.path.join(self.data_dir, 'memory', 'metrics.json')) as f:
             metrics_json = json.load(f)
-        self.assertEqual(metrics_json['throughput']['all_time']['average'], 4.25)
+        self.assertEqual(metrics_json['throughput']['all_time']['count'], 0)
         self.assertEqual(metrics_json['retro']['recent'][0]['carry_over'], '1 task')
         with open(os.path.join(self.data_dir, 'memory', 'metrics.md')) as f:
             metrics = f.read()
-        self.assertIn('Throughput: 4.25 pts/hr  # sprint-042', metrics)
         self.assertIn('Generated by `shipyard-data metrics`', metrics)
+
+    def test_metrics_record_retro_refuses_throughput_field(self):
+        """F011 AC-17: throughput.recent has exactly one writer (archive-sprint)."""
+        _, err, code = run_cli([
+            'metrics', 'record-retro', 'sprint=sprint-042', 'throughput=4.25',
+        ], env_extra=self.env)
+        self.assertEqual(code, 2)
+        self.assertIn('archive-sprint', err)
+        self.assertFalse(os.path.exists(os.path.join(self.data_dir, 'memory', 'metrics.json')))
+
+    def _append_events(self, records):
+        with open(os.path.join(self.data_dir, '.shipyard-events.jsonl'), 'a') as f:
+            for r in records:
+                f.write(json.dumps(r) + '\n')
+
+    def test_archive_records_throughput_from_event_log(self):
+        """F011 AC-1/AC-2: delivered points / event-log active hours, formula beside the value."""
+        self.write_completed_sprint_features()
+        # 10:00 tick, claim 10:05, completion 10:35, tick 10:40 -> 40 min active (all gaps <= 30 min)
+        self._append_events([
+            {'ts': '2026-10-01T10:00:00+00:00', 'type': 'pipeline_tick_completed', 'pipeline': 'ship-execute',
+             'sprint': 'sprint-042', 'stage': 'wave_1_dispatch', 'next_stage': 'wave_1_waiting'},
+            {'ts': '2026-10-01T10:05:00+00:00', 'type': 'worker_queue_claimed', 'task': 'T001', 'worker': 'w1', 'attempt': 1},
+            {'ts': '2026-10-01T10:35:00+00:00', 'type': 'worker_queue_completed', 'task': 'T001', 'worker': 'w1', 'claim_attempt': 1},
+            {'ts': '2026-10-01T10:40:00+00:00', 'type': 'pipeline_tick_completed', 'pipeline': 'ship-execute',
+             'sprint': 'sprint-042', 'stage': 'wave_1_waiting', 'next_stage': 'wave_1_boundary'},
+        ])
+        _, err, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertEqual(code, 0, f'archive failed: {err}')
+        with open(os.path.join(self.data_dir, 'memory', 'metrics.json')) as f:
+            m = json.load(f)
+        rec = m['throughput']['recent'][0]
+        self.assertEqual(rec['sprint'], 'sprint-042')
+        self.assertEqual(rec['points'], 13)
+        self.assertAlmostEqual(rec['active_hours'], 0.67, places=2)
+        self.assertAlmostEqual(rec['points_per_hour'], 19.5, places=1)
+        self.assertIn('activeTime', rec['formula'])
+        self.assertEqual(m['throughput']['all_time']['count'], 1)
+        with open(os.path.join(self.data_dir, 'memory', 'metrics.md')) as f:
+            md = f.read()
+        self.assertIn('Throughput: 19.5 pts/hr (13 pts in 0.67 hrs active)  # sprint-042', md)
+        with open(os.path.join(self.data_dir, '.shipyard-events.jsonl')) as f:
+            self.assertIn('sprint_throughput_recorded', f.read())
+
+    def test_archive_records_throughput_for_a_sprint_built_in_place(self):
+        """4.17.2: a solo sprint has no queue; its builder runs are spawn -> recorded return,
+        and a sprint drafted ahead does not start its clock at next_sprint_queued."""
+        self.write_completed_sprint_features()
+        self._append_events([
+            # queued while the previous sprint was still under review: not this sprint's work
+            {'ts': '2026-10-01T08:00:00+00:00', 'type': 'next_sprint_queued', 'sprint': 'sprint-042'},
+            {'ts': '2026-10-01T08:10:00+00:00', 'type': 'pipeline_tick_completed', 'pipeline': 'ship-review', 'sprint': 'sprint-041', 'stage': 'demo_user'},
+            {'ts': '2026-10-01T08:20:00+00:00', 'type': 'next_sprint_promoted', 'sprint': 'sprint-042'},
+            {'ts': '2026-10-01T10:00:00+00:00', 'type': 'pipeline_tick_completed', 'pipeline': 'ship-execute',
+             'sprint': 'sprint-042', 'stage': 'wave_1_dispatch', 'next_stage': 'wave_1_waiting'},
+            {'ts': '2026-10-01T10:05:00+00:00', 'type': 'agent_spawned', 'agent': 'builder-T001', 'step': 'T001', 'wave': '1'},
+            # 45 quiet minutes while the builder works: active only because the span is known
+            {'ts': '2026-10-01T10:50:00+00:00', 'type': 'task_return_recorded', 'task': 'T001', 'status': 'complete'},
+            {'ts': '2026-10-01T11:00:00+00:00', 'type': 'pipeline_tick_completed', 'pipeline': 'ship-execute',
+             'sprint': 'sprint-042', 'stage': 'wave_1_waiting', 'next_stage': 'wave_1_boundary'},
+        ])
+        _, err, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertEqual(code, 0, f'archive failed: {err}')
+        with open(os.path.join(self.data_dir, 'memory', 'metrics.json')) as f:
+            m = json.load(f)
+        rec = m['throughput']['recent'][0]
+        self.assertEqual(rec['sprint'], 'sprint-042')
+        self.assertAlmostEqual(rec['active_hours'], 1.0, places=2)   # 10:00 -> 11:00, nothing from 08:00
+        self.assertAlmostEqual(rec['points_per_hour'], 13.0, places=1)
+
+    def test_archive_without_claim_events_records_no_throughput(self):
+        """F011 AC-3: no claim/completion events -> no entry and no guessed rate."""
+        self.write_completed_sprint_features()
+        self._append_events([
+            {'ts': '2026-10-01T10:00:00+00:00', 'type': 'pipeline_tick_completed', 'pipeline': 'ship-execute',
+             'sprint': 'sprint-042', 'stage': 'wave_1_dispatch', 'next_stage': 'wave_1_boundary'},
+            {'ts': '2026-10-01T10:20:00+00:00', 'type': 'pipeline_tick_completed', 'pipeline': 'ship-execute',
+             'sprint': 'sprint-042', 'stage': 'wave_1_boundary', 'next_stage': 'wave_1_build'},
+        ])
+        _, err, code = run_cli(['archive-sprint', 'sprint-042'], env_extra=self.env)
+        self.assertEqual(code, 0, f'archive failed: {err}')
+        with open(os.path.join(self.data_dir, 'memory', 'metrics.json')) as f:
+            m = json.load(f)
+        self.assertEqual(m['throughput']['recent'], [])
+        self.assertEqual(m['throughput']['all_time']['count'], 0)
+        self.assertEqual(m['velocity']['all_time']['count'], 1)
 
     def test_metrics_regenerate_migrates_legacy_lines_before_bounding_recent(self):
         metrics_dir = os.path.join(self.data_dir, 'memory')
@@ -898,7 +1229,7 @@ class TestShipyardDataDoctor(unittest.TestCase):
         self._emit_patch_task('T-CI016')
         out, _, code = run_cli(['doctor'], env_extra=self.env)
         self.assertEqual(code, 1, f'dangling patch task must make doctor exit 1; out={out!r}')
-        self.assertIn('dangling-patch-task', out)
+        self.assertIn('dangling-patch-step', out)
         self.assertIn('T-CI016', out)
 
     def test_doctor_passes_when_patch_task_file_exists(self):
@@ -932,6 +1263,11 @@ class TestShipyardDataDoctor(unittest.TestCase):
             'released', 'deferred', 'rejected',
         ], start=1):
             self._write_feature(fid=f'F{i:03d}', status=status)
+        # 4.7: an in-progress story must be held by the current sprint, or doctor reports state drift.
+        sprint_dir = os.path.join(self.data_dir, 'sprints', 'current')
+        os.makedirs(sprint_dir, exist_ok=True)
+        with open(os.path.join(sprint_dir, 'SPRINT.md'), 'w') as fh:
+            fh.write('---\nid: sprint-001\nstatus: in-progress\nfeatures: [F003]\n---\n')
         out, _, code = run_cli(['doctor', '--full'], env_extra=self.env)
         self.assertEqual(code, 0, f'valid feature lifecycle statuses should pass; out={out!r}')
         self.assertIn('registry: 8 file(s) checked', out)
@@ -941,6 +1277,17 @@ class TestShipyardDataDoctor(unittest.TestCase):
         out, _, code = run_cli(['doctor', '--full'], env_extra=self.env)
         self.assertEqual(code, 1, f'missing required field must fail; out={out!r}')
         self.assertIn('missing/empty field: rice_score', out)
+
+    def test_doctor_accepts_empty_epic_as_the_no_epic_state(self):
+        """`epic: ""` is the template default and the backlog's "(no epic)" group, not a defect."""
+        self._write_feature(epic='""')
+        out, _, code = run_cli(['doctor', '--full'], env_extra=self.env)
+        self.assertEqual(code, 0, f'empty epic must pass; out={out!r}')
+        self.assertNotIn('missing/empty field: epic', out)
+        self._write_feature(fid='F002', epic=None)
+        out, _, code = run_cli(['doctor', '--full'], env_extra=self.env)
+        self.assertEqual(code, 1, 'an ABSENT epic key is still a schema problem')
+        self.assertIn('missing/empty field: epic', out)
 
     def test_doctor_clean_run_creates_watermark_and_dirty_run_does_not_advance_it(self):
         self._write_feature()
@@ -1377,6 +1724,22 @@ class TestFeatureAssignAcIds(unittest.TestCase):
         out2, _, _ = run_cli(['feature', 'assign-ac-ids', 'F001'], env_extra=self.env)
         self.assertIn('assigned 0', out2)
 
+    def test_a_comment_between_tag_and_scenario_is_not_a_missing_tag(self):
+        """Found live (sprint-013): a `# why not e2e:` line between the tag and
+        `Scenario:` made the scenario look untagged and it got a second id."""
+        with open(self.fpath, 'w') as f:
+            f.write('---\nid: F001\n---\n\n## Acceptance Criteria\n\n```gherkin\n'
+                    '@AC-1 @e2e\nScenario: one\n  Given x\n\n'
+                    '@AC-2 @component\n# why not e2e: the fault cannot be staged in a journey\nScenario: two\n  Given y\n\n'
+                    '@slow\n\n# a note\nScenario: three\n  Given z\n```\n')
+        out, err, code = run_cli(['feature', 'assign-ac-ids', 'F001'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        self.assertIn('assigned 1 (total 3)', out)
+        body = open(self.fpath).read()
+        self.assertEqual(body.count('@AC-2'), 1)
+        self.assertEqual(body.count('@AC-3'), 1, 'only the scenario with no AC tag gets one')
+        self.assertNotIn('@AC-4', body)
+
     def test_no_ac_section_is_noop(self):
         with open(self.fpath, 'w') as f:
             f.write('---\nid: F001\n---\n\n## Interface\nx\n')
@@ -1405,7 +1768,7 @@ class TestVerifyAcCoverage(unittest.TestCase):
             f.write('---\nid: F001\n---\n## Acceptance Criteria\n```gherkin\nFeature: D\n'
                     '  @AC-1\n  Scenario: one\n  @AC-2\n  Scenario: two\n```\n')
         with open(os.path.join(self.data_dir, 'sprints', 'current', 'SPRINT.md'), 'w') as f:
-            f.write('---\nid: sprint-1\nfeatures: [F001]\n---\n')
+            f.write('---\nid: sprint-001\nfeatures: [F001]\n---\n')
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -1470,6 +1833,97 @@ class TestVerifyAcCoverage(unittest.TestCase):
                                  env_extra=self.env, cwd=self.project_dir)
         self.assertEqual(code, 0, f'advisory mode must not block: {out}')
         self.assertIn('advisory mode', out)
+
+    def test_every_changed_test_file_names_a_scenario(self):
+        # 4.15: the other direction. A test file changed in the sprint with no
+        # scenario id is an orphan test; `no-scenario: <reason>` exempts one;
+        # a helper beside the tests is not a test.
+        base = self._base()
+        os.makedirs(os.path.join(self.project_dir, 'tests'))
+        with open(os.path.join(self.project_dir, 'src.js'), 'w') as f:
+            f.write('/* AC-1 */\n// AC-2\n')
+        with open(os.path.join(self.project_dir, 'tests', 'test_pay.py'), 'w') as f:
+            f.write('def test_pay():\n    assert True\n')
+        with open(os.path.join(self.project_dir, 'tests', 'stage.h'), 'w') as f:
+            f.write('/* shared staging */\n')
+        with open(os.path.join(self.project_dir, 'tests', 'harness.test.js'), 'w') as f:
+            f.write('// no-scenario: checks the test runner itself\n')
+        self._commit_all('tests')
+        out, err, code = run_cli(['verify-ac-coverage', '--base', base, '--head', 'HEAD'],
+                                 env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 3, out)
+        self.assertIn('1 orphan test file(s)', out)
+        self.assertIn('  - tests/test_pay.py', out)
+        self.assertNotIn('stage.h', out)
+        self.assertNotIn('harness.test.js', out)
+        with open(os.path.join(self.project_dir, 'tests', 'test_pay.py'), 'w') as f:
+            f.write('def test_pay():  # AC-1\n    assert True\n')
+        self._commit_all('tagged')
+        out, err, code = run_cli(['verify-ac-coverage', '--base', base, '--head', 'HEAD'],
+                                 env_extra=self.env, cwd=self.project_dir)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn('orphan test', out)
+
+
+class TestF002SprintFeatureList(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='shipyard-f002-')
+        self.pd = os.path.join(self.tmp, 'pd')
+        self.proj = os.path.join(self.tmp, 'proj')
+        os.makedirs(self.pd)
+        os.makedirs(self.proj)
+        git_init_project(self.proj)
+        self.env = {'CLAUDE_PROJECT_DIR': self.proj, 'CLAUDE_PLUGIN_DATA': self.pd}
+        out, _, _ = run_cli([], env_extra=self.env)
+        self.dd = out.strip()
+        self.cur = os.path.join(self.dd, 'sprints', 'current')
+        os.makedirs(self.cur)
+        self.feats = os.path.join(self.dd, 'spec', 'features')
+        os.makedirs(self.feats)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def sprint(self, features_line, status='active'):
+        with open(os.path.join(self.cur, 'SPRINT.md'), 'w') as f:
+            f.write('---\nid: sprint-001\nstatus: %s\n%s\n---\n' % (status, features_line))
+
+    def base(self):
+        return subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=self.proj,
+                              capture_output=True, text=True).stdout.strip()
+
+    def test_ac_coverage_zero_ids_exit_3(self):
+        # AC-11
+        self.sprint('features: not-a-list')
+        out, err, code = run_cli(['verify-ac-coverage', '--base', self.base()], env_extra=self.env)
+        self.assertEqual(code, 3, err)
+        self.assertIn('not-a-list', err)
+
+    def test_ac_coverage_quoted_commented_list(self):
+        # AC-9
+        self.sprint('features: ["F003"] # note')
+        with open(os.path.join(self.feats, 'F003-x.md'), 'w') as f:
+            f.write('---\nid: F003\n---\n## Acceptance Criteria\n@AC-1\nScenario: a\n')
+        out, err, code = run_cli(['verify-ac-coverage', '--base', self.base()], env_extra=self.env)
+        self.assertEqual(code, 3, out + err)
+        self.assertIn('F003 AC-1', out)
+        self.assertNotIn('note', out)
+
+    def test_velocity_keeps_letter_suffix_ids(self):
+        # AC-2
+        self.sprint('features: ["F071d", F002]', status='completed')
+        for fid, nm in (('F071d', 'F071d-a'), ('F002', 'F002-b')):
+            with open(os.path.join(self.feats, nm + '.md'), 'w') as f:
+                f.write('---\nid: %s\nstatus: done\nstory_points: 3\n---\n' % fid)
+        with open(os.path.join(self.cur, 'PROGRESS.md'), 'w') as f:
+            f.write('done\n')
+        seed_review_evidence(self.dd, 'sprint-001')
+        out, err, code = run_cli(['archive-sprint', 'sprint-001'], env_extra=self.env)
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(self.dd, 'memory', 'metrics.md')) as f:
+            m = f.read()
+        self.assertIn('F071d:3', m)
+        self.assertIn('F002:3', m)
 
 
 if __name__ == '__main__':
