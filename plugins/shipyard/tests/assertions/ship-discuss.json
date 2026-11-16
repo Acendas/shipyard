@@ -2509,5 +2509,26 @@
   "target": "ref:less-backlog.md",
   "pattern": "An idea becomes an epic, never a story or a spike directly",
   "why": "after 4.0.0, LeSS (owner: 'fix this: What is not solid yet' — backlog order was RICE plus overrides; the review asked to 'accept')"
+ },
+ {
+  "name": "ticket_texts_go_through_the_outbox_table",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "Never pasted\\. Write each text, exactly as it will be sent, to `<SHIPYARD_DATA>/tracker/outbox/<record id>\\.md`",
+  "why": "after 4.0.1 (owner's discussion: told to refine eleven epics and update their tickets, the session sent three descriptions unseen, was held three times in red, then pasted 2,800 words before one go)"
+ },
+ {
+  "name": "outbox_table_then_one_card",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "Run `shipyard-data tracker outbox`, write its table in the chat under a summary of 40 words or fewer",
+  "why": "after 4.0.1 (owner's discussion: told to refine eleven epics and update their tickets, the session sent three descriptions unseen, was held three times in red, then pasted 2,800 words before one go)"
+ },
+ {
+  "name": "earlier_instruction_is_not_the_go",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "it is not the go for texts nobody has seen\\. Never send in the same message that writes the spec",
+  "why": "after 4.0.1 (owner's discussion: told to refine eleven epics and update their tickets, the session sent three descriptions unseen, was held three times in red, then pasted 2,800 words before one go)"
  }
 ]

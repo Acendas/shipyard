@@ -395,7 +395,7 @@ Shipyard ships 7 registered agents. Each is started through an internal skill th
 | `auto-approve-data` | Before Claude edits or writes a file | Lets writes to the data folder through without a prompt; refuses hand-edits to CLI-owned state; keeps a discussion out of project files |
 | `unattended-ask` | Before Claude asks a question | Refuses a question mid-build, a card with more than one question, and a question with no summary and picture written above it |
 | `ask-after-explain` | When Claude ends its turn | After an explanation that ends with "Question follows.", hands the turn back so the question card comes next. Also hands a discussion back once when it stops halfway |
-| `tracker-write` | Before a comment, ticket or page is written through a connector | Inside a Shipyard command, sends the write back unless its exact text was shown in the chat first |
+| `tracker-write` | Before a comment, ticket or page is written through a connector | Inside a Shipyard command, holds the write until the person has seen it: a short text shown word for word in the chat, or a ticket text listed in the outbox table (`shipyard-data tracker outbox`) that the person has answered |
 | `source-ledger` | After a connector or web tool runs | During a discussion, counts which kinds of source were read (wiki, tracker, shared drive, web); the tool's name only, never what was asked or returned |
 | `agent-ledger` | Before an agent is started or stopped | Keeps the list of live agents; enforces the agent limit and the routed model |
 | `worktree-branch` | When a worktree is created | Starts it from your current branch |

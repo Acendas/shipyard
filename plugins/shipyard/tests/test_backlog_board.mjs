@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildBoard, renderBoard, BOARD_HEADER, BOARD_FOOTER } from "../bin/backlog-board.mjs";
-import { decideBoard, decideExplained, explainProblems } from "../bin/hooks/unattended-ask.mjs";
+import { decideBoard, decideExplained, explainedVerdict, explainProblems, HELD, HELD_AGAIN, HELD_BOARD, run as runAskHook } from "../bin/hooks/unattended-ask.mjs";
 
 function fixture() {
   const base = mkdtempSync(join(tmpdir(), "board-"));
@@ -74,9 +74,24 @@ test("/ship-backlog may not ask before the board is in the chat; other commands 
     const cmd = "<command-message>shipyard:ship-backlog</command-message>\n<command-name>/shipyard:ship-backlog</command-name>";
     writeFileSync(t, [user(cmd), tool("shipyard-data backlog board"), say("The board has 22 approved stories and no active sprint.")].join("\n") + "\n");
     const v = decideBoard(ask);
-    assert.match(v.reason, /shows the board before it asks anything/);
-    assert.match(v.reason, /shipyard-data backlog board/);
-    assert.match(v.reason, /End that message with the line "Question follows\." and end your turn there/);
+    // the first time: one line a person can read, and the steps for the session where the person does not see them
+    assert.equal(v.reason, HELD_BOARD);
+    assert.ok(v.reason.length < 100 && !/shipyard-data|Question follows/.test(v.reason));
+    assert.match(v.context, /shipyard-data backlog board/);
+    assert.match(v.context, /End that message with the line "Question follows\." and end your turn there/);
+    // it came again and the board is still nowhere: still one line; a third time the steps are in the reason itself
+    const heldCard = JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "b1", name: "AskUserQuestion", input: { questions: [{ question: "What next on the backlog?" }] } }] } });
+    const sentBack = JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "b1", is_error: true, content: "PreToolUse:AskUserQuestion hook error: Shipyard: one moment." }] } });
+    writeFileSync(t, [user(cmd), say("The board has 22 approved stories."), heldCard, sentBack].join("\n") + "\n");
+    assert.equal(decideBoard(ask).reason, HELD_BOARD);
+    writeFileSync(t, [user(cmd), say("The board has 22 approved stories."), heldCard, sentBack, heldCard, sentBack].join("\n") + "\n");
+    const again = decideBoard(ask);
+    assert.match(again.reason, /shows the board before it asks anything/);
+    assert.match(again.reason, /shipyard-data backlog board/);
+    assert.equal(again.context, undefined);
+    // the board was written in the same message as the held card: it is in the file now, the card passes
+    writeFileSync(t, [user(cmd), say("```\nBOARD · shop\n\n— end of board · 0 numbered item(s) —\n```"), heldCard, sentBack].join("\n") + "\n");
+    assert.equal(decideBoard(ask), null);
     writeFileSync(t, [user(cmd), tool("shipyard-data backlog board"), say("```\nBOARD · shop\n\nBACKLOG · 0 stories\n\n— end of board · 0 numbered item(s) —\n```")].join("\n") + "\n");
     assert.equal(decideBoard(ask), null, "the board is in the chat");
     // an earlier backlog run does not count for this one
@@ -127,9 +142,31 @@ test("inside a Shipyard command a card with no explanation since the last answer
     // only thinking and a tool call since the command: what the owner saw as a one-line summary and a card
     writeFileSync(t, [user(cmd), think("Six of the eight ideas fit the bundle. " + GOOD)].join("\n") + "\n");
     let v = decideExplained(ask);
+    // the first time a card is held, the person reads one calm line; what the session must do is not on their screen
+    assert.equal(v.reason, HELD);
+    assert.equal(v.held, true);
+    assert.ok(v.reason.length < 100 && !/Question follows|AskUserQuestion|40 words/.test(v.reason), "nothing in the visible line is addressed to the session");
+    assert.match(v.context, /is in your reasoning \(thinking\), not in a message/);
+    assert.match(v.context, /End the message with the line "Question follows\." and end your turn there/);
+    // Run live: offered "if you wrote it as text in the same message, ask again at once", a session whose explanation
+    // was in its reasoning did exactly that. It cannot tell the two apart, so it is told to write the explanation;
+    // the shortcut is the marker alone, which the Stop hook judges.
+    assert.match(v.context, /Write its explanation as your message now/);
+    assert.match(v.context, /Only if that explanation is already on screen as text of the message that called the card \(text, not reasoning: reasoning is never shown\): write just the line "Question follows\." and end your turn/);
+    assert.doesNotMatch(v.context, /again at once/);
+    // held once and called again with still nothing written: one short line again, the full steps unseen
+    writeFileSync(t, [user(cmd), think("Six of the eight ideas fit the bundle. " + GOOD), card("c0"), refused("c0")].join("\n") + "\n");
+    v = decideExplained(ask);
+    assert.equal(v.reason, HELD_AGAIN);
+    assert.match(v.context, /nothing \(or almost nothing\) was written in the chat/);
+    assert.match(v.context, /is in your reasoning \(thinking\), not in a message/);
+    assert.match(v.context, /End that message with the line "Question follows\." and end your turn there/);
+    // a third time: the steps are in the reason itself, so they reach the session whatever the client does with context
+    writeFileSync(t, [user(cmd), think("Six of the eight ideas fit the bundle. " + GOOD), card("c0"), refused("c0"), card("c1"), refused("c1")].join("\n") + "\n");
+    v = decideExplained(ask);
     assert.match(v.reason, /nothing \(or almost nothing\) was written in the chat/);
-    assert.match(v.reason, /is in your reasoning \(thinking\), not in a message/);
     assert.match(v.reason, /End that message with the line "Question follows\." and end your turn there/);
+    assert.equal(v.context, undefined);
     // the stop hook's hand-back is not the person speaking: the explanation before it still counts
     writeFileSync(t, [user(cmd), say(GOOD + "\n\nQuestion follows."), JSON.stringify({ type: "user", isMeta: true, message: { role: "user", content: "Stop hook feedback: Shipyard: now ask it on a card." } })].join("\n") + "\n");
     assert.equal(decideExplained(ask), null, "explained, turn ended, handed back: the card passes");
@@ -143,9 +180,37 @@ test("inside a Shipyard command a card with no explanation since the last answer
     // Seen live: a plan table written earlier in the same stretch let a later card through whose own explanation
     // was only reasoning. The explanation is the message right before the card, or the card is refused.
     writeFileSync(t, [user(cmd), say(GOODQ), say("All probes fail on today's code. Next I tell the tracker.")].join("\n") + "\n");
-    assert.match(decideExplained(ask).reason, /the message right before this question does not explain it/);
+    assert.match(decideExplained(ask).problems[0], /the message right before this question does not explain it/);
     writeFileSync(t, [user(cmd), say(GOOD)].join("\n") + "\n");
-    assert.match(decideExplained(ask).reason, /the message right before this question does not explain it/, "a good explanation that did not end the turn with the marker is not the route");
+    assert.match(decideExplained(ask).problems[0], /the message right before this question does not explain it/, "a good explanation that did not end the turn with the marker is not the route");
+    // ...and calling the card a second time does not launder it: that text was an earlier message, not the card's own
+    const sayIn = (id, text) => JSON.stringify({ type: "assistant", message: { id, role: "assistant", content: [{ type: "text", text }] } });
+    const cardIn = (id, cid, q = "q") => JSON.stringify({ type: "assistant", message: { id, role: "assistant", content: [{ type: "tool_use", id: cid, name: "AskUserQuestion", input: { questions: [{ question: q }] } }] } });
+    writeFileSync(t, [user(cmd), sayIn("m1", GOOD), cardIn("m2", "c0"), refused("c0")].join("\n") + "\n");
+    assert.equal(decideExplained(ask).reason, HELD_AGAIN);
+    assert.match(decideExplained(ask).context, /the message right before this question does not explain it/, "the second time the full steps are given, unseen");
+    // Seen live, twice, on the first question of a discussion: explanation, "Question follows." and the card in ONE
+    // message. The person had it on screen; the hook could not see it yet and held the card. When the same card comes
+    // again the text is in the file: it passes, and nothing is written twice.
+    writeFileSync(t, [user(cmd), sayIn("m1", "Reading the tickets."), sayIn("m2", GOODQ), cardIn("m2", "c0"), refused("c0")].join("\n") + "\n");
+    assert.equal(decideExplained(ask), null);
+    writeFileSync(t, [user(cmd), sayIn("m2", GOOD), JSON.stringify({ type: "attachment", attachment: { type: "output_style" } }), cardIn("m2", "c0"), refused("c0")].join("\n") + "\n");
+    assert.equal(decideExplained(ask), null, "without the marker too: it was right above the card");
+    assert.deepEqual(explainedVerdict(ask), { pass: "same_message" });
+    // the session answered the hold with the marker alone ("it is already above"): the card after it passes too
+    writeFileSync(t, [user(cmd), sayIn("m2", GOOD), cardIn("m2", "c0"), refused("c0"), sayIn("m3", "Question follows.")].join("\n") + "\n");
+    assert.equal(decideExplained(ask), null);
+    writeFileSync(t, [user(cmd), sayIn("m2", GOOD), JSON.stringify({ type: "attachment", attachment: { type: "output_style" } }), cardIn("m2", "c0"), refused("c0")].join("\n") + "\n");
+    // a different question may not ride on it
+    assert.ok(decideExplained({ ...ask, tool_input: { questions: [{ question: "something else" }] } }));
+    // the same message held only a short remark, or reasoning: still sent back
+    writeFileSync(t, [user(cmd), sayIn("m2", "Asking now."), cardIn("m2", "c0"), refused("c0")].join("\n") + "\n");
+    assert.ok(decideExplained(ask));
+    writeFileSync(t, [user(cmd), JSON.stringify({ type: "assistant", message: { id: "m2", role: "assistant", content: [{ type: "thinking", thinking: GOOD }] } }), cardIn("m2", "c0"), refused("c0")].join("\n") + "\n");
+    assert.ok(decideExplained(ask), "reasoning in the card's message is not an explanation");
+    // the person answered that card: the next card needs its own explanation
+    writeFileSync(t, [user(cmd), sayIn("m2", GOODQ), cardIn("m2", "c0"), answered("c0")].join("\n") + "\n");
+    assert.equal(decideExplained(ask).reason, HELD);
     // the first card was explained and answered; the second card needs its own explanation
     writeFileSync(t, [user(cmd), say(GOODQ), card("c1"), answered("c1"), think("next one")].join("\n") + "\n");
     assert.ok(decideExplained(ask), "an explanation does not carry over to the next question");
@@ -305,6 +370,46 @@ test("the running command is found even when its line is above the part of the t
     assert.deepEqual(commandStart(entries, input), { start: -1, name: "shipyard:ship-discuss" }, "a tool result that only mentions the tag is not the command");
     assert.equal(decideExplained(input), null, "the explanation in the tail is still found and accepted");
     writeFileSync(t, lines.slice(0, -1).join("\n") + "\n");
-    assert.match(decideExplained(input).reason, /a question is shown only after the person has read what it is about/, "and a card with nothing above it is still refused, deep into a long session");
+    assert.equal(decideExplained(input).reason, HELD, "and a card with nothing above it is still held, deep into a long session");
+  } finally { f.cleanup(); }
+});
+
+test("a held card: the person's line is the deny reason, the session's steps are additionalContext", () => {
+  const f = fixture();
+  try {
+    const t = join(f.base, "t.jsonl");
+    writeFileSync(t, JSON.stringify({ type: "user", message: { role: "user", content: "<command-name>/shipyard:ship-sprint</command-name>" } }) + "\n");
+    const chunks = [], w = process.stdout.write;
+    process.stdout.write = (c) => { chunks.push(String(c)); return true; };
+    try { runAskHook({ tool_name: "AskUserQuestion", transcript_path: t, session_id: "s1", tool_input: { questions: [{ question: "Start the sprint?", options: [{ label: "Yes" }, { label: "No" }] }] } }, { SHIPYARD_DATA: f.data }); } finally { process.stdout.write = w; }
+    const out = JSON.parse(chunks.join("")).hookSpecificOutput;
+    assert.equal(out.permissionDecision, "deny");
+    assert.equal(out.permissionDecisionReason, HELD);
+    assert.match(out.additionalContext, /Shipyard held this card/);
+  } finally { f.cleanup(); }
+});
+
+test("after a held card, the marker alone: handed back when the explanation was above the card as text, told plainly when it was only reasoning", async () => {
+  const { decideStop, HANDED_BACK } = await import("../bin/hooks/ask-after-explain.mjs");
+  const f = fixture();
+  try {
+    const t = join(f.base, "t.jsonl");
+    const user = (text) => JSON.stringify({ type: "user", message: { role: "user", content: text } });
+    const inMsg = (id, block) => JSON.stringify({ type: "assistant", message: { id, role: "assistant", content: [block] } });
+    const cardBlock = { type: "tool_use", id: "c0", name: "AskUserQuestion", input: { questions: [{ question: "q" }] } };
+    const refused = JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "c0", is_error: true, content: "PreToolUse:AskUserQuestion hook error: Shipyard: one moment." }] } });
+    const cmd = user("<command-name>/shipyard:ship-discuss</command-name>");
+    const stop = { transcript_path: t, last_assistant_message: "Question follows." };
+    // the explanation was text in the held card's own message: nothing is written twice
+    writeFileSync(t, [cmd, inMsg("m1", { type: "text", text: GOOD + "\n\nQuestion follows." }), inMsg("m1", cardBlock), refused].join("\n") + "\n");
+    assert.deepEqual(decideStop(stop), { kind: "ask", reason: HANDED_BACK, same_message: true });
+    // it was reasoning: said here, as feedback, with what to write
+    writeFileSync(t, [cmd, inMsg("m1", { type: "thinking", thinking: GOOD }), inMsg("m1", cardBlock), refused].join("\n") + "\n");
+    const v = decideStop(stop);
+    assert.equal(v.kind, "rewrite");
+    assert.match(v.reason, /the explanation of this question is not on screen: what you had was in your reasoning, which the person never sees\. Write it now as your message/);
+    // the marker alone with no held card above it is what it always was: nothing written
+    writeFileSync(t, cmd + "\n");
+    assert.match(decideStop(stop).reason, /not ready for the question card: nothing \(or almost nothing\) was written/);
   } finally { f.cleanup(); }
 });

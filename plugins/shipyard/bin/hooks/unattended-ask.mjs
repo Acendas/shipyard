@@ -142,8 +142,35 @@ function textSinceLastTurn(entries, from) {
   const last = texts.length ? texts[texts.length - 1] : "";
   // Reasoning is not a message: the client shows it as one grey summary line.
   const thought = after.some((e) => blocksOf(e).some((b) => b.type === "thinking" && String(b.thinking ?? "").trim().length > 40));
-  return { text, thought, last };
+  return { text, thought, last, boundary };
 }
+
+/**
+ * The last question card called since `boundary` (the person has not answered since, so it was sent back), with the
+ * text written in the SAME message as that call. When the call was judged that text was not in the file yet; it is now.
+ * "Same message" is the API message id; without ids, only text directly above the call with no tool call between.
+ */
+export function cardAbove(entries, boundary) {
+  for (let i = entries.length - 1; i > boundary; i--) {
+    const e = entries[i];
+    const call = e?.type === "assistant" ? blocksOf(e).find((b) => b.type === "tool_use" && b.name === "AskUserQuestion") : null;
+    if (!call) continue;
+    const id = e.message?.id ?? null;
+    const texts = [];
+    for (let k = i; k > boundary; k--) {
+      const p = entries[k];
+      if (p?.type === "user") break;
+      if (p?.type !== "assistant") continue; // bookkeeping lines between the blocks of one message
+      if (id ? p.message?.id !== id : k !== i && blocksOf(p).some((b) => b.type === "tool_use")) break;
+      const t = blocksOf(p).filter((b) => b.type === "text").map((b) => String(b.text ?? "")).join("\n");
+      if (t.trim()) texts.unshift(t);
+    }
+    return { question: String(call.input?.questions?.[0]?.question ?? ""), text: texts.join("\n\n") };
+  }
+  return null;
+}
+/** How many times a card was called since `boundary` (each one was sent back: the person has not answered since). */
+const holdsSince = (entries, boundary) => entries.slice(boundary + 1).filter((e) => e?.type === "assistant" && blocksOf(e).some((b) => b.type === "tool_use" && b.name === "AskUserQuestion")).length;
 
 /** What is wrong with the text written before a question, in the order the person would notice it. [] = fine. */
 export function explainProblems(text) {
@@ -167,25 +194,65 @@ export function explainProblems(text) {
 /** What a session is told to do; the same words in the board's and the question list's NEXT line. */
 export const HOW = `Do this, in this order: 1. Write the explanation as your message: first a summary of 40 words or fewer (what this is about, what you recommend), then show it: a table of the options and what each means, or a small diagram or a real example in a code block. 2. End that message with the line "${QUESTION_FOLLOWS}" and end your turn there (call no tool after it). Shipyard gives the turn straight back to you. 3. Then call AskUserQuestion with this one question.`;
 
-export function decideExplained(hookInput) {
+/**
+ * A held card is a red "Error: PreToolUse:AskUserQuestion hook error: …" line on the person's screen, and nothing
+ * hides it (probed on CLI 2.1.325: `suppressOutput` does not). The owner met it twice on the first question of a
+ * discussion, as six lines of instructions meant for the session. So the first time a card is held the reason is
+ * one line a person can read, and what the session must do travels as `additionalContext`, which is delivered
+ * with a deny and is not shown (same probe).
+ */
+export const HELD = "Shipyard: one moment. This question comes back as soon as its explanation is on screen.";
+export const HELD_AGAIN = "Shipyard: one moment more. The explanation of this question is not on screen yet.";
+// Run live: told "(a) if you wrote it as text in the same message, ask again at once", a session whose explanation
+// was in its reasoning took (a), and was sent back a second time. A session cannot tell its reasoning from its
+// messages. So the default is to write the explanation; the shortcut is one line, "Question follows.", that ends
+// the turn, and the Stop hook (which can see by then what was written) either hands the card back or says, as
+// quiet feedback and not as a red error, that the explanation was never on screen.
+export const HELD_HOW =
+  "Shipyard held this card: no explanation of it is in an earlier message. " +
+  `Write its explanation as your message now: a summary of 40 words or fewer (what this is about, what you recommend), then a table, a diagram or an example. End the message with the line "${QUESTION_FOLLOWS}" and end your turn there (call no tool after it); Shipyard hands the turn back and you ask the card. ` +
+  `Only if that explanation is already on screen as text of the message that called the card (text, not reasoning: reasoning is never shown): write just the line "${QUESTION_FOLLOWS}" and end your turn. ` +
+  `For every later question: end your turn after "${QUESTION_FOLLOWS}", so that no card is held. Never ask in plain text instead.`;
+
+/** { problems, reason, context? } when the card is sent back; { pass: "same_message" } when a held card comes again and its explanation was above it all along; null when there is nothing to say. */
+export function explainedVerdict(hookInput) {
   if (!hookInput || hookInput.tool_name !== "AskUserQuestion") return null;
   const entries = transcriptTail(hookInput);
   if (!entries) return null;
   const cmd = commandStart(entries, hookInput);
   if (!cmd || !SHIPYARD_COMMAND.test(cmd.name)) return null;
-  const { text, thought, last } = textSinceLastTurn(entries, cmd.start);
+  const { text, thought, last, boundary } = textSinceLastTurn(entries, cmd.start);
   // The explanation of THIS question is the message right before the card, the one that ends the turn with
   // "Question follows.". Text from earlier in the same stretch does not count: seen live, a card passed on the
   // strength of a plan table written minutes before, while its own explanation was a grey line of reasoning.
-  const problems = endsWithMarker(last) ? explainProblems(last) : text.trim() ? [`the message right before this question does not explain it (it must be this question's own summary and picture, ending with the line "${QUESTION_FOLLOWS}")`] : explainProblems(text);
+  const marked = endsWithMarker(last);
+  const problems = marked ? explainProblems(last) : text.trim() ? [`the message right before this question does not explain it (it must be this question's own summary and picture, ending with the line "${QUESTION_FOLLOWS}")`] : explainProblems(text);
   if (!problems.length) return null;
+  // Seen live on the first question of two discussions: the session wrote a good explanation, the line
+  // "Question follows." and the card in ONE message. The person had all of it on screen in the right order; this
+  // hook could not see the text (it is written to the file after the hook answers), held the card, and the session
+  // wrote the whole explanation a second time. Now the held card may simply come again: by then the text is in the
+  // file, and if it explains this same question the card passes.
+  const above = cardAbove(entries, boundary);
+  const question = String(hookInput.tool_input?.questions?.[0]?.question ?? "");
+  if (above && above.text.trim() && sameText(above.question, question) && !explainProblems(above.text).length) return { pass: "same_message" };
   // Seen live: the session reasoned about the question, was refused, and
   // reported "the list was in the chat both times". It was in its
   // reasoning, which the person sees as one summary line at most.
   const inThought = thought && !text.trim()
     ? " What you have so far is in your reasoning (thinking), not in a message: the person does not see reasoning, at most one grey summary line of it. Your last message of a turn is always seen."
     : "";
-  return { problems, reason: `Shipyard: a question is shown only after the person has read what it is about, and ${problems.join("; and ")}.${inThought} ${HOW} Keep to the card: do not ask in plain text instead.` };
+  const full = `Shipyard: a question is shown only after the person has read what it is about, and ${problems.join("; and ")}.${inThought} ${HOW} Keep to the card: do not ask in plain text instead.`;
+  // The first and the second time, the person reads one short line and the session gets the steps unseen. A third
+  // time the steps are in the reason itself: they must reach the session even where the unseen channel does not.
+  const holds = holdsSince(entries, boundary);
+  if (holds === 0) return { problems, held: true, reason: HELD, context: marked ? full : `${HELD_HOW}${inThought}` };
+  if (holds <= 1) return { problems, held: true, reason: HELD_AGAIN, context: full };
+  return { problems, reason: full };
+}
+export function decideExplained(hookInput) {
+  const v = explainedVerdict(hookInput);
+  return v && v.problems ? v : null;
 }
 
 /** `/ship-backlog`: the board must be in the chat before the first question (the CLI prints it). */
@@ -197,14 +264,17 @@ export function decideBoard(hookInput) {
   if (!cmd || !/(^|:)ship-backlog$/.test(cmd.name)) return null;
   const shown = entries.slice(cmd.start + 1).some((e) => e?.type === "assistant" && (() => { const t = textOf(e); return t.includes(BOARD_HEADER) && t.includes(BOARD_FOOTER); })());
   if (shown) return null;
-  return {
-    reason:
-      "Shipyard: /ship-backlog shows the board before it asks anything, and the board is not in the chat yet. " +
-      "1. Run `shipyard-data backlog board`. 2. Write its whole output in the chat as it is, inside a code block, from the `BOARD ·` line to the `end of board` line (a tool result is not seen by the person; only your own text is), and one line under it with what you recommend. " +
-      `3. End that message with the line "${QUESTION_FOLLOWS}" and end your turn there (call no tool after it). Shipyard gives the turn straight back to you. ` +
-      "4. Then ask the question again. Do not summarise the board instead of printing it.",
-  };
+  const how =
+    "1. Run `shipyard-data backlog board`. 2. Write its whole output in the chat as it is, inside a code block, from the `BOARD ·` line to the `end of board` line (a tool result is not seen by the person; only your own text is), and one line under it with what you recommend. " +
+    `3. End that message with the line "${QUESTION_FOLLOWS}" and end your turn there (call no tool after it). Shipyard gives the turn straight back to you. ` +
+    "4. Then ask the question again. Do not summarise the board instead of printing it.";
+  // The first time, one line a person can read (see HELD); the steps go to the session unseen. A board written in
+  // the same message as the card is in the file when the card comes again, and the card then passes.
+  const full = "Shipyard: /ship-backlog shows the board before it asks anything, and the board is not in the chat yet. " + how;
+  if (holdsSince(entries, lastPersonTurn(entries, cmd.start)) <= 1) return { held: true, reason: HELD_BOARD, context: full };
+  return { reason: full };
 }
+export const HELD_BOARD = "Shipyard: one moment. This question comes back as soon as the board is on screen.";
 
 // CARD_LIMITS is what a session aims at (the question list checks it at `add`,
 // where a miss is a draft and costs the person nothing). The hook refuses only
@@ -363,11 +433,12 @@ export function run(hookInput, env) {
         try { board = decideBoard(hookInput); } catch { board = null; }
         if (board) {
           try { logEvent(dataDir, "ask_before_board_denied", {}); } catch { /* best-effort */ }
-          process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: board.reason } }));
+          process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: board.reason, ...(board.context ? { additionalContext: board.context } : {}) } }));
           return 0;
         }
         let explained = null;
-        try { explained = decideExplained(hookInput); } catch { explained = null; }
+        try { explained = explainedVerdict(hookInput); } catch { explained = null; }
+        if (explained?.pass) { try { logEvent(dataDir, "ask_explained_same_message", {}); } catch { /* best-effort */ } explained = null; }
         if (!explained) {
           // The card goes through. If the list did not hand it out, record it now
           // (only now: a card another rule sends back was never shown).
@@ -379,8 +450,8 @@ export function run(hookInput, env) {
           }
           return 0;
         }
-        try { logEvent(dataDir, "ask_not_explained_denied", { problems: explained.problems.length }); } catch { /* best-effort */ }
-        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: explained.reason } }));
+        try { logEvent(dataDir, "ask_not_explained_denied", { problems: explained.problems.length, held: explained.held === true }); } catch { /* best-effort */ }
+        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: explained.reason, ...(explained.context ? { additionalContext: explained.context } : {}) } }));
         return 0;
       }
       try { logEvent(dataDir, "ask_not_listed_denied", { topic: listed.topic }); } catch { /* best-effort */ }

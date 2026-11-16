@@ -29,7 +29,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { transcriptTail, textOf, blocksOf, commandStart, explainProblems, lastPersonTurn, SHIPYARD_COMMAND, QUESTION_FOLLOWS, endsWithMarker } from "./unattended-ask.mjs";
+import { transcriptTail, textOf, blocksOf, commandStart, explainProblems, lastPersonTurn, cardAbove, SHIPYARD_COMMAND, QUESTION_FOLLOWS, endsWithMarker } from "./unattended-ask.mjs";
 import { readState } from "../discuss-questions.mjs";
 import { logEvent } from "../_hook_lib.mjs";
 import { noteAvailable } from "./source-ledger.mjs";
@@ -52,6 +52,15 @@ export function decideStop(hookInput) {
   const handed = entries.slice(from + 1).filter(handBack).length;
   if (handed >= MAX_HAND_BACKS) return null;
   const problems = explainProblems(last);
+  // The marker alone, after a held card: "my explanation is already above that card". By now the file holds what
+  // was written in the held card's own message, so this hook can tell. It was there as text: the card is handed
+  // back and nothing is written twice. It was not (it was reasoning): say so here, as feedback, not as a second
+  // red error on the card.
+  if (problems.length && !last.split("\n").some((l) => l.trim() && !endsWithMarker(l))) {
+    const above = cardAbove(entries, lastPersonTurn(entries, cmd.start));
+    if (above && above.text.trim() && !explainProblems(above.text).length) return { kind: "ask", reason: HANDED_BACK, same_message: true };
+    if (above) return { kind: "rewrite", problems, reason: `Shipyard: the explanation of this question is not on screen: what you had was in your reasoning, which the person never sees. Write it now as your message (a summary of 40 words or fewer first, then a table, a diagram or an example), ending with the line "${QUESTION_FOLLOWS}".` };
+  }
   if (problems.length) {
     return { kind: "rewrite", problems, reason: `Shipyard: not ready for the question card: ${problems.join("; and ")}. Write it again as your message (summary of 40 words or fewer first, then a table, diagram or example), ending with the line "${QUESTION_FOLLOWS}".` };
   }

@@ -32,7 +32,7 @@
  */
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWrite, logEvent, withLockfile } from "./_hook_lib.mjs";
@@ -515,6 +515,45 @@ function setArray(block, key, values) {
   return re.test(block) ? block.replace(re, line) : `${block}\n${line}`;
 }
 
+/**
+ * The outbox (after 4.0.1): what will be sent to a ticket, one file per record, shown as a table.
+ *
+ * The owner told a discussion to refine eleven epics and update their tickets. The session sent three
+ * descriptions nobody had seen, was sent back three times in red, and then pasted every description into the
+ * chat: 2,800 words before one "go". Seeing first is right; a wall is not how a person sees. So a long text
+ * (a description, several tickets) is written to `<data>/tracker/outbox/<record id>.md`, the person gets this
+ * table (ticket, record, what is sent, where the whole text is) and one question, and the write hook lets a
+ * text through when it is one of these files, its row was in the chat, and the person has answered since.
+ */
+export const OUTBOX_DIR = "tracker/outbox";
+export function outboxFiles(dataDir) {
+  const dir = join(dataDir, ...OUTBOX_DIR.split("/"));
+  let names = [];
+  try { names = readdirSync(dir); } catch { return []; }
+  const recs = recordFiles(dataDir).sort((a, b) => b.id.length - a.id.length);
+  return names.filter((n) => n.endsWith(".md") && !n.startsWith(".")).sort().map((n) => {
+    const base = n.slice(0, -3);
+    const rec = recs.find((r) => base === r.id || base.startsWith(`${r.id}-`)) ?? null;
+    let text = "";
+    try { text = readFileSync(join(dir, n), "utf8"); } catch { /* unreadable: listed with 0 lines */ }
+    let title = "", refs = [];
+    if (rec) { try { const fm = parseFm(readFileSync(rec.path, "utf8")); title = String(getScalar(fm.block, "title") ?? "").replace(/^"|"$/g, ""); refs = getArray(fm.block, "external_refs"); } catch { /* listed without them */ } }
+    const key = refs.find((r) => KEY_RE.test(r)) ?? refs[0] ?? "";
+    const what = base.slice(rec ? rec.id.length : 0).replace(/^-/, "") || "description";
+    return { file: `${OUTBOX_DIR}/${n}`, path: join(dir, n), id: rec?.id ?? "", kind: rec?.kind ?? "", title, key, what, lines: text.split("\n").filter((l) => l.trim()).length, text };
+  });
+}
+/** A record's outbox files have been sent: they leave the outbox (kept under tracker/sent/ as what the ticket was given). */
+function clearOutbox(dataDir, id) {
+  for (const f of outboxFiles(dataDir).filter((o) => o.id === id)) {
+    try {
+      const sent = join(dataDir, "tracker", "sent");
+      mkdirSync(sent, { recursive: true });
+      renameSync(f.path, join(sent, `${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}-${f.file.split("/").pop()}`));
+    } catch { /* best-effort: a stale draft is only clutter */ }
+  }
+}
+
 function usage(msg) {
   process.stderr.write(
     `shipyard-data tracker: ${msg}\n` +
@@ -523,6 +562,7 @@ function usage(msg) {
       "         tracker status [--json] | tracker ack <id>\n" +
       "         tracker plan [--since <ISO time>] [--json]      what the tracker lacks: records with no ticket, linked records changed since last sent\n" +
       "         tracker link <id> <KEY|url> | tracker unlink <id> <KEY|url> | tracker synced <id> [<id>...] [--ticket-status <the ticket's status now>]\n" +
+      "         tracker outbox [--json]                         the ticket texts waiting in <data>/tracker/outbox/, as the table the person sees before anything is sent\n" +
       "         tracker decided --sync applied|later|none [--note \"...\"]   the owner's answer to \"sync now?\"\n",
   );
   process.exit(2);
@@ -575,9 +615,27 @@ export function main(dataDir, args = []) {
       if (updates.length) { L.push("", "Linked, changed here since last sent (update):"); for (const r of updates) L.push(`  ${String(r.n).padStart(2)}. ${r.id.padEnd(9)} ${r.key.padEnd(10)} ${r.title}${r.fix_version ? `  · ${r.fix_version}` : ""}${life(r)}${r.never_synced ? "  · never sent" : ""}`); }
       L.push("", mode === "auto"
         ? "NEXT (not part of the plan): tracker_sync is auto: send the updates now (title, description and acceptance criteria from the spec, status by the nearest transition the ticket offers, sprint, points, fix version), read each back, and report them in one line each. Creating a ticket still needs the person's go."
-        : "NEXT (not part of the plan): show this list to the person and ask which numbers to apply. Nothing is written to the tracker without their answer, and they see the exact text first.",
+        : "NEXT (not part of the plan): show this list to the person and ask which numbers to apply. Nothing is written to the tracker without their answer, and they see what is sent first: a short text (a comment) word for word in the chat; a description, or several tickets, as files in the outbox and its table (shipyard-data tracker outbox).",
         "  after creating a ticket:  shipyard-data tracker link <id> <KEY>     after updating one:  shipyard-data tracker synced <id>",
         "  then record their answer: shipyard-data tracker decided --sync applied|later|none");
+      process.stdout.write(L.join("\n") + "\n");
+      return;
+    }
+    if (sub === "outbox") {
+      const files = outboxFiles(dataDir);
+      if (json) { process.stdout.write(JSON.stringify(files.map(({ text: _t, ...f }) => f)) + "\n"); return; }
+      const dir = join(dataDir, ...OUTBOX_DIR.split("/"));
+      if (!files.length) {
+        process.stdout.write(`the outbox is empty: ${dir}\nA text for a ticket goes there as <record id>.md (its description) or <record id>-comment.md, exactly as it will be sent.\n`);
+        return;
+      }
+      const cell = (v) => String(v).replace(/\|/g, "/");
+      const L = [`OUTBOX · ${files.length} text(s) ready for the tracker · nothing is sent before the person says go`, "", "| # | Ticket | Record | Title | What is sent | Whole text |", "|---|---|---|---|---|---|"];
+      files.forEach((f, i) => L.push(`| ${i + 1} | ${f.key ? `${f.key} (update)` : f.id ? `new ${TRACKER_TYPE[f.kind] ?? "ticket"}` : "?"} | ${f.id || "(no record with this name)"} | ${cell(f.title)} | ${cell(f.what)}, ${f.lines} lines | ${f.file} |`));
+      L.push("", `Folder: ${dir}`, "",
+        `NEXT (not part of the table): write the table in the chat as it is, under a summary of 40 words or fewer (what goes to the tracker and why), and name the folder. End that message with the line "Question follows." and end your turn there. Then one card: send all now / show me one in full first / not now.`,
+        "  on their go: send each file's text word for word, read the ticket back, then  shipyard-data tracker link <id> <KEY>  (created)  or  shipyard-data tracker synced <id>  (updated)",
+        "  to change a text: edit its file, run this again and show the table again");
       process.stdout.write(L.join("\n") + "\n");
       return;
     }
@@ -592,6 +650,7 @@ export function main(dataDir, args = []) {
         // a ticket made from this record holds what the record says now
         writeRecord(rec, setScalar(setArray(rec.fm.block, "external_refs", [...refs, ref]), "synced_at", JSON.stringify(new Date().toISOString())));
         try { logEvent(dataDir, "tracker_linked", { id, kind: rec.kind, key: ref }); } catch { /* best-effort */ }
+        clearOutbox(dataDir, id);
         process.stdout.write(`${id}: linked to ${ref}\n`);
       } else {
         if (!refs.includes(ref)) { process.stderr.write(`shipyard-data tracker: ${id} is not linked to ${ref}. It carries: ${refs.join(", ") || "(none)"}\n`); process.exit(3); }
@@ -614,6 +673,7 @@ export function main(dataDir, args = []) {
         if (now && /^upstream:/m.test(block)) block = block.replace(/^(  status:[ \t]*).*$/m, `$1${JSON.stringify(now)}          # tracker-owned, mirrored read-only`);
         writeRecord(rec, block);
         try { logEvent(dataDir, "tracker_synced", { id, kind: rec.kind, ticket_status: now ?? "" }); } catch { /* best-effort */ }
+        clearOutbox(dataDir, id);
         process.stdout.write(`${id}: marked as sent to the tracker\n`);
       }
       return;

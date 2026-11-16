@@ -230,7 +230,11 @@ test("text sent to a ticket must have been shown in the chat first, inside a Shi
     assert.equal(decideWrite(d, call({ issue_key: "ABC-1", comment: COMMENT })), null, "outside a Shipyard command nothing is checked");
     writeFileSync(join(d, ".active-session.json"), JSON.stringify({ skill: "ship-sprint", session_id: "s1", cleared: null, started: new Date().toISOString() }));
     const v = decideWrite(d, call({ issue_key: "ABC-1", comment: COMMENT }));
-    assert.match(v.reason, /text sent to a ticket or a page is shown in the chat first, word for word[\s\S]*it begins: "Planned into sprint-001/);
+    // the person reads one calm line; the steps for the session are not on their screen
+    assert.equal(v.reason, "Shipyard: not sent yet. You see what goes to the ticket first, and it is sent on your go.");
+    assert.match(v.context, /it begins: "Planned into sprint-001/);
+    assert.match(v.context, /write it in the chat word for word inside a code block/);
+    assert.match(v.context, /tracker\/outbox\/<record id>\.md[\s\S]*shipyard-data tracker outbox/);
     assert.equal(decideWrite(d, call({ issue_key: "ABC-1", transition: "In Progress" })), null, "a status move carries no text to read");
     writeFileSync(t, [cmd, say("This is the comment for ABC-1:\n\n```\n" + COMMENT + "\n```\n\nQuestion follows.")].join("\n") + "\n");
     assert.equal(decideWrite(d, call({ issue_key: "ABC-1", comment: COMMENT })), null, "shown, then sent");
@@ -257,5 +261,61 @@ test("a record imported from a tracker keeps its own status and type for every r
     assert.notEqual(fm.updated, "2031-01-01");
     assert.equal(fm.fingerprint.length, 12, "a nested key with no top-level twin is still readable");
     assert.match(run(d, "backlog", "board").stdout, /PROPOSED · 1/);
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+// The owner's discussion: "refine all of the epics and then … update the existing epics". Three descriptions were
+// sent unseen, held three times in red with a paragraph each, and then eleven descriptions were pasted into the
+// chat (2,800 words) before one "go". A long text goes to the outbox: a table, one question, then it is sent.
+test("the outbox: ticket texts as files, shown as a table, sent after the person answers", async () => {
+  const { decideWrite, fromOutbox } = await import("../bin/hooks/tracker-write.mjs");
+  const { base, d } = fixture();
+  try {
+    mkdirSync(join(d, "spec", "epics"), { recursive: true });
+    writeFileSync(join(d, "spec", "epics", "E001-x.md"), '---\nid: E001\ntitle: "Shop: pay by card"\nstatus: proposed\nexternal_refs: ["ABC-7"]\n---\n\nbody\n');
+    writeFileSync(join(d, "spec", "epics", "E002-y.md"), '---\nid: E002\ntitle: "Shop: refunds"\nstatus: proposed\nexternal_refs: []\n---\n\nbody\n');
+    assert.match(run(d, "tracker", "outbox").stdout, /the outbox is empty[\s\S]*<record id>\.md/);
+    const DESC = "As a shopper, I want to pay by card, so that I need no cash.\n\nA failed card sale gives the money back within a minute.\nThe till shows why the card was refused, in plain words.\nNothing is charged twice when the network drops mid-sale.";
+    mkdirSync(join(d, "tracker", "outbox"), { recursive: true });
+    writeFileSync(join(d, "tracker", "outbox", "E001.md"), DESC + "\n");
+    writeFileSync(join(d, "tracker", "outbox", "E002.md"), "As a shopper, I want my money back, so that a mistake costs me nothing.\n\nA refund reaches the card it was paid with.\n");
+    writeFileSync(join(d, "tracker", "outbox", "E001-comment.md"), "Refined on 16 Nov: the criteria are in the description.\n");
+    const out = run(d, "tracker", "outbox").stdout;
+    assert.match(out, /^OUTBOX · 3 text\(s\) ready for the tracker · nothing is sent before the person says go/);
+    assert.match(out, /\| 1 \| ABC-7 \(update\) \| E001 \| Shop: pay by card \| comment, 1 lines \| tracker\/outbox\/E001-comment\.md \|/);
+    assert.match(out, /\| 2 \| ABC-7 \(update\) \| E001 \| Shop: pay by card \| description, 4 lines \| tracker\/outbox\/E001\.md \|/);
+    assert.match(out, /\| 3 \| new Epic \| E002 \| Shop: refunds \| description, 2 lines \| tracker\/outbox\/E002\.md \|/);
+    assert.match(out, /NEXT \(not part of the table\): write the table in the chat as it is, under a summary of 40 words or fewer[\s\S]*End that message with the line "Question follows\." and end your turn there[\s\S]*send all now \/ show me one in full first \/ not now/);
+    assert.equal(JSON.parse(run(d, "tracker", "outbox", "--json").stdout).length, 3);
+
+    const t = join(base, "t.jsonl");
+    const say = (text) => JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } });
+    const user = (text) => JSON.stringify({ type: "user", message: { role: "user", content: text } });
+    const cmd = user("<command-name>/shipyard:ship-discuss</command-name>");
+    const call = (input) => ({ tool_name: "mcp__x__jira_update_issue", session_id: "s1", transcript_path: t, tool_input: input });
+    writeFileSync(join(d, ".active-discuss.json"), JSON.stringify({ skill: "ship-discuss", session_id: "s1", cleared: null, started: new Date().toISOString() }));
+    // the file exists, nothing was shown: held, and the session is told to show the table (not to paste the text)
+    writeFileSync(t, [cmd, say("Refined both epics.")].join("\n") + "\n");
+    let v = decideWrite(d, call({ issue_key: "ABC-7", description: DESC }));
+    assert.equal(v.reason, "Shipyard: not sent yet. You see what goes to the ticket first, and it is sent on your go.");
+    assert.match(v.context, /its text is ready in tracker\/outbox\/E001\.md, but the person has not seen the outbox table and answered since/);
+    // the table is in the chat but the person has not answered yet: still held
+    const table = "Two epics are ready for the tracker.\n\n" + out.split("\n").filter((l) => l.startsWith("|")).join("\n") + "\n\nQuestion follows.";
+    writeFileSync(t, [cmd, say(table)].join("\n") + "\n");
+    assert.ok(decideWrite(d, call({ issue_key: "ABC-7", description: DESC })), "shown is not yet a go");
+    assert.deepEqual(fromOutbox(d, DESC, [JSON.parse(cmd), JSON.parse(say(table))], 0), { file: "tracker/outbox/E001.md", shown: false });
+    // they answered: the file's text goes, unpasted
+    writeFileSync(t, [cmd, say(table), user("send all now")].join("\n") + "\n");
+    assert.equal(decideWrite(d, call({ issue_key: "ABC-7", description: DESC })), null);
+    // a text that is neither in the chat nor in the outbox is still held
+    assert.match(decideWrite(d, call({ issue_key: "ABC-7", description: "Something else entirely that nobody has seen.\nAnd a second line of it, also unseen by anyone." })).context, /its text is not on the person's screen/);
+    // a changed text is not the file's text
+    assert.ok(decideWrite(d, call({ issue_key: "ABC-7", description: "As a shopper, I want to pay by card, so that I need no cash.\n\nPayments are free for a year.\nRefunds are instant and doubled.\nAnd a pony for every customer." })));
+    // sent and recorded: the file leaves the outbox and is kept as what the ticket was given
+    assert.match(run(d, "tracker", "synced", "E001").stdout, /E001: marked as sent/);
+    assert.deepEqual(readdirSync(join(d, "tracker", "outbox")), ["E002.md"]);
+    assert.equal(readdirSync(join(d, "tracker", "sent")).length, 2);
+    assert.match(run(d, "tracker", "link", "E002", "ABC-9").stdout, /linked to ABC-9/);
+    assert.deepEqual(readdirSync(join(d, "tracker", "outbox")), []);
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
