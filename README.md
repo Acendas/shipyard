@@ -243,6 +243,21 @@ At the start and at the end. Never in the middle.
 
 If you cannot do the start items when the sprint starts, the stories that depend on them leave the sprint; they do not stop halfway. A check done by a person is recorded only from that person's answer; accepting the sprint does not confirm it. `shipyard-data sprint needs-you` prints the current line.
 
+## What is new in 4.0.2
+
+A patch release from the first full discussion run on 4.0.1. No migration is needed.
+
+| Area | What changed |
+|---|---|
+| Held questions | When a question or a ticket update is held back, you see one short line, not a block of instructions. A question whose explanation was already on screen is not explained twice |
+| Ticket texts | Descriptions for the tracker are previewed as a short table (ticket, record, what is sent, where the full text is) with one question, in place of every text pasted into the chat |
+| Tickets | A record's own ticket is a separate `ticket:` field. A ticket it only mentions (its epic's, a related one, one in another project) is never written to |
+| Breaking down | `shipyard-data story add` and `shipyard-data task add` write a coarse story or a spike in one call. `/ship-discuss --chain` takes epics |
+| Tracker plan | `shipyard-data tracker hold` keeps records you do not want tickets for off the list until you say otherwise |
+| Releases | `v4.2`, `4.2` and `v4.2.0` are one release. `version rename <a> <b> --merge` folds two versions; `version remove` deletes an empty one |
+| Health check | No longer asks every story for score fields |
+| Worktrees | Shipyard only claims worktrees made while a sprint is building. Your own are left alone |
+
 ## What is new in 4.0.1
 
 A patch release from running 4.0.0 on real projects. No migration is needed.

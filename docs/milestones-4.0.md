@@ -11,9 +11,9 @@ For what changes when you upgrade from 3.26.0, read [UPGRADING.md](../UPGRADING.
 - `shipyard-data sprint needs-you` prints the phrase the build puts on its progress line: `you: needed now · …` or `you: not needed until the review (3 checks)`.
 - A step waiting for you at the review no longer counts as a parked step. The review lists the waiting checks grouped by where they are done, so one sitting covers them.
 
-## After 4.0.1 (not released yet)
+## 4.0.2 (released 2026-11-16)
 
-Found in the owner's own discussion on 4.0.1, the same evening.
+Found in the owner's own discussion on 4.0.1, the same evening, and by checking that project's data afterwards.
 
 - **A held question is one calm line, and it is not written twice.** The first question of two discussions was sent back: once the explanation was only in the session's reasoning, once it was written correctly but the card was called in the same message, where the card hook cannot see it yet. The owner saw a red block of six lines of instructions meant for the session, and in the second case the whole explanation a second time. Now the visible line is `Shipyard: one moment. This question comes back as soon as its explanation is on screen.`; the steps reach the session without being shown; and a held card may simply be asked again: when its explanation was text in the same message as the first call, it passes. The same for the `/ship-backlog` board.
 - **Ticket texts are previewed as a table, not pasted.** Told to refine eleven epics and update their tickets, the session sent three descriptions nobody had seen (held, as it should be, but as three red blocks), then pasted every description into the chat: 2,800 words before one "go". A description, or more than one ticket, is now written to `tracker/outbox/<record id>.md`; `shipyard-data tracker outbox` prints the table (ticket, record, what is sent, where the whole text is); one card asks (send all now / show me one in full first / not now). The write hook lets a text through when it is one of those files, its row was shown and the person has answered since. A short comment is still shown word for word. Sent files move to `tracker/sent/`.

@@ -2,6 +2,18 @@
 
 > **Note:** `/ship-init` was removed in v3.20.0. Onboarding now runs automatically on the first `/ship-status` in a project. Older sections below still mention `/ship-init` as historical record.
 
+## 4.0.1 → 4.0.2
+
+No migration and no breaking change. Things you may notice:
+
+| What | Detail |
+|---|---|
+| The `ticket:` field | A record's own ticket is now `ticket:`, written by `tracker link` and `tracker pull`. Records imported or linked on 4.0.1 are recognised as before. A record that only lists a key in `external_refs` (added by hand, or on 4.0.0 and earlier) is shown on the tracker plan as having no ticket, with the key it mentions: if that key is its own ticket, run `shipyard-data tracker link <id> <KEY>` once |
+| Fewer rows to update | The tracker plan no longer proposes updating a ticket from a record that only mentions it. If you were on 4.0.1, do the next sync on 4.0.2 |
+| Version names | `version add v4.2` is refused when `v4.2.0` exists (the same release). To fold two existing versions: `shipyard-data version rename <from> <into> --merge` |
+| Health check | Stories without `rice_*`, `complexity`, `token_estimate` or `references` are no longer reported |
+| Worktree branches | A worktree created in the project while no sprint is building is on a branch `worktree-<name>`, not `shipyard/wt-<name>` |
+
 ## 4.0.0 → 4.0.1
 
 No migration and no breaking change. Things you may notice:
