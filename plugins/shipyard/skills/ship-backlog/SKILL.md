@@ -19,8 +19,8 @@ Manage the prioritized backlog. Default sort is by RICE score (Reach x Impact x 
 **Shell.** Bash is for `shipyard-context` (reads) and `shipyard-data feature|backlog|idea ...` (state mutations) ONLY — no other shell. Never hand-Edit story-file frontmatter or BACKLOG.md IDs/`last_groomed` — those are CLI-owned (`story set`, `story set-status`, `backlog add|remove|rank|set`). Feature/epic bodies and the BACKLOG.md Overrides section remain Edit-tool surface.
 
 **Execution rules (load-bearing):**
-- **Do every read yourself with Read/Grep/Glob. NEVER dispatch a subagent (Agent/Explore/Task) to gather board data.** Data gathered in a subagent never lands in this context, and the board cannot be rendered from data you do not hold.
-- **Render before asking.** Render the full board as text output BEFORE the first AskUserQuestion. The ask at the end of the board is the ONLY entry into the interactive loop. Follow SHIPYARD_STARTUP_RULES and SHIPYARD_ONBOARDING_INSTRUCTION from startup.
+- **NEVER dispatch a subagent (Agent/Explore/Task) for the board or for a story's details.** What a subagent gathers never lands in this context. The board comes from one CLI call; a single story's details come from one Read.
+- **Render before asking.** The board is printed by the CLI and shown first: `shipyard-data backlog board`, written into the chat as it is, BEFORE the first AskUserQuestion (see "The board comes first"). Do not read every story file to build a board by hand. The ask at the end of the board is the ONLY entry into the interactive loop. Follow SHIPYARD_STARTUP_RULES and SHIPYARD_ONBOARDING_INSTRUCTION from startup.
 - **Quiet by default.** The board and the drill-down/grooming summaries ARE the render-before-ask content — render those in full. But between them, work quietly: read story files, stage grooming decisions, and run `shipyard-data` mutations without narrating each read or each staged change. Surface a one-line result after a batch of mutations (`→ Applied: 3 reprioritized, 1 archived`), not a play-by-play. **No running commentary** ("Now I'll read S004…", "Let me check the next one…"). Full doctrine: `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/communication-design.md` § "Interim Communication: Quiet by Default".
 
 ## Input
@@ -41,100 +41,29 @@ For bankruptcy: check if any story files have status `deferred` with today's dat
 
 ## Behavior
 
+### The board comes first, in every mode
+
+**Step 1, always, before anything else and before any question:** run `shipyard-data backlog board` and write its whole output in the chat as it is, inside a code block, from the `BOARD ·` line to the `end of board` line. Add one line under it with what you recommend, end the message with the line `Question follows.` and end your turn there. Shipyard gives the turn straight back, and only then you ask. (A question sent in the same message as the board is refused, because the hook cannot yet see that message.)
+
+- The CLI builds the board: the sprint, the backlog in rank order grouped by epic, what is not scored yet, proposed stories, and the ideas waiting for a decision. Do not read story, epic or idea files to build it, and do not rebuild, reorder, shorten or summarise it.
+- A tool result is not seen by the person. Only your own text is. So the board is your first message, and a one-line summary may come after it, never instead of it.
+- The card hook refuses a `/ship-backlog` question while the board is not in the chat.
+- The numbers in brackets run across all sections; the person can answer with a number or an id.
+- After a change (approve, rank, archive, a grooming decision), run it again and print the new board.
+
 ### No arguments → Show backlog
 
-Read BACKLOG.md for the ordered list of feature IDs. If BACKLOG.md doesn't exist or contains no IDs:
+Print the board (Step 1). Then:
 
-1. Use the Grep tool with `pattern: ^status: proposed`, `path: <SHIPYARD_DATA>/spec`, `glob: {stories,features}/[SF]*.md`, `output_mode: files_with_matches` to find proposed features. Then Read each returned file for title, RICE, points.
-2. If proposed features exist → show them and offer to approve. Before any approval option, render each candidate's full approval contract as chat text: title, story points, RICE components, every Given/When/Then acceptance scenario verbatim, `user_flow_probe` kind plus command/steps verbatim, assumptions, unresolved items, and known `skip-with-reason` gaps. A title/RICE list alone is not approval-grade context.
-   ```
-   Backlog is empty, but [N] proposed features are waiting for approval:
+- **Backlog and proposed are both empty** → add one line, `Nothing to groom. Refine an idea with /ship-discuss IDEA-NNN, or capture one with /ship-discuss <one-liner>.`, and STOP. No question: a board with nothing to groom has no next step to pick.
+- **Backlog empty, proposed stories waiting** → offer to approve them. Before any approval option, read each candidate story and write its approval contract in the chat: title, story points, RICE parts, one plain line per acceptance criterion (its id and what a person would see, in a few everyday words; `shipyard-data story acs <id>` lists them), never the Given/When/Then text, the `user_flow_probe` kind and its command or steps word for word, assumptions, unresolved items. A title and a score are not enough to approve on. Then one card: "Approve these and add them to the backlog?" (yes / pick / discuss first). **yes** → `shipyard-data story set-status <id> approved` for each, then one `shipyard-data backlog add <ids...>`. **pick** → the person names the ids. **discuss first** → suggest `/ship-discuss <id>` for the first one.
+- **Otherwise** → one card: "Pick a number for details, or: groom / rank / approve [ids] / done".
 
-     S003 — Card Payments (proposed, 8 pts, RICE 24.0)
-     S007 — Notifications (proposed, 5 pts, RICE 18.2)
+**Drill-down** (the person picked a number or typed an id): read that one story and show its summary: the user story, how many acceptance scenarios, points, RICE parts, epic, what it waits for, status, age. Then one card: "reprioritize / split / archive / kill / approve / back / done". After an action, print the board again.
 
-   Approve all and add to backlog? (yes / pick / discuss first)
-   ```
-   - **yes** → only after the approval contract above is rendered for every selected ID, run `shipyard-data story set-status F00N approved`, then one `shipyard-data backlog add S003 S007 ...` call for all of them together (the CLI inserts each in RICE-sorted position)
-   - **pick** → AskUserQuestion with numbered list, user picks which to approve
-   - **discuss first** → suggest `/ship-discuss [ID]` for the top one
-3. If no proposed features either → print the board (ideas included) and one line — `Nothing to groom. Refine an idea with /ship-discuss IDEA-NNN, or capture one with /ship-discuss <one-liner>.` — and STOP. No AskUserQuestion: a board with nothing groomable has no decision in it.
+**An idea was picked:** ideas have no score and nothing to groom. Say: "Ideas are refined with `/ship-discuss IDEA-NNN`." and show the board's question again.
 
-**CRITICAL:** Always resolve paths via the literal SHIPYARD_DATA prefix from the context block above. Never hardcode paths or look in other worktrees.
-
-For each ID, use the Read tool on `<SHIPYARD_DATA>/spec/stories/F<NNN>-*.md` (Glob first if you need to discover the slug) to get live data (title, RICE, points, status, epic, updated date). Also use Glob `<SHIPYARD_DATA>/spec/epics/E*.md` then Read each to build the epic index. Also Read `<SHIPYARD_DATA>/sprints/current/SPRINT.md` to identify which features are in the active sprint.
-
-**Also load ideas.** Use Glob `<SHIPYARD_DATA>/spec/ideas/IDEA-*.md` to enumerate ideas, then Read each one. Filter out any idea whose `status:` is `promoted` (legacy `graduated`; already promoted to a story or epic), `rejected` (triaged out) or `parked`. The remaining ideas form the pool for the IDEAS section below. Sort by `created:` descending (fallback: legacy `captured:`; newest first).
-
-**Display in four sections — sprint first, then backlog, then proposed, then ideas:**
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- BOARD — [Project Name]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
- IN SPRINT (Sprint [NNN] — [goal])
-  [1] S001 — [title]       | [N]/[M] tasks done | [pts] pts
-  [2] S005 — [title]       | [N]/[M] tasks done | [pts] pts
-  Sprint: [done pts]/[total pts] | Wave [N]/[M]
-
- BACKLOG (grouped by epic, sorted by RICE — ready to pull)
-  E001 — [epic title]
-   [3] S009 — [title]      | RICE 32.1 | 8 pts
-   [4] S004 — [title]      | RICE 24.0 | 13 pts | ⚠️ 75d stale
-  E002 — [epic title]
-   [5] S011 — [title]      | RICE 28.4 | 5 pts
-  (no epic)
-   [6] S014 — [title]      | RICE 18.0 | 3 pts
-  Capacity: ~20 pts/sprint | Next sprint fits: S009 + S011 = 13 pts
-
- PROPOSED (approve to add to backlog)
-  E003 — [epic title]
-   [7] S016 — [title]      | RICE 12.0 | 3 pts
-  (no epic)
-   [8] S017 — [title]      | RICE  9.5 | 8 pts
-
- IDEAS (captured observations — refine via /ship-discuss IDEA-NNN)
-  [8]  IDEA-045 — Swallowed exception in logging wrapper (review-gap/sprint-006)
-  [9]  IDEA-044 — Evaluate argon2id vs bcrypt (execute/sprint-006)
-  [10] IDEA-043 — Reduce test flakiness in CI (retro/sprint-005)
-  [11] IDEA-042 — Add request tracing headers (retro/sprint-005)
-  [12] IDEA-038 — Deferred auth cleanup from P009 (execute/sprint-004)
-  — (5 more) —
-  [13] IDEA-012 — Investigate Redis vs Postgres LISTEN/NOTIFY (capture)
-  [14] IDEA-011 — Drop legacy config.v1 loader (retro/sprint-002)
-  [15] IDEA-010 — Stale session cleanup job (execute/sprint-002)
-  [16] IDEA-008 — Replace regex date parser (capture)
-  [17] IDEA-006 — Extract pricing service (capture)
-  + 14 more — run /ship-discuss (no args) to triage all ideas
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-If no active sprint, omit the IN SPRINT section.
-If no proposed features, omit the PROPOSED section.
-If no ideas (after filtering promoted/graduated, rejected and parked), omit the IDEAS section.
-
-**IDEAS section pagination (cap at 10):** to keep the board scannable on long-running projects, show only the **5 newest + 5 oldest** undispositioned ideas (not promoted, rejected or parked). If the total count exceeds 10, add a `— (N more) —` separator row between the two halves and a `+ N more — run /ship-discuss (no args) to triage all ideas` footer line at the bottom. This gives the user recent activity at the top and long-tail items at the bottom without making the board a multi-screen scroll. The parenthesised suffix is each idea's source tag.
-
-**No drill-down for ideas in the main interactive loop.** Ideas don't have RICE scores, story points, or groomable fields — they're pre-features. If the user picks an idea number, print: "Ideas are refined via `/ship-discuss IDEA-NNN`. Run that to graduate the idea into a proper feature with acceptance criteria and story points." Do NOT invoke the drill-down code path that features use.
-
-Print the complete board first. If the BACKLOG and PROPOSED sections are both empty (only sprint items and/or ideas), end with the one-line pointer above and STOP — there is nothing to groom and no loop to enter. Otherwise, only after the board text is emitted, in the same turn, start the **interactive loop** — AskUserQuestion:
-
-"Pick a number for details, or: 'groom' / 'rank' / 'approve [IDs]' / 'done'"
-
-**Drill-down** — when user picks a number:
-- Show the feature's full summary: user story, acceptance criteria count, points, RICE breakdown, epic, dependencies, status, age
-- Then AskUserQuestion: "Actions: 'reprioritize' / 'split' / 'archive' / 'kill' / 'approve' / 'back' / 'done'"
-- After action, return to the board view (refreshed)
-
-The loop continues until the user says "done"; typing a feature ID jumps directly to it.
-
-The overall rank numbers (1, 2, 3...) span all sections for easy picking.
-
-**ALWAYS group by epic within the BACKLOG and PROPOSED sections.** Under each section, render one epic header per epic (`E001 — [epic title]`), with that epic's features listed beneath it sorted by RICE descending. Order the epic groups by their highest-RICE feature (descending), so the most valuable group is on top. Features with no `epic:` frontmatter go under a final `(no epic)` group. Never fall back to a flat list or an epic column — the grouped layout renders even when a section has only one epic or a single feature.
-
-Only group by epics that exist in `<SHIPYARD_DATA>/spec/epics/` (verify via Glob) and are referenced by the feature's `epic:` frontmatter field. Do NOT invent categories or group by keywords in titles — a feature whose `epic:` names a nonexistent epic file goes under `(no epic)` with a `⚠️ epic E0NN missing` note.
+The loop ends when the person says "done".
 
 ### `groom` → Interactive grooming session
 
@@ -238,7 +167,7 @@ When backlog is overwhelmingly large (50+ items) or consistently ignored:
 
 ### `approve [IDs]` → Approve proposed features into backlog
 
-For each ID provided, first Read the feature and render the same approval contract required by `/ship-discuss`: full Given/When/Then acceptance scenarios verbatim, `user_flow_probe` kind plus command/steps verbatim, assumptions, unresolved items, and known `skip-with-reason` gaps. Then AskUserQuestion for approval. Only after approval, run `shipyard-data story set-status F00N approved` (the CLI verifies `status: proposed` and refuses otherwise, naming the actual status). Then run one `shipyard-data backlog add <IDs>` call for all of them together — the CLI inserts each in RICE-sorted position and dedupes.
+For each ID provided, first Read the feature and render the same approval contract required by `/ship-discuss`: one plain line per acceptance criterion (its id and what a person would see, in a few everyday words; `shipyard-data story acs <id>` lists them), never the Given/When/Then text; `user_flow_probe` kind plus command/steps verbatim, assumptions, unresolved items, and known `skip-with-reason` gaps. Then AskUserQuestion for approval. Only after approval, run `shipyard-data story set-status F00N approved` (the CLI verifies `status: proposed` and refuses otherwise, naming the actual status). Then run one `shipyard-data backlog add <IDs>` call for all of them together — the CLI inserts each in RICE-sorted position and dedupes.
 
 If no IDs provided, render every proposed feature (ID — title | RICE | pts) as chat text, then AskUserQuestion to pick. Feature data sitting in Read results or in the option labels does not count as rendered.
 
@@ -258,7 +187,8 @@ Run this periodically (or during grooming) to keep BACKLOG.md lean:
 
 - RICE formula: (Reach × Impact × Confidence%) / Effort
 - Default sort: RICE descending
-- Overrides allowed — add reasoning in BACKLOG.md Overrides section
+- **The order is the owner's.** One list, ordered by what a delay costs (who is hurt by a week's wait, how much, how soon). Place an item with `shipyard-data backlog move <id> --top | --above <id> | --below <id> | --to <n> --why "<what a delay costs>"`: the reason is kept and shown as "why here". After the first placement nothing re-sorts the list by score, and a new story waits at the bottom until it is placed. RICE only gives the first sort of a list nobody has ordered yet (`backlog rank`, which refuses once the owner has ordered it). When grooming, ask about the top items first and record each answer as a move with its reason
+- **Releases are fix versions.** The board opens with the planned releases (`RELEASES`). What ships in one: `shipyard-data version show <name>`. Put an item in a release, or move it: `shipyard-data version set <version> <id> [--reason "<why the forecast changed>"]` (a move always says why). Never hand-edit `fix_version`, and never make an epic stand for a release
 - Stale threshold: configurable in config.md (default: 60 days warning, 120 days critical)
 - Never auto-delete — archive preserves history
 - **All data modifications go to story files** — BACKLOG.md only stores ID order and override reasoning

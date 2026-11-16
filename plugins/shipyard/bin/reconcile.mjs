@@ -74,7 +74,9 @@ export function findDrift(dataDir) {
     const allDone = mine.every((s) => FINISHED.has(String(s.fm.status ?? "").trim()));
     const anyStarted = mine.some((s) => ["in-progress", ...FINISHED].includes(String(s.fm.status ?? "").trim()));
     const want = allDone ? "done" : anyStarted ? "in-progress" : null;
-    if (want && st !== want && st !== "done") {
+    // 4.0.1: a `done` epic with a story still to build is not done. New stories
+    // were added to five finished epics on a real project and each still read "done".
+    if (want && st !== want) {
       findings.push({ kind: "epic-status-behind", id: e.id, detail: `${e.id} is "${st || "unset"}" but its stories say "${want}" (${mine.filter((s) => FINISHED.has(String(s.fm.status ?? "").trim())).length}/${mine.length} finished)`, fix: [["epic", "set-status", e.id, want, "--force"]], hint: `epic status follows its stories` });
     }
   }

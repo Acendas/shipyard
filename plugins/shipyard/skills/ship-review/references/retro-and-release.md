@@ -132,6 +132,10 @@ It saves the problem in the project's data folder and prints one line. **Show th
 
 After retro completes, generate the release record. This is a changelog + status tracker — Shipyard does not create git tags, push, or create GitHub releases.
 
+**Tell the tracker.** After the sprint is accepted, run `shipyard-data tracker plan --since <when this review began>`. When it prints rows, **Read and follow** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/tracker-sync.md` § 3: each linked ticket learns its story is done (the nearest "done" transition, the fix version, one comment with what was delivered and how it was proven). Show the plan and ask (or, with `tracker_sync: auto`, send and report), then `shipyard-data tracker decided --sync applied|later|none`. The review's lock is not released until that is recorded.
+
+**Fix versions.** Run `shipyard-data version list`. When the project has versions, the release plan is grouped by them: for each planned version this sprint's stories belong to, print `shipyard-data version show <name>` (what is done, what is still open, the release checks). A sprint ending does not release a version: `shipyard-data version release <name>` does, and it is refused while an item in it is unfinished or a release check is open. Offer it only when `version show` reads all done; unfinished work is moved to the next version first, with the reason (`version set <next> <id> --reason "..."`). A release check is ticked only from the person's answer (`version check <name> <n> --answer "..."`).
+
 ### Release Step 1: Present Release Plan (stage_id: release_step_1)
 Read all `status: done` features from this sprint. Output the release plan as text — CHANGELOG block, STATUS CHANGES, RETRO HIGHLIGHTS when available, FILES WRITTEN. If `--skip-retro` was passed or no `RETRO-DATA.md` exists, write `RETRO HIGHLIGHTS: skipped by explicit user flag` instead of inventing metrics.
 

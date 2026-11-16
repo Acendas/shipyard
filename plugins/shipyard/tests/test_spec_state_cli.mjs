@@ -359,6 +359,36 @@ test("feature add-ref: adds inside spec/references and is idempotent", () => {
   }
 });
 
+// Seen on a real project, 4.0.0: a story was written with the template's portable
+// spelling, `add-ref` then added the absolute path of the same file beside it, the
+// session tried `remove-ref` (unknown) and `set references=` (refused), and reported
+// "one stray placeholder is left in S003's references, and the CLI can't remove it".
+test("story add-ref knows both spellings of a file, and remove-ref takes one out", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001");
+    const refPath = join(p.dataDir, "spec", "references", "F001-flows.md");
+    writeFileSync(refPath, "flows");
+    const file = join(p.dataDir, "spec", "features", readdirSync(join(p.dataDir, "spec", "features")).find((n) => n.startsWith("F001")));
+    writeFileSync(file, readFileSync(file, "utf8").replace(/^references:.*$/m, 'references: ["$(shipyard-data)/spec/references/F001-flows.md"]'));
+    let r = p.run(["story", "add-ref", "F001", refPath]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /already in references \(as .*\$\(shipyard-data\)\/spec\/references\/F001-flows\.md.*\) — no-op/);
+    assert.equal((readFeature(p, "F001").match(/F001-flows\.md/g) || []).length, 1, "the same file is not listed twice");
+
+    r = p.run(["story", "set", "F001", "references=[x]"]);
+    assert.match(r.stderr, /story add-ref <id> <path>.*story remove-ref <id> <path>/);
+    r = p.run(["story", "remove-ref", "F001", join(p.dataDir, "spec", "references", "nope.md")]);
+    assert.equal(r.code, 3); assert.match(r.stderr, /has no reference .*It lists: /);
+    r = p.run(["story", "remove-ref", "F001", refPath]);
+    assert.equal(r.code, 0, r.stderr); assert.match(r.stdout, /removed reference .*the file itself is left in place/);
+    assert.match(readFeature(p, "F001"), /^references: \[\]$/m);
+    assert.ok(existsSync(refPath));
+  } finally {
+    p.cleanup();
+  }
+});
+
 test("feature add-external-ref: validates PROJECT-123 / #123 patterns, dedupes", () => {
   const p = makeProject();
   try {
@@ -1063,4 +1093,107 @@ test("step set-deps: sets what a step waits for; refuses an unknown step, itself
     assert.match(p.run(["step", "set-deps", "P001", "P999"]).stderr, /P999 is not a step that exists/);
     assert.match(readEvents(p), /"step_dependencies_set"[^\n]*"step":"P003"/);
   } finally { p.cleanup(); }
+});
+
+test("an epic follows its stories the moment one changes: started -> in-progress, all finished -> done (4.0.1)", () => {
+  const p = makeProject();
+  try {
+    writeEpic(p, "E001");
+    writeFeature(p, "F001", { status: "approved", epic: "E001" });
+    writeFeature(p, "F002", { status: "approved", epic: "E001" });
+    const epic = () => readFileSync(join(p.dataDir, "spec", "epics", readdirSync(join(p.dataDir, "spec", "epics")).find((n) => n.startsWith("E001"))), "utf8");
+    assert.doesNotMatch(epic(), /^status: in-progress$/m);
+    let r = p.run(["story", "set-status", "F001", "in-progress", "--force"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /E001: \S+ -> in-progress \(follows its stories\)/);
+    assert.match(epic(), /^status: in-progress$/m);
+    p.run(["story", "set-status", "F001", "done", "--force"]);
+    assert.match(epic(), /^status: in-progress$/m, "one of two finished");
+    p.run(["story", "set-status", "F002", "rejected", "--force"]);
+    assert.match(epic(), /^status: done$/m, "the other was retired: every story that counts is finished");
+    assert.match(readEvents(p), /"epic_status_changed"[^\n]*"rolled_up":true/);
+    // a new story lands in the finished epic: it is not finished any more
+    writeFeature(p, "F003", { status: "proposed", epic: "E001" });
+    p.run(["story", "set-status", "F003", "approved", "--force"]);
+    assert.match(epic(), /^status: in-progress$/m, "a done epic with a story still to build reopens");
+    // moving that story out finishes the epic again
+    writeEpic(p, "E002");
+    assert.equal(p.run(["story", "set", "F003", "epic=E002"]).code, 0);
+    assert.match(epic(), /^status: done$/m);
+  } finally { p.cleanup(); }
+});
+
+// Seen on a real project, 4.0.0: a discussion captured five ideas with nine `next-id` calls and a shell
+// here-document run from inside the data folder. One call now allocates, writes and logs.
+test("idea capture writes a captured idea in one call, with the next id", () => {
+  const p = makeProject();
+  try {
+    let r = p.run(["idea", "capture"]);
+    assert.equal(r.code, 2); assert.match(r.stderr, /usage: idea capture --title/);
+    r = p.run(["idea", "capture", "--title", "Keep the cart when the phone loses its signal", "--idea", "Hold the cart on the phone and send it when the signal is back.", "--why", "Shops lose sales when the signal drops.", "--thoughts", "Measure first.", "--source", "discuss/offline-mode", "--points", "8"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /^IDEA-001 captured: .*spec\/ideas\/IDEA-001-keep-the-cart-when-the-phone-loses-its-s\.md\nFlesh out later with: \/ship-discuss IDEA-001\n$/);
+    const file = join(p.dataDir, "spec", "ideas", "IDEA-001-keep-the-cart-when-the-phone-loses-its-s.md");
+    const text = readFileSync(file, "utf8");
+    assert.match(text, /^---\nid: IDEA-001\ntitle: "Keep the cart when the phone loses its signal"\ntype: idea\nstatus: captured\nsource: "discuss\/offline-mode"\nstory_points: 8\ncreated: \d{4}-\d\d-\d\d\n---\n/);
+    assert.match(text, /## Idea\n\nHold the cart on the phone[^\n]*\n\n## Why It Might Matter\n\nShops lose[^\n]*\n\n## Initial Thoughts\n\nMeasure first\.\n$/);
+    r = p.run(["idea", "capture", "--title", "A second thought"]);
+    assert.match(r.stdout, /^IDEA-002 captured/);
+    assert.match(readFileSync(join(p.dataDir, "spec", "ideas", "IDEA-002-a-second-thought.md"), "utf8"), /## Why It Might Matter\n\n-\n$/);
+    assert.match(readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"), /"type":"idea_captured","idea":"IDEA-001"/);
+    assert.equal(p.run(["idea", "set-status", "IDEA-001", "assessing"]).code, 0, "a captured idea is a normal idea");
+  } finally {
+    p.cleanup();
+  }
+});
+
+// The owner: "explanations for gherkin bdd ac's make sure its not verbaitm rather a natural language few simple
+// words explanation … one liner if possible each ac".
+test("story acs lists the acceptance criteria one line each, never the Given/When/Then text", () => {
+  const p = makeProject();
+  try {
+    writeFeature(p, "F001");
+    const file = join(p.dataDir, "spec", "features", readdirSync(join(p.dataDir, "spec", "features")).find((n) => n.startsWith("F001")));
+    writeFileSync(file, readFileSync(file, "utf8") + "\n## Acceptance Criteria\n```gherkin\n@AC-2 @e2e\nScenario: A failed card sale gives the money back\n  Given a 5 dollar card sale\n  When the ticket fails to print\n  Then 5 dollars is reversed\n\n@AC-3 @component\n# why not e2e: needs the bank link cut mid-call\nScenario Outline: The refund is kept when the bank cannot be reached\n  Given the bank is down\n  When a refund is due\n  Then it is kept and sent later\n```\n");
+    const r = p.run(["story", "acs", "F001"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /^F001 — Test Feature · 3 acceptance criteria · full text: .*F001[^\n]*\n\| AC \| What it checks \|\n\|---\|---\|\n\| AC-1 \| works \|\n\| AC-2 \| A failed card sale gives the money back \|\n\| AC-3 \| The refund is kept when the bank cannot be reached \(component\) \|/);
+    assert.doesNotMatch(r.stdout, /^\s*(Given|When|Then) /m);
+    assert.match(r.stdout, /Do not paste the Given\/When\/Then text; show one criterion in full only when they ask for it/);
+  } finally {
+    p.cleanup();
+  }
+});
+
+// LeSS: one backlog, ordered by the product owner by what a delay costs; a score is a first sort only.
+test("the owner orders the backlog: a move says why, nothing re-sorts by score behind it, new work waits at the bottom", () => {
+  const p = makeProject();
+  try {
+    for (const [id, reach] of [["F001", 10], ["F002", 50], ["F003", 30]]) { writeFeature(p, id, { status: "approved", rice_reach: reach }); }
+    p.run(["backlog", "add", "F001", "F002", "F003"]);
+    const order = () => [...readFileSync(join(p.dataDir, "backlog", "BACKLOG.md"), "utf8").matchAll(/^\| \d+ \| (\S+) \|$/gm)].map((m) => m[1]);
+    const byScore = order();
+    assert.equal(p.run(["backlog", "move", "F001", "--top"]).code, 2, "a placement says what a delay costs");
+    let r = p.run(["backlog", "move", "F001", "--top", "--why", "contracted date 7 Dec: the launch cannot start without it"]);
+    assert.equal(r.code, 0, r.stderr); assert.match(r.stdout, /F001 is now 1 of 3, at the top and before /);
+    assert.equal(order()[0], "F001");
+    r = p.run(["backlog", "move", byScore[0], "--below", byScore[1], "--why", "nobody waits on it this quarter"]);
+    assert.equal(r.code, 0, r.stderr);
+    const mine = order();
+    r = p.run(["backlog", "rank"]);
+    assert.equal(r.code, 3); assert.match(r.stderr, /the backlog is in the owner's order \(2 placement\(s\) with a reason\)/);
+    assert.deepEqual(order(), mine, "a score re-sort did not undo the owner's order");
+    writeFeature(p, "F004", { status: "approved", rice_reach: 999 });
+    r = p.run(["backlog", "add", "F004"]);
+    assert.match(r.stdout, /added F004 at the bottom \(the backlog is in the owner's order\)/);
+    assert.deepEqual(order(), [...mine, "F004"], "even the highest score waits at the bottom until the owner places it");
+    const board = p.run(["backlog", "board"]).stdout;
+    assert.match(board, /BACKLOG · 4 stories · \d+ pts · one list in your order, the top is next/);
+    assert.match(board, /F001[^\n]*\n +why here: contracted date 7 Dec: the launch cannot start without it/);
+    assert.match(readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"), /"type":"backlog_moved","id":"F001","from":\d,"to":1,"why":"contracted date 7 Dec/);
+    assert.equal(p.run(["backlog", "rank", "--by-score"]).code, 0, "the owner can still ask for a sort by score, by name");
+    assert.equal(order()[0], "F004");
+  } finally {
+    p.cleanup();
+  }
 });

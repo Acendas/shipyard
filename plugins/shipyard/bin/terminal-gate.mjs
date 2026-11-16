@@ -56,7 +56,13 @@ export function parseFrontmatter(content) {
   const m = content.replace(/^\uFEFF/, "").match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return {};
   const fm = {};
+  // A key nested in a block never replaces the record's own key of the same name. A story imported from a
+  // tracker carries the ticket's `status`, `type` and `updated` under `upstream:`; read flat, they replaced the
+  // story's own, so every reader of this function saw a "To Do" story of type "story" (found when the health
+  // check called a tracker status an invalid story status).
+  const own = new Set();
   for (const rawLine of m[1].split(/\r?\n/)) {
+    const nested = /^[ \t]/.test(rawLine);
     // Strip inline comments (everything after #) — but only when the # is
     // preceded by whitespace, so `branch: "#main"` stays intact. Same rule
     // YAML uses.
@@ -69,6 +75,8 @@ export function parseFrontmatter(content) {
     if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
       v = v.slice(1, -1);
     }
+    if (nested && own.has(k)) continue;
+    if (!nested) own.add(k);
     fm[k] = v;
   }
   return fm;

@@ -2387,5 +2387,33 @@
   "target": "ref:retro-and-release.md",
   "pattern": "Nothing is sent anywhere",
   "why": "4.0: posting outside is the owner's action"
+ },
+ {
+  "name": "review_release_plan_by_fix_version",
+  "type": "contains",
+  "target": "ref:retro-and-release.md",
+  "pattern": "A sprint ending does not release a version: `shipyard-data version release <name>` does",
+  "why": "4.0.1 (owner: fix version concept)"
+ },
+ {
+  "name": "review_tells_the_tracker",
+  "type": "contains",
+  "target": "ref:retro-and-release.md",
+  "pattern": "each linked ticket learns its story is done",
+  "why": "after 4.0.0 (owner: 'how about a scenario: jira story or bug ticket pull it discuss move to sprint'; 'will shipyard work with user session to update external ticket details along the way until up to completion')"
+ },
+ {
+  "name": "review_is_inspection_not_sign_off",
+  "type": "contains",
+  "target": "ref:sprint-review.md",
+  "pattern": "it is not a sign-off on the team",
+  "why": "after 4.0.0, LeSS (owner: 'fix this: What is not solid yet' — backlog order was RICE plus overrides; the review asked to 'accept')"
+ },
+ {
+  "name": "review_adapts_the_backlog",
+  "type": "contains",
+  "target": "ref:sprint-review.md",
+  "pattern": "\\*\\*adapt the backlog\\*\\*",
+  "why": "after 4.0.0, LeSS (owner: 'fix this: What is not solid yet' — backlog order was RICE plus overrides; the review asked to 'accept')"
  }
 ]

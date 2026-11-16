@@ -98,35 +98,43 @@
  {
   "name": "backlog_has_ideas_section",
   "type": "contains",
-  "pattern": "IDEAS \\(captured observations|IDEAS section"
+  "pattern": "IDEAS · ",
+  "target": "plugin:bin/backlog-board.mjs",
+  "why": "4.0.1: the board moved from skill prose into `shipyard-data backlog board` (tests/test_backlog_board.mjs pins the output); this check now reads the CLI module."
  },
  {
   "name": "backlog_reads_spec_ideas",
   "type": "contains",
-  "pattern": "spec/ideas/IDEA-"
+  "pattern": "records\\(dataDir, \\[\"ideas\"\\]\\)",
+  "target": "plugin:bin/backlog-board.mjs",
+  "why": "4.0.1: the board moved from skill prose into `shipyard-data backlog board` (tests/test_backlog_board.mjs pins the output); this check now reads the CLI module."
  },
  {
   "name": "backlog_filters_graduated_ideas",
   "type": "contains",
-  "pattern": "graduated.*rejected|rejected.*graduated",
-  "dotall": true
+  "pattern": "IDEA_OPEN = new Set\\(\\[\"captured\", \"assessing\", \"proposed\"\\]\\)",
+  "target": "plugin:bin/backlog-board.mjs",
+  "why": "4.0.1: the board moved from skill prose into `shipyard-data backlog board` (tests/test_backlog_board.mjs pins the output); this check now reads the CLI module."
  },
  {
   "name": "backlog_ideas_paginated_5_plus_5",
   "type": "contains",
-  "pattern": "5 newest \\+ 5 oldest|cap at 10",
-  "dotall": true
+  "pattern": "b\\.ideas\\.length > 10 \\? \\[\\.\\.\\.b\\.ideas\\.slice\\(0, 5\\), null, \\.\\.\\.b\\.ideas\\.slice\\(-5\\)\\]",
+  "target": "plugin:bin/backlog-board.mjs",
+  "why": "4.0.1: the board moved from skill prose into `shipyard-data backlog board` (tests/test_backlog_board.mjs pins the output); this check now reads the CLI module."
  },
  {
   "name": "backlog_ideas_no_drilldown",
   "type": "contains",
-  "pattern": "No drill-down for ideas|refined via.*ship-discuss IDEA",
+  "pattern": "refined (via|with).*ship-discuss IDEA",
   "dotall": true
  },
  {
   "name": "backlog_ideas_section_omitted_when_empty",
   "type": "contains",
-  "pattern": "omit the IDEAS section|no ideas.*omit"
+  "pattern": "if \\(b\\.ideas\\.length\\) \\{",
+  "target": "plugin:bin/backlog-board.mjs",
+  "why": "4.0.1: the board moved from skill prose into `shipyard-data backlog board` (tests/test_backlog_board.mjs pins the output); this check now reads the CLI module."
  },
  {
   "name": "prohibits_bash_redirect_for_state",
@@ -178,7 +186,9 @@
  {
   "name": "board_always_groups_by_epic",
   "type": "contains",
-  "pattern": "ALWAYS group by epic"
+  "pattern": "L\\.push\\(\\.\\.\\.grouped\\(b\\.backlog\\)\\)",
+  "target": "plugin:bin/backlog-board.mjs",
+  "why": "4.0.1: grouping by epic is done by the board command, not by prose."
  },
  {
   "name": "render_provenance_negation",
@@ -215,5 +225,35 @@
   "type": "contains",
   "pattern": "idea set-status <IDEA-id> landed",
   "why": "4.12.2: grooming asked whether to reject an idea that had been fixed; landed is the status for that"
+ },
+ {
+  "name": "board_is_printed_by_the_cli_first",
+  "type": "contains",
+  "pattern": "run `shipyard-data backlog board` and write its whole output in the chat as it is",
+  "why": "4.0.1 (owner: 'when i run ship-backlog it most of the time doesnt show me the list'): the model was told to read every file and compose the board by hand; it mostly asked without showing it"
+ },
+ {
+  "name": "board_never_hand_built",
+  "type": "contains",
+  "pattern": "Do not read story, epic or idea files to build it",
+  "why": "4.0.1: the board is one CLI call"
+ },
+ {
+  "name": "backlog_releases_are_fix_versions",
+  "type": "contains",
+  "pattern": "Releases are fix versions\\.\\*\\* The board opens with the planned releases",
+  "why": "4.0.1 (owner: fix version concept; LeSS: one backlog, releases as versions)"
+ },
+ {
+  "name": "backlog_approval_one_line_per_criterion",
+  "type": "contains",
+  "pattern": "one plain line per acceptance criterion \\(its id and what a person would see",
+  "why": "after 4.0.0 (owner: 'explanations for gherkin bdd ac's make sure its not verbaitm rather a natural language few simple words explanation … one liner if possible each ac')"
+ },
+ {
+  "name": "backlog_order_is_the_owners",
+  "type": "contains",
+  "pattern": "\\*\\*The order is the owner's\\.\\*\\* One list, ordered by what a delay costs",
+  "why": "after 4.0.0, LeSS (owner: 'fix this: What is not solid yet' — backlog order was RICE plus overrides; the review asked to 'accept')"
  }
 ]

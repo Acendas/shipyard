@@ -12,7 +12,7 @@
   "captured:graduated-no-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###|T###> (the story, epic or task it was promoted to)"
   },
   "captured:rejected-with-to": {
     "code": 3,
@@ -22,7 +22,7 @@
   "captured:graduated-bad-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+    "stderr": "spec-state: --to \"X1\" is not a story, epic or task id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; E###; T###)"
   },
   "captured:graduated-missing-to": {
     "code": 3,
@@ -52,7 +52,7 @@
   "assessing:graduated-no-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###|T###> (the story, epic or task it was promoted to)"
   },
   "assessing:rejected-with-to": {
     "code": 3,
@@ -62,7 +62,7 @@
   "assessing:graduated-bad-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+    "stderr": "spec-state: --to \"X1\" is not a story, epic or task id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; E###; T###)"
   },
   "assessing:graduated-missing-to": {
     "code": 3,
@@ -92,7 +92,7 @@
   "parked:graduated-no-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###|T###> (the story, epic or task it was promoted to)"
   },
   "parked:rejected-with-to": {
     "code": 3,
@@ -102,7 +102,7 @@
   "parked:graduated-bad-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+    "stderr": "spec-state: --to \"X1\" is not a story, epic or task id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; E###; T###)"
   },
   "parked:graduated-missing-to": {
     "code": 3,
@@ -132,7 +132,7 @@
   "promoted:graduated-no-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###|T###> (the story, epic or task it was promoted to)"
   },
   "promoted:rejected-with-to": {
     "code": 3,
@@ -142,7 +142,7 @@
   "promoted:graduated-bad-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+    "stderr": "spec-state: --to \"X1\" is not a story, epic or task id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; E###; T###)"
   },
   "promoted:graduated-missing-to": {
     "code": 3,
@@ -172,7 +172,7 @@
   "rejected:graduated-no-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###|T###> (the story, epic or task it was promoted to)"
   },
   "rejected:rejected-with-to": {
     "code": 3,
@@ -182,7 +182,7 @@
   "rejected:graduated-bad-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+    "stderr": "spec-state: --to \"X1\" is not a story, epic or task id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; E###; T###)"
   },
   "rejected:graduated-missing-to": {
     "code": 3,
@@ -212,7 +212,7 @@
   "landed:graduated-no-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)"
+    "stderr": "spec-state: idea set-status promoted requires --to <S###|E###|T###> (the story, epic or task it was promoted to)"
   },
   "landed:rejected-with-to": {
     "code": 3,
@@ -222,7 +222,7 @@
   "landed:graduated-bad-to": {
     "code": 3,
     "stdout": "",
-    "stderr": "spec-state: --to \"X1\" is not a story or epic id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; or E###)"
+    "stderr": "spec-state: --to \"X1\" is not a story, epic or task id (expected S### (or a legacy F###, F###<letter>, B### alias), e.g. S004, F071d; E###; T###)"
   },
   "landed:graduated-missing-to": {
     "code": 3,
@@ -242,7 +242,7 @@
   "usage": {
     "code": 2,
     "stdout": "",
-    "stderr": "usage: idea set-status <IDEA-NNN> <captured|assessing|promoted|rejected|parked> [--to <S###|E###>]"
+    "stderr": "usage: idea set-status <IDEA-NNN> <captured|assessing|promoted|rejected|parked> [--to <S###|E###|T###>]"
   },
   "badId": {
     "code": 2,

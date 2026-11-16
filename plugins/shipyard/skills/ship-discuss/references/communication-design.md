@@ -160,7 +160,7 @@ Not every decision is a question. Before composing any AskUserQuestion, run the 
 
 When multiple items need resolution (assumption audit, edge cases, impact analysis):
 
-- **One question per card, written in the chat first.** Explain it (summary, then show it), state the question in one sentence, then call the tool for that question alone. Then the next one.
+- **One question per card, written in the chat first.** Explain it (summary, then show it), end the message with the line `Question follows.` and end your turn there (Shipyard gives the turn straight back), then call the tool for that question alone. The card hook reads the chat: a question with no summary and no picture above it since the person last answered is refused, in every Shipyard command. What you think is not what you wrote: the person sees only your chat text. Then the next one.
 - **Keep the count low.** Decide what you can decide; at most 3–4 questions in a round. With 8 small items of the same kind, show them as one table in chat and ask a single question: "apply all recommendations / go through them one by one".
 - For each item: what I found → why it matters → what I recommend.
 - Offer bulk resolution: "Addressed / Deferred / Not relevant" for each, or "Apply all recommendations."
@@ -380,3 +380,21 @@ Use when PII/tenant-scoped data enters or leaves the system, or data moves throu
 - Don't use ASCII art when a markdown table works better
 - Don't visualize linear sequences (step 1 → step 2 → step 3) — a numbered list is clearer
 - Don't create a chart for fewer than 3 data points — just state the numbers
+
+## Acceptance criteria in the chat
+
+When acceptance criteria are shown to a person (an approval, a question, a review), each is **one plain line**: its id and what a person would see, in a few everyday words.
+
+```
+| AC | In plain words |
+|---|---|
+| AC-1 | A card sale that fails gives the money back by itself |
+| AC-2 | The same happens when the machine restarts in the middle of a sale |
+| AC-3 | If the bank cannot be reached, the refund is kept and sent later |
+```
+
+- `shipyard-data story acs <id>` lists a story's criteria by id and scenario name; reword a terse name into such a line.
+- Never paste the Given/When/Then text. It is the test contract and lives in the story file; name the file once, and show one criterion in full only when the person asks ("show AC-3").
+- One line each, every criterion present. More than about six: group them (works, goes wrong, edge cases).
+- A card whose explanation pastes six or more Given/When/Then lines is sent back by the card hook.
+

@@ -3,6 +3,8 @@ id: ""
 title: ""
 type: epic
 status: proposed
+size: ""                    # S | M | L | XL: a rough size at intake, not points
+fix_version: ""             # the release this is expected to ship in; set with: shipyard-data version set <version> <id>
 created: null
 updated: null
 external_refs: []           # links to external systems: "JIRA-123", "GH-456", "https://..."

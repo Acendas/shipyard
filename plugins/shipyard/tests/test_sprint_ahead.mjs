@@ -145,3 +145,24 @@ test("a discussion beside a running sprint must commit the decision document the
     assert.match(r.err, /ship-execute is running here too, so they may be its work/);
   } finally { p.cleanup(); }
 });
+
+test("a planner finishes the sprint it is still writing when another command takes the execution lock beside it; a started sprint stays read-only", () => {
+  const p = project();
+  try {
+    p.story("S001", "approved");
+    assert.match(p.ctx(["sprint-planning"], "PLAN").out, /SHIPYARD_LOCK_ACQUIRED=true/);
+    const sprint = (extra) => writeFileSync(join(p.dataDir, "sprints", "current", "SPRINT.md"), `---\nid: sprint-001\nstatus: planned\ngoal: ""\nstarted_at: null        # written by ship-execute\n${extra}---\n\n## Waves\n`);
+    sprint("");
+    // a single task, a hotfix, or a hand-run context command: the execution lock is held by another session
+    assert.match(p.ctx(["sprint-execution"], "EXEC").out, /SHIPYARD_LOCK_ACQUIRED=true/);
+    let r = p.run(["sprint", "set", "goal", "Shop opens"], "PLAN");
+    assert.equal(r.code, 0, r.err);
+    // a third session that is not the planner is still kept out
+    r = p.run(["sprint", "set", "goal", "Other"], "OTHER");
+    assert.equal(r.code, 3); assert.match(r.err, /being run by ship-execute in another session/);
+    // once the sprint has started it is the executor's
+    writeFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "---\nstage: wave_1_dispatch\n---\n");
+    r = p.run(["sprint", "set", "goal", "Late change"], "PLAN");
+    assert.equal(r.code, 3); assert.match(r.err, /being run by ship-execute in another session/);
+  } finally { p.cleanup(); }
+});

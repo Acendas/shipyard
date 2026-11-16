@@ -58,10 +58,10 @@ test("AC-1/AC-3/AC-6: pull creates unrefined stories with external_refs, an upst
     r = run(d, "tracker", "pull", "--input", input, "--json");
     assert.equal(r.status, 0, r.stderr);
     j = JSON.parse(r.stdout);
-    assert.deepEqual(j.created.map((c) => [c.key, c.story]), [["ABC-1", "S001"], ["ABC-2", "S002"], ["ABC-3", "S003"]]);
+    assert.deepEqual(j.created.map((c) => [c.key, c.story]), [["ABC-1", "S001"], ["ABC-2", "S002"], ["ABC-3", "T001"]], "a story and a bug are stories; a tracker task is a task (4.0.1: the link is for every kind of record)");
     assert.equal(j.source, "jira");
     const files = stories(d);
-    assert.equal(files.length, 3);
+    assert.equal(files.length, 2, "two stories; the tracker task is a task");
     const s1 = readFileSync(join(d, "spec/stories", files[0]), "utf8");
     assert.match(s1, /^id: S001$/m);
     assert.match(s1, /^type: feature$/m);
@@ -81,14 +81,16 @@ test("AC-1/AC-3/AC-6: pull creates unrefined stories with external_refs, an upst
     assert.match(r.stderr, /refined: false/);
 
     const ev = events(d);
-    assert.equal(ev.filter((e) => e.type === "story_imported").length, 3, "imports are story_imported, never story_created (review evidence)");
+    assert.equal(ev.filter((e) => e.type === "story_imported").length, 2, "imports are story_imported, never story_created (review evidence)");
+    assert.equal(ev.filter((e) => e.type === "task_imported").length, 1);
     assert.equal(ev.filter((e) => e.type === "story_created").length, 0);
     const pulled = ev.find((e) => e.type === "tracker_pulled");
     assert.equal(pulled.created, 3);
     assert.equal(pulled.skipped, 2);
 
     r = run(d, "tracker", "status");
-    assert.match(r.stdout, /S001: jira ABC-1 — proposed, unrefined\n/);
+    assert.match(r.stdout, /S001: jira ABC-1 — story, proposed, unrefined, in step with its ticket since \d{4}-\d\d-\d\d\n/);
+    assert.match(r.stdout, /T001: jira ABC-3 — task, open, in step/, "every kind of record is listed");
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
 
@@ -106,7 +108,7 @@ test("AC-2/AC-8: re-pull never duplicates; a changed ticket marks every linked s
     assert.equal(j.created.length, 0, "no duplicates on re-pull");
     assert.equal(j.unchanged.length, 3, "the three imported stories are unchanged");
     assert.equal(j.updated.length, 2, "the hand-linked story had no fingerprint yet, so both its tickets count as changed");
-    assert.equal(stories(d).length, 4);
+    assert.equal(stories(d).length, 3, "two imported stories and the hand-linked one; the tracker task is under spec/tasks");
 
     const changed = structuredClone(ITEMS);
     changed.items[0].description = "Users want a CSV **and** XLSX.";
@@ -150,5 +152,110 @@ test("pull: bad input is a usage error, never a half-import", () => {
     assert.deepEqual(stories(d), []);
     r = run(d, "tracker", "pull");
     assert.equal(r.status, 2);
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+// The owner, 4.0.1: "jira link and sync is for all tickets types. epics, stories tasks bugs etc.." and
+// "when i provide jira links, and research turns out theres more i should have let me know to create the
+// tickets in jira or ask to assist create. and then once discuss is done. ask to sync".
+test("the link and the sync plan cover every kind of record: what has no ticket, what changed since it was sent", () => {
+  const { base, d } = fixture();
+  try {
+    for (const sub of ["epics", "tasks", "ideas"]) mkdirSync(join(d, "spec", sub), { recursive: true });
+    const put = (sub, id, title, type, status, extra = "") => writeFileSync(join(d, "spec", sub, `${id}-x.md`), `---\nid: ${id}\ntitle: "${title}"\ntype: ${type}\nstatus: ${status}\n${extra}---\n\n# ${title}\n`);
+    put("epics", "E001", "Offline mode", "epic", "proposed", 'external_refs: ["ABC-1120"]\nfix_version: "v4.2.0"\n');
+    put("stories", "S001", "Sleep and wake", "feature", "proposed", "epic: E001\nexternal_refs: []\n");
+    put("stories", "S002", "Wake drops a sale", "bug", "proposed", 'epic: ""\nexternal_refs: []\n');
+    put("tasks", "T001", "Which payment provider", "task", "open", "kind: spike\nparent: E001\n");
+    put("ideas", "IDEA-001", "Gift cards", "idea", "captured");
+    put("stories", "S003", "Old and gone", "feature", "rejected", "external_refs: []\n");
+
+    let r = run(d, "tracker", "plan", "--json");
+    const p = JSON.parse(r.stdout);
+    assert.equal(p.linked_project, true);
+    assert.deepEqual(p.rows.map((x) => `${x.n} ${x.action} ${x.id} ${x.tracker_type ?? x.key}${x.parent_key ? ` under ${x.parent_key}` : ""} ${x.fix_version}`.trim()),
+      ["1 create S001 Story under ABC-1120 v4.2.0", "2 create S002 Bug", "3 create T001 Task under ABC-1120 v4.2.0", "4 update E001 ABC-1120 v4.2.0"],
+      "new work under a linked epic is named with its parent ticket and the epic's version; a loose idea with no ticket and a rejected story are not proposed");
+    put("ideas", "IDEA-002", "Gift card balance check", "idea", "captured", 'fix_version: "v4.2.0"\n');
+    assert.ok(JSON.parse(run(d, "tracker", "plan", "--json").stdout).rows.some((x) => x.id === "IDEA-002" && x.action === "create" && x.tracker_type === "Epic"), "an idea put in a release is tracked work: it gets a ticket");
+    rmSync(join(d, "spec", "ideas", "IDEA-002-x.md"));
+    r = run(d, "tracker", "plan");
+    assert.match(r.stdout, /^TRACKER PLAN · 3 with no ticket · 1 changed since last sent/);
+    assert.match(r.stdout, /Nothing is written to the tracker without their answer/);
+
+    assert.equal(run(d, "tracker", "link", "S001", "not a key").status, 2);
+    assert.match(run(d, "tracker", "link", "S001", "ABC-2301").stdout, /S001: linked to ABC-2301/);
+    assert.match(run(d, "tracker", "link", "T001", "ABC-2302").stdout, /T001: linked to ABC-2302/);
+    assert.equal(run(d, "tracker", "synced", "S002").status, 3, "a record with no ticket cannot be marked as sent");
+    assert.match(run(d, "tracker", "synced", "E001").stdout, /E001: marked as sent to the tracker/);
+    // the mirror of the ticket's status follows a move Shipyard itself made
+    writeFileSync(join(d, "spec", "stories", "S009-x.md"), '---\nid: S009\ntitle: "Moved"\ntype: feature\nstatus: in-progress\nexternal_refs: ["ABC-9"]\nupstream:\n  key: "ABC-9"\n  status: "To Do"\n---\n\n# Moved\n');
+    run(d, "tracker", "synced", "S009", "--ticket-status", "In Progress");
+    assert.match(readFileSync(join(d, "spec", "stories", "S009-x.md"), "utf8"), /^status: in-progress$[\s\S]*^  status: "In Progress"/m);
+    rmSync(join(d, "spec", "stories", "S009-x.md"));
+    assert.deepEqual(JSON.parse(run(d, "tracker", "plan", "--json").stdout).rows.map((x) => x.id), ["S002"], "what was created or sent is off the plan");
+    assert.match(run(d, "tracker", "status").stdout, /E001: ABC-1120 — epic, proposed, in step with its ticket since \d{4}-\d\d-\d\d\nS001: ABC-2301 — story, proposed, in step/);
+    assert.equal(run(d, "tracker", "decided", "--sync", "maybe").status, 2);
+    assert.equal(run(d, "tracker", "decided", "--sync", "later", "--note", "after the brand review").status, 0);
+    const ev = events(d);
+    assert.ok(ev.some((e) => e.type === "tracker_linked" && e.id === "T001" && e.kind === "task"));
+    assert.ok(ev.some((e) => e.type === "tracker_sync_decided" && e.sync === "later"));
+    assert.match(run(d, "tracker", "unlink", "T001", "ABC-2302").stdout, /T001: no longer linked to ABC-2302/);
+
+    // a pull updates whichever record carries the ticket: here an epic
+    const input = join(base, "in.json");
+    writeFileSync(input, JSON.stringify({ source: "jira", items: [{ key: "ABC-1120", title: "Offline mode", type: "Epic", status: "In Progress", description: "now with a button" }, { key: "ABC-2400", title: "Child of the epic", type: "Story", parent: "ABC-1120", fix_version: "v4.2.0" }] }));
+    r = run(d, "tracker", "pull", "--input", input);
+    assert.match(r.stdout, /create 1, update 1/); assert.match(r.stdout, /\+ S004 ← ABC-2400 \(unrefined story\), under E001, fix version v4\.2\.0/); assert.match(r.stdout, /~ E001 ← ABC-1120 changed upstream/);
+    const epic = readFileSync(join(d, "spec", "epics", "E001-x.md"), "utf8");
+    assert.match(epic, /^upstream_changed: true$/m); assert.match(epic, /^  status: "In Progress"/m);
+    assert.match(run(d, "tracker", "ack", "E001").stdout, /E001: upstream change acknowledged/);
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+// Seen live at the end of a sprint planning: "Send both comments exactly as drafted above?" with the drafts
+// in the session's reasoning, not on the screen.
+test("text sent to a ticket must have been shown in the chat first, inside a Shipyard command", async () => {
+  const { decideWrite, outgoingTexts, wasShown } = await import("../bin/hooks/tracker-write.mjs");
+  const { base, d } = fixture();
+  try {
+    const t = join(base, "t.jsonl");
+    const COMMENT = "Planned into sprint-001 (14 steps, 7 waves).\nScope: an order placed with no signal is kept and sent later.\nProof: the journey test OfflineOrderJourney.";
+    const say = (text) => JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } });
+    const cmd = JSON.stringify({ type: "user", message: { role: "user", content: "<command-name>/shipyard:ship-sprint</command-name>" } });
+    const call = (input, session = "s1") => ({ tool_name: "mcp__x__jira_add_comment", session_id: session, transcript_path: t, tool_input: input });
+    assert.deepEqual(outgoingTexts({ issue_key: "ABC-1", comment: COMMENT, fields: { description: "x".repeat(50), labels: ["a"] } }).length, 2);
+    assert.equal(wasShown(COMMENT, "```\n" + COMMENT + "\n```"), true);
+    writeFileSync(t, [cmd, say("Two comments are drafted and waiting on your go.")].join("\n") + "\n");
+    assert.equal(decideWrite(d, call({ issue_key: "ABC-1", comment: COMMENT })), null, "outside a Shipyard command nothing is checked");
+    writeFileSync(join(d, ".active-session.json"), JSON.stringify({ skill: "ship-sprint", session_id: "s1", cleared: null, started: new Date().toISOString() }));
+    const v = decideWrite(d, call({ issue_key: "ABC-1", comment: COMMENT }));
+    assert.match(v.reason, /text sent to a ticket or a page is shown in the chat first, word for word[\s\S]*it begins: "Planned into sprint-001/);
+    assert.equal(decideWrite(d, call({ issue_key: "ABC-1", transition: "In Progress" })), null, "a status move carries no text to read");
+    writeFileSync(t, [cmd, say("This is the comment for ABC-1:\n\n```\n" + COMMENT + "\n```\n\nQuestion follows.")].join("\n") + "\n");
+    assert.equal(decideWrite(d, call({ issue_key: "ABC-1", comment: COMMENT })), null, "shown, then sent");
+    writeFileSync(join(d, "config.md"), "---\ntracker_sync: auto\n---\n");
+    writeFileSync(t, cmd + "\n");
+    assert.equal(decideWrite(d, call({ issue_key: "ABC-1", comment: COMMENT })), null, "tracker_sync: auto is the owner's standing yes");
+    const hooks = JSON.parse(readFileSync(join(dirname(dirname(fileURLToPath(import.meta.url))), "hooks", "hooks.json"), "utf8"));
+    assert.ok(hooks.hooks.PreToolUse.some((h) => /tracker-write$/.test(h.hooks[0].command) && new RegExp(h.matcher).test("mcp__plugin_atlassian-suite_acendas-atlassian__jira_add_comment")));
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+// Found in a live sprint: the health check called a tracker status an invalid story status. The shared
+// frontmatter reader let the ticket's mirrored status, type and date replace the record's own.
+test("a record imported from a tracker keeps its own status and type for every reader", async () => {
+  const { parseFrontmatter } = await import("../bin/terminal-gate.mjs");
+  const { base, d } = fixture();
+  try {
+    const input = join(base, "in.json");
+    writeFileSync(input, JSON.stringify({ source: "jira", items: [{ key: "LED-31", title: "Filter by category", type: "Story", status: "In Progress", updated: "2031-01-01" }] }));
+    run(d, "tracker", "pull", "--input", input);
+    const file = join(d, "spec", "stories", readdirSync(join(d, "spec", "stories")).find((n) => n.startsWith("S001")));
+    const fm = parseFrontmatter(readFileSync(file, "utf8"));
+    assert.deepEqual([fm.status, fm.type, fm.id], ["proposed", "feature", "S001"], "the story's own values, not the ticket's");
+    assert.notEqual(fm.updated, "2031-01-01");
+    assert.equal(fm.fingerprint.length, 12, "a nested key with no top-level twin is still readable");
+    assert.match(run(d, "backlog", "board").stdout, /PROPOSED · 1/);
   } finally { rmSync(base, { recursive: true, force: true }); }
 });

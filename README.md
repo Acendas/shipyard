@@ -159,6 +159,8 @@ A story that changes a screen also gets a design: you sign it off, or waive it w
 
 Useful forms: `/ship-discuss S001` (refine a story), `--idea <text>` (save and stop), `--chain <ids>` (several in a row), `--pull "<JQL>"` (import tickets from your tracker), or an issue key such as `SYS-123`.
 
+**Releases and big requests.** A release is a *fix version*, not an epic: `shipyard-data version add v4.2.0 --date 2027-01-15`, and every epic, story, task and idea can say which release it is expected to ship in. Hand `/ship-discuss` a tracker export or a list of tickets and each coarse one comes in as an idea that keeps its link; the ones near the top are promoted to epics and broken down into spikes and stories, the rest stay coarse until they are next. `shipyard-data version show v4.2.0` shows what is in a release, what is done, and what still has to be checked by a person before it ships.
+
 ### 2. `/ship-sprint`: plan the work
 
 | You do | Shipyard does | You get |
@@ -240,6 +242,22 @@ At the start and at the end. Never in the middle.
 | End | "Look at the new screen on your phone" | The review lists the waiting checks grouped by where you do them |
 
 If you cannot do the start items when the sprint starts, the stories that depend on them leave the sprint; they do not stop halfway. A check done by a person is recorded only from that person's answer; accepting the sprint does not confirm it. `shipyard-data sprint needs-you` prints the current line.
+
+## What is new in 4.0.1
+
+A patch release from running 4.0.0 on real projects. No migration is needed.
+
+| Area | What changed |
+|---|---|
+| Questions | Every question card now comes after its own short explanation (a summary and a table or example). Acceptance criteria are shown one plain line each, not as Given/When/Then |
+| Releases | A release is a *fix version* (`shipyard-data version …`), not an epic. Epics, stories, tasks and ideas can each say which release they are expected to ship in |
+| Backlog | One list in your order: `shipyard-data backlog move <id> --top --why "<what a delay costs>"`. Nothing re-sorts it by score behind you |
+| Trackers | Tickets come in by type (an epic as an idea, a story or bug as a story, a task as a task), each keeping its link. Shipyard tells you when new work has no ticket, offers to create it, and asks to sync when a discussion, a sprint plan or a sprint review ends. `tracker_sync: ask \| auto \| off` |
+| Research | Discussion research searches your connected wiki, tracker and shared drive before the web, records where it looked, and asks once whether a document exists that it could not reach |
+| Sprint review | Asks whether the sprint does what you wanted and whether that changes what comes next, in place of "accept" |
+| Fixes | A discussion no longer stops halfway; `/clear` no longer leaves a lock behind; a story imported from a tracker keeps its own status; `/ship-backlog` always shows the board |
+
+The full list is in [docs/milestones-4.0.md](docs/milestones-4.0.md).
 
 ## What is new in 4.0.0
 
@@ -375,7 +393,10 @@ Shipyard ships 7 registered agents. Each is started through an internal skill th
 |---|---|---|
 | `plugin-data-breadcrumb` | When a session starts | Notes where the data folder is, so every command finds it |
 | `auto-approve-data` | Before Claude edits or writes a file | Lets writes to the data folder through without a prompt; refuses hand-edits to CLI-owned state; keeps a discussion out of project files |
-| `unattended-ask` | Before Claude asks a question | Refuses a question mid-build and a badly shaped question card |
+| `unattended-ask` | Before Claude asks a question | Refuses a question mid-build, a card with more than one question, and a question with no summary and picture written above it |
+| `ask-after-explain` | When Claude ends its turn | After an explanation that ends with "Question follows.", hands the turn back so the question card comes next. Also hands a discussion back once when it stops halfway |
+| `tracker-write` | Before a comment, ticket or page is written through a connector | Inside a Shipyard command, sends the write back unless its exact text was shown in the chat first |
+| `source-ledger` | After a connector or web tool runs | During a discussion, counts which kinds of source were read (wiki, tracker, shared drive, web); the tool's name only, never what was asked or returned |
 | `agent-ledger` | Before an agent is started or stopped | Keeps the list of live agents; enforces the agent limit and the routed model |
 | `worktree-branch` | When a worktree is created | Starts it from your current branch |
 | `lock-reap` | When a session ends | Releases any lock the session still holds |

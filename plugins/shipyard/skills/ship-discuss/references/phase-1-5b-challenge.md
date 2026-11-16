@@ -19,7 +19,7 @@ The capability skill returns a structured findings list with per-finding `catego
 
 ## Presentation
 
-Follow `references/communication-design.md`. Max 3–4 questions in the round, one card each, each written in chat first; more small items of one kind become one table and one "apply all / one by one" question. For each item: what I found → why it matters → what I recommend. Use the 3-layer pattern for anything genuinely surprising. Compact visual summary before the AskUserQuestion:
+Follow `references/communication-design.md`. Max 3–4 questions in the round, one card each, each written in chat first (summary, picture, the line `Question follows.` ending the turn, then the card); more small items of one kind become one table and one "apply all / one by one" question. For each item: what I found → why it matters → what I recommend. Use the 3-layer pattern for anything genuinely surprising. Compact visual summary before the AskUserQuestion:
 
 ```
   ⚠️  [Finding]           → [impact], recommend [action]

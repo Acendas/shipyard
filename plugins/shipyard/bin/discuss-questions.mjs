@@ -54,7 +54,7 @@ export const bundleQuestion = (n) => `Use my recommended answers for these ${n} 
 export function questionsPath(dataDir) { return join(dataDir, QUESTIONS_BASENAME); }
 /** Where a topic's "show" files (one picture, table or example per question) are written; removed when the list is closed. */
 export function showDir(dataDir, topic) { return join(dataDir, "spec", ".questions", topic); }
-const emptyTopic = (topic) => ({ topic, story: "", budget: DEFAULT_BUDGET, started_at: new Date().toISOString(), seq: 0, answer_seq: 0, one_by_one: false, bundle: null, research: { state: "none", by: "", at: "", note: "" }, questions: [], assumptions: [] });
+const emptyTopic = (topic) => ({ topic, story: "", budget: DEFAULT_BUDGET, started_at: new Date().toISOString(), seq: 0, answer_seq: 0, one_by_one: false, bundle: null, research: { state: "none", by: "", at: "", note: "" }, questions: [], assumptions: [], needs_sources: true, sources: null });
 export function readState(dataDir) {
   const empty = { version: 2, current: null, topics: {} };
   if (!existsSync(questionsPath(dataDir))) return empty;
@@ -79,6 +79,9 @@ const words = (s) => String(s ?? "").trim().split(/\s+/).filter(Boolean).length;
 const secs = (a, b) => (a && b ? Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 1000)) : null);
 const now = () => new Date().toISOString();
 const isOpen = (q) => OPEN.has(q.status);
+/** The stories a topic is bound to. One discussion can write several (4.0.1): `bind` used to keep only the last one, so the first three of four stories could be approved with a question still open. */
+export const boundTo = (t) => [...new Set([...(Array.isArray(t?.stories) ? t.stories : []), t?.story].map((x) => String(x ?? "").trim()).filter(Boolean))];
+const bindStories = (t, raw) => { t.stories = [...new Set([...boundTo(t), ...String(raw).split(",").map((x) => x.trim()).filter(Boolean)])]; t.story = t.stories[0] ?? ""; return t.stories; };
 
 /** Problems with a question as it would appear on a card, or []. Pure. */
 export function questionProblems({ kind = "decision", summary, question, options, checked, confidence }) {
@@ -131,7 +134,7 @@ export function summarize(t) {
   const answered = qs.map((q) => secs(q.shown_at, q.answered_at)).filter((n) => n !== null && true);
   const median = (a) => (a.length ? [...a].sort((x, y) => x - y)[Math.floor((a.length - 1) / 2)] : null);
   return {
-    topic: t.topic, story: t.story, total: qs.length, draft: count("draft"), open: count("open"), asked: count("asked"), answered: count("answered"), dropped: count("dropped"),
+    topic: t.topic, story: boundTo(t).join(", "), total: qs.length, draft: count("draft"), open: count("open"), asked: count("asked"), answered: count("answered"), dropped: count("dropped"),
     cards_shown: qs.filter((q) => q.shown_at).length, assumptions: t.assumptions.length, research: t.research.state,
     raised_to_shown_seconds: { median: median(shown), max: shown.length ? Math.max(...shown) : null },
     shown_to_answered_seconds: { median: median(answered), max: answered.length ? Math.max(...answered) : null },
@@ -144,7 +147,13 @@ export function summarize(t) {
 export function approvalProblems(dataDir, storyId) {
   const out = [];
   for (const t of Object.values(readState(dataDir).topics)) {
-    if (!storyId || t.story !== storyId) continue;
+    if (!storyId || !boundTo(t).includes(String(storyId))) continue;
+    // Where the research looked is on record before approval (4.0.1). The owner: "as part of discuss make sure
+    // research looks at datasources internal as well as the usual external". Only topics started since then.
+    if (t.needs_sources && !t.sources) out.push('the research has not said where it looked: record the organisation\'s own sources (wiki, tracker, shared drive, the project\'s documents) and the outside ones with `discuss-questions sources --wiki "…" --tracker "…" --drive "…" --external "…"` (each: what was searched and found, or "not connected", or "not relevant: <why>")');
+    // A session only knows the sources that are connected. A PDF on someone's disk, a contract, an email: only
+    // the person knows it exists, so they are asked once, with the list of what was looked at in front of them.
+    else if (t.needs_sources && !t.sources.person_said) out.push('the person has not been asked whether a document exists that this session cannot reach (a PDF, a contract, a spec sheet, an email): show them what the research looked at, ask, read what they give, and record their answer with `discuss-questions sources --person-said "<their answer>"`');
     const waiting = t.questions.filter(isOpen);
     if (waiting.length) out.push(`${waiting.length} question(s) of this discussion are not answered yet (${waiting.map((q) => q.id).join(", ")}): ask them (\`discuss-questions next\`), or \`drop\` the ones research answered`);
     if (["running", "parked"].includes(t.research.state)) out.push(`the background research is ${t.research.state}: let it finish with the answers (\`discuss-questions research --state done\`), or record \`--state abandoned --note "<why>"\``);
@@ -152,6 +161,76 @@ export function approvalProblems(dataDir, storyId) {
   }
   return out;
 }
+/** Connector and web calls the `source-ledger` hook logged since `since`: { wiki, tracker, drive, chat, web, internal }. */
+export function measuredSources(dataDir, since) {
+  const out = { wiki: 0, tracker: 0, drive: 0, chat: 0, code_host: 0, web: 0 };
+  const t0 = Date.parse(since ?? "");
+  let text = "";
+  try { text = readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8"); } catch { return { ...out, internal: 0 }; }
+  for (const line of text.split("\n")) {
+    if (!line.includes('"source_read"')) continue;
+    let e; try { e = JSON.parse(line); } catch { continue; }
+    if (e.type !== "source_read" || !(e.source in out)) continue;
+    if (Number.isFinite(t0) && Date.parse(e.ts) < t0 - 1000) continue;
+    out[e.source] += 1;
+  }
+  return { ...out, internal: out.wiki + out.tracker + out.drive + out.chat };
+}
+/** The last call of each kind of source ever logged in this project: { wiki: {tool, ts}, … }. */
+function everRead(dataDir) {
+  const out = {};
+  let text = "";
+  try { text = readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8"); } catch { return out; }
+  for (const line of text.split("\n")) {
+    if (!line.includes('"source_read"')) continue;
+    try { const e = JSON.parse(line); if (e.type === "source_read") out[e.source] = { tool: e.tool, ts: e.ts }; } catch { /* a cut line */ }
+  }
+  return out;
+}
+/** The kinds of source the latest session to hold a discussion had tools for ({wiki, tracker, drive}: a tool name or ""), or null when never recorded. */
+function availableSources(dataDir) {
+  let text = "";
+  try { text = readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8"); } catch { return null; }
+  let last = null;
+  for (const line of text.split("\n")) {
+    if (!line.includes('"sources_available"')) continue;
+    try { const e = JSON.parse(line); if (e.type === "sources_available") last = e; } catch { /* a cut line */ }
+  }
+  return last ? { wiki: last.wiki ?? "", tracker: last.tracker ?? "", drive: last.drive ?? "" } : null;
+}
+const sourcesTable = (x) => ["| Where | What was searched and found |", "|---|---|", `| Wiki | ${x.wiki || "-"} |`, `| Tracker | ${x.tracker || "-"} |`, `| Shared drive | ${x.drive || "-"} |`, ...(x.project ? [`| The project's own documents | ${x.project} |`] : []), `| Outside | ${x.external || "-"} |`, `| Tool calls counted | ${x.measured} |`];
+const measuredLine = (m) => `wiki ${m.wiki}, tracker ${m.tracker}, shared drive ${m.drive}${m.chat ? `, chat or mail ${m.chat}` : ""}; web ${m.web}`;
+
+/**
+ * What a discussion still owes about its sources before it ends, or null. Read by `lock release discuss`:
+ * a discussion that breaks an epic into a spike and draft stories never reaches an approval, so the approval
+ * gate alone would let it end without saying where it looked (seen live: "I have not read the Google Drive
+ * hardware documents yet").
+ */
+export function sourcesOwed(dataDir, since, events = []) {
+  const t0 = Date.parse(since ?? "");
+  const mine = Object.values(readState(dataDir).topics).filter((t) => t.needs_sources && !(Number.isFinite(t0) && Date.parse(t.started_at ?? "") < t0 - 1000));
+  for (const t of mine) {
+    if (t.topic === FALLBACK_TOPIC) continue;
+    if (!t.sources) return { topic: t.topic, missing: "sources" };
+    if (!t.sources.person_said) return { topic: t.topic, missing: "person" };
+  }
+  // A discussion that wrote specs without ever opening a question list owes the same (seen live: an idea was
+  // refined into an epic through free cards, and nothing asked where the research had looked).
+  const wrote = events.some((e) => (!Number.isFinite(t0) || Date.parse(e.ts) >= t0 - 1000) && (WROTE_SPECS.has(e.type) || (e.type === "model_state_file_write" && /[\\/]spec[\\/](epics|stories|tasks|features|bugs)[\\/]/.test(String(e.file ?? "")))));
+  if (!wrote) return null;
+  // The quick lanes (a thought captured, a tiny change filed to land now, a hotfix) do no research: nothing is owed.
+  const lane = [...events].reverse().find((e) => e.type === "intake_lane_confirmed" && (!Number.isFinite(t0) || Date.parse(e.ts) >= t0 - 1000))?.lane;
+  if (["land-now", "capture", "hotfix"].includes(lane)) return null;
+  if (mine.some((t) => t.sources?.person_said)) return null;
+  // A question list that was closed took its record with it; the log remembers that it was complete
+  // (seen live: the session had to record its sources a second time to release the lock).
+  if (events.some((e) => e.type === "discuss_sources_recorded" && e.person_asked === "yes" && (!Number.isFinite(t0) || Date.parse(e.ts) >= t0 - 1000))) return null;
+  return { topic: mine.find((t) => t.sources)?.topic ?? FALLBACK_TOPIC, missing: mine.some((t) => t.sources) ? "person" : "sources" };
+}
+const FALLBACK_TOPIC = "discussion"; // where `sources` is kept when a discussion has no question list
+const WROTE_SPECS = new Set(["idea_promoted", "idea_imported", "idea_captured", "story_imported", "task_imported", "tracker_pulled"]);
+const lockStart = (dataDir) => { try { const o = JSON.parse(readFileSync(join(dataDir, ".active-discuss.json"), "utf8")); return o && o.skill && !o.cleared ? String(o.started ?? "") : ""; } catch { return ""; } };
 /** Topics with something waiting (for the start-of-discussion context). */
 export function waitingTopics(dataDir) {
   const s = readState(dataDir);
@@ -165,6 +244,29 @@ export function currentCard(dataDir) {
   const asked = t.questions.filter((q) => q.status === "asked").map((q) => q.question);
   if (t.bundle) asked.push(bundleQuestion(t.bundle.ids.length));
   return { topic: t.topic, questions: asked };
+}
+
+/**
+ * A card the main session asks that the list did not hand out (4.0.1). It is
+ * recorded as a question on the person's screen, so its answer is owed like any
+ * other and nothing can be approved until it is recorded. Before this the card
+ * hook refused it, and the owner met that as an error in the middle of a
+ * discussion. Returns { id, topic } or null (an answered or waiting question
+ * already asks it, or there is no current topic).
+ */
+export function recordUnlisted(dataDir, card) {
+  const question = String(card?.question ?? "").trim();
+  if (!question) return null;
+  const r = mutate(dataDir, (state) => {
+    const t = state.current ? state.topics[state.current] : null;
+    if (!t) return { error: "no topic" };
+    if (t.questions.some((x) => x.status !== "dropped" && norm(x.question) === norm(question))) return { error: "listed" };
+    const options = (Array.isArray(card.options) ? card.options : []).map((x) => ({ label: String(x?.label ?? "").replace(/\s*\(Recommended\)\s*$/i, "").trim(), description: String(x?.description ?? "").trim() })).filter((x) => x.label);
+    const q = { id: `Q${++t.seq}`, kind: "decision", status: "asked", weight: "normal", by: "main", unlisted: true, confidence: "", summary: "", show: "", question, options, parks: "", checked: "", problems: [], raised_at: now(), shown_at: now(), answered_at: null, answer: null };
+    t.questions.push(q);
+    return { id: q.id, topic: t.topic };
+  });
+  return r && !r.error ? r : null;
 }
 
 function parse(args, fail) {
@@ -187,7 +289,10 @@ function usage(msg) {
       "         discuss-questions add --summary \"...\" --question \"...\" --option \"<label>::<meaning>\" (2-4, recommended first) --checked \"...\" --confidence <medium|low> [--parks \"...\"] [--weight high] [--show-file <path>|--show \"...\"] [--by <who>] [--kind gate]\n" +
       "         discuss-questions revise <Q#> [the same flags] | assume --statement \"...\" --basis \"...\" [--by <who>]\n" +
       "         discuss-questions next [--json] | answer <Q#> (--choice <n> | --text \"...\" | --you-decide) | answer-bundle (--accept | --one-by-one)\n" +
+      "         discuss-questions ask-again <Q#> --their-words \"...\" [--summary \"...\" --show-file <path> --option \"<label>::<meaning>\" ...]   (they replied with a question, or asked for advice)\n" +
       "         discuss-questions answers [--after <cursor>] [--ack --by <who>] [--json] | drop <Q#> --reason \"...\"\n" +
+      "         discuss-questions sources --wiki \"...\" --tracker \"...\" --drive \"...\" --external \"...\" [--project \"...\"] [--by <who>]   (each: searched and found | not connected | not relevant: <why>)\n" +
+      "         discuss-questions sources --person-said \"<their answer to: is there a document this session cannot reach?>\"\n" +
       "         discuss-questions research --state <running|parked|done|abandoned> [--by <who>] [--note \"...\"] | wait [--timeout <s>] | status [--json]\n" +
       "         (every verb takes --topic <slug>; the current topic is used without it)\n",
   );
@@ -201,12 +306,22 @@ const cardOptions = (q) => q.options.map((x, i) => ({ label: `${x.label}${i === 
 function renderQuestion(q, extra) {
   const L = [`${q.id}${q.kind === "gate" ? " (approval)" : ""}${extra.waiting ? ` — ${extra.waiting} more waiting` : ""}${q.by ? ` — raised by ${q.by}` : ""}${extra.reshown ? " — SHOWN BEFORE, not answered: if the person's answer is in this conversation record it, otherwise say you are asking again" : ""}`];
   if (extra.since.length) L.push("", "Answered since this was raised (if one of these settles it, `drop` it instead of asking):", ...extra.since.map((a) => `  ${a.id} "${a.question}" → ${a.answer}`));
+  if (q.unlisted && !q.summary) {
+    L.push("", `You asked this card yourself, outside the list: "${q.question}"`, "", "CHOICES it had:");
+    cardOptions(q).forEach((o, i) => L.push(`  ${i + 1}. ${o.label} — ${o.description}`));
+    L.push("", `Record the person's answer now: shipyard-data discuss-questions answer ${q.id} --choice <n>   (--text "<their own words>" for anything else). Do not ask it again if they answered. Next time add the question to the list first (\`discuss-questions add …\`).`);
+    return L.join("\n") + "\n";
+  }
   L.push("", "SUMMARY (write this in the chat first):", q.summary);
-  if (q.show) L.push("", "SHOW (write this in the chat too, as it is):", q.show);
+  // Always something to look at (4.0.1): with no show block of its own, the choices as a table.
+  const show = q.show || ["| Choice | What it means |", "|---|---|", ...cardOptions(q).map((o) => `| ${o.label} | ${o.description} |`)].join("\n");
+  L.push("", "SHOW (write this in the chat too, as it is):", show);
+  L.push("", `NEXT: write the SUMMARY and the SHOW block as your message, as they are (the person cannot see this tool result, and cannot see your reasoning). End the message with the line "Question follows." and end your turn there; you get the turn straight back, and then you ask the card below.`);
   L.push("", "QUESTION (the card's question, word for word):", q.question, "", "CHOICES (the card's options, in this order):");
   cardOptions(q).forEach((o, i) => L.push(`  ${i + 1}. ${o.label} — ${o.description}`));
   if (q.parks) L.push("", `Research waiting on this: ${q.parks}`);
   L.push("", `Then record it: shipyard-data discuss-questions answer ${q.id} --choice <n>   (--text "<their own words>" for anything else, --you-decide when they leave it to you)`);
+  L.push(`If they reply with a question or ask what you advise, that is not an answer and your advice is not their answer: shipyard-data discuss-questions ask-again ${q.id} --their-words "<their words>" --summary "<your advice, 40 words or fewer>" [--show-file … --option …], then \`next\` shows it again with your advice above it.`);
   return L.join("\n") + "\n";
 }
 
@@ -234,7 +349,7 @@ export function main(dataDir, args = []) {
     if (!o.topic) usage("start needs --topic <slug>");
     const r = withTopic((t, state) => {
       state.current = t.topic;
-      if (o.story) t.story = String(o.story);
+      if (o.story) bindStories(t, o.story);
       if (o.budget !== undefined) { const n = Number(o.budget); if (Number.isInteger(n) && n >= 1) t.budget = n; }
       return { t: { ...t }, waiting: t.questions.filter(isOpen).map((q) => q.id) };
     }, { create: true });
@@ -245,8 +360,8 @@ export function main(dataDir, args = []) {
   }
   if (sub === "bind") {
     if (!o.story) usage("bind needs --story S###");
-    const r = withTopic((t) => { t.story = String(o.story); return { topic: t.topic }; });
-    process.stdout.write(`topic ${r.topic} is bound to ${o.story}: it cannot be approved while a question waits\n`);
+    const r = withTopic((t) => ({ topic: t.topic, stories: bindStories(t, o.story) }));
+    process.stdout.write(`topic ${r.topic} is bound to ${r.stories.join(", ")}: ${r.stories.length > 1 ? "none of them can" : "it cannot"} be approved while a question waits\n`);
     return;
   }
   if (sub === "pause") {
@@ -257,6 +372,8 @@ export function main(dataDir, args = []) {
 
   if (sub === "add" || sub === "revise") {
     const f = fields();
+    // A bare `add` is someone asking how the verb works, not a question: seen live, it left an empty draft Q1 behind.
+    if (sub === "add" && !String(f.question ?? "").trim() && !String(f.summary ?? "").trim() && !f.options) usage("add needs at least --question (and --summary, --option, --checked, --confidence)");
     const kind = o.kind === "gate" ? "gate" : "decision";
     const r = withTopic((t) => {
       let q;
@@ -325,7 +442,8 @@ export function main(dataDir, args = []) {
     }
     const why = { draft: `nothing can be shown: ${r.drafts.map((d) => d.id).join(", ")} ${r.drafts.length === 1 ? "is a draft" : "are drafts"} — reword with \`discuss-questions revise <Q#> …\`:\n${r.drafts.map((d) => `  ${d.id}: ${d.problems.join("; ")}`).join("\n")}`, research_running: "an approval is waiting, but research is still running: approvals are shown once every decision is in. Wait: `shipyard-data discuss-questions wait` (run it in the background and end your turn)", research_parked: "no question is waiting; research is parked. Resume the researcher with the answers it is waiting for", none: `no question is waiting (${r.s.answered} answered, ${r.s.dropped} dropped)` }[r.reason] ?? "no question is waiting; research is still running. Wait: `shipyard-data discuss-questions wait` (run it in the background and end your turn)";
     if (o.json) process.stdout.write(JSON.stringify({ question: null, reason: r.reason, research: r.s.research, drafts: r.drafts }) + "\n"); else process.stdout.write(why + "\n");
-    process.exit(3);
+    // Only a draft needs action. "Nothing is waiting" is an ordinary answer (4.0.1): as exit 3 it showed the person a red error after every last answer.
+    process.exit(r.reason === "draft" ? 3 : 0);
   }
 
   if (sub === "answer") {
@@ -338,6 +456,7 @@ export function main(dataDir, args = []) {
       if (q.status === "answered") return { error: `${id} is already answered (${q.answer.label || q.answer.text})` };
       if (q.status === "dropped" || q.status === "draft") return { error: `${id} is ${q.status}${q.status === "draft" ? ": revise it and ask it first" : ` (${q.drop_reason})`}` };
       let answer;
+      if (o["you-decide"] && !q.options.length) return { error: `${id} has no choices to fall back on: record their words with --text` };
       if (o["you-decide"]) {
         answer = { choice: 1, label: q.options[0].label, text: "", you_decide: true };
         t.assumptions.push({ statement: `${q.question} → ${q.options[0].label}`, basis: "the person left it to Shipyard; this was the recommended answer", by: "main", at: now() });
@@ -352,6 +471,29 @@ export function main(dataDir, args = []) {
     });
     log("discuss_question_answered", { topic: r.topic, question: id, choice: r.q.answer.you_decide ? "you decide" : r.q.answer.choice ?? "own words", wait_s: secs(r.q.shown_at, r.q.answered_at) ?? 0 });
     process.stdout.write(`${id} answered: ${r.q.answer.label || r.q.answer.text}${r.q.answer.you_decide ? " (left to you; recorded as ASSUMED)" : ""}. ${r.left ? `${r.left} more waiting: run \`discuss-questions next\`.` : "No question is waiting."}\n`);
+    return;
+  }
+
+  if (sub === "ask-again") {
+    const id = o._[0];
+    if (!id || !String(o["their-words"] ?? "").trim()) usage("ask-again needs a question id (Q#) and --their-words \"<what they said>\"");
+    const f = fields();
+    const r = withTopic((t) => {
+      const q = t.questions.find((x) => x.id === id);
+      if (!q) return { error: `${id} is not in topic ${t.topic}` };
+      if (!["asked", "answered"].includes(q.status)) return { error: `${id} is ${q.status}: only a question that was shown can be asked again` };
+      if (q.status === "answered" && q.picked_up_at) return { error: `${id}'s answer was already read by the researcher: add a new question instead` };
+      q.replies = [...(Array.isArray(q.replies) ? q.replies : []), { text: String(o["their-words"]).trim().slice(0, 2000), at: now() }];
+      for (const [k, v] of Object.entries(f)) if (v !== undefined) q[k] = k === "weight" ? (v === "high" ? "high" : "normal") : typeof v === "string" ? v.trim() : v;
+      Object.assign(q, { answer: null, answered_at: null, unlisted: false });
+      delete q.answer_seq; // not an answer any more: `answers --after` must not list it
+      q.problems = shapeOf(q);
+      q.status = q.problems.length ? "draft" : "open";
+      return { q: { ...q }, topic: t.topic };
+    });
+    log("discuss_question_asked_again", { topic: r.topic, question: id, times: r.q.replies.length });
+    if (r.q.status === "draft") refuse(`${id} is open again but cannot be shown yet:\n  - ${r.q.problems.join("\n  - ")}\n  Fix it: shipyard-data discuss-questions revise ${id} <the corrected flags>`);
+    process.stdout.write(`${id} is open again; their words are kept ("${r.q.replies.at(-1).text.slice(0, 120)}"). Nothing is recorded as their answer. Run \`discuss-questions next\`: write your advice above the card, then ask it.\n`);
     return;
   }
 
@@ -408,6 +550,66 @@ export function main(dataDir, args = []) {
     return;
   }
 
+  if (sub === "sources") {
+    const one = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
+    const began = lockStart(dataDir);
+    // no question list in this discussion: the record still has a home
+    if (!o.topic && !readState(dataDir).current) o.topic = FALLBACK_TOPIC;
+    const given = { wiki: one(o.wiki), tracker: one(o.tracker), drive: one(o.drive) };
+    const project = one(o.project), external = one(o.external), said = one(o["person-said"]);
+    if (o.internal !== undefined) usage('sources takes one line per kind of source: --wiki "..." --tracker "..." --drive "..." (each: what was searched and found, or "not connected", or "not relevant: <why>"), plus --external "..." and optionally --project "<the project\'s own documents read>"');
+    const any = Object.values(given).some(Boolean) || project || external;
+    const r = withTopic((t) => {
+      if (t.topic === FALLBACK_TOPIC && began && Date.parse(t.started_at ?? "") < Date.parse(began) - 1000) Object.assign(t, { started_at: now(), sources: null }); // an earlier discussion's record
+      const prev = t.sources;
+      if (!prev && said) return { error: "the person is asked after they have seen where the research looked: record --wiki, --tracker, --drive and --external first; the command prints the table and the question to show them" };
+      if (!prev && (!given.wiki || !given.tracker || !given.drive || external.length < 4)) return { error: 'sources needs one line per kind of source: --wiki "..." --tracker "..." --drive "..." and --external "...". Each is what was searched and what was found, or "not connected" (this session has no such tool), or "not relevant: <why>"' };
+      if (prev && !any && !said) return { error: "sources needs something to add: --wiki, --tracker, --drive, --project, --external or --person-said" };
+      // What was called is a fact (the source-ledger hook counts it). A line that claims a search with no call of
+      // that kind behind it is refused: notes from memory are not a search. Seen live twice: "looked at: memory:
+      // pricing sheets (Drive)" with no call at all, then one tracker search standing for all three.
+      const m = measuredSources(dataDir, began && Date.parse(began) < Date.parse(t.started_at ?? "") ? began : t.started_at);
+      const names = { wiki: "wiki", tracker: "tracker", drive: "shared-drive" };
+      const avail = availableSources(dataDir);
+      for (const k of Object.keys(given)) {
+        const v = given[k];
+        if (!v) continue;
+        // What is connected is a fact too: the hooks record which kinds of source this session has tools for
+        // (`sources_available`), and a kind this project has ever called is connected.
+        const tool = (avail && avail[k]) || everRead(dataDir)[k]?.tool || "";
+        if (/^not connected\b/i.test(v)) {
+          if (tool) return { error: `--${k} says not connected, but this session has ${names[k]} tools (for example ${tool}). Search it for the topic, the release, the ticket keys and the product and device names, then record what you found; "searched <what>: nothing relevant" is a fine answer after a real search` };
+          continue;
+        }
+        if (/^not relevant\s*:/i.test(v)) {
+          // Whether a source has anything to say is found by looking, not by deciding beforehand.
+          if (tool && m[k] === 0) return { error: `--${k} says not relevant, but the ${names[k]} is connected (for example ${tool}) and was not searched. Search it first; "searched <what>: nothing relevant" is a fine answer after a real search` };
+          if (v.replace(/^not relevant\s*:/i, "").trim().length < 10) return { error: `--${k}: "not relevant:" needs the reason` };
+          continue;
+        }
+        if (m[k] === 0) return { error: `--${k} says the ${names[k]} was searched, but no ${names[k]} tool was called in this discussion (counted: ${measuredLine(m)}). Notes from memory are not a search. Search it for the topic, the release, the ticket keys and the product and device names, read what matches, then record again.${tool ? "" : ` If this session has no ${names[k]} tool: --${k} "not connected".`}` };
+      }
+      const merge = (a, b) => (!b ? a ?? "" : !a ? b : a.includes(b) ? a : `${a}; ${b}`).slice(0, 1200);
+      t.sources = {
+        measured: measuredLine(m),
+        wiki: merge(prev?.wiki, given.wiki), tracker: merge(prev?.tracker, given.tracker), drive: merge(prev?.drive, given.drive), project: merge(prev?.project, project),
+        external: merge(prev?.external, external), person_said: said ? said.slice(0, 1000) : prev?.person_said ?? "", by: o.by ?? prev?.by ?? "", at: now(),
+      };
+      return { topic: t.topic, asked: Boolean(t.sources.person_said), src: { ...t.sources } };
+    }, { create: true });
+    log("discuss_sources_recorded", { topic: r.topic, by: o.by ?? "", person_asked: r.asked ? "yes" : "no" });
+    if (r.asked) { process.stdout.write("recorded where the research looked and what the person said about documents it could not reach\n"); return; }
+    process.stdout.write([
+      "recorded where the research looked. Still owed: show the person this table and ask whether a document exists that this session cannot reach (a PDF, a contract, a spec sheet, an email).",
+      "", "SHOW (write this in the chat as it is, under a summary of 40 words or fewer; then the line \"Question follows.\" ends your turn):",
+      ...sourcesTable(r.src),
+      "", "QUESTION (the card, word for word): Is there a document I could not reach?",
+      "CHOICES: 1. No, that is everything (Recommended) — Carry on with what was found   2. Yes, here is the path — Give a file path, or paste it   3. Yes, but it cannot be shared — Say what it tells us",
+      "", 'Then read what they give (the Read tool opens PDFs) and record their answer: shipyard-data discuss-questions sources --person-said "<their answer>"',
+    ].join("\n") + "\n");
+    return;
+  }
+
   if (sub === "research") {
     if (!RESEARCH_STATES.includes(o.state)) usage(`research needs --state ${RESEARCH_STATES.join("|")}`);
     if (o.state === "abandoned" && !String(o.note ?? "").trim()) usage("research --state abandoned needs --note \"<why>\"");
@@ -451,10 +653,12 @@ export function main(dataDir, args = []) {
       return;
     }
     const sum = summarize(t);
-    if (o.json) { process.stdout.write(JSON.stringify({ ...sum, questions: t.questions.map((q) => ({ id: q.id, kind: q.kind, status: q.status, by: q.by, question: q.question, answer: q.answer ? (q.answer.label || q.answer.text) : null, drop_reason: q.drop_reason ?? null, raised_to_shown_s: secs(q.raised_at, q.shown_at), shown_to_answered_s: secs(q.shown_at, q.answered_at) })), assumed: t.assumptions }) + "\n"); return; }
-    process.stdout.write(`${t.topic}${t.story ? ` (${t.story})` : ""}: ${sum.draft + sum.open + sum.asked} waiting, ${sum.answered} answered, ${sum.dropped} dropped; ${sum.assumptions} assumed; research ${sum.research}\n`);
+    if (o.json) { process.stdout.write(JSON.stringify({ ...sum, sources: t.sources ?? null, questions: t.questions.map((q) => ({ id: q.id, kind: q.kind, status: q.status, by: q.by, question: q.question, answer: q.answer ? (q.answer.label || q.answer.text) : null, drop_reason: q.drop_reason ?? null, raised_to_shown_s: secs(q.raised_at, q.shown_at), shown_to_answered_s: secs(q.shown_at, q.answered_at) })), assumed: t.assumptions }) + "\n"); return; }
+    process.stdout.write(`${t.topic}${boundTo(t).length ? ` (${boundTo(t).join(", ")})` : ""}: ${sum.draft + sum.open + sum.asked} waiting, ${sum.answered} answered, ${sum.dropped} dropped; ${sum.assumptions} assumed; research ${sum.research}\n`);
     for (const q of t.questions) process.stdout.write(`  ${q.id} ${q.status.padEnd(8)} ${q.question}${q.status === "answered" ? ` → ${q.answer.label || q.answer.text}` : q.status === "dropped" ? ` (dropped: ${q.drop_reason})` : ""}\n`);
     for (const a of t.assumptions) process.stdout.write(`  ASSUMED: ${a.statement} — ${a.basis}\n`);
+    if (t.sources) process.stdout.write(`  LOOKED AT:\n${sourcesTable({ ...t.sources, measured: t.sources.measured ?? "" }).map((l) => `    ${l}`).join("\n")}\n  OTHER DOCUMENTS (the person, when asked): ${t.sources.person_said || "not asked yet"}\n`);
+    else if (t.needs_sources) process.stdout.write("  LOOKED AT: not recorded yet (`discuss-questions sources --wiki … --tracker … --drive … --external …`)\n");
     if (sum.raised_to_shown_seconds.median !== null) process.stdout.write(`raised to shown: median ${sum.raised_to_shown_seconds.median}s, longest ${sum.raised_to_shown_seconds.max}s; cards shown: ${sum.cards_shown}\n`);
     return;
   }
@@ -466,6 +670,13 @@ export function main(dataDir, args = []) {
       if (!t) return { none: true };
       const open = t.questions.filter(isOpen);
       if (open.length && !o.force) return { error: `${open.length} question(s) still waiting (${open.map((q) => q.id).join(", ")}): ask them, or \`drop <Q#> --reason\` the ones research answered. To stop for now and keep them, use \`discuss-questions pause\`.` };
+      // The list is the record of where the research looked: it is not closed before that is said and the person
+      // was asked about what no session can reach. Seen live: a discussion ran `reset` and then released its lock,
+      // and the end-of-discussion check found no topic to read.
+      if (t.needs_sources && !o.force) {
+        if (!t.sources) return { error: `the question list cannot be closed yet: the research has not said where it looked. Search the organisation's own sources this session can reach (wiki, tracker, shared drive), then outside, and record: shipyard-data discuss-questions sources --wiki "…" --tracker "…" --drive "…" --external "…" (each: searched and found | not connected | not relevant: <why>)` };
+        if (!t.sources.person_said) return { error: 'the question list cannot be closed yet: the person has not been asked whether a document exists that this session cannot reach. Show them what the research looked at (`discuss-questions status`), ask once, read what they give, and record: shipyard-data discuss-questions sources --person-said "<their answer>"' };
+      }
       const s = summarize(t);
       delete state.topics[name];
       if (state.current === name) state.current = null;

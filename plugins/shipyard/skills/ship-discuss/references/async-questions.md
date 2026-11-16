@@ -14,14 +14,14 @@ Why a list and not messages: a message that arrives while a card is open waits f
 
 ## Your loop
 
-1. **Start the list** as soon as the lane is confirmed and you have a topic slug: `shipyard-data discuss-questions start --topic <slug> --budget <refine_rounds × 4>`. From here on, **every card in this discussion comes from the list**: the card hook refuses any other question.
+1. **Start the list** as soon as the lane is confirmed and you have a topic slug: `shipyard-data discuss-questions start --topic <slug> --budget <refine_rounds × 4>`. From here on, **every card in this discussion comes from the list**. While a question is handed out, the card hook refuses a different one. With nothing handed out, a card you ask on your own is not refused: it is recorded as a question (`Q#`, shown), and you owe its answer (`answer Q# …`) before anything can be approved. Add to the list first all the same: only a listed question is checked against the others and shown with its summary.
 2. **Dispatch the researcher** in the background (Phase 0.6) with the protocol below.
 3. **Add your own unknowns** the same way it does (`add … --by main`), after the kill-list and the confidence gate. Do not hold them for a "round", and never tell the person the work comes in "rounds": say research has started and questions come one at a time. Write each question's show file under `<SHIPYARD_DATA>/spec/.questions/<slug>/` (`start` prints the folder; `reset` removes it).
 4. **Ask, record, repeat:**
 
    | `discuss-questions next` prints | You do |
    |---|---|
-   | A question | Write its SUMMARY and SHOW in the chat, then one `AskUserQuestion` with the QUESTION word for word and the CHOICES in order. Then `answer <Q#> --choice <n>` |
+   | A question | Write its SUMMARY and SHOW as your message (the summary first, the picture under it), end it with the line `Question follows.` and end your turn; you get the turn straight back, then one `AskUserQuestion` with the QUESTION word for word and the CHOICES in order. Then `answer <Q#> --choice <n>` |
    | "Answered since this was raised" above it | Check the question still stands. Settled by one of those answers: `drop <Q#> --reason "…"` and run `next` again |
    | "SHOWN BEFORE, not answered" | The answer is in this conversation: record it. Otherwise say in one line that you are asking again, and ask |
    | A table of smaller questions | Write the table in the chat (question, recommended answer, what it means), ask the one card, then `answer-bundle --accept` or `--one-by-one` |
@@ -30,10 +30,10 @@ Why a list and not messages: a message that arrives while a card is open waits f
    | Nothing, research parked | `SendMessage` the researcher: "answers are in, carry on". Then `wait` as above |
    | Nothing, research done | Go on to the next phase |
 
-   What the person did → what you record: picked an option → `--choice <n>`; typed their own answer → `--text "<their words>"`; "you decide" or "whatever you recommend" → `--you-decide` (the recommended option, logged as ASSUMED); closed the card → ask once more in one line; closed again → `--text "not answered"` and treat the branch as parked.
+   What the person did → what you record: picked an option → `--choice <n>`; typed their own answer → `--text "<their words>"`; "you decide" or "whatever you recommend" → `--you-decide` (the recommended option, logged as ASSUMED); closed the card → ask once more in one line; closed again → `--text "not answered"` and treat the branch as parked. **A reply that is a question, or asks what you advise, is not an answer, and your advice is never recorded as theirs:** `discuss-questions ask-again <Q#> --their-words "<what they said>" --summary "<your advice, 40 words or fewer>" [--show-file … --option …]`, then `next` shows the same question again with your advice above it. It also takes back an answer recorded too early.
 5. **When `wait` returns**, or a message from the researcher arrives, or it returns: run `next`. On `wake: timeout`, check the researcher is still in the agent list. Gone: `research --state abandoned --note "<why>"` and run the research inline (`phase-1-research.md`).
 6. **Later phases use the same list.** Challenge themes, post-spec decisions and critic items are questions (`--by main`, or the critic adds its own). The viability echo, a design sign-off and the spec approval are approvals: `add --kind gate …`. The list shows an approval only when no decision is open and no research is running, so it is always asked last.
-7. **Bind the story** when its id exists (Phase 3): `shipyard-data discuss-questions bind --story <S###>`. `story set-status <S###> approved` is then refused while a question waits, research is unfinished, or the researcher has not read an answer.
+7. **Bind the story** when its id exists (Phase 3): `shipyard-data discuss-questions bind --story <S###>` (several stories from one discussion: `--story S001,S002`, or `bind` once each; all of them are held). `story set-status <S###> approved` is then refused while a question waits, research is unfinished, or the researcher has not read an answer.
 8. **End.** Approved and finalized: `shipyard-data discuss-questions reset`. Stopped, rejected or paused: `shipyard-data discuss-questions pause`; the questions stay and the next `/ship-discuss` on this topic picks them up (`SHIPYARD_DISCUSS_QUESTIONS_WAITING` in the context, then `start --topic <slug>` and `next`). A parked researcher is kept while the discussion is open and stopped (`TaskStop`) when it ends or pauses.
 
 Before the approval card, show what was decided without asking: `shipyard-data discuss-questions status` lists every ASSUMED line and every dropped question with its reason. The person can ask for any of them back.
@@ -63,6 +63,15 @@ When you reach something only the person can decide:
      Write for someone who is not an engineer. Add --weight high when the choice is hard to undo.
      Then send main one message, "QUESTION <Q#>", as a wake-up. Do not wait for a reply.
      If the command says DRAFT, fix what it lists with `revise <Q#> …`.
+
+Look inside the organisation before the web: the wiki, the tracker, the shared drive and the project's own
+documents this session can reach (scan the tool names; never assume one), for the topic, the release, the
+ticket keys and the product and device names. When you finish, record where you looked, on both sides:
+       shipyard-data discuss-questions sources --topic <slug> --by <name> \
+         --wiki "<searched and found | not connected | not relevant: why>" \
+         --tracker "<…>" --drive "<…>" --external "<…>"
+(a line that claims a search is checked against the calls counted in this discussion)
+You cannot ask the person; main asks them whether a document exists that no session can reach.
 
 After each numbered step of your work (a checkpoint):
        shipyard-data discuss-questions answers --topic <slug> --after <the cursor you last saw, 0 at first> --ack --by <name>

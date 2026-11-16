@@ -4,29 +4,17 @@ When the input is a short one-liner — capture it instantly and offer to go dee
 
 ## Step C1: Create Idea File
 
-Generate the next available IDEA-NNN ID. Write to `<SHIPYARD_DATA>/spec/ideas/IDEA-NNN-[slug].md`:
+One call captures it: the CLI allocates the id, names the file and writes it. Never `next-id` plus a hand-written file, and never a shell redirect into the data folder. Several ideas at once (coarse slices kept for later) are one call each.
 
-```yaml
----
-id: IDEA-NNN
-title: "[title from user's description]"
-type: idea
-status: proposed
-source: "inline capture"
-created: [today's date]
----
-
-# [Title]
-
-## Idea
-[User's description, cleaned up slightly but preserving intent]
-
-## Why It Might Matter
-[One sentence — your best guess at the value. Keep it brief.]
-
-## Initial Thoughts
-[Any immediate technical considerations. One or two bullets max. Skip if nothing obvious.]
 ```
+shipyard-data idea capture --title "<title from the user's description>" \
+  --idea "<their description, cleaned up slightly but preserving intent>" \
+  --why "<one sentence: your best guess at the value>" \
+  --thoughts "<one or two immediate technical considerations; leave the flag out if nothing is obvious>" \
+  --source "inline capture"
+```
+
+It prints `IDEA-NNN captured: <path>`. To add more to the body afterwards, Edit that file.
 
 ## Step C2: Offer Depth
 

@@ -58,7 +58,7 @@ function makeProject() {
 }
 
 function readLock(p, kind) {
-  const base = kind === "planning" ? ".active-session.json" : ".active-execution.json";
+  const base = kind === "planning" ? ".active-session.json" : kind === "discuss" ? ".active-discuss.json" : ".active-execution.json";
   return JSON.parse(readFileSync(join(p.dataDir, base), "utf8"));
 }
 
@@ -499,6 +499,27 @@ test("reapSessionLocks releases the ending session's own locks", () => {
   }
 });
 
+// The owner typed /clear in the middle of a discussion (2026-11-15, 4.0.0) and
+// the next /ship-discuss in the same terminal was refused twice by the ended
+// session's own lock: the reap covered planning and execution only.
+test("reapSessionLocks releases the ending session's discuss lock, so /clear does not block the next discussion", () => {
+  const p = makeProject();
+  try {
+    p.run(["lock", "acquire", "discuss", "--skill", "ship-discuss", "--session", "sessA"]);
+    const blocked = p.run(["lock", "acquire", "discuss", "--skill", "ship-discuss", "--session", "sessB"]);
+    assert.equal(blocked.code, 3);
+    assert.match(blocked.stderr + blocked.stdout, /lock release discuss --force/, "the refusal names the command that frees a closed session's lock");
+
+    const { released } = reapSessionLocks(p.dataDir, "sessA");
+    assert.deepEqual(released.map((r) => r.kind), ["discuss"]);
+    assert.equal(readLock(p, "discuss").skill, null);
+    const again = p.run(["lock", "acquire", "discuss", "--skill", "ship-discuss", "--session", "sessB"]);
+    assert.equal(again.code, 0, again.stderr);
+  } finally {
+    p.cleanup();
+  }
+});
+
 test("reapSessionLocks never touches a concurrent session's lock", () => {
   const p = makeProject();
   try {
@@ -533,6 +554,136 @@ test("reapSessionLocks leaves an unverified (null-session) lock alone", () => {
     const { released } = reapSessionLocks(p.dataDir, "sess-whatever");
     assert.equal(released.length, 0);
     assert.equal(readLock(p, "planning").skill, "ship-sprint");
+  } finally {
+    p.cleanup();
+  }
+});
+
+// The owner, 4.0.1: "when i provide jira links, and research turns out theres more i should have let me know to
+// create the tickets in jira or ask to assist create. and then once discuss is done. ask to sync".
+test("a discussion that touched tracker-linked work cannot end without the sync question being answered", () => {
+  const p = makeProject();
+  try {
+    const d = p.dataDir;
+    const acquire = () => p.run(["lock", "acquire", "discuss", "--skill", "ship-discuss", "--session", "s1"]);
+    const release = () => p.run(["lock", "release", "discuss", "--skill", "ship-discuss", "--session", "s1"]);
+    // an import leaves nothing owed: the records say what their tickets say
+    const input = join(d, "in.json");
+    writeFileSync(input, JSON.stringify({ source: "jira", items: [{ key: "ABC-1", title: "Offline mode", type: "Epic" }, { key: "ABC-2", title: "Pay by card", type: "Story" }] }));
+    assert.equal(acquire().code, 0);
+    assert.match(p.run(["tracker", "pull", "--input", input]).stdout, /create 2/);
+    const looked = () => { p.run(["discuss-questions", "sources", "--wiki", "not connected", "--tracker", "not connected", "--drive", "not connected", "--external", "not needed"]); return p.run(["discuss-questions", "sources", "--person-said", "nothing else"]); };
+    looked();
+    assert.equal(release().code, 0, "importing tickets is not a change to send back");
+
+    // the discussion refines the idea into an epic and writes a story no ticket covers
+    assert.equal(acquire().code, 0);
+    assert.match(p.run(["idea", "promote", "IDEA-001"]).stdout, /IDEA-001 promoted to E001/);
+    looked();
+    writeFileSync(join(d, "spec", "stories", "S050-new.md"), '---\nid: S050\ntitle: "Found in research"\ntype: feature\nepic: E001\nstatus: proposed\nexternal_refs: []\n---\n\n# Found in research\n');
+    let r = release();
+    assert.equal(r.code, 3);
+    assert.match(r.stderr, /not finished with the tracker: 1 item\(s\) written here have no ticket and 1 linked item\(s\) changed here since they were last sent/);
+    assert.match(r.stderr, /shipyard-data tracker plan --since /); assert.match(r.stderr, /tracker decided --sync applied\|later\|none/);
+    const plan = p.run(["tracker", "plan"]).stdout;
+    assert.match(plan, /1\. S050 +Story +Found in research +· under ABC-1/); assert.match(plan, /2\. E001 +ABC-1 +Offline mode +· here: proposed +· never sent/);
+    assert.match(plan, /^TRACKER PLAN · 1 with no ticket · 1 changed since last sent · tracker_sync: ask/);
+    p.run(["tracker", "decided", "--sync", "later"]);
+    assert.equal(release().code, 0, '"later" is an answer; silence is not');
+  } finally {
+    p.cleanup();
+  }
+});
+
+// Seen live on this build: a discussion that split an epic into a spike and draft stories ended with
+// "I have not read the Google Drive hardware documents yet". Nothing was approved, so the approval gate never ran.
+test("a discussion with a question list cannot end before it says where it looked and asks about unreachable documents", () => {
+  const p = makeProject();
+  try {
+    const acquire = () => p.run(["lock", "acquire", "discuss", "--skill", "ship-discuss", "--session", "s1"]);
+    const release = () => p.run(["lock", "release", "discuss", "--skill", "ship-discuss", "--session", "s1"]);
+    assert.equal(acquire().code, 0);
+    assert.equal(release().code, 0, "a discussion with no question list (a capture, an intake) owes nothing");
+    assert.equal(acquire().code, 0);
+    p.run(["discuss-questions", "start", "--topic", "epic-e001"]);
+    let r = release();
+    assert.equal(r.code, 3); assert.match(r.stderr, /has not said where its research looked[\s\S]*discuss-questions sources --wiki/);
+    p.run(["discuss-questions", "sources", "--wiki", "not connected", "--tracker", "not connected", "--drive", "not connected", "--project", "the doc/ folder", "--external", "the payment provider's guide"]);
+    r = release();
+    assert.equal(r.code, 3); assert.match(r.stderr, /the person has not been asked about documents this session cannot reach/);
+    p.run(["discuss-questions", "sources", "--person-said", "no, that is everything"]);
+    p.run(["idea", "capture", "--title", "Something this discussion wrote"]);
+    p.run(["discuss-questions", "reset"]);
+    assert.equal(release().code, 0, "closing the question list does not make the discussion owe its sources again");
+
+    // Seen live: an idea refined into an epic through cards of the session's own, with no question list at all.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2100); // events carry whole seconds: the last discussion's record is not this one's
+    assert.equal(acquire().code, 0);
+    p.run(["idea", "capture", "--title", "Returns page ready for the first pilot shop"]);
+    r = release();
+    assert.equal(r.code, 3, "a discussion that wrote specs owes the record even with no question list"); assert.match(r.stderr, /has not said where its research looked/);
+    assert.match(p.run(["discuss-questions", "sources", "--wiki", "not connected", "--tracker", "not connected", "--drive", "not connected", "--external", "not needed: scope comes from the test plan"]).stdout, /Is there a document I could not reach\?/);
+    assert.match(release().stderr, /the person has not been asked about documents this session cannot reach/);
+    p.run(["discuss-questions", "sources", "--person-said", "yes: ~/Downloads/pilot-plan.pdf, read"]);
+    assert.equal(release().code, 0, release().stderr);
+
+    // the quick lanes do no research: a tiny change filed to land now owes nothing
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2100);
+    assert.equal(acquire().code, 0);
+    p.run(["route-intake", "--confirm", "land-now", "--proposed", "land-now"]);
+    p.run(["idea", "capture", "--title", "Log an unknown reader code"]);
+    assert.equal(release().code, 0, release().stderr);
+  } finally {
+    p.cleanup();
+  }
+});
+
+// The owner: "will shipyard work with user session to update external ticket details along the way until
+// up to completion". The same question when a sprint is planned and when it is reviewed; never from execute.
+test("sprint planning and the sprint review ask about linked tickets before they end; execute never does; off switches it off", () => {
+  const p = makeProject();
+  try {
+    const d = p.dataDir;
+    mkdirSync(join(d, "spec", "stories"), { recursive: true });
+    const story = (status) => writeFileSync(join(d, "spec", "stories", "S001-x.md"), `---\nid: S001\ntitle: "Pay by card"\ntype: feature\nstatus: ${status}\nstory_points: 5\nexternal_refs: ["ABC-7"]\nsynced_at: "2020-01-01T00:00:00.000Z"\nupstream:\n  key: "ABC-7"\n  status: "To Do"\n---\n\n# Pay by card\n`);
+    for (const [kind, skill, word] of [["planning", "ship-sprint", "planning"], ["execution", "ship-review", "review"]]) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2100); // events carry whole seconds: an answer given to the last command is not this one's
+      assert.equal(p.run(["lock", "acquire", kind, "--skill", skill, "--session", "s1"]).code, 0);
+      story(kind === "planning" ? "in-progress" : "done");
+      const r = p.run(["lock", "release", kind, "--skill", skill, "--session", "s1"]);
+      assert.equal(r.code, 3, `${skill} asks`); assert.match(r.stderr, new RegExp(`1 linked item\\(s\\) changed in this ${word} and their tickets do not know yet \\(S001\\)`));
+      assert.match(p.run(["tracker", "plan"]).stdout, /S001 +ABC-7 +Pay by card +· here: (in-progress|done) \(ticket: To Do\) +· 5 pts/);
+      p.run(["tracker", "synced", "S001"]); p.run(["tracker", "decided", "--sync", "applied"]);
+      assert.equal(p.run(["lock", "release", kind, "--skill", skill, "--session", "s1"]).code, 0);
+    }
+    assert.equal(p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "s1"]).code, 0);
+    story("done");
+    assert.equal(p.run(["lock", "release", "execution", "--skill", "ship-execute", "--session", "s1"]).code, 0, "the build asks nothing");
+    writeFileSync(join(d, "config.md"), "---\nproject_name: x\ntracker_sync: ask\n---\n");
+    assert.equal(p.run(["config", "set", "tracker-sync", "off"]).code, 0);
+    assert.match(readFileSync(join(d, "config.md"), "utf8"), /^tracker_sync: off$/m);
+    assert.equal(p.run(["lock", "acquire", "planning", "--skill", "ship-sprint", "--session", "s1"]).code, 0);
+    story("in-progress");
+    assert.equal(p.run(["lock", "release", "planning", "--skill", "ship-sprint", "--session", "s1"]).code, 0, "tracker_sync: off");
+  } finally {
+    p.cleanup();
+  }
+});
+
+// Seen on a fresh project: the build's readiness check asked "how should the untracked .shipyard link be handled?".
+test("the .shipyard link is hidden from git by whoever makes it, in the repository's local exclude file", async () => {
+  const { ensureDataDirLink } = await import(join(PLUGIN_ROOT, "bin", "shipyard-resolver.mjs"));
+  const p = makeProject();
+  try {
+    const repo = join(p.dataDir, "..", "..", "..", "repo");
+    const status = () => execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
+    const r = ensureDataDirLink(repo, p.dataDir);
+    assert.ok(["created", "ok", "repointed"].includes(r.status), r.status);
+    assert.equal(status(), "", "the link does not show as an untracked file");
+    assert.match(readFileSync(join(repo, ".git", "info", "exclude"), "utf8"), /^\.shipyard$/m);
+    assert.equal(execFileSync("git", ["status", "--porcelain", "--ignored"], { cwd: repo, encoding: "utf8" }).includes(".shipyard"), true);
+    ensureDataDirLink(repo, p.dataDir);
+    assert.equal((readFileSync(join(repo, ".git", "info", "exclude"), "utf8").match(/^\.shipyard$/gm) || []).length, 1, "once");
   } finally {
     p.cleanup();
   }

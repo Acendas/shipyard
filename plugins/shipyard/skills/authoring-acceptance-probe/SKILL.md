@@ -182,7 +182,7 @@ acceptance_probe: 'node -e ''require("./dist").newFn(42) === 84 || process.exit(
 
 Hard cases: async features (bounded retry loop: `for i in {1..10}; do <check> && exit 0 || sleep 1; done; exit 1`), log-only observability (grep the log), UI-only change (Playwright or `curl` + grep a unique marker), internal refactor (scoped test suite), config-only change (read it back via the loader).
 
-Before asking, render as chat text: the task's acceptance criteria verbatim and which of the patterns above were attempted and why each failed — the user cannot choose between refine/split/research without seeing the criteria. Criteria sitting in a Read result do not count as shown. Then surface to the user via AskUserQuestion: *"This task's acceptance criteria don't reduce to a single observable command. Should we (a) refine the criteria, (b) split into smaller tasks, or (c) mark this task `kind: research` and produce a findings doc instead?"* Recommend (a) by default.
+Before asking, render as chat text: the task's acceptance criteria, one plain line each, and which of the patterns above were attempted and why each failed — the user cannot choose between refine/split/research without seeing the criteria. Criteria sitting in a Read result do not count as shown. Then surface to the user via AskUserQuestion: *"This task's acceptance criteria don't reduce to a single observable command. Should we (a) refine the criteria, (b) split into smaller tasks, or (c) mark this task `kind: research` and produce a findings doc instead?"* Recommend (a) by default.
 
 ## Pairing With Other Skills
 

@@ -1461,5 +1461,26 @@
   "target": "ref:extend-mode.md",
   "pattern": "still passes the plan gate",
   "why": "4.0: sprint check now also runs the plan's shape rules for the running sprint"
+ },
+ {
+  "name": "planner_selects_from_nearest_release",
+  "type": "contains",
+  "target": "ref:plan-mode.md",
+  "pattern": "the suggested selection comes from the nearest one that still has open work",
+  "why": "4.0.1 (owner: fix version concept)"
+ },
+ {
+  "name": "planner_tells_the_tracker",
+  "type": "contains",
+  "target": "ref:plan-mode.md",
+  "pattern": "Tell the tracker, when stories are linked to tickets\\.",
+  "why": "after 4.0.0 (owner: 'how about a scenario: jira story or bug ticket pull it discuss move to sprint'; 'will shipyard work with user session to update external ticket details along the way until up to completion')"
+ },
+ {
+  "name": "planner_takes_from_the_top_in_order",
+  "type": "contains",
+  "target": "ref:plan-mode.md",
+  "pattern": "The backlog's order is the selection order\\.",
+  "why": "after 4.0.0, LeSS (owner: 'fix this: What is not solid yet' — backlog order was RICE plus overrides; the review asked to 'accept')"
  }
 ]

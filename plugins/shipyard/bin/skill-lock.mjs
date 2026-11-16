@@ -65,6 +65,8 @@ import { join } from "node:path";
 import { hostname } from "node:os";
 import { atomicWrite, logEvent, sanitizeForLog, withLockfile } from "./_hook_lib.mjs";
 import { strayChanges } from "./stray.mjs";
+import { syncOwed } from "./tracker.mjs";
+import { sourcesOwed } from "./discuss-questions.mjs";
 
 /** Tracked files changed with no commit in the project folder; null when there is no repository to ask. */
 function dirtyTracked(dataDir) {
@@ -255,7 +257,7 @@ function blockText(kind, obj) {
     (obj.sprint ? `   Sprint:     ${obj.sprint}\n` : "") +
     `   Started:    ${obj.started ?? "(unknown)"}\n` +
     `   Session ID: ${obj.session_id ?? "(none recorded)"}\n\n` +
-    `Finish or pause that session first, or run /ship-status to clear a stale lock.`
+    `Finish or pause that session first. If it is already closed, free the lock: shipyard-data lock release ${kind} --force`
   );
 }
 
@@ -436,6 +438,53 @@ export function releaseLock(dataDir, kind, opts = {}) {
           return;
         }
       }
+      // A discussion that touched tracker-linked work asks about the tracker
+      // before it ends (4.0.1). The owner: "when i provide jira links, and
+      // research turns out theres more i should have let me know to create the
+      // tickets in jira or ask to assist create. and then once discuss is done.
+      // ask to sync". The answer (applied, later, none) is recorded; "later" is
+      // a fine answer, silence is not.
+      if (depth <= 1 && kind === "discuss") {
+        let src = null;
+        try { src = sourcesOwed(dataDir, read.obj.started ?? null, readEvents(dataDir, 5000)); } catch { src = null; }
+        if (src) {
+          result = {
+            ok: false, code: 3,
+            message: src.missing === "sources"
+              ? `shipyard-data lock release: this discussion (topic ${src.topic}) has not said where its research looked.\n  Search the organisation's own sources this session can reach (wiki, tracker, shared drive, the project's documents), then the outside ones, and record both:\n    shipyard-data discuss-questions sources --wiki "…" --tracker "…" --drive "…" --external "…"   (each: what was searched and found | not connected | not relevant: <why>)\n  The command prints the table and the question to show them. Then ask the person whether a document exists that this session cannot reach, and release again.`
+              : `shipyard-data lock release: the person has not been asked about documents this session cannot reach (topic ${src.topic}).\n  Show them what the research looked at (shipyard-data discuss-questions status), ask once whether there is a PDF, a contract, a spec sheet or an email it could not see, read what they give, and record their answer:\n    shipyard-data discuss-questions sources --person-said "<their answer>"\n  Then release again.`,
+            json: { released: false, reason: src.missing === "sources" ? "research_sources_not_recorded" : "person_not_asked_about_documents", topic: src.topic },
+          };
+          return;
+        }
+        let owed = null;
+        try { owed = syncOwed(dataDir, read.obj.started ?? null, readEvents(dataDir, 5000)); } catch { owed = null; }
+        if (owed) {
+          const creates = owed.filter((r) => r.action === "create").length;
+          result = {
+            ok: false, code: 3,
+            message: `shipyard-data lock release: this discussion is not finished with the tracker: ${creates ? `${creates} item(s) written here have no ticket` : ""}${creates && owed.length > creates ? " and " : ""}${owed.length > creates ? `${owed.length - creates} linked item(s) changed here since they were last sent` : ""}.\n  Show the person the plan (shipyard-data tracker plan --since ${read.obj.started ?? ""}) and ask: create and update the tickets now, with your help, or later?\n  Then record the answer: shipyard-data tracker decided --sync applied|later|none, and release again.`,
+            json: { released: false, reason: "tracker_sync_not_asked", items: owed.map((r) => r.id) },
+          };
+          return;
+        }
+      }
+      // The same question when a sprint is planned and when it is reviewed (after 4.0.0, the owner: "will
+      // shipyard work with user session to update external ticket details along the way until up to
+      // completion"): a ticket learns that its story entered a sprint, and that it is done. Never from
+      // /ship-execute, which asks nothing.
+      if (depth <= 1 && ["ship-sprint", "ship-review"].includes(String(read.obj.skill ?? ""))) {
+        let owed = null;
+        try { owed = syncOwed(dataDir, read.obj.started ?? null, readEvents(dataDir, 5000)); } catch { owed = null; }
+        if (owed) {
+          result = {
+            ok: false, code: 3,
+            message: `shipyard-data lock release: ${owed.length} linked item(s) changed in this ${read.obj.skill === "ship-sprint" ? "planning" : "review"} and their tickets do not know yet (${owed.slice(0, 8).map((r) => r.id).join(", ")}${owed.length > 8 ? ", …" : ""}).\n  Show the plan (shipyard-data tracker plan --since ${read.obj.started ?? ""}) and ask to update the tickets (with tracker_sync: auto, send the updates and report them).\n  Then record it: shipyard-data tracker decided --sync applied|later|none, and release again.`,
+            json: { released: false, reason: "tracker_sync_not_asked", items: owed.map((r) => r.id) },
+          };
+          return;
+        }
+      }
       // A planning command commits what it wrote to the project (4.13.5). It
       // records decisions in the project's own docs; the rule to commit that
       // file by path was prose, and the next sprint then started on a dirty
@@ -525,7 +574,11 @@ export function releaseLock(dataDir, kind, opts = {}) {
 export function reapSessionLocks(dataDir, sessionId) {
   const released = [];
   if (!sessionId) return { released };
-  for (const kind of ["planning", "execution"]) {
+  // All three kinds. `discuss` was added in 4.17 and left out here until 4.0.1:
+  // an owner who typed /clear in the middle of a discussion was then told
+  // "another discussion is active" by their own ended session, twice, and had
+  // to force the release by hand.
+  for (const kind of ["planning", "execution", "discuss"]) {
     try {
       const read = readLockFile(dataDir, kind);
       if (!read.exists || read.corrupt || isReleased(read.obj)) continue;

@@ -22,11 +22,13 @@ import { createHash } from "node:crypto";
 import {
   existsSync,
   lstatSync,
+  mkdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
   symlinkSync,
   unlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
@@ -677,7 +679,32 @@ export function dirLooksInitialized(dir) {
  *                   written (see dirLooksInitialized)
  * Throws only on unexpected fs errors; callers that must not fail wrap it.
  */
+/**
+ * Keep Shipyard's own `.shipyard` link out of `git status`, in the repository's local exclude file (never
+ * committed, never the project's .gitignore). Whoever makes the link hides it: seen on a fresh project, the
+ * build's readiness check asked the owner "how should the untracked .shipyard link be handled?".
+ * Best-effort: no git, or an unwritable folder, changes nothing.
+ */
+export function hideLinkFromGit(projectRoot) {
+  try {
+    const gitDir = runGit(["rev-parse", "--git-common-dir"], projectRoot);
+    if (!gitDir) return false;
+    const info = join(isAbsolute(gitDir) ? gitDir : join(projectRoot, gitDir), "info");
+    mkdirSync(info, { recursive: true });
+    const p = join(info, "exclude");
+    const cur = existsSync(p) ? readFileSync(p, "utf8") : "";
+    if (cur.split(/\r?\n/).includes(".shipyard")) return false;
+    writeFileSync(p, cur + (cur.endsWith("\n") || cur === "" ? "" : "\n") + ".shipyard\n", "utf8");
+    return true;
+  } catch { return false; }
+}
+
 export function ensureDataDirLink(projectRoot, dataDir) {
+  const r = makeDataDirLink(projectRoot, dataDir);
+  if (["ok", "created", "repointed"].includes(r.status)) hideLinkFromGit(projectRoot);
+  return r;
+}
+function makeDataDirLink(projectRoot, dataDir) {
   const linkPath = join(projectRoot, ".shipyard");
   const target = resolve(dataDir);
   const type = IS_WINDOWS ? "junction" : "dir";

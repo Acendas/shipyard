@@ -66,6 +66,20 @@ const DISPOSITIONED = new Set(IDEA_DISPOSITIONED);
  *
  * Returns `{ count, total }` where `total` is every idea file seen.
  */
+/**
+ * An idea that has a place is not waiting for a decision (4.0.1): it is in a
+ * release (`fix_version`) or it stands for a tracker ticket (`external_refs`).
+ * Such an idea is a coarse backlog item, kept coarse on purpose until it nears
+ * the top. Seen live: 25 tickets imported as ideas for a release made the board
+ * say "27 ideas pass the limit of 12, which blocks a new sprint".
+ */
+export function isPlacedIdea(block) {
+  const v = (block.match(/^fix_version:[ \t]*(.*)$/m) || [])[1] ?? "";
+  if (v.replace(/\s+#.*$/, "").replace(/["']/g, "").trim()) return true;
+  const r = (block.match(/^external_refs:[ \t]*\[([^\]]*)\]/m) || [])[1] ?? "";
+  return r.replace(/["'\s,]/g, "") !== "";
+}
+
 export function countUndispositionedIdeas(dataDir) {
   const kindDir = join(dataDir, "spec", "ideas");
   let files = [];
@@ -80,17 +94,19 @@ export function countUndispositionedIdeas(dataDir) {
     if (!IDEA_FILE_RE.test(f)) continue;
     total += 1;
     let status = "";
+    let placed = false;
     try {
       const c = readFileSync(join(kindDir, f), "utf8");
       const m = c.match(/^---\r?\n([\s\S]*?)\r?\n---/);
       if (m) {
         const sm = m[1].match(/^status:\s*(\S+)/m);
         if (sm) status = sm[1].replace(/^["']|["']$/g, "").toLowerCase();
+        placed = isPlacedIdea(m[1]);
       }
     } catch {
       /* unreadable → count as undispositioned (conservative) */
     }
-    if (!DISPOSITIONED.has(status)) count += 1;
+    if (!DISPOSITIONED.has(status) && !placed) count += 1;
   }
   return { count, total };
 }

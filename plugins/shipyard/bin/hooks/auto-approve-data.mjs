@@ -104,19 +104,20 @@ const LOCK_BASENAMES = new Set([".active-session.json", ".active-execution.json"
 // keep this in sync when a new typed mutator lands there.
 const FRONTMATTER_KEY_COMMANDS = Object.freeze({
   status:
-    "shipyard-data feature set-status <FID> <status>  |  shipyard-data task set-status <TID> <status>  |  shipyard-data idea set-status <IDEA-NNN> <status>",
-  rice_reach: "shipyard-data feature set <FID> rice_reach=<n>",
-  rice_impact: "shipyard-data feature set <FID> rice_impact=<n>",
-  rice_confidence: "shipyard-data feature set <FID> rice_confidence=<n>",
-  rice_effort: "shipyard-data feature set <FID> rice_effort=<n>",
-  story_points: "shipyard-data feature set <FID> story_points=<n>",
-  epic: "shipyard-data feature set <FID> epic=<EID>",
-  updated: "shipyard-data feature set <FID> updated=<ISO date>",
-  synced_at: "shipyard-data feature set <FID> synced_at=<ISO date>",
-  references: "shipyard-data feature add-ref <FID> <path>",
-  external_refs: "shipyard-data feature add-external-ref <FID> <key>",
+    "shipyard-data story set-status <id> <status>  |  shipyard-data task set-status <TID> <status>  |  shipyard-data idea set-status <IDEA-NNN> <status>",
+  rice_reach: "shipyard-data story set <id> rice_reach=<n>",
+  rice_impact: "shipyard-data story set <id> rice_impact=<n>",
+  rice_confidence: "shipyard-data story set <id> rice_confidence=<n>",
+  rice_effort: "shipyard-data story set <id> rice_effort=<n>",
+  story_points: "shipyard-data story set <id> story_points=<n>",
+  epic: "shipyard-data story set <id> epic=<EID>",
+  updated: "shipyard-data story set <id> updated=<ISO date>",
+  synced_at: "shipyard-data story set <id> synced_at=<ISO date>",
+  references: "shipyard-data story add-ref <id> <path>  |  shipyard-data story remove-ref <id> <path>",
+  external_refs: "shipyard-data story add-external-ref <id> <key>",
+  fix_version: "shipyard-data version set <version> <id> [--reason \"...\"]  |  shipyard-data version clear <id> --reason \"...\"",
   dependencies:
-    "shipyard-data feature add-dep <A> <B>  |  shipyard-data feature remove-dep <A> <B>",
+    "shipyard-data story add-dep <A> <B>  |  shipyard-data story remove-dep <A> <B>",
   tasks: "shipyard-data story set-steps <SID> <PID,PID,...>  |  shipyard-data story clear-steps <SID>",
   steps: "shipyard-data story set-steps <SID> <PID,PID,...>  |  shipyard-data story clear-steps <SID>",
   blocked_reason: 'shipyard-data task set-status <TID> blocked --reason "..."',
@@ -435,10 +436,9 @@ export async function run(hookInput, _env) {
             hookEventName: "PreToolUse",
             permissionDecision: "deny",
             permissionDecisionReason:
-              `"${hitKey}:" is a CLI-owned frontmatter field — hand-editing it is the perl-glue ` +
-              "corruption class (welded/duplicated keys) docs/shipyard-dev.md warns about. " +
-              `Do not Edit it directly. Use instead:\n  ${FRONTMATTER_KEY_COMMANDS[hitKey]}\n` +
-              "Body prose and non-owned frontmatter fields on the same file remain normal Edit-tool surface.",
+              `Shipyard: "${hitKey}:" is written by a command, not by hand (a hand edit has left doubled and joined keys before). ` +
+              `Use:\n  ${FRONTMATTER_KEY_COMMANDS[hitKey]}\n` +
+              "The rest of this file (the body, and the fields no command owns) can be edited as usual.",
           },
         };
         process.stdout.write(JSON.stringify(response));

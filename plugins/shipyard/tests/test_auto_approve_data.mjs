@@ -419,7 +419,7 @@ for (const base of LOCK_BASENAMES) {
 // the narrow third deny class: Edit/MultiEdit only, scoped to the owned
 // files, firing only when the edited text touches an owned key.
 
-test("frontmatter-key deny: Edit touching `status:` in a feature file is DENIED, hint names feature set-status", async () => {
+test("frontmatter-key deny: Edit touching `status:` in a feature file is DENIED, hint names story set-status", async () => {
   await withTempDir(async (sd) => {
     const featuresDir = join(sd, "spec", "features");
     mkdirSyncFs(featuresDir, { recursive: true });
@@ -439,13 +439,13 @@ test("frontmatter-key deny: Edit touching `status:` in a feature file is DENIED,
     assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
     assert.match(
       resp.hookSpecificOutput.permissionDecisionReason,
-      /feature set-status/,
-      "hint must name feature set-status",
+      /shipyard-data story set-status <id> <status>/,
+      "hint must name the command that owns the field",
     );
   });
 });
 
-test("frontmatter-key deny: Edit touching `rice_effort:` in a feature file is DENIED, hint names feature set", async () => {
+test("frontmatter-key deny: Edit touching `rice_effort:` in a feature file is DENIED, hint names story set", async () => {
   await withTempDir(async (sd) => {
     const featuresDir = join(sd, "spec", "features");
     mkdirSyncFs(featuresDir, { recursive: true });
@@ -465,8 +465,8 @@ test("frontmatter-key deny: Edit touching `rice_effort:` in a feature file is DE
     assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
     assert.match(
       resp.hookSpecificOutput.permissionDecisionReason,
-      /shipyard-data feature set /,
-      "hint must name feature set",
+      /shipyard-data story set <id> rice_effort=<n>/,
+      "hint must name the command that owns the field",
     );
   });
 });

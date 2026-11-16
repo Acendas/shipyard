@@ -356,8 +356,9 @@
  {
   "name": "h3_phase5_quotes_ac_scenarios_verbatim",
   "type": "contains",
-  "pattern": "ACCEPTANCE SCENARIOS \\(VERBATIM\\)",
-  "target": "ref:phase-finalize.md"
+  "pattern": "WHAT IT MUST DO \\(one plain line per acceptance criterion\\)",
+  "target": "ref:phase-finalize.md",
+  "why": "after 4.0.0 (owner: 'explanations for gherkin bdd ac's make sure its not verbaitm rather a natural language few simple words explanation … one liner if possible each ac')"
  },
  {
   "name": "h3_phase5_ac_signoff_gate_exists",
@@ -368,8 +369,9 @@
  {
   "name": "h3_phase5_ac_signoff_gate_must_not_skip",
   "type": "contains",
-  "pattern": "Do not skip rendering the verbatim scenarios",
-  "target": "ref:phase-finalize.md"
+  "pattern": "Do not skip the one-line-per-criterion list",
+  "target": "ref:phase-finalize.md",
+  "why": "after 4.0.0 (owner: 'explanations for gherkin bdd ac's make sure its not verbaitm rather a natural language few simple words explanation … one liner if possible each ac')"
  },
  {
   "name": "h3_phase5_ac_signoff_loops_until_clean",
@@ -480,7 +482,7 @@
  {
   "name": "idea_capture_releases_mutex",
   "type": "contains",
-  "pattern": "Release the session mutex|mutex.*Done",
+  "pattern": "Release the lock if this session took one: `shipyard-data lock release discuss --skill ship-discuss`",
   "target": "ref:idea-capture-mode.md"
  },
  {
@@ -2274,5 +2276,238 @@
   "target": "ref:bug-lane.md",
   "pattern": "shipyard-data story check-probes S<id>",
   "why": "4.0: the hotfix lane wrote a story with no user_flow_probe and /ship-execute --hotfix refused it 27 seconds later; the lane meant to reach a fix in seconds bounced the owner back to discussion"
+ },
+ {
+  "name": "question_needs_summary_picture_shown",
+  "type": "contains",
+  "target": "ref:communication-design.md",
+  "pattern": "end the message with the line `Question follows.` and end your turn there \\(Shipyard gives the turn straight back\\), then call the tool for that question alone",
+  "why": "4.0.1 (owner: discussing, refining and grooming did not start with a 15-second summary and a picture in the chat before the question): after its first message a session asked card after card with no text of its own; the hook now checks the chat"
+ },
+ {
+  "name": "release_is_a_fix_version_never_an_epic",
+  "type": "contains",
+  "pattern": "A release is a fix version, never an epic\\.",
+  "why": "4.0.1 (owner: a discussion made an epic stand for a release; 'we need to introduce the concept of fix version', intents as ideas that keep their tracker link, promoted to epics, then spikes and stories; 'i want shipyard to be LeSS compliant')"
+ },
+ {
+  "name": "release_or_ticket_batch_reads_less_backlog",
+  "type": "contains",
+  "pattern": "names a release or version\\*\\*, or hands over \\*\\*several tickets or a ticket export",
+  "why": "4.0.1 (owner: a discussion made an epic stand for a release; 'we need to introduce the concept of fix version', intents as ideas that keep their tracker link, promoted to epics, then spikes and stories; 'i want shipyard to be LeSS compliant')"
+ },
+ {
+  "name": "less_backlog_intake_path",
+  "type": "contains",
+  "target": "ref:less-backlog.md",
+  "pattern": "shipyard-data tracker pull --csv <export\\.csv>[\\s\\S]*shipyard-data idea promote <IDEA-NNN> \\[--size",
+  "why": "4.0.1 (owner: a discussion made an epic stand for a release; 'we need to introduce the concept of fix version', intents as ideas that keep their tracker link, promoted to epics, then spikes and stories; 'i want shipyard to be LeSS compliant')"
+ },
+ {
+  "name": "less_backlog_not_broken_down_at_intake",
+  "type": "contains",
+  "target": "ref:less-backlog.md",
+  "pattern": "Do not break everything down at intake",
+  "why": "4.0.1 (owner: a discussion made an epic stand for a release; 'we need to introduce the concept of fix version', intents as ideas that keep their tracker link, promoted to epics, then spikes and stories; 'i want shipyard to be LeSS compliant')"
+ },
+ {
+  "name": "less_backlog_version_moved_openly",
+  "type": "contains",
+  "target": "ref:less-backlog.md",
+  "pattern": "Move it openly\\.\\*\\* Changing an item's version needs `--reason`",
+  "why": "4.0.1 (owner: a discussion made an epic stand for a release; 'we need to introduce the concept of fix version', intents as ideas that keep their tracker link, promoted to epics, then spikes and stories; 'i want shipyard to be LeSS compliant')"
+ },
+ {
+  "name": "less_backlog_release_checks_are_undone_work",
+  "type": "contains",
+  "target": "ref:less-backlog.md",
+  "pattern": "Release checks are the work \"done\" does not cover",
+  "why": "4.0.1 (owner: a discussion made an epic stand for a release; 'we need to introduce the concept of fix version', intents as ideas that keep their tracker link, promoted to epics, then spikes and stories; 'i want shipyard to be LeSS compliant')"
+ },
+ {
+  "name": "epic_mode_epic_is_never_a_release",
+  "type": "contains",
+  "target": "ref:epic-mode.md",
+  "pattern": "It is never a release: when the input or the epic's title names a release, a client or a phase, make that a fix version",
+  "why": "4.0.1 (owner: a discussion made an epic stand for a release; 'we need to introduce the concept of fix version', intents as ideas that keep their tracker link, promoted to epics, then spikes and stories; 'i want shipyard to be LeSS compliant')"
+ },
+ {
+  "name": "tracker_pull_intents_are_ideas",
+  "type": "contains",
+  "target": "ref:tracker-pull.md",
+  "pattern": "comes in as an \\*\\*idea\\*\\* \\(`spec/ideas/`\\), not broken down at intake and refined into an epic later",
+  "why": "4.0.1 (owner: a discussion made an epic stand for a release; 'we need to introduce the concept of fix version', intents as ideas that keep their tracker link, promoted to epics, then spikes and stories; 'i want shipyard to be LeSS compliant')"
+ },
+ {
+  "name": "unlisted_card_recorded_not_refused",
+  "type": "contains",
+  "target": "ref:async-questions.md",
+  "pattern": "a card you ask on your own is not refused: it is recorded as a question",
+  "why": "4.0.1 (owner met the refusal as an error mid-discussion)"
+ },
+ {
+  "name": "reply_that_is_a_question_is_asked_again",
+  "type": "contains",
+  "target": "ref:async-questions.md",
+  "pattern": "discuss-questions ask-again <Q#> --their-words",
+  "why": "4.0.1: a session recorded its own advice as the person's answer"
+ },
+ {
+  "name": "discussion_does_not_stop_halfway",
+  "type": "contains",
+  "pattern": "A discussion does not stop halfway\\.",
+  "why": "4.0.1 (owner: 'ship-discuss stopped halfway')"
+ },
+ {
+  "name": "capture_is_one_cli_call",
+  "type": "contains",
+  "target": "ref:capture-mode.md",
+  "pattern": "shipyard-data idea capture --title",
+  "why": "4.0.1: five ideas were captured with a shell here-document inside the data folder"
+ },
+ {
+  "name": "idea_refined_becomes_epic",
+  "type": "contains",
+  "target": "ref:idea-mode.md",
+  "pattern": "that is refined becomes an \\*\\*epic\\*\\*; the epic is then broken down into spikes and stories",
+  "why": "4.0.1 (owner: 'ideas and intents are the same thing… once refined they become epics'; 'jira link and sync is for all tickets types'; 'should have let me know to create the tickets in jira or ask to assist create. and then once discuss is done. ask to sync')"
+ },
+ {
+  "name": "idea_mode_uses_promote_verb",
+  "type": "contains",
+  "target": "ref:idea-mode.md",
+  "pattern": "shipyard-data idea promote IDEA-NNN",
+  "why": "4.0.1 (owner: 'ideas and intents are the same thing… once refined they become epics'; 'jira link and sync is for all tickets types'; 'should have let me know to create the tickets in jira or ask to assist create. and then once discuss is done. ask to sync')"
+ },
+ {
+  "name": "tracker_link_is_for_every_kind",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "The link and the sync are for \\*\\*every kind of record\\*\\*: ideas, epics, stories \\(bugs included\\) and tasks",
+  "why": "4.0.1 (owner: 'ideas and intents are the same thing… once refined they become epics'; 'jira link and sync is for all tickets types'; 'should have let me know to create the tickets in jira or ask to assist create. and then once discuss is done. ask to sync')"
+ },
+ {
+  "name": "new_work_gets_a_ticket_offer",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "Create them with my help \\(Recommended\\)",
+  "why": "4.0.1 (owner: 'ideas and intents are the same thing… once refined they become epics'; 'jira link and sync is for all tickets types'; 'should have let me know to create the tickets in jira or ask to assist create. and then once discuss is done. ask to sync')"
+ },
+ {
+  "name": "discussion_ends_by_asking_to_sync",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "The lock release is refused until it is recorded",
+  "why": "4.0.1 (owner: 'ideas and intents are the same thing… once refined they become epics'; 'jira link and sync is for all tickets types'; 'should have let me know to create the tickets in jira or ask to assist create. and then once discuss is done. ask to sync')"
+ },
+ {
+  "name": "finalize_asks_about_tracker",
+  "type": "contains",
+  "target": "ref:phase-finalize.md",
+  "pattern": "shipyard-data tracker decided --sync applied\\|later\\|none",
+  "why": "4.0.1 (owner: 'ideas and intents are the same thing… once refined they become epics'; 'jira link and sync is for all tickets types'; 'should have let me know to create the tickets in jira or ask to assist create. and then once discuss is done. ask to sync')"
+ },
+ {
+  "name": "skill_rule_tickets_and_sync",
+  "type": "contains",
+  "pattern": "Tickets for new work, and a sync at the end\\.",
+  "why": "4.0.1 (owner: 'ideas and intents are the same thing… once refined they become epics'; 'jira link and sync is for all tickets types'; 'should have let me know to create the tickets in jira or ask to assist create. and then once discuss is done. ask to sync')"
+ },
+ {
+  "name": "research_organisation_sources_before_web",
+  "type": "contains",
+  "target": "ref:phase-1-research.md",
+  "pattern": "The organisation's own sources, before the web\\.",
+  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+ },
+ {
+  "name": "research_sources_table_names_wiki_tracker_drive",
+  "type": "contains",
+  "target": "ref:phase-1-research.md",
+  "pattern": "Wiki / knowledge base[\\s\\S]*Tracker \\(Jira[\\s\\S]*Shared drive \\(Google Drive",
+  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+ },
+ {
+  "name": "research_records_where_it_looked",
+  "type": "contains",
+  "target": "ref:phase-1-research.md",
+  "pattern": "shipyard-data discuss-questions sources --wiki",
+  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+ },
+ {
+  "name": "research_asks_about_unreachable_documents",
+  "type": "contains",
+  "target": "ref:phase-1-research.md",
+  "pattern": "is there a document I could not reach\\?",
+  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+ },
+ {
+  "name": "researcher_brief_looks_inside_first",
+  "type": "contains",
+  "target": "ref:async-questions.md",
+  "pattern": "Look inside the organisation before the web",
+  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+ },
+ {
+  "name": "skill_rule_research_inside_then_outside",
+  "type": "contains",
+  "pattern": "Research looks inside the organisation first, then outside, and asks about what it cannot see\\.",
+  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+ },
+ {
+  "name": "approval_summary_shows_what_research_looked_at",
+  "type": "contains",
+  "target": "ref:phase-finalize.md",
+  "pattern": "WHAT THE RESEARCH LOOKED AT",
+  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+ },
+ {
+  "name": "research_claims_checked_against_counted_calls",
+  "type": "contains",
+  "target": "ref:phase-1-research.md",
+  "pattern": "a line that claims a search with no call of that kind counted is refused",
+  "why": "4.0.1 live run: a discussion recorded 'looked at: memory: … (Drive)' with no drive, wiki or tracker tool called"
+ },
+ {
+  "name": "tracker_kept_in_step_to_done",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "A linked ticket is kept in step from the discussion to the release, for every kind of record",
+  "why": "after 4.0.0 (owner: 'how about a scenario: jira story or bug ticket pull it discuss move to sprint'; 'will shipyard work with user session to update external ticket details along the way until up to completion')"
+ },
+ {
+  "name": "tracker_sync_modes",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "\\*\\*ask\\*\\* \\(default[\\s\\S]*\\*\\*auto\\*\\*[\\s\\S]*\\*\\*off\\*\\*",
+  "why": "after 4.0.0 (owner: 'how about a scenario: jira story or bug ticket pull it discuss move to sprint'; 'will shipyard work with user session to update external ticket details along the way until up to completion')"
+ },
+ {
+  "name": "single_ticket_comes_in_through_the_cli",
+  "type": "contains",
+  "target": "ref:external-issue-fetch.md",
+  "pattern": "shipyard-data tracker pull --input <that file>",
+  "why": "after 4.0.0 (owner: 'how about a scenario: jira story or bug ticket pull it discuss move to sprint'; 'will shipyard work with user session to update external ticket details along the way until up to completion')"
+ },
+ {
+  "name": "acs_one_plain_line_never_gherkin",
+  "type": "contains",
+  "target": "ref:communication-design.md",
+  "pattern": "Never paste the Given/When/Then text\\.",
+  "why": "after 4.0.0 (owner: 'explanations for gherkin bdd ac's make sure its not verbaitm rather a natural language few simple words explanation … one liner if possible each ac')"
+ },
+ {
+  "name": "approval_lists_every_criterion_in_one_line",
+  "type": "contains",
+  "target": "ref:phase-finalize.md",
+  "pattern": "one line each, never the Given/When/Then text",
+  "why": "after 4.0.0 (owner: 'explanations for gherkin bdd ac's make sure its not verbaitm rather a natural language few simple words explanation … one liner if possible each ac')"
+ },
+ {
+  "name": "idea_becomes_epic_only",
+  "type": "contains",
+  "target": "ref:less-backlog.md",
+  "pattern": "An idea becomes an epic, never a story or a spike directly",
+  "why": "after 4.0.0, LeSS (owner: 'fix this: What is not solid yet' — backlog order was RICE plus overrides; the review asked to 'accept')"
  }
 ]

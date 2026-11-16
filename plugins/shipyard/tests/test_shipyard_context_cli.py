@@ -97,16 +97,19 @@ class TestViewSubcommand(NamedSubcommandBase):
     # wording may go). Deleting or weakening any rule fails a named subtest.
     CANONICAL_CLAUSES = (
         ('header', 'SHIPYARD_STARTUP_RULES:'),
-        ('render-rule', 'Render before asking. Before every AskUserQuestion, write the decision context as assistant chat text in this response.'),
-        ('provenance-only-chat-counts', 'Anything else (tool results, files, the question itself) does not count as rendered;'),
-        ('provenance-compact-card', 'options show as a compact card.'),
+        ('render-rule', 'Render before asking. Before every AskUserQuestion, in this order:'),
+        ('summary-first', 'a summary of 40 words or fewer'),
+        ('question-follows-step', 'end that message with the line `Question follows.` and end your turn there'),
+        ('provenance-only-chat-counts', 'Anything else (a tool result, a file, your thinking, the card itself) does not count as rendered'),
+        ('provenance-compact-card', 'options show as a compact card'),
         ('recovery', "Recovery: if the user can't see what you reference, render it in full before asking again."),
         ('paths-prefix', 'Paths: use the literal absolute SHIPYARD_DATA prefix,'),
         ('paths-agent-prompts', 'also in Agent prompts;'),
         ('paths-no-tilde-vars', 'no `~`, `$HOME`, or shell variables in file_path;'),
         ('paths-no-hardcode', 'never hardcode paths or look in other worktrees;'),
         ('paths-no-cd', 'never cd into the data directory;'),
-        ('paths-no-echo-redirect', 'never use echo, printf, or shell redirects to write state files (use Write).'),
+        ('paths-no-echo-redirect', 'never use echo, printf, or shell redirects to write state files (use Write; to stash an idea: `shipyard-data idea capture --title "..."`).'),
+        ('search-without-grep-tool', 'where a step names the Grep or Glob tool and this session has none, search with `grep` and `find` through the shell straight away'),
     )
 
     def test_startup_canonical_render_before_ask_printed(self):

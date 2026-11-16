@@ -1,158 +1,164 @@
 [
-  {
-    "name": "has_browse_capability",
-    "type": "contains",
-    "pattern": "[Bb]rowse|[Ss]earch|[Ll]ook.?up"
-  },
-  {
-    "name": "has_status_management",
-    "type": "contains",
-    "pattern": "status|[Aa]rchive"
-  },
-  {
-    "name": "has_frontmatter_name",
-    "type": "frontmatter_field",
-    "field": "name",
-    "value": "ship-spec"
-  },
-  {
-    "name": "has_drill_down_levels",
-    "type": "contains",
-    "pattern": "Level 1|Level 2|Level 3|[Oo]verview.*[Ee]pic.*[Ff]eature"
-  },
-  {
-    "name": "has_sync_subcommand",
-    "type": "contains",
-    "pattern": "sync|synced_at"
-  },
-  {
-    "name": "has_absorb_feature",
-    "type": "contains",
-    "pattern": "absorb"
-  },
-  {
-    "name": "has_diff_subcommand",
-    "type": "contains",
-    "pattern": "diff|git log"
-  },
-  {
-    "name": "approval_uses_ask_user",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "has_state_machine",
-    "type": "contains",
-    "pattern": "proposed.*approved|state machine|valid transition"
-  },
-  {
-    "name": "has_ideas_subcommand",
-    "type": "contains",
-    "pattern": "ideas|pending.*discussion"
-  },
-  {
-    "name": "has_dry_run",
-    "type": "contains",
-    "pattern": "dry.run"
-  },
-  {
-    "name": "uses_ask_user_question",
-    "type": "contains",
-    "pattern": "AskUserQuestion"
-  },
-  {
-    "name": "uses_shipyard_data_path",
-    "type": "contains",
-    "pattern": "shipyard-data|shipyard-context"
-  },
-  {
-    "name": "read_only_default",
-    "type": "contains",
-    "pattern": "[Rr]ead.only|read-only"
-  },
-  {
-    "name": "no_shell_sd_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-data"
-  },
-  {
-    "name": "no_shell_sc_substitution",
-    "type": "not_contains",
-    "pattern": "\\$\\(shipyard-context"
-  },
-  {
-    "name": "no_sd_shell_var_assignment",
-    "type": "not_contains",
-    "pattern": "SD=\\$\\(shipyard-data"
-  },
-  {
-    "name": "prohibits_bash_redirect_for_state",
-    "type": "contains",
-    "pattern": "never use echo, printf, or shell redirects",
-    "target": "plugin:bin/shipyard-context.mjs",
-    "why": "S016/P062: canonical home is CANONICAL_STARTUP_RULES in the startup CLI."
-  },
-  {
-    "name": "has_external_refs_field",
-    "type": "contains",
-    "pattern": "external_refs"
-  },
-  {
-    "name": "has_sync_by_external_key",
-    "type": "contains",
-    "pattern": "sync.*SYS-123|sync.*\\[A-Z\\]|sync.*external.*key"
-  },
-  {
-    "name": "has_sync_external_push",
-    "type": "contains",
-    "pattern": "push.*external|external.*push|comment.*external|tracker.*MCP"
-  },
-  {
-    "name": "has_absorb_external_detection",
-    "type": "contains",
-    "pattern": "absorb.*external|absorb.*issue.*key|absorb.*detect"
-  },
-  {
-    "name": "sync_preserves_external_refs",
-    "type": "contains",
-    "pattern": "[Pp]reserve.*external_refs|external_refs.*[Pp]reserve|never overwrite.*external"
-  },
-  {
-    "name": "uses_feature_set_status",
-    "type": "contains",
-    "pattern": "story set-status"
-  },
-  {
-    "name": "bans_frontmatter_hand_edit",
-    "type": "contains",
-    "pattern": "[Nn]ever hand-Edit.*frontmatter|CLI-owned"
-  },
-  {
-    "name": "lifecycle_canonical_source",
-    "type": "contains",
-    "pattern": "spec-lifecycle\\.mjs"
-  },
-  {
-    "name": "allows_shipyard_data_bash",
-    "type": "contains",
-    "pattern": "Bash\\(shipyard-data"
-  },
-  {
-    "name": "no_edit_frontmatter_status_instruction",
-    "type": "not_contains",
-    "pattern": "use Edit to set frontmatter .status"
-  },
-  {
-    "name": "render_provenance_negation",
-    "type": "contains",
-    "pattern": "does not count as rendered",
-    "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative \u2014 Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P062: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
-    "target": "plugin:bin/shipyard-context.mjs"
-  },
-  {
-    "name": "render_before_ask_short_reminder_present",
-    "type": "contains",
-    "pattern": "Render before asking",
-    "why": "S016/P062: the command keeps only the short reminder; the full doctrine is printed at startup (CANONICAL_STARTUP_RULES)."
-  }
+ {
+  "name": "has_browse_capability",
+  "type": "contains",
+  "pattern": "[Bb]rowse|[Ss]earch|[Ll]ook.?up"
+ },
+ {
+  "name": "has_status_management",
+  "type": "contains",
+  "pattern": "status|[Aa]rchive"
+ },
+ {
+  "name": "has_frontmatter_name",
+  "type": "frontmatter_field",
+  "field": "name",
+  "value": "ship-spec"
+ },
+ {
+  "name": "has_drill_down_levels",
+  "type": "contains",
+  "pattern": "Level 1|Level 2|Level 3|[Oo]verview.*[Ee]pic.*[Ff]eature"
+ },
+ {
+  "name": "has_sync_subcommand",
+  "type": "contains",
+  "pattern": "sync|synced_at"
+ },
+ {
+  "name": "has_absorb_feature",
+  "type": "contains",
+  "pattern": "absorb"
+ },
+ {
+  "name": "has_diff_subcommand",
+  "type": "contains",
+  "pattern": "diff|git log"
+ },
+ {
+  "name": "approval_uses_ask_user",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "has_state_machine",
+  "type": "contains",
+  "pattern": "proposed.*approved|state machine|valid transition"
+ },
+ {
+  "name": "has_ideas_subcommand",
+  "type": "contains",
+  "pattern": "ideas|pending.*discussion"
+ },
+ {
+  "name": "has_dry_run",
+  "type": "contains",
+  "pattern": "dry.run"
+ },
+ {
+  "name": "uses_ask_user_question",
+  "type": "contains",
+  "pattern": "AskUserQuestion"
+ },
+ {
+  "name": "uses_shipyard_data_path",
+  "type": "contains",
+  "pattern": "shipyard-data|shipyard-context"
+ },
+ {
+  "name": "read_only_default",
+  "type": "contains",
+  "pattern": "[Rr]ead.only|read-only"
+ },
+ {
+  "name": "no_shell_sd_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-data"
+ },
+ {
+  "name": "no_shell_sc_substitution",
+  "type": "not_contains",
+  "pattern": "\\$\\(shipyard-context"
+ },
+ {
+  "name": "no_sd_shell_var_assignment",
+  "type": "not_contains",
+  "pattern": "SD=\\$\\(shipyard-data"
+ },
+ {
+  "name": "prohibits_bash_redirect_for_state",
+  "type": "contains",
+  "pattern": "never use echo, printf, or shell redirects",
+  "target": "plugin:bin/shipyard-context.mjs",
+  "why": "S016/P062: canonical home is CANONICAL_STARTUP_RULES in the startup CLI."
+ },
+ {
+  "name": "has_external_refs_field",
+  "type": "contains",
+  "pattern": "external_refs"
+ },
+ {
+  "name": "has_sync_by_external_key",
+  "type": "contains",
+  "pattern": "sync.*ABC-123|sync.*\\[A-Z\\]|sync.*external.*key"
+ },
+ {
+  "name": "has_sync_external_push",
+  "type": "contains",
+  "pattern": "push.*external|external.*push|comment.*external|tracker.*MCP"
+ },
+ {
+  "name": "has_absorb_external_detection",
+  "type": "contains",
+  "pattern": "absorb.*external|absorb.*issue.*key|absorb.*detect"
+ },
+ {
+  "name": "sync_preserves_external_refs",
+  "type": "contains",
+  "pattern": "[Pp]reserve.*external_refs|external_refs.*[Pp]reserve|never overwrite.*external"
+ },
+ {
+  "name": "uses_feature_set_status",
+  "type": "contains",
+  "pattern": "story set-status"
+ },
+ {
+  "name": "bans_frontmatter_hand_edit",
+  "type": "contains",
+  "pattern": "[Nn]ever hand-Edit.*frontmatter|CLI-owned"
+ },
+ {
+  "name": "lifecycle_canonical_source",
+  "type": "contains",
+  "pattern": "spec-lifecycle\\.mjs"
+ },
+ {
+  "name": "allows_shipyard_data_bash",
+  "type": "contains",
+  "pattern": "Bash\\(shipyard-data"
+ },
+ {
+  "name": "no_edit_frontmatter_status_instruction",
+  "type": "not_contains",
+  "pattern": "use Edit to set frontmatter .status"
+ },
+ {
+  "name": "render_provenance_negation",
+  "type": "contains",
+  "pattern": "does not count as rendered",
+  "why": "v3.11.0 context-conflation fix: the render-before-ask rule must state the negative — Read results, subagent returns, dossier files, and SendMessage payloads are not 'shown to the user'. Anchors the same phrase check_render_before_ask requires. S016/P062: canonical text now lives in CANONICAL_STARTUP_RULES (bin/shipyard-context.mjs).",
+  "target": "plugin:bin/shipyard-context.mjs"
+ },
+ {
+  "name": "render_before_ask_short_reminder_present",
+  "type": "contains",
+  "pattern": "Render before asking",
+  "why": "S016/P062: the command keeps only the short reminder; the full doctrine is printed at startup (CANONICAL_STARTUP_RULES)."
+ },
+ {
+  "name": "spec_approval_one_line_per_criterion",
+  "type": "contains",
+  "pattern": "one plain line per acceptance criterion \\(its id and what a person would see",
+  "why": "after 4.0.0 (owner: 'explanations for gherkin bdd ac's make sure its not verbaitm rather a natural language few simple words explanation … one liner if possible each ac')"
+ }
 ]

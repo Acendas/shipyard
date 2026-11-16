@@ -48,7 +48,7 @@ Each integration AC uses:
 
 ### Step 4: Present and Approve
 
-Render every generated integration AC verbatim as chat text, grouped by seam type, BEFORE the ask — the scenarios were generated in Step 3 and exist only in your context; question/option strings (a compact card) cannot hold Given/When/Then text, and "Accept all" on unseen criteria is a blind ask. Then AskUserQuestion:
+Show every generated integration criterion as one plain line (what happens across the two stories, in a few everyday words), grouped by seam type, BEFORE the ask — the scenarios were generated in Step 3 and exist only in your context, and "Accept all" on unseen criteria is a blind ask. One line each, never the Given/When/Then text; the full scenarios go in the epic file. Then AskUserQuestion:
 
 "I identified [N] integration seams across [M] features in this epic. Here are the cross-feature acceptance criteria:"
 

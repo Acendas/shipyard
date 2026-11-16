@@ -4732,5 +4732,11 @@
   "target": "ref:mode-task.md",
   "pattern": "is `test_commands.unit` from the config block, word for word",
   "why": "4.0: a live hotfix ran `make test` instead of the configured `make -k -j8 test`, serial, twice (baseline and after), over an hour for a small fix; the baseline of an already-proven tree is evidence, not a run"
+ },
+ {
+  "name": "execute_asks_nothing_about_tickets",
+  "type": "contains",
+  "pattern": "The build asks nothing about them and sends nothing: a story is not done until the sprint review closes it",
+  "why": "after 4.0.0 (owner: 'how about a scenario: jira story or bug ticket pull it discuss move to sprint'; 'will shipyard work with user session to update external ticket details along the way until up to completion')"
  }
 ]

@@ -421,7 +421,10 @@ test("the question card holds only the question and the choices: a long card is 
   assert.equal(probs.length, 3, probs.join("\n"));
   const two = { questions: [short.questions[0], short.questions[0]] };
   assert.match(shapeProblems(two).join("|"), /2 questions in one card \(limit 1\): write each question in the chat/);
-  assert.match(probs[0], /the question is 161 characters \(limit 160\)/);
+  assert.match(probs[0], /the question is 241 characters \(limit 240\)/);
+  // what a session aims at is shorter than what is refused: a few characters over is not worth a red error on the person's screen
+  const bit = { questions: [{ question: "How strict should the sign-in cookie be?", options: [{ label: "Strict (Recommended)", description: "d".repeat(123) }, { label: "Lax", description: "ok" }] }] };
+  assert.deepEqual(shapeProblems(bit), [], "the owner met a refusal for a description of 123 characters");
   const p = project();
   try {
     const ask = (input) => decideShape(p.dataDir, { tool_name: "AskUserQuestion", session_id: "S1", tool_input: input });

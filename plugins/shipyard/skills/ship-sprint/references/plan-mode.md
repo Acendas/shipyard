@@ -81,6 +81,10 @@ Read BACKLOG.md (which contains only feature IDs and rank order). For each ID, r
 
 If no approved features exist in the backlog and no carry-over items were selected → AskUserQuestion: "No approved features in the backlog. Would you like to: (1) run /ship-discuss to define features, (2) run /ship-backlog to groom existing items, or (3) pull a specific feature ID?"
 
+**The backlog's order is the selection order.** Suggest stories from the top of the backlog down, as `shipyard-data backlog board` lists them, until the capacity is used; when the list is in the owner's order, show each story's "why here" line. Leaving out a story that is higher than one you suggest is said in one line, with the reason (it waits on something, it does not fit).
+
+**Releases first.** When `shipyard-data version list` shows planned versions, the suggested selection comes from the nearest one that still has open work, and each story's line names its fix version. Suggesting a story from a later release while the nearest still has open work is said in one line, with the reason.
+
 **Display the actual features with real data before asking the user to choose.** Never ask "which features?" without showing them first.
 
 **Fit line is CLI output.** Once a suggested selection exists, run `shipyard-data capacity --points <suggested total>` and print its `Fit` and `Calibration` lines verbatim under the suggestion (the calibration line is never omitted when a fit is stated). Below 3 finished sprints the CLI prints the honest range and no percentage; print that instead. Repeat the call whenever the selection changes.
@@ -253,6 +257,8 @@ If approved:
 3. Update feature statuses to `in-progress` in story frontmatter.
 4. Remove pulled feature IDs from BACKLOG.md.
 5. **Record working branch** — capture the user's current branch: `git branch --show-current`. Set it via `shipyard-data sprint set branch <current branch>` (not a hand Edit of SPRINT.md frontmatter). Shipyard works on whatever branch the user is already on — it does not create sprint branches.
+
+**Tell the tracker, when stories are linked to tickets.** Run `shipyard-data tracker plan --since <when this planning began>`. When it prints rows, **Read and follow** `${CLAUDE_PLUGIN_ROOT}/skills/ship-discuss/references/tracker-sync.md` § 3: the tickets learn that their stories are in this sprint (status, sprint, points, fix version). Show the plan and ask (or, with `tracker_sync: auto`, send and report), then `shipyard-data tracker decided --sync applied|later|none`. The lock release below is refused until that is recorded.
 
 **Stop your helpers, then clean up the mutex:** `TaskStop` every named analyst or critic this run started (a hook records it; `lock release` refuses, exit 3, while one is still listed), then run `shipyard-data lock release planning --skill ship-sprint` (soft-delete sentinel — CLI-owned, never a hand Write). Planning is complete.
 

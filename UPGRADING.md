@@ -2,6 +2,19 @@
 
 > **Note:** `/ship-init` was removed in v3.20.0. Onboarding now runs automatically on the first `/ship-status` in a project. Older sections below still mention `/ship-init` as historical record.
 
+## 4.0.0 → 4.0.1
+
+No migration and no breaking change. Things you may notice:
+
+| What | Detail |
+|---|---|
+| Two new hooks | One counts which kinds of source (wiki, tracker, shared drive, web) a discussion read; one sends back a ticket write whose text was not shown to you first. Neither records what was asked or returned |
+| New setting | `tracker_sync` in the project's config: `ask` (default), `auto`, `off`. Set it with `shipyard-data config set tracker-sync <value>` |
+| Tracker import | A ticket typed epic now comes in as an idea, and a ticket typed task as a task. Before, both came in as unrefined stories |
+| Backlog | Once you place an item with `backlog move`, new stories are added at the bottom and `backlog rank` refuses unless you pass `--by-score` |
+| Ideas | `idea promote` turns an idea into an epic. Break the epic down with `/ship-discuss <E###>` |
+| End of a discussion | A discussion that wrote specs records where its research looked, and asks about tracker tickets, before it can end |
+
 ## 3.26.0 → 4.0.0
 
 4.0.0 is the first published release after 3.26.0. **It has breaking changes.** Read this section, then run the migration.

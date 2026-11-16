@@ -4,6 +4,8 @@ This is the full detail of EPIC mode in `/ship-discuss`. The SKILL body has the 
 
 ## Step EP1: Load Epic Context
 
+An epic is one capability, coarse on purpose until it nears the top of the backlog. It is never a release: when the input or the epic's title names a release, a client or a phase, make that a fix version (`shipyard-data version add <name>`, `version set <name> <ids>`) and keep the epic for the capability. New stories and spikes written here take the epic's `fix_version` unless the owner orders one into another release (`version set … --reason`). An epic promoted from an idea carries its tracker links (`external_refs`) and `promoted_from`.
+
 **Questions come from the list (4.0).** Before the first card run `shipyard-data discuss-questions start --topic epic-<epic id in lowercase, e.g. epic-e003> --budget 8`. From then on every question in this mode is added with `shipyard-data discuss-questions add … --by main` (an approval with `--kind gate`) and asked the way `references/async-questions.md` § "Your loop" step 4 says: `next`, write its summary and its show block in the chat, one card, `answer`. Add every question you already have before you ask the first, so the person hears how many there are; small ones are offered together by the list itself. No researcher runs in this mode unless you dispatch one, so nothing waits. End with `discuss-questions reset` when the work is finished and `pause` when it stops early. Where a step below says "AskUserQuestion", it means a question on this list.
 
 If existing epic:
@@ -108,7 +110,7 @@ Present the changed state:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-The changed-state block shows counts ("3 → 5 scenarios") — counts are not approvable. For every feature whose acceptance criteria changed or were newly written in EP3/EP4, render the changed/new scenarios VERBATIM as chat text below the block before this ask; the story files are Read/Edit results the user hasn't seen. Approving here is approve-having-read, not approve-a-count.
+The changed-state block shows counts ("3 → 5 scenarios") — counts are not approvable. For every feature whose acceptance criteria changed or were newly written in EP3/EP4, show each changed or new criterion as one plain line (its id and what a person would see, marked *new* or *changed*) below the block before this ask; the story files are Read/Edit results the user hasn't seen. Never paste the Given/When/Then text. Approving here is approve-having-read, not approve-a-count.
 
 Add the approval to the list (`--kind gate`) and ask it when `next` hands it out: "Approve these changes? (yes / adjust / revert all)"
 

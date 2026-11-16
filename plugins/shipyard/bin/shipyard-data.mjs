@@ -2512,7 +2512,22 @@ function sprintSet(key, value) {
     const { sessionId, unverified } = resolveSessionIdentity([]);
     // only when both sides are known and differ: an unidentified caller is never locked out of its own sprint
     const exec = unverified ? null : runningBeside(dataDir, "planning", sessionId, unverified).find((b) => b.kind === "execution" && b.state === "held" && b.session_id);
-    if (exec) {
+    // After 4.0.0: "the running sprint" is one that has started. A sprint its
+    // own planner is still writing (planned, never started, no execute cursor,
+    // planning lock held by the caller) is not run by anybody: the execution
+    // lock beside it belongs to something else (a single task, a hotfix). A
+    // planner was stopped at its last step, 97 steps in, by such a lock.
+    const mineToPlan = () => {
+      try {
+        const fm = parseFrontmatter(readFileSync(sprintPath, "utf8"));
+        const started = String(fm.started_at ?? "").replace(/#.*$/, "").trim();
+        if (String(fm.status ?? "").trim() !== "planned" || (started && started !== "null")) return false;
+        if (existsSync(join(dataDir, "sprints", "current", "EXECUTE-CURSOR.md"))) return false;
+        const plan = JSON.parse(readFileSync(join(dataDir, ".active-session.json"), "utf8"));
+        return !!plan && !plan.cleared && plan.skill != null && String(plan.session_id ?? "") === String(sessionId);
+      } catch { return false; }
+    };
+    if (exec && !mineToPlan()) {
       process.stderr.write(`shipyard-data sprint set: the current sprint is being run by ${exec.skill} in another session — it is read-only to everyone else.\n  To plan more work now, draft the next sprint (/ship-sprint writes it to sprints/next/); to change this one, stop that run first.\n`);
       process.exit(3);
     }
@@ -3568,7 +3583,7 @@ function doctor(opts = {}) {
   process.exit(1);
 }
 
-const COMMAND_SUMMARY = `(none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] [--unreviewed|--via-review] | metrics <record-retro|regenerate> ... [--data-dir <path>] | capacity [--points <P>] [--hours <H> | --until <time>] [--json] [--data-dir <path>] | migrate [--dry-run] [--reverse] [--data-dir <path>] | route-intake ... | discuss-queue <start|status|next|mark|decision|stop|clear> ... | discuss-questions <start|bind|add|revise|assume|next|answer|answer-bundle|answers|drop|research|wait|status|pause|reset> ... | plugin-issue <add|list> ... | infra <check|apply> [--json] | sprint <set|check|plan-score|probes-at-base|needs-you|plan-dir|queue-next|promote-next> ... | tracker <pull|status|ack> ... | risk <profile|score|drift> ... | route (--step|--task|--story|--role) ... | design <approve|check|status> ... | ui <doctor|screenshot|verify|rules> ... | agents <spawned|stopped|live|check> ... | review-pack [--sprint <id>] [--base <sha> --head <sha>] [--json] | reconcile [--fix] [--json] | patch-budget [--json] | stray <list|set-aside --reason "..."> [--json] | decide --question <q> --option <A=text> --option <B=text> [--facts-file <f>] [--stage <s>] [--subject <id>] [--json] | branches <status|sweep> [--label <name>] [--dry-run] [--json] | story-review <record|disposition|check> ... | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check [--next]|plan-dir|queue-next|promote-next> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | ensure-shared-caches | resolve-isolation [--flag <true|false|worktree|none>] | resolve-model <role> [--override <model>] [--subject <task-id>] [--data-dir <path>] | resolve-refactor-scope | resolve-wave-caps | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | verify-ac-coverage [--base <sha>] [--head <sha>] | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes|check-scenarios|probe-command|assign-ac-ids> ... [--data-dir <path>] | backlog <add|remove|rank|set> ... [--data-dir <path>] | idea <set-status|triage|repair> ... [--data-dir <path>] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set-isolation|set-max-agents|set> ... [--data-dir <path>] | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <list|record|check|findings> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ... | check-idea-backlog [--json] [--data-dir <path>] | report <time|cost|idle|boundary-share|stages> [--data-dir <path>]`;
+const COMMAND_SUMMARY = `(none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] [--unreviewed|--via-review] | metrics <record-retro|regenerate> ... [--data-dir <path>] | capacity [--points <P>] [--hours <H> | --until <time>] [--json] [--data-dir <path>] | migrate [--dry-run] [--reverse] [--data-dir <path>] | route-intake ... | discuss-queue <start|status|next|mark|decision|stop|clear> ... | discuss-questions <start|bind|add|revise|assume|next|answer|answer-bundle|answers|drop|research|wait|status|pause|reset> ... | plugin-issue <add|list> ... | backlog board | infra <check|apply> [--json] | sprint <set|check|plan-score|probes-at-base|needs-you|plan-dir|queue-next|promote-next> ... | tracker <pull|status|ack|plan|link|unlink|synced|decided> ... | version <add|list|show|set|clear|rename|check|release> ... | risk <profile|score|drift> ... | route (--step|--task|--story|--role) ... | design <approve|check|status> ... | ui <doctor|screenshot|verify|rules> ... | agents <spawned|stopped|live|check> ... | review-pack [--sprint <id>] [--base <sha> --head <sha>] [--json] | reconcile [--fix] [--json] | patch-budget [--json] | stray <list|set-aside --reason "..."> [--json] | decide --question <q> --option <A=text> --option <B=text> [--facts-file <f>] [--stage <s>] [--subject <id>] [--json] | branches <status|sweep> [--label <name>] [--dry-run] [--json] | story-review <record|disposition|check> ... | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check [--next]|plan-dir|queue-next|promote-next> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | ensure-shared-caches | resolve-isolation [--flag <true|false|worktree|none>] | resolve-model <role> [--override <model>] [--subject <task-id>] [--data-dir <path>] | resolve-refactor-scope | resolve-wave-caps | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | verify-ac-coverage [--base <sha>] [--head <sha>] | doctor [--full] | feature <set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes|check-scenarios|probe-command|assign-ac-ids> ... [--data-dir <path>] | backlog <add|remove|move|rank|set> ... [--data-dir <path>] | idea <capture|promote|set-status|triage|repair> ... [--data-dir <path>] | task <set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set-isolation|set-max-agents|set> ... [--data-dir <path>] | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <list|record|check|findings> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ... | check-idea-backlog [--json] [--data-dir <path>] | report <time|cost|idle|boundary-share|stages> [--data-dir <path>]`;
 
 /**
  * Asking a verb for help never runs it (4.13.6). `next-id steps --help`
@@ -3648,6 +3663,7 @@ function main() {
     case "patch-budget":
     case "decide":
     case "branches":
+    case "version":
     case "route-intake": {
       // v4 intake verbs (F023 route-intake, F026 discuss-queue, F027 tracker)
       // live in their own leaf modules, loaded on demand like `report`.
@@ -3821,6 +3837,12 @@ function main() {
     case "epic":
     case "backlog":
     case "idea": {
+      // 4.0.1: the whole board as text, from its own leaf module
+      if (command === "backlog" && process.argv[3] === "board") {
+        const { dataDir: dd, rest: more } = extractDataDirFlag(process.argv.slice(4), "backlog board");
+        import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "backlog-board.mjs")).href).then((m) => m.main(dd ?? getDataDir({ silent: true }), more));
+        break;
+      }
       // These route into spec-state-cli exactly like `task`/`draft` do, and
       // for the same reason need `--data-dir`: a builder/subagent whose
       // worktree re-resolves to a different project dir than the

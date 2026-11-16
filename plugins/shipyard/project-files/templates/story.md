@@ -4,6 +4,7 @@ title: ""
 type: feature           # feature | bug (a bug is a story with type: bug — reproduction fields below)
 epic: ""
 status: proposed
+fix_version: ""             # the release this is expected to ship in (empty: its epic's); set with: shipyard-data version set <version> <id>
 story_points: 0
 complexity: ""
 token_estimate: 0
@@ -14,7 +15,7 @@ rice_effort: 0
 rice_score: 0
 feasibility: 0
 dependencies: []
-references: []  # full relative paths: $(shipyard-data)/spec/references/FNNN-slug.md
+references: []  # leave empty here; add each with: shipyard-data story add-ref <id> <path>   (files live in $(shipyard-data)/spec/references/SNNN-slug.md)
 external_refs: []           # links to external systems: "JIRA-123", "GH-456", "https://..."
 children: []
 steps: []               # builder steps (P###) created by /ship-sprint; the hidden TDD units
@@ -67,7 +68,7 @@ updated: null
 #       3. Force-quit and reopen. Expect: still signed in.
 #
 # An assisted/manual verdict is RECORDED EVIDENCE, never a skip:
-#   shipyard-data feature record-proof FNNN verdict=pass confirmed-by=<who> commit=<sha>
+#   shipyard-data story record-proof SNNN verdict=pass confirmed-by=<who> commit=<sha>
 # which emits user_flow_probe_confirmed and satisfies sprint-complete invariant 8
 # exactly as an exit-0 auto run does.
 #
@@ -125,23 +126,23 @@ Feature: {{title}}
 ## Interface
 
 <!-- API endpoints, method signatures, events, request/response shapes. Remove this section if not applicable. -->
-<!-- If this section exceeds ~50 lines, extract to $(shipyard-data)/spec/references/FNNN-api.md -->
+<!-- If this section exceeds ~50 lines, extract to $(shipyard-data)/spec/references/SNNN-api.md -->
 
 ## Data Model
 
 <!-- Schema definitions, field types, constraints, relationships. Remove this section if not applicable. -->
 <!-- Use Mermaid ER diagrams for complex schemas -->
-<!-- If this section exceeds ~50 lines, extract to $(shipyard-data)/spec/references/FNNN-schema.md -->
+<!-- If this section exceeds ~50 lines, extract to $(shipyard-data)/spec/references/SNNN-schema.md -->
 
 ## Configuration
 
 <!-- Settings, environment variables, feature flags with types and defaults. Remove this section if not applicable. -->
-<!-- If this section exceeds ~30 lines, extract to $(shipyard-data)/spec/references/FNNN-config.md -->
+<!-- If this section exceeds ~30 lines, extract to $(shipyard-data)/spec/references/SNNN-config.md -->
 
 ## Flows
 
 <!-- C4, sequence, state machine, ER, deployment, data-flow, user journey — use Mermaid. Remove this section if not applicable. -->
-<!-- If this section exceeds ~50 lines, extract to $(shipyard-data)/spec/references/FNNN-flows.md -->
+<!-- If this section exceeds ~50 lines, extract to $(shipyard-data)/spec/references/SNNN-flows.md -->
 
 ## Error Handling
 

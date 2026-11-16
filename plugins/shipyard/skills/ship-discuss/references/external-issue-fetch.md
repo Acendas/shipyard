@@ -48,7 +48,7 @@ Use the fetched (or pasted) content as the seed context for NEW mode:
 - The issue description pre-loads Phase 1 (Understand Intent) — skip redundant questions the issue already answers
 - Issue labels/components inform domain hints for edge-case discovery
 - Linked parent epic: if the issue references a parent, check if a matching Shipyard epic exists (grep `external_refs` across epic files). If found, pre-assign `epic:` field.
-- **Auto-link**: add the issue key to `external_refs` in the story frontmatter. No confirmation needed — the user explicitly passed the key as input.
+- **Auto-link, through the CLI**: write the fetched ticket as one item of `<SHIPYARD_DATA>/intake/tracker-pull.json` and run `shipyard-data tracker pull --input <that file>`. It creates the record by the ticket's type (a story or a bug as an unrefined story, a task as a task, an epic as an idea), with the link, the ticket's fix version and the sync block, under the epic that carries its parent. Refine that record; do not write a second one by hand. No confirmation needed — the user explicitly passed the key as input. When the discussion ends it asks to send the refined text back, and the ticket is kept in step through the sprint and the review (`references/tracker-sync.md`).
 
 ### Step 4: Bi-directional linking (optional)
 

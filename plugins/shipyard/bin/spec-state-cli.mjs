@@ -35,7 +35,8 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
 import { parseFrontmatterList } from "./frontmatter-list.mjs";
 import { readRequireParkEvidence } from "./config-read.mjs";
@@ -44,6 +45,7 @@ import { readDesign } from "./design.mjs";
 import { planGateProblems } from "./plan-score.mjs";
 import "./probes-at-base.mjs"; // registers the probe check with the plan gate
 import { approvalProblems as openQuestionProblems } from "./discuss-questions.mjs";
+import { ideaPromote } from "./idea-promote.mjs";
 import { sprintStoryIds as planSprintStoryIds } from "./terminal-gate.mjs";
 
 /** A UI story's design decision is on record: an approval (hash) or a waiver. */
@@ -453,6 +455,51 @@ function parseBacklog(dataDir) {
   return { path, fm, preTable, ids, tail };
 }
 
+/**
+ * Whose order the backlog is in (after 4.0.0). LeSS: one list, ordered by the product owner by what a delay
+ * costs; a score is a first sort, never the last word. `backlog/order.json` (CLI-owned) records that the
+ * owner has placed items (`ordered_by: "owner"`) and each placement's one-line reason ("why here"). From then
+ * on nothing re-sorts the list by score behind their back: a new item goes to the bottom, and `backlog rank`
+ * refuses unless asked for by name.
+ */
+function orderPath(dataDir) { return join(dataDir, "backlog", "order.json"); }
+export function readOrder(dataDir) {
+  try { const o = JSON.parse(readFileSync(orderPath(dataDir), "utf8")); return { ordered_by: o.ordered_by === "owner" ? "owner" : "score", why: o.why && typeof o.why === "object" ? o.why : {} }; }
+  catch { return { ordered_by: "score", why: {} }; }
+}
+function writeOrder(dataDir, o) { atomicWriteFile(orderPath(dataDir), JSON.stringify(o, null, 2) + "\n"); }
+
+function backlogMove(dataDir, args) {
+  const usage = 'usage: backlog move <id> (--top | --bottom | --above <id> | --below <id> | --to <n>) --why "<what a delay of this item costs, in one line>"';
+  const val = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
+  const id = args[0];
+  const why = String(val("--why") ?? "").replace(/\s+/g, " ").trim();
+  const modes = [args.includes("--top"), args.includes("--bottom"), val("--above") !== undefined, val("--below") !== undefined, val("--to") !== undefined].filter(Boolean).length;
+  if (!id || id.startsWith("--") || modes !== 1) fail(2, usage);
+  if (why.length < 10) fail(2, `spec-state: backlog move needs --why: one line on what a delay of this item costs (who is hurt, how much, how soon)\n  ${usage}`);
+  withNamedLock(dataDir, "backlog", () => {
+    const b = parseBacklog(dataDir);
+    const from = b.ids.indexOf(id);
+    if (from === -1) fail(3, `spec-state: ${id} is not on the backlog (${b.ids.join(", ") || "empty"}). Add an approved story with: backlog add ${id}`);
+    const rest = b.ids.filter((x) => x !== id);
+    let at;
+    if (args.includes("--top")) at = 0;
+    else if (args.includes("--bottom")) at = rest.length;
+    else if (val("--to") !== undefined) { const n = Number(val("--to")); if (!Number.isInteger(n) || n < 1) fail(2, "spec-state: --to takes a position, 1 for the top"); at = Math.min(n - 1, rest.length); }
+    else { const ref = val("--above") ?? val("--below"); const k = rest.indexOf(ref); if (k === -1) fail(3, `spec-state: ${ref} is not on the backlog`); at = val("--above") !== undefined ? k : k + 1; }
+    rest.splice(at, 0, id);
+    b.ids = rest;
+    serializeBacklog(b);
+    const o = readOrder(dataDir);
+    o.ordered_by = "owner";
+    o.why[id] = { text: why.slice(0, 300), at: today() };
+    for (const k of Object.keys(o.why)) if (!b.ids.includes(k)) delete o.why[k];
+    writeOrder(dataDir, o);
+    emit(dataDir, "backlog_moved", { id, from: from + 1, to: at + 1, why: why.slice(0, 300) });
+    process.stdout.write(`backlog: ${id} is now ${at + 1} of ${b.ids.length}${at > 0 ? `, after ${b.ids[at - 1]}` : ", at the top"}${at < b.ids.length - 1 ? ` and before ${b.ids[at + 1]}` : ""}. The backlog is in your order from here on: a new story goes to the bottom until you place it.\n`);
+  });
+}
+
 function serializeBacklog({ path, fm, preTable, ids, tail }) {
   const rows = ids.map((id, i) => `| ${i + 1} | ${id} |`).join("\n");
   const body = preTable + rows + (rows ? "\n" : "") + tail;
@@ -593,6 +640,10 @@ function featureSetStatus(dataDir, args) {
       ...(replacedBy.length && toStatus === "rejected" ? { replaced_by: replacedBy.join(",") } : {}),
     });
     process.stdout.write(`${fid}: ${fromStatus} -> ${toStatus}\n`);
+    // The story's epic follows its stories, now (4.0.1). It was only brought
+    // in line by `reconcile` (at archive, at the next plan): in between, an
+    // epic read "proposed" while its stories were being built.
+    rollUpEpic(dataDir, String((fm.block.match(/^epic:\s*(.*)$/m) ?? [])[1] ?? "").replace(/^["']|["']$/g, "").trim());
     // Retiring a story (4.0): say where the project still names it. A story was
     // retired as "already built" while a code comment still read "placeholder
     // until <that story> lands", and the owner found the placeholder on the
@@ -610,6 +661,46 @@ function featureSetStatus(dataDir, args) {
 function spawnSyncGit(args, cwd) {
   const r = spawnSyncForGit("git", args, { cwd, encoding: "utf8", timeout: 15000 });
   return r.status === 0 ? r.stdout : r.status === 1 ? "" : null; // git grep exits 1 when nothing matches
+}
+
+/**
+ * Set an epic's status from its stories: every one finished -> done; any one
+ * started or finished -> in-progress. Stories that were rejected or put off do
+ * not count. A `done` epic with a story still to build goes back to
+ * in-progress (the same rule `reconcile` applies). Quiet and
+ * best-effort: a story's own status change never fails because of its epic.
+ */
+function rollUpEpic(dataDir, eid) {
+  try {
+    if (!eid) return;
+    const path = resolveEntityFile(dataDir, "epics", eid, { optional: true });
+    if (!path) return;
+    const FINISHED = new Set(["done", "deployed", "released", "fixed"]);
+    const statuses = [];
+    for (const sub of ["stories", "features", "bugs"]) {
+      let names = [];
+      try { names = readdirSync(join(dataDir, "spec", sub)); } catch { continue; }
+      for (const n of names) {
+        if (!n.endsWith(".md")) continue;
+        let block = "";
+        try { block = parseFm(readFileSync(join(dataDir, "spec", sub, n), "utf8"))?.block ?? ""; } catch { continue; }
+        if (String((block.match(/^epic:\s*(.*)$/m) ?? [])[1] ?? "").replace(/^["']|["']$/g, "").trim() !== eid) continue;
+        const st = String((block.match(/^status:\s*(\S+)/m) ?? [])[1] ?? "").trim();
+        if (st && !["rejected", "deferred"].includes(st)) statuses.push(st);
+      }
+    }
+    if (!statuses.length) return;
+    const want = statuses.every((s) => FINISHED.has(s)) ? "done" : statuses.some((s) => s === "in-progress" || FINISHED.has(s)) ? "in-progress" : null;
+    const content = readFileSync(path, "utf8");
+    const efm = parseFm(content);
+    if (!efm || !want) return;
+    const cur = String((efm.block.match(/^status:\s*(\S+)/m) ?? [])[1] ?? "").trim();
+    // A finished epic that gets a new story is no longer finished: it reopens.
+    if (cur === want) return;
+    writeFrontmatteredFile(path, efm, setScalar(setScalar(efm.block, "status", want), "updated", today()));
+    emit(dataDir, "epic_status_changed", { epic: eid, from: cur, to: want, rolled_up: true });
+    process.stdout.write(`${eid}: ${cur || "unset"} -> ${want} (follows its stories)\n`);
+  } catch { /* best-effort */ }
 }
 
 /** Tracked project files that still contain this id as a whole word (best effort; [] when it cannot be told). */
@@ -634,13 +725,14 @@ const FEATURE_SET_ALLOWLIST = new Set([
   "synced_at",
 ]);
 const FEATURE_SET_REFUSED_HINTS = {
-  status: "use `feature set-status <FID> <status>` instead",
+  status: "use `story set-status <id> <status>` instead",
   id: "the id is fixed at creation — not settable",
   title: "title changes go through Edit on the feature file body/frontmatter directly (not CLI-owned)",
   tasks: "use `story set-steps <SID> <PID,PID,...>` or `story clear-steps <SID>` instead",
   steps: "use `story set-steps <SID> <PID,PID,...>` or `story clear-steps <SID>` instead",
-  references: "use `feature add-ref <FID> <path>` instead",
-  external_refs: "use `feature add-external-ref <FID> <key>` instead",
+  references: "use `story add-ref <id> <path>` to add one and `story remove-ref <id> <path>` to take one out",
+  external_refs: "use `story add-external-ref <id> <key>` instead",
+  fix_version: "use `shipyard-data version set <version> <id>` instead (the version must exist; a move needs --reason)",
 };
 
 function featureSet(dataDir, args) {
@@ -711,14 +803,52 @@ function featureSet(dataDir, args) {
     }
     writeFrontmatteredFile(path, fm, block);
     emit(dataDir, "feature_field_set", { feature: fid, keys: Object.keys(kv).join(",") });
+    // a story moved between epics: both follow their stories (4.0.1)
+    if ("epic" in kv) {
+      const was = String((fm.block.match(/^epic:\s*(.*)$/m) ?? [])[1] ?? "").replace(/^["']|["']$/g, "").trim();
+      for (const e of new Set([was, kv.epic].filter(Boolean))) rollUpEpic(dataDir, e);
+    }
     process.stdout.write(`${fid}: ${Object.keys(kv).join(", ")} updated\n`);
+  });
+}
+
+/**
+ * One spelling for comparing reference entries. A story's `references:` may
+ * hold the same file as an absolute path or in the portable form the template
+ * shows, `$(shipyard-data)/spec/references/<file>`. Seen on a real project
+ * (4.0.0): the story was written with the portable form, `add-ref` then added
+ * the absolute path beside it, and no verb could take either out.
+ */
+function refKey(dataDir, entry) {
+  let e = String(entry ?? "").trim().replace(/^["']|["']$/g, "");
+  e = e.replace(/^(\$\(shipyard-data\)|<SHIPYARD_DATA>|\$\{?SHIPYARD_DATA\}?)[\\/]/, "");
+  const abs = isAbsolute(e) ? e : join(dataDir, e);
+  try { return realpathSync(abs); } catch { return abs; }
+}
+
+function featureRemoveRef(dataDir, args) {
+  const fid = args[0];
+  const refPath = args[1];
+  if (!fid || !refPath) fail(2, "usage: story remove-ref <id> <path>");
+  withNamedLock(dataDir, `feature-${fid}`, () => {
+    const path = resolveFeatureFile(dataDir, fid);
+    const fm = parseFm(readFileSync(path, "utf8"));
+    if (!fm) fail(3, `spec-state: ${fid} has no frontmatter block — refusing`);
+    const existing = getArrayField(fm.block, "references");
+    // The exact text first (one of two spellings of the same file can be taken out), then any spelling of that file.
+    const exact = existing.filter((x) => x.replace(/^["']|["']$/g, "") === refPath);
+    const gone = exact.length ? exact : existing.filter((x) => refKey(dataDir, x) === refKey(dataDir, refPath));
+    if (!gone.length) fail(3, `spec-state: ${fid} has no reference ${refPath}. It lists: ${existing.join(", ") || "(none)"}`);
+    writeFrontmatteredFile(path, fm, setArrayField(fm.block, "references", existing.filter((x) => !gone.includes(x))));
+    emit(dataDir, "story_ref_removed", { feature: fid, path: refPath });
+    process.stdout.write(`${fid}: removed reference ${gone.join(", ")} (the file itself is left in place)\n`);
   });
 }
 
 function featureAddRef(dataDir, args) {
   const fid = args[0];
   const refPath = args[1];
-  if (!fid || !refPath) fail(2, "usage: feature add-ref <FID> <path>");
+  if (!fid || !refPath) fail(2, "usage: story add-ref <id> <path>");
   if (!existsSync(refPath)) fail(3, `spec-state: add-ref target does not exist: ${refPath}`);
 
   const refsRoot = join(dataDir, "spec", "references");
@@ -748,8 +878,9 @@ function featureAddRef(dataDir, args) {
     const fm = parseFm(content);
     if (!fm) fail(3, `spec-state: ${fid} has no frontmatter block — refusing`);
     const existing = getArrayField(fm.block, "references");
-    if (existing.includes(refPath)) {
-      process.stdout.write(`${fid}: ${refPath} already in references — no-op\n`);
+    const same = existing.find((x) => x === refPath || refKey(dataDir, x) === realTarget);
+    if (same) {
+      process.stdout.write(`${fid}: ${refPath} already in references${same === refPath ? "" : ` (as ${same})`} — no-op\n`);
       return;
     }
     const block = setArrayField(fm.block, "references", [...existing, refPath]);
@@ -1207,6 +1338,43 @@ export function scenarioProblems(text) {
  * the rule is not stopped mid-flight. Exit 0 all good, 3 with one line per
  * problem.
  */
+/**
+ * `story acs <id> [<id> ...]` — the acceptance criteria as a short list: one line each, the id and the
+ * scenario's name, never the Given/When/Then text.
+ *
+ * The owner: "explanations for gherkin bdd ac's make sure its not verbatim rather a natural language few
+ * simple words explanation … one liner if possible each ac". An approval used to paste every scenario in
+ * full; with a dozen criteria per story that is a wall nobody reads. The full text stays in the story file.
+ */
+export function acList(text) {
+  const lines = String(text).split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^\s*Scenario(?: Outline)?:\s*(.+?)\s*$/);
+    if (!m) continue;
+    let tags = "";
+    for (let j = i - 1; j >= 0 && j >= i - 4; j--) { const t = lines[j].trim(); if (t.startsWith("@")) tags = `${t} ${tags}`; else if (t && !t.startsWith("#")) break; }
+    const id = (tags.match(/@(AC-\d+)/) || [])[1] ?? `#${out.length + 1}`;
+    const level = (tags.match(/@(e2e|component|unit)\b/) || [])[1] ?? "";
+    out.push({ id, name: m[1], level });
+  }
+  return out;
+}
+function storyAcs(dataDir, args) {
+  const ids = args.filter((a) => !a.startsWith("--"));
+  if (!ids.length) fail(2, "usage: story acs <id> [<id> ...]");
+  for (const id of ids) {
+    const path = resolveFeatureFile(dataDir, id);
+    const text = readFileSync(path, "utf8");
+    const acs = acList(text);
+    const title = (text.match(/^title:[ \t]*"?(.*?)"?[ \t]*$/m) || [])[1] ?? "";
+    process.stdout.write(`${id} — ${title} · ${acs.length} acceptance criteria · full text: ${path}\n`);
+    if (!acs.length) { process.stdout.write("  (no scenario yet)\n\n"); continue; }
+    process.stdout.write("| AC | What it checks |\n|---|---|\n" + acs.map((a) => `| ${a.id} | ${a.name}${a.level && a.level !== "e2e" ? ` (${a.level})` : ""} |`).join("\n") + "\n\n");
+  }
+  process.stdout.write('NEXT (not part of the list): show the person this table, one line per criterion. Where a name is terse, reword it into a few plain words a person would say ("a failed card sale gives the money back by itself"). Do not paste the Given/When/Then text; show one criterion in full only when they ask for it.\n');
+}
+
 function featureCheckScenarios(dataDir, args) {
   const fids = args.filter((a) => !a.startsWith("--"));
   if (fids.length === 0) fail(2, "usage: story check-scenarios <ID> [<ID> ...]");
@@ -1348,6 +1516,14 @@ function backlogAdd(dataDir, args) {
         return;
       }
       // Insert each in RICE-descending position among current + newly added.
+      if (readOrder(dataDir).ordered_by === "owner") {
+        // The owner has ordered this list: nothing is re-sorted behind their back. New work waits at the bottom.
+        b.ids = [...b.ids, ...added];
+        serializeBacklog(b);
+        emit(dataDir, "backlog_added", { features: added.join(","), placed: "bottom" });
+        process.stdout.write(`backlog add: added ${added.join(", ")} at the bottom (the backlog is in the owner's order). Place it: shipyard-data backlog move <id> --top|--above <id>|--to <n> --why "<what a delay costs>"\n`);
+        return;
+      }
       const withScores = b.ids.map((id) => ({ id, ...readFeatureRice(dataDir, id) }));
       for (const fid of added) withScores.push({ id: fid, ...readFeatureRice(dataDir, fid) });
       const scored = withScores.filter((x) => x.score !== null).sort((a, c) => c.score - a.score);
@@ -1395,8 +1571,13 @@ function backlogRemove(dataDir, args) {
   });
 }
 
-function backlogRank(dataDir) {
+function backlogRank(dataDir, args = []) {
   withNamedLock(dataDir, "backlog", () => {
+    const order = readOrder(dataDir);
+    if (order.ordered_by === "owner" && !args.includes("--by-score")) {
+      fail(3, `spec-state: the backlog is in the owner's order (${Object.keys(order.why).length} placement(s) with a reason). A re-sort by score would undo it. Move single items with \`backlog move\`; to throw the order away and sort by score: backlog rank --by-score`);
+    }
+    if (order.ordered_by === "owner") writeOrder(dataDir, { ordered_by: "score", why: {} });
     const b = parseBacklog(dataDir);
     warnMalformedBacklogIds(b.ids);
     const withScores = b.ids.map((id) => ({ id, ...readFeatureRice(dataDir, id) }));
@@ -1527,6 +1708,53 @@ function featureAssignAcIds(dataDir, args) {
  * one-line reason, which the sprint review shows. `--fixed-by` names the patch
  * step that fixes a defect in the sprint and must exist.
  */
+/**
+ * `idea capture --title "..." [--idea "..."] [--why "..."] [--thoughts "..."] [--source "..."] [--points <n>]`
+ *
+ * One call writes a captured idea: the id is allocated, the file is written
+ * from the template's shape, the event is logged (4.0.1). Before this an idea
+ * was "run `next-id ideas`, then write the file yourself"; on a real project a
+ * discussion captured five at once with nine `next-id` calls and a shell
+ * here-document inside the data folder, which the start-up rules forbid and no
+ * hook sees. Capture stays unblockable: this refuses only a missing title.
+ */
+function ideaCapture(dataDir, args) {
+  const o = {};
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!a.startsWith("--")) fail(2, `spec-state: idea capture: unexpected argument "${a}"`);
+    const v = args[++i];
+    if (v === undefined) fail(2, `spec-state: idea capture: ${a} needs a value`);
+    o[a.slice(2)] = v;
+  }
+  const usage = 'usage: idea capture --title "..." [--idea "..."] [--why "..."] [--thoughts "..."] [--source "..."] [--points <n>]';
+  const unknown = Object.keys(o).filter((k) => !["title", "idea", "why", "thoughts", "source", "points"].includes(k));
+  if (unknown.length) fail(2, `spec-state: idea capture: unknown flag --${unknown[0]}\n  ${usage}`);
+  const title = String(o.title ?? "").replace(/\s+/g, " ").trim();
+  if (!title) fail(2, usage);
+  const points = o.points === undefined ? 0 : Number(o.points);
+  if (!Number.isFinite(points) || points < 0) fail(2, `spec-state: idea capture: --points must be a number (got "${o.points}")`);
+  const cli = join(dirname(fileURLToPath(import.meta.url)), "shipyard-data.mjs");
+  const r = spawnSyncForGit("node", [cli, "next-id", "ideas", "--data-dir", dataDir], { encoding: "utf8" });
+  const n = String(r.stdout ?? "").trim();
+  if (r.status !== 0 || !/^\d+$/.test(n)) fail(1, `spec-state: idea capture: could not allocate an id: ${(r.stderr || r.stdout || "").trim().split("\n")[0]}`);
+  if (r.stderr && r.stderr.trim()) process.stderr.write(r.stderr); // the backlog-size warning, never a refusal
+  const id = `IDEA-${n}`;
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "") || "idea";
+  const path = join(dataDir, "spec", "ideas", `${id}-${slug}.md`);
+  const para = (v) => String(v ?? "").trim() || "-";
+  const body = [
+    "---", `id: ${id}`, `title: ${JSON.stringify(title)}`, "type: idea", "status: captured",
+    `source: ${JSON.stringify(String(o.source ?? "").trim())}`, `story_points: ${points}`, `created: ${today()}`, "---", "",
+    `# ${title}`, "", "## Idea", "", para(o.idea ?? title), "", "## Why It Might Matter", "", para(o.why),
+    ...(String(o.thoughts ?? "").trim() ? ["", "## Initial Thoughts", "", String(o.thoughts).trim()] : []), "",
+  ].join("\n");
+  mkdirSync(join(dataDir, "spec", "ideas"), { recursive: true });
+  atomicWriteFile(path, body);
+  emit(dataDir, "idea_captured", { idea: id, source: String(o.source ?? "").trim().slice(0, 80) });
+  process.stdout.write(`${id} captured: ${path}\nFlesh out later with: /ship-discuss ${id}\n`);
+}
+
 function ideaTriage(dataDir, args) {
   const ideaId = args[0];
   const val = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
@@ -1561,14 +1789,14 @@ function ideaSetStatus(dataDir, args) {
   const toIdx = args.indexOf("--to");
   const target = toIdx !== -1 ? args[toIdx + 1] : undefined;
   if (!ideaId || !rawTo || rawTo.startsWith("--")) {
-    fail(2, "usage: idea set-status <IDEA-NNN> <captured|assessing|promoted|rejected|parked> [--to <S###|E###>]");
+    fail(2, "usage: idea set-status <IDEA-NNN> <captured|assessing|promoted|rejected|parked> [--to <S###|E###|T###>]");
   }
   const toStatus = normalizeStatus(IDEA_STATUS_ALIASES, rawTo);
   if (!Object.prototype.hasOwnProperty.call(IDEA_TRANSITIONS, toStatus)) {
     fail(2, `spec-state: unknown idea status "${rawTo}". Allowed: ${Object.keys(IDEA_TRANSITIONS).join(", ")} (legacy: proposed, graduated)`);
   }
   if (toStatus === "promoted" && !target) {
-    fail(3, "spec-state: idea set-status promoted requires --to <S###|E###> (the story or epic it was promoted to)");
+    fail(3, "spec-state: idea set-status promoted requires --to <S###|E###|T###> (the story, epic or task it was promoted to)");
   }
   if (toStatus !== "promoted" && target) {
     fail(3, `spec-state: idea set-status ${toStatus} refuses --to — only a promoted idea has a target`);
@@ -1581,8 +1809,11 @@ function ideaSetStatus(dataDir, args) {
     } else if (isStoryId(target)) {
       if (!resolveStoryFile(dataDir, target, { optional: true })) fail(3, `spec-state: --to ${target} does not exist under spec/stories/ (or the legacy spec/features/, spec/bugs/)`);
       targetKind = "story";
+    } else if (TASK_ID_RE.test(target)) {
+      if (!readUnitFrontmatter(dataDir, target)) fail(3, `spec-state: --to ${target} does not exist under spec/tasks/`);
+      targetKind = "task";
     } else {
-      fail(3, `spec-state: --to "${target}" is not a story or epic id (${STORY_ID_HINT}; or E###)`);
+      fail(3, `spec-state: --to "${target}" is not a story, epic or task id (${STORY_ID_HINT}; E###; T###)`);
     }
   }
 
@@ -2014,6 +2245,8 @@ const CONFIG_SET_ALLOWLIST = {
   // its decisions); everything else in the project is read-only to /ship-discuss.
   "discuss-writable": { fmKey: "discuss_writable", type: "array" },
   "verify-ignore": { fmKey: "verify_ignore", type: "array" },
+  // after 4.0.0: ask | auto | off — how tracker tickets are kept in step with what Shipyard decides and builds
+  "tracker-sync": { fmKey: "tracker_sync", type: "scalar" },
   "worktree-warm-enabled": { parent: "worktree_warm", fmKey: "enabled", type: "bool" },
   "worktree-warm-paths": { parent: "worktree_warm", fmKey: "paths", type: "array" },
   "test-commands-rerun-failed": { parent: "test_commands", fmKey: "rerun_failed", type: "scalar" },
@@ -2227,6 +2460,8 @@ function storyDispatch(dataDir, sub, rest) {
       return featureSet(dataDir, rest);
     case "add-ref":
       return featureAddRef(dataDir, rest);
+    case "remove-ref":
+      return featureRemoveRef(dataDir, rest);
     case "add-external-ref":
       return featureAddExternalRef(dataDir, rest);
     case "add-dep":
@@ -2249,10 +2484,12 @@ function storyDispatch(dataDir, sub, rest) {
       return probeCommandMain(dataDir, rest);
     case "check-scenarios":
       return featureCheckScenarios(dataDir, rest);
+    case "acs":
+      return storyAcs(dataDir, rest);
     case "assign-ac-ids":
       return featureAssignAcIds(dataDir, rest);
     default:
-      fail(2, `shipyard-data story: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|retract-proof|check-probes|check-scenarios|probe-command|assign-ac-ids`);
+      fail(2, `shipyard-data story: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|remove-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|retract-proof|check-probes|check-scenarios|acs|probe-command|assign-ac-ids`);
   }
 }
 
@@ -2354,8 +2591,12 @@ function dispatch(dataDir, entity, sub, rest) {
         return ideaRepair(dataDir, rest);
       case "triage":
         return ideaTriage(dataDir, rest);
+      case "capture":
+        return ideaCapture(dataDir, rest);
+      case "promote":
+        try { return ideaPromote(dataDir, rest); } catch (e) { if (typeof e?.exitCode === "number") fail(e.exitCode, `spec-state: idea promote: ${e.message}`); throw e; }
       default:
-        fail(2, `shipyard-data idea: unknown subcommand "${sub ?? ""}". Expected: set-status|triage|repair`);
+        fail(2, `shipyard-data idea: unknown subcommand "${sub ?? ""}". Expected: capture|promote|set-status|triage|repair`);
     }
   }
   if (entity === "backlog") {
@@ -2365,11 +2606,13 @@ function dispatch(dataDir, entity, sub, rest) {
       case "remove":
         return backlogRemove(dataDir, rest);
       case "rank":
-        return backlogRank(dataDir);
+        return backlogRank(dataDir, rest);
+      case "move":
+        return backlogMove(dataDir, rest);
       case "set":
         return backlogSet(dataDir, rest);
       default:
-        fail(2, `shipyard-data backlog: unknown subcommand "${sub ?? ""}". Expected: add|remove|rank|set`);
+        fail(2, `shipyard-data backlog: unknown subcommand "${sub ?? ""}". Expected: board|add|remove|move|rank|set`);
     }
   }
   if (entity === "config") {

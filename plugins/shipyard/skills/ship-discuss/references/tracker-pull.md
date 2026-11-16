@@ -1,6 +1,8 @@
-# PULL Mode: Import tickets in bulk as unrefined stories (F027)
+# PULL Mode: Import tickets in bulk (F027)
 
 `/ship-discuss --pull "<query>"` or `--pull my-sprint` pulls tickets from the user's tracker into `spec/stories/` as **unrefined** stories, each linked by `external_refs`. The tracker stays the owner of the ticket; Shipyard owns the refined spec. The CLI (`shipyard-data tracker`) owns the files; this mode only discovers, normalizes and confirms.
+
+**What becomes what (4.0.1).** The link and the sync are for every kind of record. A ticket typed epic, initiative or theme comes in as an **idea** (`spec/ideas/`), not broken down at intake and refined into an epic later; a task, sub-task or spike comes in as a **task**; a bug and everything else as an unrefined **story**. Each keeps its link (`external_refs`), its tracker fix version (the version is created), a sync block and the ticket text, and a ticket whose parent is carried by an epic lands under that epic. `--as ideas|stories|tasks` forces one kind. A later pull refreshes whichever record carries the ticket. A tracker export needs no normalizing: `shipyard-data tracker pull --csv <export.csv>` reads the tracker's own column names (key, summary, issue type, status, priority, fix version, labels, description, parent). Next for an idea: `/ship-discuss <IDEA-NNN>` when it nears the top (it becomes an epic, then spikes and stories).
 
 ## Step P1: Find the adapter (AC-7)
 
@@ -8,7 +10,7 @@ Scan the session's tool names for a ticket **search/list** tool, the same way `r
 
 - `my-sprint` → the tracker's "my open work in the active sprint" query. For a JQL tracker: `sprint in openSprints() AND assignee = currentUser() AND statusCategory != Done ORDER BY Rank`. For others, the closest native filter (assignee = me, state open, current cycle/iteration).
 - Any other text → pass it verbatim as the tracker query.
-- **No tool found** → say so in one line and `AskUserQuestion`: paste a ticket export (JSON or CSV with key, title, type, status, description) / cancel. Shipyard works without any tracker plugin; this mode just has nothing to pull from.
+- **No tool found** → say so in one line and `AskUserQuestion`: give the path of a ticket export (a CSV goes straight in: `tracker pull --csv <path>`; JSON as below) / cancel. Shipyard works without any tracker plugin; this mode just has nothing to pull from.
 
 Cap one pull at **50 tickets**; say how many were left out and how to narrow the query.
 

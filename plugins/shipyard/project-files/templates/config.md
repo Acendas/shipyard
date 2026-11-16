@@ -35,6 +35,7 @@ build_commands:
 ci_platform: ""
 repo_type: single
 workflow: sprint
+tracker_sync: ask            # ask | auto | off. How tickets in your tracker (Jira, Linear, GitHub …) are kept in step, for every linked epic, story, bug and task, from discussion to release. ask: Shipyard shows what differs and asks before it writes (after a discussion, after sprint planning, after the sprint review). auto: it sends those updates itself and reports them (it still asks before creating a ticket). off: it never proposes tracker changes. Set with: shipyard-data config set tracker-sync <ask|auto|off>
 spec:
   behaviour_first: true      # a story is approved from `proposed` only when every scenario has an @AC id and one level tag (@e2e by default; a lower level says why) and `## Paths` names every scenario. false = approve without the check.
 git:

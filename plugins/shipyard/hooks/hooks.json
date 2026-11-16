@@ -47,6 +47,15 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" agent-ledger"
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*(comment|create_issue|update_issue|create_page|update_page|append_to_page|replace_section).*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" tracker-write"
+          }
+        ]
       }
     ],
     "WorktreeCreate": [
@@ -56,6 +65,27 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" worktree-branch"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" ask-after-explain"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*|WebSearch|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" source-ledger"
           }
         ]
       }
