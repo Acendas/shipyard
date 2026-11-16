@@ -26,7 +26,7 @@
  * configuration push, sign-off): kept visible beside the items, not hidden
  * inside "done".
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWrite, logEvent, withLockfile } from "./_hook_lib.mjs";
 
@@ -92,6 +92,30 @@ export function listVersions(dataDir) {
   try { names = readdirSync(versionsDir(dataDir)); } catch { return []; }
   return names.filter((n) => n.endsWith(".md")).map((n) => readVersion(dataDir, n.slice(0, -3))).filter(Boolean)
     .sort((a, b) => (a.target_date || "9999").localeCompare(b.target_date || "9999") || a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+/**
+ * Two names for one release (after 4.0.1): `v4.2`, `4.2` and `v4.2.0` are the same number.
+ *
+ * On a real project the discussion added `v4.2.0`; eight seconds later the tracker import, whose tickets say
+ * `v4.2`, added a second version beside it. Untangling that took two renames and left an empty version nobody
+ * could delete. A name that differs from an existing one only by a leading "v" or trailing ".0" parts is that
+ * version: `sameRelease` returns the existing name (or null).
+ */
+const releaseKey = (name) => String(name ?? "").trim().toLowerCase().replace(/^v(?=\d)/, "").replace(/(\.0)+$/, "");
+export function sameRelease(dataDir, name) {
+  if (existsSync(versionPath(dataDir, name))) return name;
+  if (!/\d/.test(String(name))) return null;
+  const k = releaseKey(name);
+  let names = [];
+  try { names = readdirSync(versionsDir(dataDir)); } catch { return null; }
+  return names.filter((n) => n.endsWith(".md")).map((n) => n.slice(0, -3)).find((n) => releaseKey(n) === k) ?? null;
+}
+/** A CLI rewrite that changes nothing a ticket holds (a renamed label) leaves a sent record "sent": move `synced_at` with the file. */
+function writeKeepingInStep(path, fm, block) {
+  let inStep = false;
+  try { const at = Date.parse((fm.block.match(/^synced_at:[ \t]*"?([^"\n]*)"?/m) || [])[1] ?? ""); inStep = Number.isFinite(at) && statSync(path).mtimeMs <= at + 1000; } catch { inStep = false; }
+  atomicWrite(path, `${fm.open}${inStep ? setScalar(block, "synced_at", JSON.stringify(new Date(Date.now() + 1000).toISOString())) : block}${fm.close}${fm.rest}`);
 }
 
 /** Create the version when it does not exist yet. Returns true when it was created. */
@@ -162,7 +186,8 @@ function usage(msg) {
     `shipyard-data version: ${msg}\n` +
       '  Usage: version add <name> [--title "..."] [--date YYYY-MM-DD] [--check "..."]... | version list [--json] | version show <name> [--json]\n' +
       '         version set <name> <id> [<id>...] [--reason "..."] | version clear <id> [<id>...] --reason "..."\n' +
-      '         version check <name> <n> --answer "<the person\'s words>" | version release <name> | version rename <name> <new name>\n',
+      '         version check <name> <n> --answer "<the person\'s words>" | version release <name>\n' +
+      '         version rename <name> <new name> [--merge]   (--merge: the new name exists; everything moves into it) | version remove <name>   (an empty one)\n',
   );
   process.exit(2);
 }
@@ -171,6 +196,7 @@ function parse(args) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--json") { o.json = true; continue; }
+    if (a === "--merge") { o.merge = true; continue; }
     if (a.startsWith("--")) { const v = args[++i]; if (v === undefined) usage(`${a} needs a value`); if (a === "--check") o.check.push(v); else o[a.slice(2)] = v; }
     else o._.push(a);
   }
@@ -185,6 +211,8 @@ export function main(dataDir, args = []) {
     if (sub === "add") {
       const name = o._[0];
       if (!name) usage("add needs a name, for example v4.2.0");
+      const twin = sameRelease(dataDir, name);
+      if (twin && twin !== name) { process.stderr.write(`shipyard-data version: ${twin} already stands for this release (the same number as ${name}). Use it, or rename it: shipyard-data version rename ${twin} ${name}\n`); process.exit(3); }
       const made = ensureVersion(dataDir, name, { title: o.title ?? "", date: o.date ?? "", checks: o.check });
       process.stdout.write(made ? `version ${name} added${o.date ? `, expected ${o.date}` : ""}. Put items in it: shipyard-data version set ${name} <id> [<id>...]\n` : `version ${name} already exists\n`);
       return;
@@ -241,16 +269,43 @@ export function main(dataDir, args = []) {
       if (!VERSION_RE.test(to)) usage(`"${to}" is not a version name`);
       const v = readVersion(dataDir, from);
       if (!v) { process.stderr.write(`shipyard-data version: no version "${from}"\n`); process.exit(3); }
-      if (existsSync(versionPath(dataDir, to))) { process.stderr.write(`shipyard-data version: ${to} already exists\n`); process.exit(3); }
+      if (from === to) { process.stdout.write("nothing to change\n"); return; }
+      const target = readVersion(dataDir, to);
+      // Two versions for one release (a tracker's name and ours): --merge folds this one into the other.
+      if (target && !o.merge) { process.stderr.write(`shipyard-data version: ${to} already exists. To move everything in ${from} into it and remove ${from}: shipyard-data version rename ${from} ${to} --merge\n`); process.exit(3); }
       const moved = items(dataDir).filter((i) => i.own === from);
       mkdirSync(join(dataDir, ".locks"), { recursive: true });
       withLockfile(join(dataDir, ".locks", "fix-version.lock"), () => {
-        atomicWrite(versionPath(dataDir, to), `${v.fm.open}${setScalar(v.fm.block, "name", JSON.stringify(to))}${v.fm.close}${v.fm.rest.replace(new RegExp(`^# ${from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "m"), `# ${to}`)}`);
-        for (const it of moved) { const fm = parseFm(readFileSync(it.path, "utf8")); atomicWrite(it.path, `${fm.open}${setScalar(fm.block, "fix_version", JSON.stringify(to))}${fm.close}${fm.rest}`); }
+        if (target) {
+          // the target keeps its own goal and date; it takes this one's date and title only where it has none, and its checks
+          let block = target.fm.block;
+          if (!target.target_date && v.target_date) block = setScalar(block, "target_date", JSON.stringify(v.target_date));
+          if (!target.title && v.title) block = setScalar(block, "title", JSON.stringify(v.title));
+          const have = new Set(target.checks.map((c) => c.text));
+          const extra = v.checks.filter((c) => !have.has(c.text)).map((c) => `- [${c.done ? "x" : " "}] ${c.text}`);
+          atomicWrite(versionPath(dataDir, to), `${target.fm.open}${block}${target.fm.close}${target.fm.rest.replace(/\s*$/, "\n")}${extra.length ? extra.join("\n") + "\n" : ""}`);
+        } else {
+          atomicWrite(versionPath(dataDir, to), `${v.fm.open}${setScalar(v.fm.block, "name", JSON.stringify(to))}${v.fm.close}${v.fm.rest.replace(new RegExp(`^# ${from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "m"), `# ${to}`)}`);
+        }
+        // a new label for the same release is not a change a ticket has to be told about
+        for (const it of moved) { const fm = parseFm(readFileSync(it.path, "utf8")); writeKeepingInStep(it.path, fm, setScalar(fm.block, "fix_version", JSON.stringify(to))); }
         rmSync(versionPath(dataDir, from));
       }, { ttlMs: 10000, retryMs: 50, maxRetries: 200 });
-      try { logEvent(dataDir, "version_renamed", { from, to, items: moved.length }); } catch { /* best-effort */ }
-      process.stdout.write(`version ${from} is now ${to}; ${moved.length} item(s) follow it\n`);
+      try { logEvent(dataDir, target ? "version_merged" : "version_renamed", { from, to, items: moved.length }); } catch { /* best-effort */ }
+      process.stdout.write(target ? `version ${from} is merged into ${to}; ${moved.length} item(s) moved, ${from} is removed\n` : `version ${from} is now ${to}; ${moved.length} item(s) follow it\n`);
+      return;
+    }
+    if (sub === "remove") {
+      const name = o._[0];
+      if (!name) usage("remove needs a version name");
+      const v = readVersion(dataDir, name);
+      if (!v) { process.stderr.write(`shipyard-data version: no version "${name}"\n`); process.exit(3); }
+      const inIt = items(dataDir).filter((i) => i.own === name);
+      if (inIt.length) { process.stderr.write(`shipyard-data version: ${name} still holds ${inIt.length} item(s) (${inIt.slice(0, 6).map((i) => i.id).join(", ")}${inIt.length > 6 ? ", …" : ""}). Move them first: version set <other> <id>..., or version rename ${name} <other> --merge\n`); process.exit(3); }
+      if (v.status === "released") { process.stderr.write(`shipyard-data version: ${name} was released; a released version is kept\n`); process.exit(3); }
+      rmSync(versionPath(dataDir, name));
+      try { logEvent(dataDir, "version_removed", { version: name }); } catch { /* best-effort */ }
+      process.stdout.write(`version ${name} removed (it held nothing)\n`);
       return;
     }
     if (sub === "check") {

@@ -25,6 +25,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWrite, logEvent } from "./_hook_lib.mjs";
 import { TASK_KINDS } from "./vocab.mjs";
+import { ownTicket } from "./tracker.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = join(HERE, "shipyard-data.mjs");
@@ -81,7 +82,10 @@ export function ideaPromote(dataDir, args) {
   const upstream = (body.match(/^## Upstream ticket[\s\S]*$/m) || [""])[0].trim();
   const today = new Date().toISOString().slice(0, 10);
   const upstreamFm = (block.match(/^upstream:\n(?:[ \t]+.*\n?)*/m) || [""])[0].trimEnd();
-  const common = [`external_refs: [${refs.map(q).join(", ")}]`, fixVersion ? `fix_version: ${q(fixVersion)}` : null, `promoted_from: ${id}`, `created: ${today}`, `updated: ${today}`, ...(upstreamFm ? ["upstream_changed: false", upstreamFm] : [])];
+  // the idea's own ticket becomes the epic's own ticket (a key it only mentions stays a reference)
+  let ticket = "";
+  try { ticket = ownTicket(dataDir, id); } catch { ticket = ""; }
+  const common = [ticket ? `ticket: ${q(ticket)}` : null, `external_refs: [${refs.map(q).join(", ")}]`, fixVersion ? `fix_version: ${q(fixVersion)}` : null, `promoted_from: ${id}`, `created: ${today}`, `updated: ${today}`, ...(upstreamFm ? ["upstream_changed: false", upstreamFm] : [])];
   let target, path, content;
   if (o.to === "epic") {
     target = `E${nextId(dataDir, "epics")}`;

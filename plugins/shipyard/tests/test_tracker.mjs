@@ -163,7 +163,7 @@ test("the link and the sync plan cover every kind of record: what has no ticket,
   try {
     for (const sub of ["epics", "tasks", "ideas"]) mkdirSync(join(d, "spec", sub), { recursive: true });
     const put = (sub, id, title, type, status, extra = "") => writeFileSync(join(d, "spec", sub, `${id}-x.md`), `---\nid: ${id}\ntitle: "${title}"\ntype: ${type}\nstatus: ${status}\n${extra}---\n\n# ${title}\n`);
-    put("epics", "E001", "Offline mode", "epic", "proposed", 'external_refs: ["ABC-1120"]\nfix_version: "v4.2.0"\n');
+    put("epics", "E001", "Offline mode", "epic", "proposed", 'ticket: "ABC-1120"\nexternal_refs: ["ABC-1120"]\nfix_version: "v4.2.0"\n');
     put("stories", "S001", "Sleep and wake", "feature", "proposed", "epic: E001\nexternal_refs: []\n");
     put("stories", "S002", "Wake drops a sale", "bug", "proposed", 'epic: ""\nexternal_refs: []\n');
     put("tasks", "T001", "Which payment provider", "task", "open", "kind: spike\nparent: E001\n");
@@ -272,7 +272,7 @@ test("the outbox: ticket texts as files, shown as a table, sent after the person
   const { base, d } = fixture();
   try {
     mkdirSync(join(d, "spec", "epics"), { recursive: true });
-    writeFileSync(join(d, "spec", "epics", "E001-x.md"), '---\nid: E001\ntitle: "Shop: pay by card"\nstatus: proposed\nexternal_refs: ["ABC-7"]\n---\n\nbody\n');
+    writeFileSync(join(d, "spec", "epics", "E001-x.md"), '---\nid: E001\ntitle: "Shop: pay by card"\nstatus: proposed\nticket: "ABC-7"\nexternal_refs: ["ABC-7"]\n---\n\nbody\n');
     writeFileSync(join(d, "spec", "epics", "E002-y.md"), '---\nid: E002\ntitle: "Shop: refunds"\nstatus: proposed\nexternal_refs: []\n---\n\nbody\n');
     assert.match(run(d, "tracker", "outbox").stdout, /the outbox is empty[\s\S]*<record id>\.md/);
     const DESC = "As a shopper, I want to pay by card, so that I need no cash.\n\nA failed card sale gives the money back within a minute.\nThe till shows why the card was refused, in plain words.\nNothing is charged twice when the network drops mid-sale.";
@@ -317,5 +317,53 @@ test("the outbox: ticket texts as files, shown as a table, sent after the person
     assert.equal(readdirSync(join(d, "tracker", "sent")).length, 2);
     assert.match(run(d, "tracker", "link", "E002", "ABC-9").stdout, /linked to ABC-9/);
     assert.deepEqual(readdirSync(join(d, "tracker", "outbox")), []);
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+// Seen on a real project: 52 stories written under eleven epics each named their epic's ticket in external_refs,
+// four named a ticket in another project, and the spikes named their epic's ticket before their own. The first
+// key was taken for "the record's ticket": the plan offered to update each epic's ticket once per story, with the
+// story's text, and to rewrite tickets in the other project.
+test("a record's own ticket is explicit; a key it only mentions is a reference and is never written to", () => {
+  const { base, d } = fixture();
+  try {
+    for (const sub of ["epics", "tasks"]) mkdirSync(join(d, "spec", sub), { recursive: true });
+    const put = (sub, id, title, extra = "") => writeFileSync(join(d, "spec", sub, `${id}-x.md`), `---\nid: ${id}\ntitle: "${title}"\ntype: ${sub === "epics" ? "epic" : sub === "tasks" ? "task" : "feature"}\nstatus: ${sub === "tasks" ? "open" : "proposed"}\n${extra}---\n\n# ${title}\n`);
+    put("epics", "E001", "Pay by card", 'external_refs: ["ABC-10"]\nfix_version: "v2"\n');
+    assert.match(run(d, "tracker", "link", "E001", "ABC-10").stdout, /E001: linked to ABC-10/, "already in its links: linking makes it the record's own ticket");
+    assert.match(readFileSync(join(d, "spec", "epics", "E001-x.md"), "utf8"), /^ticket: "ABC-10"$/m);
+    assert.match(run(d, "tracker", "link", "E001", "ABC-10").stdout, /already linked/);
+    for (const n of [1, 2, 3]) put("stories", `S00${n}`, `Card story ${n}`, 'epic: E001\nexternal_refs: ["ABC-10"]\n');
+    put("stories", "S004", "Refund to the card", 'epic: E001\nexternal_refs: ["ABC-10", "XYZ-77"]\n');
+    put("tasks", "T001", "Which card reader", 'kind: spike\nparent: E001\nexternal_refs: ["ABC-10"]\n');
+    run(d, "tracker", "link", "T001", "ABC-31");
+    run(d, "tracker", "synced", "E001");
+    const p = JSON.parse(run(d, "tracker", "plan", "--json").stdout);
+    assert.deepEqual(p.rows.map((x) => `${x.action} ${x.id} ${x.key ?? ""}`.trim()), ["create S001", "create S002", "create S003", "create S004"],
+      "the stories have no ticket of their own; the epic and the spike are in step with theirs");
+    assert.equal(p.rows.every((x) => x.parent_key === "ABC-10"), true);
+    const out = run(d, "tracker", "plan").stdout;
+    assert.match(out, /^TRACKER PLAN · 4 with no ticket · 0 changed since last sent/);
+    assert.match(out, / 1–4\. S001 … S004  4 stories under E001 \(ABC-10\)  · v2/, "many new stories under one epic are one line");
+    assert.doesNotMatch(out, /XYZ-77 +Refund|update\)?:\n +\d+\. S00/);
+    // the spike's own ticket is the one it was linked to, not the epic's key that happens to come first
+    assert.match(readFileSync(join(d, "spec", "tasks", "T001-x.md"), "utf8"), /^ticket: "ABC-31"$/m);
+    assert.equal(JSON.parse(run(d, "tracker", "status", "--json").stdout).find((x) => x.id === "T001").ticket, "ABC-31");
+    // a mentioned key is not a ticket to mark as sent
+    const no = run(d, "tracker", "synced", "S004");
+    assert.equal(no.status, 3);
+    assert.match(no.stderr, /S004 has no ticket of its own \(it names ABC-10, XYZ-77, which Shipyard reads as a reference/);
+    // one story alone is listed with what it mentions
+    for (const n of [1, 2, 3]) rmSync(join(d, "spec", "stories", `S00${n}-x.md`));
+    assert.match(run(d, "tracker", "plan").stdout, /1\. S004 +Story Refund to the card  · under ABC-10  · v2  · mentions XYZ-77\n  \(a mentioned key is a reference\. If it is the record's own ticket: shipyard-data tracker link <id> <KEY>\)/);
+    // "not these, for now" lasts: held records leave the list and are counted
+    assert.match(run(d, "tracker", "hold", "--under", "E001").stdout, /2 record\(s\) held/, "the story with no ticket and the spike (which keeps being synced: it has one)");
+    const held = run(d, "tracker", "plan").stdout;
+    assert.match(held, /the tracker is up to date[\s\S]*1 record\(s\) are held without a ticket by the owner's choice/);
+    assert.match(run(d, "tracker", "hold", "S004", "--off").stdout, /1 record\(s\) are on the tracker plan again/);
+    assert.equal(JSON.parse(run(d, "tracker", "plan", "--json").stdout).rows.length, 1);
+    // unlinking the record's own ticket clears it
+    run(d, "tracker", "unlink", "T001", "ABC-31");
+    assert.doesNotMatch(readFileSync(join(d, "spec", "tasks", "T001-x.md"), "utf8"), /^ticket:/m);
   } finally { rmSync(base, { recursive: true, force: true }); }
 });

@@ -398,7 +398,7 @@ Shipyard ships 7 registered agents. Each is started through an internal skill th
 | `tracker-write` | Before a comment, ticket or page is written through a connector | Inside a Shipyard command, holds the write until the person has seen it: a short text shown word for word in the chat, or a ticket text listed in the outbox table (`shipyard-data tracker outbox`) that the person has answered |
 | `source-ledger` | After a connector or web tool runs | During a discussion, counts which kinds of source were read (wiki, tracker, shared drive, web); the tool's name only, never what was asked or returned |
 | `agent-ledger` | Before an agent is started or stopped | Keeps the list of live agents; enforces the agent limit and the routed model |
-| `worktree-branch` | When a worktree is created | Starts it from your current branch |
+| `worktree-branch` | When a worktree is created | Starts it from your current branch. Only a worktree made while Shipyard is building is named `shipyard/wt-*`; any other is `worktree-<name>` and Shipyard never renames, sweeps or removes it |
 | `lock-reap` | When a session ends | Releases any lock the session still holds |
 
 **The data folder.** Everything Shipyard records lives under Claude Code's plugin data folder, one folder per project. `/ship-status diagnose` prints the path. Your repository gets one link, `.shipyard`, that points there; add it to your `.gitignore`.

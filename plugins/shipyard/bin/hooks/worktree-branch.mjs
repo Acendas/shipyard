@@ -18,7 +18,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative as pathRelative, resolve as pathResolve } from "node:path";
 import { withLockfile, WORKTREE_NAME_RE } from "../_hook_lib.mjs";
 import { getProjectRoot } from "../shipyard-resolver.mjs";
@@ -150,6 +150,27 @@ function writeOriginMarker(worktreePath) {
   }
 }
 
+/**
+ * Is this worktree for a Shipyard builder (after 4.0.1)?
+ *
+ * This hook creates EVERY worktree Claude Code asks for in a project where the plugin is on, and it used to name
+ * every branch `shipyard/wt-<name>`. Seen on a real project: a worktree made by an unrelated workflow weeks
+ * before carried that name, so the health check reported it as a builder's leftover on every run, and the sweep
+ * at the end of a sprint (which removes clean `shipyard/wt-*` worktrees) would have taken a clean one away.
+ * Builders are only ever dispatched while an execution lock is held (execute, the review's fixes, debug's fix
+ * phase). So: no execution lock on record → not Shipyard's → the branch is `worktree-<name>`, which nothing in
+ * Shipyard touches. When the data folder cannot be read the old name is kept: wrongly calling a builder's
+ * worktree foreign would leave a wave with no branches to integrate.
+ */
+export function forShipyardBuilder(dataDir) {
+  if (!dataDir) return true;
+  try {
+    if (!existsSync(join(dataDir, "config.md"))) return true; // not an initialized project folder: do not guess
+    const o = JSON.parse(readFileSync(join(dataDir, ".active-execution.json"), "utf8"));
+    return Boolean(o && o.skill && !o.cleared);
+  } catch { return false; } // an initialized project with no execution lock file: nothing is building
+}
+
 export async function run(hookInput, _env) {
   const name = hookInput?.name || "";
   if (!name) {
@@ -198,10 +219,26 @@ export async function run(hookInput, _env) {
   }
 
   const lockPath = join(worktreesDir, ".worktree-create.lock");
+  const builder = forShipyardBuilder((_env && _env.SHIPYARD_DATA) || process.env.SHIPYARD_DATA);
   let exitCode = 0;
   let resultPath = null;
   try {
     withLockfile(lockPath, () => {
+      if (!builder) {
+        // Someone else's worktree (the person's own session, a workflow): never removed, never renamed. One that
+        // is already there is handed back as it is; a branch of that name is reused, not deleted.
+        if (existsSync(join(worktreePath, ".git"))) { resultPath = worktreePath; return; }
+        const branch = `worktree-${name}`;
+        const has = runGit(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], repoRoot);
+        const made = runGit(has ? ["worktree", "add", worktreePath, branch] : ["worktree", "add", "-b", branch, worktreePath, currentSha], repoRoot);
+        if (made === null) {
+          process.stderr.write(`shipyard worktree hook: git worktree add failed for ${name}\n`);
+          exitCode = 1;
+          return;
+        }
+        resultPath = worktreePath;
+        return;
+      }
       // Clean up stale worktree at this path if it exists
       if (existsSync(worktreePath)) {
         runGit(["worktree", "remove", "--force", worktreePath], repoRoot);
@@ -240,7 +277,7 @@ export async function run(hookInput, _env) {
   // stdout contract or the hook's exit code — wrapped defensively even
   // though warmWorktreeFromConfig already swallows its own errors.
   try {
-    warmWorktreeFromConfig({ sourceRoot: repoRoot, worktreePath: resultPath });
+    if (builder) warmWorktreeFromConfig({ sourceRoot: repoRoot, worktreePath: resultPath });
   } catch (err) {
     process.stderr.write(`shipyard worktree hook: worktree warm failed (non-blocking): ${err?.message ?? err}\n`);
   }

@@ -37,7 +37,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWrite, logEvent, withLockfile } from "./_hook_lib.mjs";
 import { isStoryId } from "./vocab.mjs";
-import { ensureVersion, VERSION_RE } from "./version.mjs";
+import { ensureVersion, sameRelease, VERSION_RE } from "./version.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const KEY_RE = /^[A-Z][A-Z0-9_]*-\d+$/;
@@ -150,13 +150,15 @@ function replaceUpstreamSection(body, item) {
   return body.slice(0, start) + upstreamSection(item) + (end < body.length ? "\n" + body.slice(end) : "");
 }
 
+/** The fix version a new record carries: this project's name for the release (set by `pull`), else the tracker's. */
+const localVersion = (item) => item.local_version ?? (VERSION_RE.test(item.fix_version) ? item.fix_version : "");
 function newTaskText(id, source, item, parent) {
   const today = new Date().toISOString().slice(0, 10);
   const kind = /spike/.test(item.type) || item.labels.some((l) => /^spike$/i.test(l)) ? "spike" : "chore";
   const fm = [
     `id: ${id}`, `title: ${q(item.title)}`, `type: task`, `kind: ${kind}`, `parent: ${q(parent)}`, `status: open`,
-    VERSION_RE.test(item.fix_version) ? `fix_version: ${q(item.fix_version)}` : null,
-    `effort: ""`, `dependencies: []`, `external_refs: [${q(item.key)}]`, `aliases: []`, `created: ${today}`, `updated: ${today}`, `synced_at: ${q(new Date().toISOString())}`, `upstream_changed: false`,
+    localVersion(item) ? `fix_version: ${q(localVersion(item))}` : null,
+    `effort: ""`, `dependencies: []`, `ticket: ${q(item.key)}`, `external_refs: [${q(item.key)}]`, `aliases: []`, `created: ${today}`, `updated: ${today}`, `synced_at: ${q(new Date().toISOString())}`, `upstream_changed: false`,
     upstreamBlock(source, item),
   ].filter(Boolean).join("\n");
   const body = `# ${item.title}\n\n## What\n\n${item.key}: ${item.title}. _(imported)_\n\n## Done When\n\n${kind === "spike" ? "Each question has a written answer, inside the timebox.\n\n- Question: \n- Timebox: " : "-"}\n\n## Findings\n\n${upstreamSection(item)}`;
@@ -172,7 +174,7 @@ function newStoryText(id, source, item, epic = "") {
     `type: ${type}`,
     `epic: ${q(epic)}`,
     `status: proposed`,
-    VERSION_RE.test(item.fix_version) ? `fix_version: ${q(item.fix_version)}` : null,
+    localVersion(item) ? `fix_version: ${q(localVersion(item))}` : null,
     `# imported from a tracker: not sprint-ready until refined in /ship-discuss ${id}`,
     `refined: false`,
     `story_points: 0`,
@@ -186,6 +188,7 @@ function newStoryText(id, source, item, epic = "") {
     `feasibility: 0`,
     `dependencies: []`,
     `references: []`,
+    `ticket: ${q(item.key)}`,
     `external_refs: [${q(item.key)}]`,
     `children: []`,
     `steps: []`,
@@ -210,8 +213,9 @@ function newIdeaText(id, source, item) {
     `source: ${q(`tracker pull (${source})`)}`,
     `# refine it into an epic when it nears the top: shipyard-data idea promote ${id}`,
     `story_points: 0`,
+    `ticket: ${q(item.key)}`,
     `external_refs: [${q(item.key)}]`,
-    VERSION_RE.test(item.fix_version) ? `fix_version: ${q(item.fix_version)}` : null,
+    localVersion(item) ? `fix_version: ${q(localVersion(item))}` : null,
     `created: ${today}`,
     `synced_at: ${q(new Date().toISOString())}          # what the ticket says, as imported`,
     `upstream_changed: false`,
@@ -267,17 +271,74 @@ function recordFiles(dataDir) {
 }
 const storyFiles = (dataDir) => recordFiles(dataDir).filter((f) => f.kind === "story");
 
-/** key → [{id, path, kind, fm}] for every record whose external_refs carries the key (many-to-many). */
-export function indexByExternalRef(dataDir) {
-  const idx = new Map();
+/**
+ * Which ticket IS a record, and which tickets it only mentions (after 4.0.1).
+ *
+ * `external_refs` holds both: the skills add a key there when the person says "this is ABC-12" and also when they
+ * say "relates to ABC-12". The first key was taken for the record's ticket. Seen on a real project: 52 stories
+ * written under eleven epics each named their epic's ticket, and four named a ticket in another project; the sync
+ * plan offered to update the epic's ticket once per story with the story's text, and to rewrite the other
+ * project's tickets. So the record's own ticket is explicit: the `ticket:` field (`tracker link`, `tracker pull`),
+ * else the ticket it was imported from (`upstream.key`), else what `tracker link` logged for it (records linked
+ * on 4.0.1, before the field existed). Anything else in `external_refs` is a reference.
+ */
+function linkedByEvents(dataDir) {
+  const by = new Map();
+  let text = "";
+  try { text = readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8"); } catch { return by; }
+  for (const line of text.split("\n")) {
+    if (!line.includes('"tracker_linked"') && !line.includes('"tracker_unlinked"')) continue;
+    let e; try { e = JSON.parse(line); } catch { continue; }
+    if (!e.id || !e.key) continue;
+    if (!by.has(e.id)) by.set(e.id, new Set());
+    if (e.type === "tracker_linked") by.get(e.id).add(String(e.key)); else by.get(e.id).delete(String(e.key));
+  }
+  return by;
+}
+/** Links the parent chain does not carry: the fallback for records with no explicit ticket, used only to find what a pulled ticket belongs to. */
+export function ownRefs(refs, parentId, byId) {
+  const inherited = new Set();
+  for (let p = byId.get(parentId), hops = 0; p && hops < 4; p = byId.get(p.parent), hops++) for (const k of p.refs) inherited.add(k);
+  return refs.filter((k) => !inherited.has(k));
+}
+const parentOf = (kind, block) => (getScalar(block, "epic") || (kind === "task" ? getScalar(block, "parent") || getScalar(block, "story") : "") || "").replace(/^"|"$/g, "");
+function linkIndex(dataDir) {
+  const recs = [], logged = linkedByEvents(dataDir);
   for (const f of recordFiles(dataDir)) {
     let text;
     try { text = readFileSync(f.path, "utf8"); } catch { continue; }
     const fm = parseFm(text);
     if (!fm) continue;
-    for (const key of getArray(fm.block, "external_refs")) {
+    recs.push({ ...f, text, fm, refs: getArray(fm.block, "external_refs"), parent: parentOf(f.kind, fm.block) });
+  }
+  const byId = new Map(recs.map((r) => [r.id, r]));
+  for (const r of recs) {
+    r.loose = ownRefs(r.refs, r.parent, byId); // every key it carries that its parents do not
+    const field = getScalar(r.fm.block, "ticket") || "";
+    const viaLink = r.refs.filter((k) => logged.get(r.id)?.has(k));
+    // imported from that ticket: the import puts its key first (a mirror added later to a record that only mentions a ticket is not this)
+    const imported = /^upstream:/m.test(r.fm.block) ? (r.fm.block.match(/^[ \t]+key:[ \t]*"?([^"\n]*)"?/m) || [])[1] ?? "" : "";
+    r.own = field ? [field] : viaLink.length ? viaLink : imported && imported === r.loose[0] ? [imported] : [];
+  }
+  return { recs, byId };
+}
+
+/** The ticket a record stands for, or "". */
+export function ownTicket(dataDir, id) {
+  return linkIndex(dataDir).byId.get(id)?.own[0] ?? "";
+}
+
+/**
+ * key → every record that carries the key (many-to-many), for READING a tracker: a pulled ticket refreshes what
+ * mentions it. A key that only repeats the parent's ticket is left out. What may be WRITTEN to a ticket is
+ * narrower: only the record whose own ticket it is (`own`, see above).
+ */
+export function indexByExternalRef(dataDir) {
+  const idx = new Map();
+  for (const r of linkIndex(dataDir).recs) {
+    for (const key of new Set([...r.own, ...r.loose])) {
       if (!idx.has(key)) idx.set(key, []);
-      idx.get(key).push({ ...f, text, fm });
+      idx.get(key).push(r);
     }
   }
   return idx;
@@ -330,8 +391,10 @@ export function pull(dataDir, { input, csv = null, as = null, source = null, dry
       if (!linked.length) {
         const kind = kindFor(it, as);
         if (dryRun) { result.created.push({ key: it.key, story: `(new ${kind})`, kind }); continue; }
-        const version = VERSION_RE.test(it.fix_version) ? it.fix_version : "";
-        if (version) ensureVersion(dataDir, version); // the tracker's forecast comes in with the ticket
+        // the tracker's forecast comes in with the ticket, under the name this project already uses for that release
+        const version = VERSION_RE.test(it.fix_version) ? (sameRelease(dataDir, it.fix_version) ?? it.fix_version) : "";
+        if (version) ensureVersion(dataDir, version);
+        it.local_version = version;
         // a ticket whose parent is carried by an epic lands under that epic
         const parentEpic = it.parent ? ((idx.get(it.parent) || []).find((r) => r.kind === "epic")?.id ?? "") : "";
         let id, path;
@@ -388,12 +451,10 @@ export function pull(dataDir, { input, csv = null, as = null, source = null, dry
 /** Every record that carries a tracker link, whatever its kind. */
 export function status(dataDir) {
   const rows = [];
-  for (const f of recordFiles(dataDir)) {
-    let text;
-    try { text = readFileSync(f.path, "utf8"); } catch { continue; }
-    const fm = parseFm(text);
-    const refs = fm ? getArray(fm.block, "external_refs") : [];
-    if (!fm || (!refs.length && !/^upstream:/m.test(fm.block))) continue;
+  for (const f of linkIndex(dataDir).recs) {
+    const fm = f.fm;
+    const refs = f.loose; // a key that only repeats the parent's ticket does not make the record a linked one
+    if (!refs.length && !/^upstream:/m.test(fm.block)) continue;
     rows.push({
       id: f.id,
       story: f.id, // the name this field had when only stories were linked
@@ -405,6 +466,7 @@ export function status(dataDir) {
       upstream_changed: getScalar(fm.block, "upstream_changed") === "true",
       synced_at: getScalar(fm.block, "synced_at") ?? "",
       external_refs: refs,
+      ticket: f.own[0] ?? "",
     });
   }
   return rows.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
@@ -450,24 +512,29 @@ export function syncPlan(dataDir, { since = null } = {}) {
     try { text = readFileSync(f.path, "utf8"); mtime = statSync(f.path).mtimeMs; } catch { continue; }
     const fm = parseFm(text);
     if (!fm) continue;
-    recs.push({ ...f, fm, mtime, status: getScalar(fm.block, "status") ?? "", refs: getArray(fm.block, "external_refs"), title: getScalar(fm.block, "title") ?? "", epic: getScalar(fm.block, "epic") || (f.kind === "task" ? getScalar(fm.block, "parent") : "") || "", fix_version: getScalar(fm.block, "fix_version") ?? "", synced_at: getScalar(fm.block, "synced_at") ?? "", type: getScalar(fm.block, "type") ?? "" });
+    const epic = getScalar(fm.block, "epic") || (f.kind === "task" ? getScalar(fm.block, "parent") : "") || "";
+    recs.push({ ...f, fm, mtime, status: getScalar(fm.block, "status") ?? "", refs: getArray(fm.block, "external_refs"), title: getScalar(fm.block, "title") ?? "", epic, parent: epic, fix_version: getScalar(fm.block, "fix_version") ?? "", synced_at: getScalar(fm.block, "synced_at") ?? "", type: getScalar(fm.block, "type") ?? "" });
   }
   const linkedProject = recs.some((r) => r.refs.length);
   const sprint = sprintIds(dataDir);
   const byId = new Map(recs.map((r) => [r.id, r]));
-  const keyOf = (r) => r?.refs.find((x) => /^[A-Z][A-Z0-9_]*-\d+$/.test(x)) ?? r?.refs[0] ?? "";
+  const owns = linkIndex(dataDir).byId;
+  for (const r of recs) r.own = owns.get(r.id)?.own ?? [];
+  const keyOf = (r) => r?.own.find((x) => /^[A-Z][A-Z0-9_]*-\d+$/.test(x)) ?? r?.own[0] ?? "";
   const sinceMs = since ? Date.parse(since) : null;
-  const rows = [];
+  const rows = [], held = [];
   for (const r of recs) {
     if (SETTLED.has(r.status)) continue;
     if (sinceMs !== null && Number.isFinite(sinceMs) && r.mtime < sinceMs) continue;
     const parent = byId.get(r.epic);
     const base = { id: r.id, kind: r.kind, title: r.title, status: r.status, ticket_status: (r.fm.block.match(/^  status:[ \t]*"?([^"\n#]*)"?/m) || [])[1]?.trim() ?? "", sprint: sprint.ids.has(r.id) ? sprint.id : "", points: Number(getScalar(r.fm.block, "story_points")) || 0, fix_version: r.fix_version || parent?.fix_version || "", parent: r.epic, parent_key: keyOf(parent), file: r.path };
-    if (!r.refs.length) {
+    if (!r.own.length) {
+      // "Not these, for now" is an answer that lasts (tracker hold): the plan counts them and does not list them.
+      if (getScalar(r.fm.block, "tracker_hold") === "true") { held.push(r.id); continue; }
       // A loose thought needs no ticket. An idea put in a release is tracked work: it gets one (seen live: the
       // session listed such ideas beside the new epic and stories when it asked about tickets).
       if (r.kind === "idea" && !r.fix_version) continue;
-      rows.push({ action: "create", ...base, tracker_type: TRACKER_TYPE[r.type === "bug" ? "bug" : r.kind] });
+      rows.push({ action: "create", ...base, tracker_type: TRACKER_TYPE[r.type === "bug" ? "bug" : r.kind], ...(r.refs.length ? { names: r.refs } : {}) });
     } else {
       const syncedMs = r.synced_at ? Date.parse(r.synced_at) : NaN;
       if (Number.isFinite(syncedMs) && r.mtime <= syncedMs + 1000) continue; // sent, and not changed since
@@ -476,7 +543,7 @@ export function syncPlan(dataDir, { since = null } = {}) {
   }
   rows.sort((a, b) => (a.action === b.action ? 0 : a.action === "create" ? -1 : 1) || ["epic", "story", "task", "idea"].indexOf(a.kind) - ["epic", "story", "task", "idea"].indexOf(b.kind) || a.id.localeCompare(b.id, undefined, { numeric: true }));
   rows.forEach((r, i) => { r.n = i + 1; });
-  return { linked_project: linkedProject, rows };
+  return { linked_project: linkedProject, rows, held };
 }
 
 /** The record has not been edited here since it was last sent (or imported). */
@@ -515,6 +582,22 @@ function setArray(block, key, values) {
   return re.test(block) ? block.replace(re, line) : `${block}\n${line}`;
 }
 
+/** Rows as they are printed: new records of one kind under one parent are a single line (their numbers stay). */
+function compactRows(rows) {
+  const out = [], groups = new Map();
+  for (const r of rows) { const k = `${r.kind}|${r.parent}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
+  const done = new Set();
+  for (const r of rows) {
+    const k = `${r.kind}|${r.parent}`, g = groups.get(k);
+    if (!r.parent || g.length < 2) { out.push(r); continue; }
+    if (done.has(k)) continue;
+    done.add(k);
+    const what = { story: "stories", task: "tasks", idea: "ideas", epic: "epics" }[r.kind] ?? "records";
+    out.push({ group: `  ${String(g[0].n).padStart(2)}–${g[g.length - 1].n}. ${g[0].id} … ${g[g.length - 1].id}  ${g.length} ${what} under ${r.parent}${r.parent_key ? ` (${r.parent_key})` : " (no ticket yet)"}${r.fix_version ? `  · ${r.fix_version}` : ""}` });
+  }
+  return out;
+}
+
 /**
  * The outbox (after 4.0.1): what will be sent to a ticket, one file per record, shown as a table.
  *
@@ -531,6 +614,7 @@ export function outboxFiles(dataDir) {
   let names = [];
   try { names = readdirSync(dir); } catch { return []; }
   const recs = recordFiles(dataDir).sort((a, b) => b.id.length - a.id.length);
+  const owns = linkIndex(dataDir).byId;
   return names.filter((n) => n.endsWith(".md") && !n.startsWith(".")).sort().map((n) => {
     const base = n.slice(0, -3);
     const rec = recs.find((r) => base === r.id || base.startsWith(`${r.id}-`)) ?? null;
@@ -538,7 +622,7 @@ export function outboxFiles(dataDir) {
     try { text = readFileSync(join(dir, n), "utf8"); } catch { /* unreadable: listed with 0 lines */ }
     let title = "", refs = [];
     if (rec) { try { const fm = parseFm(readFileSync(rec.path, "utf8")); title = String(getScalar(fm.block, "title") ?? "").replace(/^"|"$/g, ""); refs = getArray(fm.block, "external_refs"); } catch { /* listed without them */ } }
-    const key = refs.find((r) => KEY_RE.test(r)) ?? refs[0] ?? "";
+    const key = rec ? owns.get(rec.id)?.own[0] ?? "" : "";
     const what = base.slice(rec ? rec.id.length : 0).replace(/^-/, "") || "description";
     return { file: `${OUTBOX_DIR}/${n}`, path: join(dir, n), id: rec?.id ?? "", kind: rec?.kind ?? "", title, key, what, lines: text.split("\n").filter((l) => l.trim()).length, text };
   });
@@ -562,6 +646,7 @@ function usage(msg) {
       "         tracker status [--json] | tracker ack <id>\n" +
       "         tracker plan [--since <ISO time>] [--json]      what the tracker lacks: records with no ticket, linked records changed since last sent\n" +
       "         tracker link <id> <KEY|url> | tracker unlink <id> <KEY|url> | tracker synced <id> [<id>...] [--ticket-status <the ticket's status now>]\n" +
+      "         tracker hold <id>... | --under <E###> [--off]     no ticket for these for now: they leave the plan's \"no ticket yet\" list until --off\n" +
       "         tracker outbox [--json]                         the ticket texts waiting in <data>/tracker/outbox/, as the table the person sees before anything is sent\n" +
       "         tracker decided --sync applied|later|none [--note \"...\"]   the owner's answer to \"sync now?\"\n",
   );
@@ -606,19 +691,43 @@ export function main(dataDir, args = []) {
     if (sub === "plan") {
       const p = syncPlan(dataDir, { since: flag(rest, "--since") ?? null });
       if (json) { process.stdout.write(JSON.stringify(p) + "\n"); return; }
-      if (!p.rows.length) { process.stdout.write(p.linked_project ? "the tracker is up to date: every record has a ticket and nothing changed since it was last sent\n" : "no record in this project is linked to a tracker ticket\n"); return; }
+      const heldLine = p.held.length ? `${p.held.length} record(s) are held without a ticket by the owner's choice (list them again: shipyard-data tracker hold --off <id>...)` : "";
+      if (!p.rows.length) { process.stdout.write((p.linked_project ? "the tracker is up to date: every record has a ticket and nothing changed since it was last sent\n" : "no record in this project is linked to a tracker ticket\n") + (heldLine ? heldLine + "\n" : "")); return; }
       const creates = p.rows.filter((r) => r.action === "create"), updates = p.rows.filter((r) => r.action === "update");
       const mode = trackerSyncMode(dataDir);
       const L = [`TRACKER PLAN · ${creates.length} with no ticket · ${updates.length} changed since last sent · tracker_sync: ${mode}`];
       const life = (r) => `${r.status ? `  · here: ${r.status}${r.ticket_status ? ` (ticket: ${r.ticket_status})` : ""}` : ""}${r.sprint ? `  · in ${r.sprint}` : ""}${r.points ? `  · ${r.points} pts` : ""}`;
-      if (creates.length) { L.push("", "No ticket yet (create):"); for (const r of creates) L.push(`  ${String(r.n).padStart(2)}. ${r.id.padEnd(9)} ${r.tracker_type.padEnd(5)} ${r.title}${r.parent_key ? `  · under ${r.parent_key}` : r.parent ? `  · under ${r.parent} (no ticket yet)` : ""}${r.fix_version ? `  · ${r.fix_version}` : ""}`); }
+      if (creates.length) { L.push("", "No ticket yet (create):"); for (const r of compactRows(creates)) L.push(r.group ? r.group : `  ${String(r.n).padStart(2)}. ${r.id.padEnd(9)} ${r.tracker_type.padEnd(5)} ${r.title}${r.parent_key ? `  · under ${r.parent_key}` : r.parent ? `  · under ${r.parent} (no ticket yet)` : ""}${r.fix_version ? `  · ${r.fix_version}` : ""}${r.names && r.names.some((k) => k !== r.parent_key) ? `  · mentions ${r.names.filter((k) => k !== r.parent_key).join(", ")}` : ""}`); }
+      if (creates.some((r) => r.names && r.names.some((k) => k !== r.parent_key))) L.push("  (a mentioned key is a reference. If it is the record's own ticket: shipyard-data tracker link <id> <KEY>)");
       if (updates.length) { L.push("", "Linked, changed here since last sent (update):"); for (const r of updates) L.push(`  ${String(r.n).padStart(2)}. ${r.id.padEnd(9)} ${r.key.padEnd(10)} ${r.title}${r.fix_version ? `  · ${r.fix_version}` : ""}${life(r)}${r.never_synced ? "  · never sent" : ""}`); }
+      if (heldLine) L.push("", heldLine);
+      if (creates.length > 6 && mode !== "auto") L.push("", "Not these for now? `shipyard-data tracker hold <id>... | --under <E###>` keeps them off this list until they are wanted (a coarse backlog does not need a ticket per story).");
       L.push("", mode === "auto"
         ? "NEXT (not part of the plan): tracker_sync is auto: send the updates now (title, description and acceptance criteria from the spec, status by the nearest transition the ticket offers, sprint, points, fix version), read each back, and report them in one line each. Creating a ticket still needs the person's go."
         : "NEXT (not part of the plan): show this list to the person and ask which numbers to apply. Nothing is written to the tracker without their answer, and they see what is sent first: a short text (a comment) word for word in the chat; a description, or several tickets, as files in the outbox and its table (shipyard-data tracker outbox).",
         "  after creating a ticket:  shipyard-data tracker link <id> <KEY>     after updating one:  shipyard-data tracker synced <id>",
         "  then record their answer: shipyard-data tracker decided --sync applied|later|none");
       process.stdout.write(L.join("\n") + "\n");
+      return;
+    }
+    if (sub === "hold") {
+      // "Create tickets for the epics, hold the stories": said once, it should not be asked at the end of every discussion.
+      const off = rest.includes("--off"), under = flag(rest, "--under");
+      const { recs } = linkIndex(dataDir);
+      const named = rest.filter((a, i) => !a.startsWith("--") && rest[i - 1] !== "--under");
+      const ids = new Set(named);
+      if (under) { if (!recs.some((r) => r.id === under)) { process.stderr.write(`shipyard-data tracker: no record ${under}\n`); process.exit(3); } for (const r of recs) if (r.parent === under) ids.add(r.id); }
+      if (!ids.size) usage("hold needs record ids, or --under <E###> for everything under an epic (add --off to list them again)");
+      let n = 0;
+      for (const id of ids) {
+        const rec = recordById(dataDir, id);
+        const cur = getScalar(rec.fm.block, "tracker_hold") === "true";
+        if (cur === !off) continue;
+        writeRecord(rec, off ? rec.fm.block.replace(/^tracker_hold:.*\n?/m, "").replace(/\n$/, "") : setScalar(rec.fm.block, "tracker_hold", "true"));
+        n++;
+      }
+      try { logEvent(dataDir, off ? "tracker_hold_lifted" : "tracker_held", { count: n, under: under ?? "" }); } catch { /* best-effort */ }
+      process.stdout.write(off ? `${n} record(s) are on the tracker plan again\n` : `${n} record(s) held: no ticket is proposed for them until \`tracker hold --off\` (a linked record is still kept in step)\n`);
       return;
     }
     if (sub === "outbox") {
@@ -646,15 +755,20 @@ export function main(dataDir, args = []) {
       const rec = recordById(dataDir, id);
       const refs = getArray(rec.fm.block, "external_refs");
       if (sub === "link") {
-        if (refs.includes(ref)) { process.stdout.write(`${id}: ${ref} already linked\n`); return; }
-        // a ticket made from this record holds what the record says now
-        writeRecord(rec, setScalar(setArray(rec.fm.block, "external_refs", [...refs, ref]), "synced_at", JSON.stringify(new Date().toISOString())));
+        const isKey = KEY_RE.test(ref) || /^#\d+$/.test(ref);
+        const had = getScalar(rec.fm.block, "ticket") || "";
+        if (refs.includes(ref) && (!isKey || had === ref)) { process.stdout.write(`${id}: ${ref} already linked\n`); return; }
+        // a ticket made from this record holds what the record says now; a key (not a web link) is the record's own ticket
+        let block = setArray(rec.fm.block, "external_refs", refs.includes(ref) ? refs : [...refs, ref]);
+        if (isKey) block = setScalar(block, "ticket", JSON.stringify(ref));
+        writeRecord(rec, setScalar(block, "synced_at", JSON.stringify(new Date().toISOString())));
         try { logEvent(dataDir, "tracker_linked", { id, kind: rec.kind, key: ref }); } catch { /* best-effort */ }
         clearOutbox(dataDir, id);
-        process.stdout.write(`${id}: linked to ${ref}\n`);
+        process.stdout.write(`${id}: linked to ${ref}${isKey && had && had !== ref ? ` (it was ${had}; that stays as a reference)` : ""}\n`);
       } else {
         if (!refs.includes(ref)) { process.stderr.write(`shipyard-data tracker: ${id} is not linked to ${ref}. It carries: ${refs.join(", ") || "(none)"}\n`); process.exit(3); }
-        writeRecord(rec, setArray(rec.fm.block, "external_refs", refs.filter((x) => x !== ref)));
+        const left = setArray(rec.fm.block, "external_refs", refs.filter((x) => x !== ref));
+        writeRecord(rec, (getScalar(rec.fm.block, "ticket") || "") === ref ? left.replace(/^ticket:.*\n?/m, "") : left);
         try { logEvent(dataDir, "tracker_unlinked", { id, kind: rec.kind, key: ref }); } catch { /* best-effort */ }
         process.stdout.write(`${id}: no longer linked to ${ref}\n`);
       }
@@ -666,7 +780,12 @@ export function main(dataDir, args = []) {
       if (!ids.length) usage("synced needs at least one record id");
       for (const id of ids) {
         const rec = recordById(dataDir, id);
-        if (!getArray(rec.fm.block, "external_refs").length) { process.stderr.write(`shipyard-data tracker: ${id} has no ticket: link it first (tracker link ${id} <KEY>)\n`); process.exit(3); }
+        const mine = linkIndex(dataDir).byId.get(id)?.own ?? [];
+        if (!mine.length) {
+          const named = getArray(rec.fm.block, "external_refs");
+          process.stderr.write(`shipyard-data tracker: ${id} has no ticket of its own${named.length ? ` (it names ${named.join(", ")}, which Shipyard reads as a reference; if one of them is ${id}'s own ticket, say so)` : ""}: tracker link ${id} <KEY>\n`);
+          process.exit(3);
+        }
         // what the ticket says now, when the caller knows it (it just moved the ticket): the mirror stays true
         const now = flag(rest, "--ticket-status");
         let block = setScalar(rec.fm.block, "synced_at", JSON.stringify(new Date().toISOString()));

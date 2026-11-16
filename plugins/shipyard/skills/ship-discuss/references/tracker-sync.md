@@ -16,7 +16,7 @@ Write its "No ticket yet" list in the chat as a table (what, kind, under which t
 |---|---|
 | **Create them with my help (Recommended)** | For each one you draft the ticket (title, type, parent ticket, fix version, description from the spec) into the outbox, show the outbox table, and create it with the session's tracker tool on their go. Then `shipyard-data tracker link <id> <KEY>` |
 | I will create them myself | Give them the list ready to paste. When they return the keys: `shipyard-data tracker link <id> <KEY>` |
-| Leave them without a ticket for now | Nothing is created; the plan lists them again at the end |
+| Leave them without a ticket for now | Nothing is created; the plan lists them again at the end. When they mean "not these, until I say" (stories under an epic that has its ticket, for example): `shipyard-data tracker hold <id>... \| --under <E###>`, and the plan only counts them from then on |
 
 No tracker write tool in this session: say so in one line; only the second and third choices apply. Never invent a key.
 
@@ -58,6 +58,8 @@ A linked ticket is kept in step from the discussion to the release, for every ki
 `tracker_sync` in the project's config decides how: **ask** (default: show the plan, apply what the person picks), **auto** (send the updates without asking and report each in one line; creating a ticket still needs their go), **off** (never propose tracker changes). Set it: `shipyard-data config set tracker-sync <ask|auto|off>`. A status is changed only through a transition the ticket really offers (ask the tracker for them); when none fits, say so and leave the status alone. After each update: `shipyard-data tracker synced <id>` (add `--ticket-status "<its status now>"` when you moved the ticket, so Shipyard's mirror of it stays true); then `shipyard-data tracker decided --sync applied|later|none`. The lock of `/ship-sprint` and `/ship-review` is not released until that is recorded.
 
 ## Rules
+
+- **A record's ticket is its `ticket:` field** (`tracker link`, `tracker pull`). Keys in `external_refs` are tickets it mentions: its epic's, a related one, one in another project. The plan never proposes writing to a mentioned ticket; a record that only mentions tickets is listed as having none, with what it mentions.
 
 - The ticket's assignee and other people's comments are the tracker's. A status changes only as a row of the plan the person agreed to (or under `tracker_sync: auto`), never as a side effect.
 - A ticket's fix version and Shipyard's `fix_version` can differ: the tracker's is mirrored under `upstream:`; Shipyard's is the forecast decided here. Sending it to the tracker is a row of the plan like any other.

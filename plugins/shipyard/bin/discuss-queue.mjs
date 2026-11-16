@@ -53,6 +53,9 @@ export function kindOf(id) {
   const e = entityOfId(id);
   if (e === "idea") return "idea";
   if (e === "story") return "story";
+  // "let's refine all of the epics": a queue of epics was refused, so eleven epics were refined in one sitting
+  // with no queue (after 4.0.1). An epic is broken down in the queue like anything else.
+  if (e === "epic" || /^E\d+$/.test(id)) return "epic";
   if (EXTERNAL_RE.test(id)) return "external";
   return null;
 }

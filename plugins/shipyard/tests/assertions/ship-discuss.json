@@ -2530,5 +2530,47 @@
   "target": "ref:tracker-sync.md",
   "pattern": "it is not the go for texts nobody has seen\\. Never send in the same message that writes the spec",
   "why": "after 4.0.1 (owner's discussion: told to refine eleven epics and update their tickets, the session sent three descriptions unseen, was held three times in red, then pasted 2,800 words before one go)"
+ },
+ {
+  "name": "breakdown_uses_story_add_and_task_add",
+  "type": "contains",
+  "target": "ref:less-backlog.md",
+  "pattern": "Write each one with the CLI, never by hand: `shipyard-data task add --title",
+  "why": "after 4.0.1 (a real project's first breakdown: 55 story files written by hand because no verb existed, each carrying its epic's ticket; the sync plan offered to update each epic's ticket once per child story, and tickets in another project)"
+ },
+ {
+  "name": "child_never_carries_epic_ticket",
+  "type": "contains",
+  "target": "ref:less-backlog.md",
+  "pattern": "\\*\\*A child never carries its epic's ticket\\.\\*\\*",
+  "why": "after 4.0.1 (a real project's first breakdown: 55 story files written by hand because no verb existed, each carrying its epic's ticket; the sync plan offered to update each epic's ticket once per child story, and tickets in another project)"
+ },
+ {
+  "name": "own_ticket_is_the_ticket_field",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "\\*\\*A record's ticket is its `ticket:` field\\*\\* \\(`tracker link`, `tracker pull`\\)",
+  "why": "after 4.0.1 (a real project's first breakdown: 55 story files written by hand because no verb existed, each carrying its epic's ticket; the sync plan offered to update each epic's ticket once per child story, and tickets in another project)"
+ },
+ {
+  "name": "is_a_ticket_vs_relates_to",
+  "type": "contains",
+  "target": "ref:new-mode.md",
+  "pattern": "never put a parent's or a related ticket where the story's own ticket goes",
+  "why": "after 4.0.1 (a real project's first breakdown: 55 story files written by hand because no verb existed, each carrying its epic's ticket; the sync plan offered to update each epic's ticket once per child story, and tickets in another project)"
+ },
+ {
+  "name": "held_records_leave_the_plan",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "shipyard-data tracker hold <id>\\.\\.\\. \\\\\\| --under <E###>",
+  "why": "after 4.0.1 (the owner had tickets made for the epics and held 55 stories; without a lasting answer the plan would list them at the end of every discussion)"
+ },
+ {
+  "name": "epics_can_be_chained",
+  "type": "contains",
+  "target": "ref:less-backlog.md",
+  "pattern": "/ship-discuss --chain E001,E002",
+  "why": "after 4.0.1 (owner: 'lets refine all of the epics'; the queue refused epic ids)"
  }
 ]

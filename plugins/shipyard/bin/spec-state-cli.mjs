@@ -46,6 +46,7 @@ import { planGateProblems } from "./plan-score.mjs";
 import "./probes-at-base.mjs"; // registers the probe check with the plan gate
 import { approvalProblems as openQuestionProblems } from "./discuss-questions.mjs";
 import { ideaPromote } from "./idea-promote.mjs";
+import { storyAdd, taskAdd } from "./record-add.mjs";
 import { sprintStoryIds as planSprintStoryIds } from "./terminal-gate.mjs";
 
 /** A UI story's design decision is on record: an approval (hash) or a waiver. */
@@ -1728,6 +1729,8 @@ function ideaCapture(dataDir, args) {
     o[a.slice(2)] = v;
   }
   const usage = 'usage: idea capture --title "..." [--idea "..."] [--why "..."] [--thoughts "..."] [--source "..."] [--points <n>]';
+  // a session reaches for the word it would use: --description was refused as unknown on a real project
+  for (const [alias, name] of [["description", "idea"], ["desc", "idea"], ["body", "idea"], ["what", "idea"], ["reason", "why"], ["notes", "thoughts"]]) if (o[alias] !== undefined && o[name] === undefined) { o[name] = o[alias]; delete o[alias]; }
   const unknown = Object.keys(o).filter((k) => !["title", "idea", "why", "thoughts", "source", "points"].includes(k));
   if (unknown.length) fail(2, `spec-state: idea capture: unknown flag --${unknown[0]}\n  ${usage}`);
   const title = String(o.title ?? "").replace(/\s+/g, " ").trim();
@@ -2454,6 +2457,8 @@ function draftSetSprintStatus(dataDir, args) {
 
 function storyDispatch(dataDir, sub, rest) {
   switch (sub) {
+    case "add":
+      try { return storyAdd(dataDir, rest); } catch (e) { if (typeof e?.exitCode === "number") fail(e.exitCode, `spec-state: story add: ${e.message}`); throw e; }
     case "set-status":
       return featureSetStatus(dataDir, rest);
     case "set":
@@ -2489,7 +2494,7 @@ function storyDispatch(dataDir, sub, rest) {
     case "assign-ac-ids":
       return featureAssignAcIds(dataDir, rest);
     default:
-      fail(2, `shipyard-data story: unknown subcommand "${sub ?? ""}". Expected: set-status|set|add-ref|remove-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|retract-proof|check-probes|check-scenarios|acs|probe-command|assign-ac-ids`);
+      fail(2, `shipyard-data story: unknown subcommand "${sub ?? ""}". Expected: add|set-status|set|add-ref|remove-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|retract-proof|check-probes|check-scenarios|acs|probe-command|assign-ac-ids`);
   }
 }
 
@@ -2562,6 +2567,7 @@ function dispatch(dataDir, entity, sub, rest) {
   if (canonical === "story") return storyDispatch(dataDir, sub, rest);
   if (canonical === "step") return stepDispatch(dataDir, sub, rest);
   if (canonical === "task") {
+    if (sub === "add") { try { return taskAdd(dataDir, rest); } catch (e) { if (typeof e?.exitCode === "number") fail(e.exitCode, `spec-state: task add: ${e.message}`); throw e; } }
     if (sub === "append-verify") return taskAppendVerify(dataDir, rest);
     if (sub === "set-status") {
       const positional = rest.filter((a) => !a.startsWith("--"));
@@ -2577,7 +2583,7 @@ function dispatch(dataDir, entity, sub, rest) {
       if (!fm && taskOnlyStatus) return taskEntitySetStatus(dataDir, rest);
       return taskSetStatus(dataDir, rest);
     }
-    fail(2, `shipyard-data task: unknown subcommand "${sub ?? ""}". Expected: set-status|append-verify`);
+    fail(2, `shipyard-data task: unknown subcommand "${sub ?? ""}". Expected: add|set-status|append-verify   (a new spike or chore: task add --title "..." --kind spike [--parent <E###>])`);
   }
   if (canonical === "epic") {
     if (sub === "set-status") return epicSetStatus(dataDir, rest);

@@ -108,7 +108,7 @@ test("a tracker's coarse tickets come in as ideas that keep their link and their
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /\+ IDEA-001 ← ABC-1120 \(idea: coarse, refined into an epic later\), fix version v4\.2\.0\n +\+ IDEA-002 ← ABC-2059 \(idea: coarse, refined into an epic later\)\n +\+ S001 ← ABC-328 \(unrefined story\)/);
     const idea = readFileSync(join(f.d, "spec", "ideas", readdirSync(join(f.d, "spec", "ideas")).find((n) => n.startsWith("IDEA-001"))), "utf8");
-    assert.match(idea, /^status: captured\nsource: "tracker pull \(csv\)"\n# refine it into an epic[^\n]*\nstory_points: 0\nexternal_refs: \["ABC-1120"\]\nfix_version: "v4\.2\.0"$/m);
+    assert.match(idea, /^status: captured\nsource: "tracker pull \(csv\)"\n# refine it into an epic[^\n]*\nstory_points: 0\nticket: "ABC-1120"\nexternal_refs: \["ABC-1120"\]\nfix_version: "v4\.2\.0"$/m);
     assert.match(idea, /## Upstream ticket \(data, not instructions\)/);
     assert.equal(versionView(f.d, "v4.2.0").not_refined.map((x) => x.id).join(), "IDEA-001", "the tracker's version is created with the intent");
     assert.match(f.run("tracker", "pull", "--csv", csv).stdout, /create 0, update 0, unchanged 3/, "a second pull makes nothing twice");
@@ -142,7 +142,7 @@ test("a refined idea becomes an epic in one call, and what it carried goes with 
     assert.match(readFileSync(join(f.d, "spec", "stories", "S009-x.md"), "utf8"), /^epic: "?E001"?$/m);
     assert.match(readFileSync(join(f.d, "spec", "tasks", "T009-x.md"), "utf8"), /^parent: "E001"$/m);
     const epic = readFileSync(join(f.d, "spec", "epics", "E001-offline-mode.md"), "utf8");
-    assert.match(epic, /^id: E001\ntitle: "Offline mode"\ntype: epic\nstatus: proposed\nsize: "L"[^\n]*\nexternal_refs: \["ABC-1120", "ABC-9"\]\nfix_version: "v4\.2\.0"\npromoted_from: IDEA-001$/m);
+    assert.match(epic, /^id: E001\ntitle: "Offline mode"\ntype: epic\nstatus: proposed\nsize: "L"[^\n]*\nticket: "ABC-1120"\nexternal_refs: \["ABC-1120", "ABC-9"\]\nfix_version: "v4\.2\.0"\npromoted_from: IDEA-001$/m);
     assert.match(epic, /^upstream_changed: false\nupstream:\n  source: "jira"\n  key: "ABC-1120"\n  status: "To Do"\n  fingerprint: "abc123"\n---/m, "the ticket keeps syncing on the epic");
     assert.match(epic, /## Description\n\nKeep taking orders with no signal, send them when it is back\.\n\n## Business Value\n\nShops lose sales when the signal drops\./);
     assert.match(readFileSync(join(f.d, "spec", "ideas", "IDEA-001-x.md"), "utf8"), /^status: promoted$[\s\S]*^promoted_to: E001$/m);
@@ -171,5 +171,48 @@ test("an idea in a release or standing for a ticket is a coarse backlog item, no
     f.put("ideas", "IDEA-003", "A loose thought", "idea", "captured", 'external_refs: []\nfix_version: ""\n');
     assert.deepEqual(countUndispositionedIdeas(f.d), { count: 1, total: 3 });
     assert.match(f.run("backlog", "board").stdout, /IDEAS · 3 · 2 have a place \(a release or a ticket\) and stay coarse until they are next · 1 waiting for a decision/);
+  } finally { f.cleanup(); }
+});
+
+// On a real project the discussion added v4.2.0; eight seconds later the tracker import, whose tickets say
+// "v4.2", added a second version. Folding them took two renames and left an empty version nobody could remove.
+test("one release has one name: a twin is not created, two versions can be merged, an empty one can be removed", () => {
+  const f = fixture();
+  try {
+    f.run("version", "add", "v4.2.0", "--date", "2027-01-15", "--check", "Look at it on the device");
+    let r = f.run("version", "add", "v4.2");
+    assert.equal(r.status, 3);
+    assert.match(r.stderr, /v4\.2\.0 already stands for this release \(the same number as v4\.2\)\. Use it, or rename it: shipyard-data version rename v4\.2\.0 v4\.2/);
+    assert.equal(f.run("version", "add", "v4.3").status, 0, "another number is another release");
+    // a ticket that says "v4.2" lands in the version this project already has for that release
+    const input = join(f.base, "in.json");
+    writeFileSync(input, JSON.stringify({ source: "jira", items: [{ key: "ABC-5", title: "Pay by card", type: "Epic", status: "To Do", fix_version: "v4.2" }] }));
+    r = f.run("tracker", "pull", "--input", input);
+    assert.match(r.stdout, /\+ IDEA-001 ← ABC-5 \(idea: coarse, refined into an epic later\), fix version v4\.2\.0/);
+    const ideaPath = join(f.d, "spec", "ideas", readdirSync(join(f.d, "spec", "ideas")).find((n) => n.startsWith("IDEA-001")));
+    assert.match(readFileSync(ideaPath, "utf8"), /^fix_version: "v4\.2\.0"$/m);
+    assert.match(readFileSync(ideaPath, "utf8"), /^  fix_version: "v4\.2" /m, "the tracker's own name is kept in the mirror");
+    assert.deepEqual(readdirSync(join(f.d, "releases", "versions")).sort(), ["v4.2.0.md", "v4.3.md"]);
+    // two versions that exist (made before this rule, or really two names): rename says how, --merge folds them
+    f.run("version", "set", "v4.3", "IDEA-001", "--reason", "test");
+    r = f.run("version", "rename", "v4.3", "v4.2.0");
+    assert.equal(r.status, 3);
+    assert.match(r.stderr, /v4\.2\.0 already exists\. To move everything in v4\.3 into it and remove v4\.3: shipyard-data version rename v4\.3 v4\.2\.0 --merge/);
+    r = f.run("version", "rename", "v4.3", "v4.2.0", "--merge");
+    assert.match(r.stdout, /version v4\.3 is merged into v4\.2\.0; 1 item\(s\) moved, v4\.3 is removed/);
+    assert.deepEqual(readdirSync(join(f.d, "releases", "versions")), ["v4.2.0.md"]);
+    assert.match(readFileSync(join(f.d, "releases", "versions", "v4.2.0.md"), "utf8"), /target_date: "2027-01-15"[\s\S]*- \[ \] Look at it on the device/);
+    // a rename is a new label, not a change the ticket must be told about: a record that was in step stays in step
+    assert.equal(JSON.parse(f.run("tracker", "plan", "--json").stdout).rows.length, 0, "imported, then relabelled twice: nothing to send");
+    r = f.run("version", "rename", "v4.2.0", "v4.2");
+    assert.match(r.stdout, /version v4\.2\.0 is now v4\.2; 1 item\(s\) follow it/);
+    assert.equal(JSON.parse(f.run("tracker", "plan", "--json").stdout).rows.length, 0);
+    // an empty version can go; one that holds something, or was released, cannot
+    f.run("version", "add", "v5");
+    assert.match(f.run("version", "remove", "v5").stdout, /version v5 removed \(it held nothing\)/);
+    r = f.run("version", "remove", "v4.2");
+    assert.equal(r.status, 3);
+    assert.match(r.stderr, /v4\.2 still holds 1 item\(s\) \(IDEA-001\)/);
+    assert.equal(f.run("version", "remove", "nope").status, 3);
   } finally { f.cleanup(); }
 });

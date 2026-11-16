@@ -42,6 +42,6 @@
   "unknownSub": {
     "code": 2,
     "stdout": "",
-    "stderr": "shipyard-data story: unknown subcommand \"nope\". Expected: set-status|set|add-ref|remove-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|retract-proof|check-probes|check-scenarios|acs|probe-command|assign-ac-ids"
+    "stderr": "shipyard-data story: unknown subcommand \"nope\". Expected: add|set-status|set|add-ref|remove-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|retract-proof|check-probes|check-scenarios|acs|probe-command|assign-ac-ids"
   }
 }

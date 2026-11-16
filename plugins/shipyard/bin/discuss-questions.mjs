@@ -229,7 +229,7 @@ export function sourcesOwed(dataDir, since, events = []) {
   return { topic: mine.find((t) => t.sources)?.topic ?? FALLBACK_TOPIC, missing: mine.some((t) => t.sources) ? "person" : "sources" };
 }
 const FALLBACK_TOPIC = "discussion"; // where `sources` is kept when a discussion has no question list
-const WROTE_SPECS = new Set(["idea_promoted", "idea_imported", "idea_captured", "story_imported", "task_imported", "tracker_pulled"]);
+const WROTE_SPECS = new Set(["idea_promoted", "idea_imported", "idea_captured", "story_imported", "task_imported", "tracker_pulled", "story_added", "task_added"]);
 const lockStart = (dataDir) => { try { const o = JSON.parse(readFileSync(join(dataDir, ".active-discuss.json"), "utf8")); return o && o.skill && !o.cleared ? String(o.started ?? "") : ""; } catch { return ""; } };
 /** Topics with something waiting (for the start-of-discussion context). */
 export function waitingTopics(dataDir) {
