@@ -40,6 +40,15 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hook-runner.mjs\" builder-foreground"
+          }
+        ]
+      },
+      {
         "matcher": "Agent|TaskStop",
         "hooks": [
           {

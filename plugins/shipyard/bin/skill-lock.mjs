@@ -390,6 +390,17 @@ export function acquireLock(dataDir, kind, opts) {
  * `shipyard-data lock release <planning|execution> [--skill <name>]
  *   [--force] [--session <id>]`
  */
+/**
+ * Take the lock unless this caller already holds it (no second hold is stacked on the first).
+ * For a step that must run under the lock but may be reached with or without it: `cursor resume`.
+ */
+export function ensureLock(dataDir, kind, opts) {
+  const k = resolveKind(kind, opts.skill);
+  const own = classify(dataDir, k, opts.sessionId, opts.unverified, Date.now());
+  if (own.state === "mine") return { ok: true, code: 0, message: "", json: { acquired: false, already: true } };
+  return acquireLock(dataDir, kind, opts);
+}
+
 export function releaseLock(dataDir, kind, opts = {}) {
   const { skill, sessionId, unverified = true, force = false, bestEffort = false, leaveChanges = "", pause = false } = opts;
   kind = resolveKind(kind, skill);

@@ -530,5 +530,12 @@
   "pattern": "before reading the code it will",
   "target": "agent:shipyard-disciplined-builder",
   "why": "4.15: test first, from the scenario's words"
+ },
+ {
+  "name": "builder_commands_run_in_the_foreground",
+  "type": "contains",
+  "target": "agent:shipyard-disciplined-builder",
+  "pattern": "Every command runs in the foreground \\(never `run_in_background`; a hook refuses it\\)",
+  "why": "after 4.0.2 (a real sprint, 2026-11-16: a builder left its test run in the background and returned; the agent list showed it 'waiting on 1 shell' for six hours and the owner found it)"
  }
 ]

@@ -275,6 +275,9 @@ class TestVerifyWaveIntegrated(WorktreeTestBase):
             self.assertIn('T011', proc.stderr)
             events = self.read_events(data_dir)
             self.assertTrue(any(e.get('type') == 'wave_integration_failed' for e in events))
+            # the event names the task (it was logged as "[object Object]" on a real sprint)
+            failed = [e for e in events if e.get('type') == 'wave_integration_failed'][-1]
+            self.assertEqual(failed.get('dangling_tasks'), f'T011:{sha[:10]}')
 
     def test_pass_when_dangling_but_anchored(self):
         with tempfile.TemporaryDirectory() as tmp:

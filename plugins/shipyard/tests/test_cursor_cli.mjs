@@ -1465,6 +1465,38 @@ test("session_clock: env id missing never resets on a time gap; ambiguity keeps"
   }
 });
 
+// After 4.0.2, on a real sprint: paused to ask the owner two questions, resumed ten minutes later in the same
+// session by `cursor resume`, and built for six more hours with no lock. The agent hook recorded no builder
+// after that, checked no builder's model, and one finished builder stayed in the agent list unnoticed.
+test("a resumed sprint is built under the execution lock again", () => {
+  const p = makeProject();
+  try {
+    clockSetup(p, "sess-A");
+    const lock = () => JSON.parse(readFileSync(join(p.dataDir, ".active-execution.json"), "utf8"));
+    assert.equal(p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sess-A"]).code, 0);
+    p.run(["cursor", "pause", "execute", "--note", "a question for the owner"]);
+    assert.equal(lock().skill, null, "a pause gives the lock back");
+    let r = p.run(["cursor", "resume", "execute"], { env: { CLAUDE_CODE_SESSION_ID: "sess-A" } });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(lock().skill, "ship-execute"); assert.equal(lock().session_id, "sess-A"); assert.equal(lock().depth, 1);
+    assert.match(readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"), /"pipeline_paused"[\s\S]*"skill_lock_acquired"[\s\S]*"pipeline_resumed"/);
+    // reached with the lock already held (the /ship-execute command took it first): no second hold is stacked
+    p.run(["cursor", "pause", "execute", "--note", "again"]);
+    assert.equal(p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sess-A"]).code, 0);
+    r = p.run(["cursor", "resume", "execute"], { env: { CLAUDE_CODE_SESSION_ID: "sess-A" } });
+    assert.equal(r.code, 0, r.stderr); assert.equal(lock().depth, 1);
+    // another session is building it: refused, and the cursor stays paused
+    p.run(["cursor", "pause", "execute", "--note", "once more"]);
+    assert.equal(p.run(["lock", "acquire", "execution", "--skill", "ship-execute", "--session", "sess-B"]).code, 0);
+    r = p.run(["cursor", "resume", "execute"], { env: { CLAUDE_CODE_SESSION_ID: "sess-A" } });
+    assert.notEqual(r.code, 0);
+    assert.match(r.stderr + r.stdout, /cursor resume refused — the sprint is being built by another session/);
+    assert.match(readFileSync(join(p.dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8"), /^status: paused$/m);
+  } finally {
+    p.cleanup();
+  }
+});
+
 test("new_session: resume records the current env id", () => {
   const p = makeProject();
   try {

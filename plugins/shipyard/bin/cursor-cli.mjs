@@ -51,7 +51,7 @@ import { strayChanges } from "./stray.mjs";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { logEvent, atomicWrite } from "./_hook_lib.mjs";
-import { releaseLock } from "./skill-lock.mjs";
+import { ensureLock, releaseLock, resolveSessionIdentity } from "./skill-lock.mjs";
 import {
   canonicalPipeline,
   isTerminalStage,
@@ -1061,6 +1061,21 @@ export function cursorResume(dataDir, pipelineArg, rest, { now = new Date() } = 
     gateFail(`cursor resume refused — cursor status is "${prior.fm.status}"`, [
       "Resume applies to escalated or paused cursors only. A status: complete terminal means the pipeline finished — start the next cycle instead.",
     ]);
+  }
+  // A pause gives the execution lock back, and the build goes on under it or not at all (after 4.0.2, live: a
+  // sprint paused to ask its owner two questions, was resumed by this command in the same session ten minutes
+  // later, and ran its last six hours with no lock. Every check that is keyed on the lock went quiet: the agent
+  // list stopped recording builders, the model of a builder was no longer checked at its start, a question in
+  // the middle of the build was no longer held, and a second /ship-execute could have started beside it).
+  if (pipeline === "ship-execute") {
+    const { sessionId, unverified } = resolveSessionIdentity([]);
+    const lock = ensureLock(dataDir, "execution", { skill: "ship-execute", sprint: sprintIdOf(prior.fm, prior) || null, sessionId, unverified });
+    if (!lock.ok) {
+      gateFail("cursor resume refused — the sprint is being built by another session", [
+        String(lock.message || "").trim() || "Another session holds the execution lock.",
+        "Resume it there, or wait until that session ends.",
+      ]);
+    }
   }
   const merged = {
     ...prior.fm,

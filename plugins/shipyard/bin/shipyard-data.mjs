@@ -2419,8 +2419,9 @@ function verifyWaveIntegrated() {
   try {
     logEvent(dataDir, "wave_integration_failed", {
       working_branch: workingBranch,
-      unintegrated_branches: unintegrated,
-      dangling_tasks: dangling.map((r) => ({ task: r.task, sha: r.sha })),
+      // a field is one line of text: a list of objects was logged as "[object Object],[object Object]"
+      unintegrated_branches: unintegrated.join(","),
+      dangling_tasks: dangling.map((r) => `${r.task}:${String(r.sha ?? "").slice(0, 10)}`).join(","),
     });
   } catch { /* event is best-effort */ }
 

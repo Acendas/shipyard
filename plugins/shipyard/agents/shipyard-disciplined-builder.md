@@ -221,6 +221,9 @@ Loop until the acceptance probe passes AND no stubs remain. Do not exit otherwis
    on the merged code. Do NOT execute the rest — test
    execution is deferred to the wave boundary; the acceptance probe (step 4) is the
    only check that runs in this task.
+   Every command runs in the foreground (never `run_in_background`; a hook refuses it):
+   you have no tool to wait for a background command or stop it, and one left running
+   keeps you listed after you return.
 3. **Write implementation (GREEN)** — minimum code to satisfy those tests.
 4. **Run the acceptance probe** (from your brief) to demonstrate wiring works
    end-to-end. The probe is your authoritative signal. Run it through logcap on

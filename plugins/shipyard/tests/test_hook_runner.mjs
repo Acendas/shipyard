@@ -157,6 +157,28 @@ test("a discussion cannot edit a project file; its own rule files, another sessi
   });
 });
 
+// After 4.0.2, on a real sprint: a builder left its test run in the background and returned; the agent list
+// showed it "waiting on 1 shell" for six hours. Probed on CLI 2.1.326: a call inside a subagent carries
+// agent_type; refused, the agent runs the command in the foreground and nothing is left.
+test("a builder's background command is refused; everyone else's is not this hook's business", () => {
+  withTempProject(({ projectDir, pluginData }) => {
+    const env = { CLAUDE_PROJECT_DIR: projectDir, CLAUDE_PLUGIN_DATA: pluginData, SHIPYARD_DATA: pluginData };
+    const bash = (extra, input) => runHook("builder-foreground", { tool_name: "Bash", tool_input: { command: "make -k test", ...input }, ...extra }, env);
+    const builder = { agent_id: "a75ad1a63031a4ac6", agent_type: "shipyard:shipyard-disciplined-builder" };
+    const denied = bash(builder, { run_in_background: true });
+    assert.equal(denied.code, 0);
+    const out = JSON.parse(denied.stdout).hookSpecificOutput;
+    assert.equal(out.permissionDecision, "deny");
+    assert.match(out.permissionDecisionReason, /a builder runs its commands in the foreground\. Run this again without run_in_background/);
+    assert.match(readFileSync(join(pluginData, ".shipyard-events.jsonl"), "utf8"), /"builder_background_refused".*"command":"make -k test"/);
+    assert.equal(bash(builder, {}).stdout, "", "in the foreground: nothing to say");
+    assert.equal(bash(builder, { run_in_background: false }).stdout, "");
+    assert.equal(bash({}, { run_in_background: true }).stdout, "", "the main session may watch a background command");
+    assert.equal(bash({ agent_id: "x", agent_type: "shipyard:shipyard-operational-task" }, { run_in_background: true }).stdout, "", "an agent that has a tool to watch it");
+    assert.equal(bash({ agent_id: "x", agent_type: "general-purpose" }, { run_in_background: true }).stdout, "");
+  });
+});
+
 test("hook-runner: dispatches auto-approve-data and stays silent for non-guarded tool", () => {
   withTempProject(({ projectDir, pluginData }) => {
     const result = runHook(
