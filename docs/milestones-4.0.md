@@ -11,9 +11,9 @@ For what changes when you upgrade from 3.26.0, read [UPGRADING.md](../UPGRADING.
 - `shipyard-data sprint needs-you` prints the phrase the build puts on its progress line: `you: needed now · …` or `you: not needed until the review (3 checks)`.
 - A step waiting for you at the review no longer counts as a parked step. The review lists the waiting checks grouped by where they are done, so one sitting covers them.
 
-## After 4.0.2 (not released yet)
+## 4.0.3 (released 2026-11-16)
 
-Found on the day 4.0.2 was installed, by reading three sessions of one real project: tickets taken in, refined, split into more tickets, sent to the tracker, then planned into a sprint.
+Found on the day 4.0.2 was installed, by reading the sessions of two real projects. In the first: tickets taken in, refined, split into more tickets, sent to the tracker, then planned into a sprint. In the second: a long sprint that paused once to ask its owner two questions.
 
 - **A reworded outbox table no longer holds the send.** The session rewrote the outbox table its own way and left out the path column the hook looked for. The person chose "send all now" and five sends came back in red; they answered four cards for one decision. `tracker outbox` now logs each listed file with a hash of its text; the hook passes a text once it was listed, its record was named in a message after that, and the person answered. A file edited after the listing is shown again. The table calls a new bug a Bug.
 - **A scratch folder is not the project.** A discussion may not edit the project, and "the project" was everything outside the data folder: three drafts written to the session's own scratch folder were refused, and went into the data folder instead. The rule now covers the project's folder and the repository it sits in.

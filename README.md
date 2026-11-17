@@ -243,6 +243,24 @@ At the start and at the end. Never in the middle.
 
 If you cannot do the start items when the sprint starts, the stories that depend on them leave the sprint; they do not stop halfway. A check done by a person is recorded only from that person's answer; accepting the sprint does not confirm it. `shipyard-data sprint needs-you` prints the current line.
 
+## What is new in 4.0.3
+
+A patch release from the first day of 4.0.2 on two real projects. No migration is needed.
+
+| Area | What changed |
+|---|---|
+| Sending tickets | After "send all now" the sends go through. The preview table may be worded the session's way, as long as each record was listed and named. A new bug is called a Bug |
+| Drafts | A discussion may write drafts in its own scratch folder. Only the project's folder and its repository are off limits |
+| Old windows | A window opened before an update says so and stops, when a newer version has since worked on the project. Start a new window |
+| Refining | `shipyard-data story refine` rewrites a coarse story in one call and marks it refined |
+| Releases | A story split from another takes its release (`story add --version`, or the release of what it waits for). `version show` ends with what a sprint can take and what it leaves out, with the reason |
+| Scores | `rice_confidence` above 1 is read as a percentage |
+| Approval | Every story approved in a discussion owes the sources record, with or without its own question list |
+| Pausing | `shipyard-data lock release discuss --pause` frees a discussion that is waiting for an answer; what it owes passes to the next one |
+| Merged tickets | A ticket merged into another story stays on the tracker plan and follows that story |
+| Resumed sprints | A sprint resumed after a pause is built under its lock again, so the agent list, the model check and the question hold keep working |
+| Builders | A builder runs every command in the foreground. It can no longer return while its own test run is still going |
+
 ## What is new in 4.0.2
 
 A patch release from the first full discussion run on 4.0.1. No migration is needed.

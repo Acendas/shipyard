@@ -2,6 +2,19 @@
 
 > **Note:** `/ship-init` was removed in v3.20.0. Onboarding now runs automatically on the first `/ship-status` in a project. Older sections below still mention `/ship-init` as historical record.
 
+## 4.0.2 → 4.0.3
+
+No migration and no breaking change. Things you may notice:
+
+| What | Detail |
+|---|---|
+| Open windows | A session keeps the plugin version it started with. After updating, close open Claude Code windows on the project and start new ones. From 4.0.3 on, a window older than the version that last worked on the project stops at its first command and says so. `SHIPYARD_ALLOW_OLDER_SESSION=1` is the way past it |
+| `rice_confidence` | A value above 1 is a percentage: `70` and `0.7` give the same score. A score computed from a whole number on 4.0.2 was 100 times too high; `shipyard-data story set <id> rice_confidence=<n>` recomputes it |
+| Stories without a release | A story split from a story in a release now takes that release. Slices made on 4.0.2 have none: `shipyard-data story set <id> fix_version=<name>` |
+| `story refine` | The way a `refined: false` story becomes refined. Do not edit the field by hand |
+| Background commands in a builder | Refused by a hook; the builder runs the command in the foreground. Nothing to set |
+| A new hook | `builder-foreground` runs before shell commands and returns at once unless the command asks to run in the background |
+
 ## 4.0.1 → 4.0.2
 
 No migration and no breaking change. Things you may notice:
