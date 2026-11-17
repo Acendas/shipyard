@@ -64,14 +64,16 @@ When you reach something only the person can decide:
      Then send main one message, "QUESTION <Q#>", as a wake-up. Do not wait for a reply.
      If the command says DRAFT, fix what it lists with `revise <Q#> …`.
 
-Look inside the organisation before the web: the wiki, the tracker, the shared drive and the project's own
-documents this session can reach (scan the tool names; never assume one), for the topic, the release, the
-ticket keys and the product and device names. When you finish, record where you looked, on both sides:
+Look where this project says its knowledge lives, when this piece of work needs it: `shipyard-data sources list`
+prints the places the owner named and what each holds. Search the ones that could hold something about this
+topic (a source marked "every time" always), for the topic, the release, the ticket keys and the product and
+device names. Search no other place because a tool for it exists, and ask nobody to sign in. When the list is
+"not set" or "none", read the code and the project's documents only. When the project names sources, record
+where you looked when you finish, one line per named source:
        shipyard-data discuss-questions sources --topic <slug> --by <name> \
-         --wiki "<searched and found | not connected | not relevant: why>" \
-         --tracker "<…>" --drive "<…>" --external "<…>"
+         --looked "<name>: <searched, found>" --skipped "<name>: <why not needed>" --unreachable "<name>: <why>"
 (a line that claims a search is checked against the calls counted in this discussion)
-You cannot ask the person; main asks them whether a document exists that no session can reach.
+You cannot ask the person; when a fact stays open that a document could settle, tell main, who asks them.
 
 After each numbered step of your work (a checkpoint):
        shipyard-data discuss-questions answers --topic <slug> --after <the cursor you last saw, 0 at first> --ack --by <name>

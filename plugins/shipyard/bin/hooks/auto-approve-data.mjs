@@ -88,6 +88,9 @@ const CLI_OWNED_BASENAMES = new Set([
   // (`shipyard-data risk profile add-harm|remove-harm`); a hand edit could drop
   // a harm's human gate without an event.
   "risk-profile.json",
+  // after 4.0.3: where the project's knowledge lives — bin/sources.mjs is the single writer
+  // (`shipyard-data sources add|remove|always|none`, each with the owner's answer).
+  "sources.json",
 ]);
 
 // v3.7.0: the two skill-mutex lock files are now CLI-owned too —
@@ -412,6 +415,13 @@ export async function run(hookInput, _env) {
           "  - record retro metrics: shipyard-data metrics record-retro sprint=<sprint-NNN> ...\n" +
           "  - regenerate summary:   shipyard-data metrics regenerate\n" +
           "  - velocity is recorded by shipyard-data archive-sprint <sprint-NNN>";
+      } else if (base === "sources.json") {
+        reason = "sources.json is where this project's knowledge lives, as its owner said it; it has a single writer, the shipyard-data CLI. " +
+          "Do not Write/Edit it. Use instead, with the owner's own words:\n" +
+          "  - see it:            shipyard-data sources list\n" +
+          "  - the question:      shipyard-data sources suggest\n" +
+          '  - name a place:      shipyard-data sources add "<name>" --holds "<what it holds>" [--tool <word>|--path <folder>|--url <address>] [--always] --answer "<their words>"\n' +
+          '  - drop one, or all:  shipyard-data sources remove "<name>" --answer "…"   |   shipyard-data sources none --answer "…"';
       } else {
         reason = `${base} is deterministic pipeline state with a single writer — the shipyard-data CLI. ` +
           "Do not Write/Edit it. Use instead:\n" +

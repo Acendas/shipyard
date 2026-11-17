@@ -572,14 +572,13 @@ test("a discussion that touched tracker-linked work cannot end without the sync 
     writeFileSync(input, JSON.stringify({ source: "jira", items: [{ key: "ABC-1", title: "Offline mode", type: "Epic" }, { key: "ABC-2", title: "Pay by card", type: "Story" }] }));
     assert.equal(acquire().code, 0);
     assert.match(p.run(["tracker", "pull", "--input", input]).stdout, /create 2/);
-    const looked = () => { p.run(["discuss-questions", "sources", "--wiki", "not connected", "--tracker", "not connected", "--drive", "not connected", "--external", "not needed"]); return p.run(["discuss-questions", "sources", "--person-said", "nothing else"]); };
-    looked();
+    // this test is about the tracker: the owner's answer on the project's sources is on record, and it names none
+    assert.equal(p.run(["sources", "none", "--answer", "the repository is everything"]).code, 0);
     assert.equal(release().code, 0, "importing tickets is not a change to send back");
 
     // the discussion refines the idea into an epic and writes a story no ticket covers
     assert.equal(acquire().code, 0);
     assert.match(p.run(["idea", "promote", "IDEA-001"]).stdout, /IDEA-001 promoted to E001/);
-    looked();
     writeFileSync(join(d, "spec", "stories", "S050-new.md"), '---\nid: S050\ntitle: "Found in research"\ntype: feature\nepic: E001\nstatus: proposed\nexternal_refs: []\n---\n\n# Found in research\n');
     let r = release();
     assert.equal(r.code, 3);
@@ -610,36 +609,49 @@ test("a discussion that touched tracker-linked work cannot end without the sync 
   }
 });
 
-// Seen live on this build: a discussion that split an epic into a spike and draft stories ended with
+// Seen live on 4.0.1: a discussion that split an epic into a spike and draft stories ended with
 // "I have not read the Google Drive hardware documents yet". Nothing was approved, so the approval gate never ran.
-test("a discussion with a question list cannot end before it says where it looked and asks about unreachable documents", () => {
+// After 4.0.3 (the owner: "shipyard is forcing jira, confluence google drive search … sometimes its not necessary
+// at all"): what a discussion owes at its end follows the sources the project names.
+test("a discussion cannot end before the owner was asked once about the project's sources, and, when some are named, before it says where it looked", () => {
   const p = makeProject();
   try {
     const acquire = () => p.run(["lock", "acquire", "discuss", "--skill", "ship-discuss", "--session", "s1"]);
     const release = () => p.run(["lock", "release", "discuss", "--skill", "ship-discuss", "--session", "s1"]);
     assert.equal(acquire().code, 0);
-    assert.equal(release().code, 0, "a discussion with no question list (a capture, an intake) owes nothing");
+    assert.equal(release().code, 0, "a discussion that wrote nothing owes nothing");
     assert.equal(acquire().code, 0);
-    p.run(["discuss-questions", "start", "--topic", "epic-e001"]);
+    p.run(["idea", "capture", "--title", "Returns page ready for the first pilot shop"]);
     let r = release();
-    assert.equal(r.code, 3); assert.match(r.stderr, /has not said where its research looked[\s\S]*discuss-questions sources --wiki/);
-    p.run(["discuss-questions", "sources", "--wiki", "not connected", "--tracker", "not connected", "--drive", "not connected", "--project", "the doc/ folder", "--external", "the payment provider's guide"]);
+    assert.equal(r.code, 3); assert.match(r.stderr, /this project has not said where its knowledge lives, besides the code[\s\S]*shipyard-data sources suggest/);
+    assert.equal(JSON.parse(r.stdout).reason, "project_sources_not_asked");
+    assert.equal(p.run(["sources", "none", "--answer", "the repository is everything"]).code, 0);
+    assert.equal(release().code, 0, "a project that names no source owes no record of where a discussion looked");
+
+    // the owner names a place: from then on a discussion says, for it, searched / not needed / out of reach
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2100); // events carry whole seconds: the last discussion's record is not this one's
+    assert.equal(acquire().code, 0);
+    assert.equal(p.run(["sources", "add", "Design notes", "--holds", "what was decided and why", "--path", "doc/", "--answer", "the design notes folder too"]).code, 0);
+    p.run(["discuss-questions", "start", "--topic", "epic-e001"]);
     r = release();
-    assert.equal(r.code, 3); assert.match(r.stderr, /the person has not been asked about documents this session cannot reach/);
+    assert.equal(r.code, 3); assert.match(r.stderr, /has not said where its research looked[\s\S]*discuss-questions sources --looked/);
+    p.run(["discuss-questions", "sources", "--looked", "Design notes: doc/returns.md, the refund rules", "--external", "the payment provider's guide", "--open", "who pays the return postage"]);
+    r = release();
+    assert.equal(r.code, 3); assert.match(r.stderr, /a fact was left open and the person has not been asked about documents this session cannot reach/);
     p.run(["discuss-questions", "sources", "--person-said", "no, that is everything"]);
     p.run(["idea", "capture", "--title", "Something this discussion wrote"]);
     p.run(["discuss-questions", "reset"]);
     assert.equal(release().code, 0, "closing the question list does not make the discussion owe its sources again");
 
     // Seen live: an idea refined into an epic through cards of the session's own, with no question list at all.
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2100); // events carry whole seconds: the last discussion's record is not this one's
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2100);
     assert.equal(acquire().code, 0);
-    p.run(["idea", "capture", "--title", "Returns page ready for the first pilot shop"]);
+    p.run(["idea", "capture", "--title", "A second page for the pilot shop"]);
     r = release();
     assert.equal(r.code, 3, "a discussion that wrote specs owes the record even with no question list"); assert.match(r.stderr, /has not said where its research looked/);
-    assert.match(p.run(["discuss-questions", "sources", "--wiki", "not connected", "--tracker", "not connected", "--drive", "not connected", "--external", "not needed: scope comes from the test plan"]).stdout, /Is there a document I could not reach\?/);
-    assert.match(release().stderr, /the person has not been asked about documents this session cannot reach/);
-    p.run(["discuss-questions", "sources", "--person-said", "yes: ~/Downloads/pilot-plan.pdf, read"]);
+    const out = p.run(["discuss-questions", "sources", "--skipped", "Design notes: the scope comes from the test plan, nothing was decided"]).stdout;
+    assert.match(out, /\| Design notes \| not needed: the scope comes from the test plan, nothing was decided \|/);
+    assert.doesNotMatch(out, /Is there a document I could not reach\?/, "with nothing left open the person is not asked");
     assert.equal(release().code, 0, release().stderr);
 
     // the quick lanes do no research: a tiny change filed to land now owes nothing

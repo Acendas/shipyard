@@ -11,11 +11,17 @@
  * (the tool's name and its class, never its input or its result), and
  * `discuss-questions sources` reads the counts.
  *
+ * After 4.0.3 the sources are the project's own, named by its owner (`shipyard-data sources`): the kind
+ * guessed from a tool's name below is kept for the web count and as a hint only, and each event carries the
+ * tool's full name so a call can be matched to a named source by a word in it. A call of no known kind is
+ * logged only when it belongs to a named source.
+ *
  * Hot path: one lock-file read and one appended line; anything else returns at once.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { logEvent } from "../_hook_lib.mjs";
+import { readSources, toolBelongs } from "../sources.mjs";
 
 /** The kind of source a tool reads, from its name alone (no plugin or server is assumed). */
 export function sourceClass(toolName) {
@@ -31,11 +37,11 @@ export function sourceClass(toolName) {
 }
 
 /**
- * Which kinds of source this session has tools for, logged once per session while it holds the discuss lock
- * (`sources_available`). A session's transcript lists its connector tools when they are announced; the names
- * are read from there. Why: in live runs a session recorded "shared drive: not connected" while it had 39
- * drive tools, and "not relevant" for the wiki without looking. With this on record, `discuss-questions
- * sources` knows what is connected and takes only a real search for it.
+ * Which connector servers this session has tools for, logged once per session while it holds the discuss lock
+ * (`sources_available`, field `servers`). A session's transcript lists its connector tools when they are
+ * announced; the server names are read from there. It is a hint for the one-time question about the project's
+ * sources (`shipyard-data sources suggest`), never a fact about the project: until 4.0.3 the kinds guessed
+ * from these names decided what a discussion had to search, and a browser tool counted as a wiki.
  */
 export function noteAvailable(dataDir, hookInput) {
   const session = String(hookInput?.session_id ?? "").trim();
@@ -47,15 +53,15 @@ export function noteAvailable(dataDir, hookInput) {
   try { if (readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8").includes(`"sources_available","session":"${session}"`)) return null; } catch { /* no log yet */ }
   let text = "";
   try { text = readFileSync(path, "utf8"); } catch { return null; }
-  const found = { wiki: "", tracker: "", drive: "" };
-  for (const m of text.matchAll(/mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_]+/g)) {
-    const cls = sourceClass(m[0]);
-    // a tool that reads: a search, a get, a list (a write tool alone does not make a source searchable)
-    if (cls in found && !found[cls] && /search|get_|list_|query|read|fetch/.test(m[0].toLowerCase())) found[cls] = m[0].split("__").pop();
-    if (found.wiki && found.tracker && found.drive) break;
+  const servers = new Set();
+  for (const m of text.matchAll(/mcp__([A-Za-z0-9_.-]+?)__[A-Za-z0-9_]+/g)) {
+    // a server with a tool that reads: a search, a get, a list (a write tool alone does not make a place searchable)
+    if (/search|get_|list_|query|read|fetch/.test(m[0].toLowerCase())) servers.add(m[1].replace(/^plugin_/, "").toLowerCase());
+    if (servers.size >= 30) break;
   }
-  try { logEvent(dataDir, "sources_available", { session, wiki: found.wiki, tracker: found.tracker, drive: found.drive }); } catch { /* best-effort */ }
-  return found;
+  const list = [...servers].sort();
+  try { logEvent(dataDir, "sources_available", { session, servers: list.join(",") }); } catch { /* best-effort */ }
+  return list;
 }
 
 export function run(hookInput, env) {
@@ -70,7 +76,12 @@ export function run(hookInput, env) {
   // too; that errs towards believing a search happened, never towards a false refusal.)
   if (!lock || !lock.skill || lock.cleared) return 0;
   const cls = sourceClass(tool);
-  if (cls === "other") return 0;
-  try { logEvent(dataDir, "source_read", { source: cls, tool: tool.replace(/^mcp__/, "").split("__").pop().slice(0, 60), session }); } catch { /* best-effort */ }
+  const name = tool.replace(/^mcp__/, "").slice(0, 120);
+  if (cls === "other") {
+    let named = false;
+    try { named = readSources(dataDir).sources.some((s) => toolBelongs(s, name)); } catch { named = false; }
+    if (!named) return 0;
+  }
+  try { logEvent(dataDir, "source_read", { source: cls, tool: name.split("__").pop().slice(0, 60), name, session }); } catch { /* best-effort */ }
   return 0;
 }

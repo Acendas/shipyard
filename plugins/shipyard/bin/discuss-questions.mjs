@@ -39,6 +39,7 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWrite, logEvent, withLockfile } from "./_hook_lib.mjs";
+import { readSources, findSource, toolBelongs } from "./sources.mjs";
 
 export const QUESTIONS_BASENAME = ".discuss-questions.json";
 export const CARD_LIMITS = Object.freeze({ question: 160, label: 40, description: 110 }); // the same numbers the card hook enforces
@@ -151,11 +152,9 @@ export function approvalProblems(dataDir, storyId) {
     if (!storyId || !boundTo(t).includes(String(storyId))) continue;
     bound = true;
     // Where the research looked is on record before approval (4.0.1). The owner: "as part of discuss make sure
-    // research looks at datasources internal as well as the usual external". Only topics started since then.
-    if (t.needs_sources && !t.sources) out.push('the research has not said where it looked: record the organisation\'s own sources (wiki, tracker, shared drive, the project\'s documents) and the outside ones with `discuss-questions sources --wiki "…" --tracker "…" --drive "…" --external "…"` (each: what was searched and found, or "not connected", or "not relevant: <why>")');
-    // A session only knows the sources that are connected. A PDF on someone's disk, a contract, an email: only
-    // the person knows it exists, so they are asked once, with the list of what was looked at in front of them.
-    else if (t.needs_sources && !t.sources.person_said) out.push('the person has not been asked whether a document exists that this session cannot reach (a PDF, a contract, a spec sheet, an email): show them what the research looked at, ask, read what they give, and record their answer with `discuss-questions sources --person-said "<their answer>"`');
+    // research looks at datasources internal as well as the usual external". After 4.0.3 the sources are the
+    // ones the project names, looked at when they could matter (`sourcesGap`). Only topics started since 4.0.1.
+    if (t.needs_sources) { const gap = sourcesGap(dataDir, t.sources); if (gap && !out.includes(GAP_TEXT[gap])) out.push(GAP_TEXT[gap]); }
     const waiting = t.questions.filter(isOpen);
     if (waiting.length) out.push(`${waiting.length} question(s) of this discussion are not answered yet (${waiting.map((q) => q.id).join(", ")}): ask them (\`discuss-questions next\`), or \`drop\` the ones research answered`);
     if (["running", "parked"].includes(t.research.state)) out.push(`the background research is ${t.research.state}: let it finish with the answers (\`discuss-questions research --state done\`), or record \`--state abandoned --note "<why>"\``);
@@ -172,61 +171,82 @@ export function approvalProblems(dataDir, storyId) {
     const me = process.env.CLAUDE_CODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
     if (lock && me && String(lock.session_id ?? "") === me) {
       const t0 = Date.parse(lock.started ?? "");
-      let recorded = false, asked = false, quick = false;
+      let last = null, quick = false;
       let text = "";
       try { text = readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8"); } catch { text = ""; }
       for (const line of text.split("\n")) {
         if (!line.includes('"discuss_sources_recorded"') && !line.includes('"intake_lane_confirmed"')) continue;
         let e; try { e = JSON.parse(line); } catch { continue; }
         if (Number.isFinite(t0) && Date.parse(e.ts) < t0 - 1000) continue;
-        if (e.type === "discuss_sources_recorded") { recorded = true; if (e.person_asked === "yes") asked = true; }
+        if (e.type === "discuss_sources_recorded") last = e;
         if (e.type === "intake_lane_confirmed") quick = ["land-now", "capture", "hotfix"].includes(e.lane);
       }
-      if (!quick && !recorded) out.push('this discussion has not said where its research looked: record the organisation\'s own sources (wiki, tracker, shared drive, the project\'s documents) and the outside ones with `discuss-questions sources --wiki "…" --tracker "…" --drive "…" --external "…"` (each: what was searched and found, or "not connected", or "not relevant: <why>")');
-      else if (!quick && !asked) out.push('the person has not been asked whether a document exists that this session cannot reach (a PDF, a contract, a spec sheet, an email): show them what the research looked at, ask, read what they give, and record their answer with `discuss-questions sources --person-said "<their answer>"`');
+      const gap = quick ? "" : gapFromLog(dataDir, last);
+      if (gap && !out.includes(GAP_TEXT[gap])) out.push(GAP_TEXT[gap]);
     }
   }
   return out;
 }
-/** Connector and web calls the `source-ledger` hook logged since `since`: { wiki, tracker, drive, chat, web, internal }. */
-export function measuredSources(dataDir, since) {
-  const out = { wiki: 0, tracker: 0, drive: 0, chat: 0, code_host: 0, web: 0 };
+const sameName = (a, b) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+/**
+ * Calls the `source-ledger` hook logged since `since`: per named source (by a word in the tool's name), the
+ * web, and connectors that are no named source of this project (`other`: shown, so the owner sees them).
+ */
+export function namedCalls(dataDir, since, sources) {
+  const out = { by: Object.fromEntries(sources.map((s) => [s.name, 0])), web: 0, other: 0 };
   const t0 = Date.parse(since ?? "");
-  let text = "";
-  try { text = readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8"); } catch { return { ...out, internal: 0 }; }
-  for (const line of text.split("\n")) {
-    if (!line.includes('"source_read"')) continue;
-    let e; try { e = JSON.parse(line); } catch { continue; }
-    if (e.type !== "source_read" || !(e.source in out)) continue;
-    if (Number.isFinite(t0) && Date.parse(e.ts) < t0 - 1000) continue;
-    out[e.source] += 1;
-  }
-  return { ...out, internal: out.wiki + out.tracker + out.drive + out.chat };
-}
-/** The last call of each kind of source ever logged in this project: { wiki: {tool, ts}, … }. */
-function everRead(dataDir) {
-  const out = {};
   let text = "";
   try { text = readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8"); } catch { return out; }
   for (const line of text.split("\n")) {
     if (!line.includes('"source_read"')) continue;
-    try { const e = JSON.parse(line); if (e.type === "source_read") out[e.source] = { tool: e.tool, ts: e.ts }; } catch { /* a cut line */ }
+    let e; try { e = JSON.parse(line); } catch { continue; }
+    if (e.type !== "source_read") continue;
+    if (Number.isFinite(t0) && Date.parse(e.ts) < t0 - 1000) continue;
+    if (e.source === "web") { out.web += 1; continue; }
+    const hit = sources.filter((s) => toolBelongs(s, e.name || e.tool));
+    if (hit.length) for (const s of hit) out.by[s.name] += 1; else out.other += 1;
   }
   return out;
 }
-/** The kinds of source the latest session to hold a discussion had tools for ({wiki, tracker, drive}: a tool name or ""), or null when never recorded. */
-function availableSources(dataDir) {
-  let text = "";
-  try { text = readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8"); } catch { return null; }
-  let last = null;
-  for (const line of text.split("\n")) {
-    if (!line.includes('"sources_available"')) continue;
-    try { const e = JSON.parse(line); if (e.type === "sources_available") last = e; } catch { /* a cut line */ }
-  }
-  return last ? { wiki: last.wiki ?? "", tracker: last.tracker ?? "", drive: last.drive ?? "" } : null;
+const measuredLine = (c, sources) => [...sources.filter((s) => s.tool).map((s) => `${s.name} ${c.by[s.name] ?? 0}`), `web ${c.web}`, ...(c.other ? [`connectors this project does not name ${c.other}`] : [])].join(", ");
+const STATE_WORD = { looked: "searched", skipped: "not needed", unreachable: "could not reach" };
+/** The "looked at" table. A record made before the sources were the project's own had three fixed kinds. */
+const sourcesTable = (x) => (Array.isArray(x.lines)
+  ? ["| Where | What was looked at |", "|---|---|", ...(x.project ? [`| The project's own code and documents | ${x.project} |`] : []), ...x.lines.map((l) => `| ${l.name} | ${STATE_WORD[l.state] ?? l.state}: ${l.text} |`), ...(x.external ? [`| Outside | ${x.external} |`] : []), `| Tool calls counted | ${x.measured || "-"} |`]
+  : ["| Where | What was searched and found |", "|---|---|", `| Wiki | ${x.wiki || "-"} |`, `| Tracker | ${x.tracker || "-"} |`, `| Shared drive | ${x.drive || "-"} |`, ...(x.project ? [`| The project's own documents | ${x.project} |`] : []), `| Outside | ${x.external || "-"} |`, `| Tool calls counted | ${x.measured} |`]);
+
+/**
+ * What a discussion's record of where it looked still lacks: "" | "registry" | "sources" | "person".
+ *
+ * After 4.0.3 (the owner: "shipyard is forcing jira, confluence google drive search … sometimes its not
+ * necessary at all"): the sources are the ones the project names (`shipyard-data sources`), so
+ *   registry  the owner was never asked where the project's knowledge lives (asked once per project);
+ *   sources   the project names sources and the record does not say, for each, searched / not needed / could
+ *             not reach (a project that names none owes no record);
+ *   person    the research left a fact open (`--open`) and the person was not asked about a document the
+ *             session cannot reach. With nothing open they are not asked.
+ * A record made before this (three fixed kinds) is complete.
+ */
+export function sourcesGap(dataDir, rec) {
+  const reg = readSources(dataDir);
+  if (!reg.decided) return "registry";
+  if (rec && rec.open && !rec.person_said) return "person";
+  if (!reg.sources.length || (rec && !Array.isArray(rec.lines))) return "";
+  if (!rec) return "sources";
+  return reg.sources.some((s) => !rec.lines.some((l) => sameName(l.name, s.name))) ? "sources" : "";
 }
-const sourcesTable = (x) => ["| Where | What was searched and found |", "|---|---|", `| Wiki | ${x.wiki || "-"} |`, `| Tracker | ${x.tracker || "-"} |`, `| Shared drive | ${x.drive || "-"} |`, ...(x.project ? [`| The project's own documents | ${x.project} |`] : []), `| Outside | ${x.external || "-"} |`, `| Tool calls counted | ${x.measured} |`];
-const measuredLine = (m) => `wiki ${m.wiki}, tracker ${m.tracker}, shared drive ${m.drive}${m.chat ? `, chat or mail ${m.chat}` : ""}; web ${m.web}`;
+/** The same, from the last `discuss_sources_recorded` event of a discussion (a closed list took its record with it). */
+function gapFromLog(dataDir, last) {
+  const reg = readSources(dataDir);
+  if (!reg.decided) return "registry";
+  if (last) return last.owed === "person" ? "person" : "";
+  return reg.sources.length ? "sources" : "";
+}
+export const GAP_TEXT = Object.freeze({
+  registry: 'this project has not said where its knowledge lives, besides the code. The owner is asked once: `shipyard-data sources suggest` prints the question, and their answer is recorded with `shipyard-data sources none --answer "<their words>"` or `shipyard-data sources add "<name>" … --answer "<their words>"`',
+  sources: 'the research has not said where it looked. For each source this project names (`shipyard-data sources list`), one line: `shipyard-data discuss-questions sources --looked "<name>: <what was searched and found>"`, `--skipped "<name>: <why this piece of work does not need it>"` or `--unreachable "<name>: <why>"`',
+  person: 'a fact was left open and the person has not been asked whether a document exists that this session cannot reach (a PDF, a contract, a spec sheet, an email): show them where the research looked, ask, read what they give, and record `shipyard-data discuss-questions sources --person-said "<their answer>"`',
+});
 
 /**
  * What a discussion still owes about its sources before it ends, or null. Read by `lock release discuss`:
@@ -236,24 +256,24 @@ const measuredLine = (m) => `wiki ${m.wiki}, tracker ${m.tracker}, shared drive 
  */
 export function sourcesOwed(dataDir, since, events = []) {
   const t0 = Date.parse(since ?? "");
+  const inWindow = (e) => !Number.isFinite(t0) || Date.parse(e.ts) >= t0 - 1000;
   const mine = Object.values(readState(dataDir).topics).filter((t) => t.needs_sources && !(Number.isFinite(t0) && Date.parse(t.started_at ?? "") < t0 - 1000));
   for (const t of mine) {
     if (t.topic === FALLBACK_TOPIC) continue;
-    if (!t.sources) return { topic: t.topic, missing: "sources" };
-    if (!t.sources.person_said) return { topic: t.topic, missing: "person" };
+    const gap = sourcesGap(dataDir, t.sources);
+    if (gap && gap !== "registry") return { topic: t.topic, missing: gap };
   }
   // A discussion that wrote specs without ever opening a question list owes the same (seen live: an idea was
   // refined into an epic through free cards, and nothing asked where the research had looked).
-  const wrote = events.some((e) => (!Number.isFinite(t0) || Date.parse(e.ts) >= t0 - 1000) && (WROTE_SPECS.has(e.type) || (e.type === "model_state_file_write" && /[\\/]spec[\\/](epics|stories|tasks|features|bugs)[\\/]/.test(String(e.file ?? "")))));
+  const wrote = events.some((e) => inWindow(e) && (WROTE_SPECS.has(e.type) || (e.type === "model_state_file_write" && /[\\/]spec[\\/](epics|stories|tasks|features|bugs)[\\/]/.test(String(e.file ?? "")))));
   if (!wrote) return null;
   // The quick lanes (a thought captured, a tiny change filed to land now, a hotfix) do no research: nothing is owed.
-  const lane = [...events].reverse().find((e) => e.type === "intake_lane_confirmed" && (!Number.isFinite(t0) || Date.parse(e.ts) >= t0 - 1000))?.lane;
+  const lane = [...events].reverse().find((e) => e.type === "intake_lane_confirmed" && inWindow(e))?.lane;
   if (["land-now", "capture", "hotfix"].includes(lane)) return null;
-  if (mine.some((t) => t.sources?.person_said)) return null;
-  // A question list that was closed took its record with it; the log remembers that it was complete
+  // A question list that was closed took its record with it; the log remembers what it still owed
   // (seen live: the session had to record its sources a second time to release the lock).
-  if (events.some((e) => e.type === "discuss_sources_recorded" && e.person_asked === "yes" && (!Number.isFinite(t0) || Date.parse(e.ts) >= t0 - 1000))) return null;
-  return { topic: mine.find((t) => t.sources)?.topic ?? FALLBACK_TOPIC, missing: mine.some((t) => t.sources) ? "person" : "sources" };
+  const gap = gapFromLog(dataDir, [...events].reverse().find((e) => e.type === "discuss_sources_recorded" && inWindow(e)) ?? null);
+  return gap ? { topic: mine.find((t) => t.sources)?.topic ?? FALLBACK_TOPIC, missing: gap } : null;
 }
 const FALLBACK_TOPIC = "discussion"; // where `sources` is kept when a discussion has no question list
 const WROTE_SPECS = new Set(["idea_promoted", "idea_imported", "idea_captured", "story_imported", "task_imported", "tracker_pulled", "story_added", "task_added", "story_refined"]);
@@ -304,7 +324,7 @@ function parse(args, fail) {
     if (a.startsWith("--")) {
       const v = args[++i];
       if (v === undefined) fail(`${a} needs a value`);
-      if (a === "--option") o.option.push(v); else o[a.slice(2)] = v;
+      if (a === "--option") o.option.push(v); else if (["--looked", "--skipped", "--unreachable"].includes(a)) (o[a.slice(2)] ??= []).push(v); else o[a.slice(2)] = v;
     } else o._.push(a);
   }
   return o;
@@ -318,7 +338,8 @@ function usage(msg) {
       "         discuss-questions next [--json] | answer <Q#> (--choice <n> | --text \"...\" | --you-decide) | answer-bundle (--accept | --one-by-one)\n" +
       "         discuss-questions ask-again <Q#> --their-words \"...\" [--summary \"...\" --show-file <path> --option \"<label>::<meaning>\" ...]   (they replied with a question, or asked for advice)\n" +
       "         discuss-questions answers [--after <cursor>] [--ack --by <who>] [--json] | drop <Q#> --reason \"...\"\n" +
-      "         discuss-questions sources --wiki \"...\" --tracker \"...\" --drive \"...\" --external \"...\" [--project \"...\"] [--by <who>]   (each: searched and found | not connected | not relevant: <why>)\n" +
+      "         discuss-questions sources [--looked \"<source>: <searched, found>\"] [--skipped \"<source>: <why not needed>\"] [--unreachable \"<source>: <why>\"] [--project \"...\"] [--external \"...\"] [--open \"<a fact a document could settle>\"] [--by <who>]\n" +
+      "                 (one line per source the project names: shipyard-data sources list; --owner-said \"<their words>\" lets an always-looked-at source be skipped this once)\n" +
       "         discuss-questions sources --person-said \"<their answer to: is there a document this session cannot reach?>\"\n" +
       "         discuss-questions research --state <running|parked|done|abandoned> [--by <who>] [--note \"...\"] | wait [--timeout <s>] | status [--json]\n" +
       "         (every verb takes --topic <slug>; the current topic is used without it)\n",
@@ -582,57 +603,75 @@ export function main(dataDir, args = []) {
     const began = lockStart(dataDir);
     // no question list in this discussion: the record still has a home
     if (!o.topic && !readState(dataDir).current) o.topic = FALLBACK_TOPIC;
-    const given = { wiki: one(o.wiki), tracker: one(o.tracker), drive: one(o.drive) };
-    const project = one(o.project), external = one(o.external), said = one(o["person-said"]);
-    if (o.internal !== undefined) usage('sources takes one line per kind of source: --wiki "..." --tracker "..." --drive "..." (each: what was searched and found, or "not connected", or "not relevant: <why>"), plus --external "..." and optionally --project "<the project\'s own documents read>"');
-    const any = Object.values(given).some(Boolean) || project || external;
+    for (const gone of ["wiki", "tracker", "drive", "internal"]) if (o[gone] !== undefined) usage(`--${gone} is gone: the sources are the ones this project names (shipyard-data sources list), not a fixed list. One line per named source: --looked "<name>: <what was searched and found>", --skipped "<name>: <why this piece of work does not need it>" or --unreachable "<name>: <why>"`);
+    const reg = readSources(dataDir);
+    if (!reg.decided) refuse(GAP_TEXT.registry);
+    const project = one(o.project), external = one(o.external), said = one(o["person-said"]), open = one(o.open), ownerSaid = one(o["owner-said"]);
+    const named = reg.sources.length ? `Its sources: ${reg.sources.map((x) => x.name).join(", ")}` : "It names none: its knowledge is in the repository, and nothing is owed about other places";
+    const given = [];
+    for (const state of ["looked", "skipped", "unreachable"]) for (const raw of o[state] ?? []) {
+      const i = String(raw).indexOf(":");
+      const name = one(i === -1 ? raw : String(raw).slice(0, i)), text = one(i === -1 ? "" : String(raw).slice(i + 1));
+      const src = findSource(reg.sources, name);
+      // A place the project did not name is not one of its sources, whatever tools the session has.
+      if (!src) refuse(`--${state} "${name}": this project names no such source. ${named}. A place the owner did not name is not searched for this project; when they say it belongs, \`shipyard-data sources add "<name>" --holds "…" --answer "<their words>"\``);
+      if (text.length < (state === "looked" ? 4 : 10)) refuse(`--${state} "${src.name}: …" needs ${state === "looked" ? "what was searched and what was found" : "the reason, in a few words"}`);
+      if (given.some((g) => sameName(g.name, src.name))) refuse(`${src.name} is given twice: one line per source`);
+      given.push({ name: src.name, state, text: text.slice(0, 600) });
+    }
+    const any = given.length > 0 || Boolean(project || external || open);
     const r = withTopic((t) => {
       if (t.topic === FALLBACK_TOPIC && began && Date.parse(t.started_at ?? "") < Date.parse(began) - 1000) Object.assign(t, { started_at: now(), sources: null }); // an earlier discussion's record
       const prev = t.sources;
-      if (!prev && said) return { error: "the person is asked after they have seen where the research looked: record --wiki, --tracker, --drive and --external first; the command prints the table and the question to show them" };
-      if (!prev && (!given.wiki || !given.tracker || !given.drive || external.length < 4)) return { error: 'sources needs one line per kind of source: --wiki "..." --tracker "..." --drive "..." and --external "...". Each is what was searched and what was found, or "not connected" (this session has no such tool), or "not relevant: <why>"' };
-      if (prev && !any && !said) return { error: "sources needs something to add: --wiki, --tracker, --drive, --project, --external or --person-said" };
-      // What was called is a fact (the source-ledger hook counts it). A line that claims a search with no call of
-      // that kind behind it is refused: notes from memory are not a search. Seen live twice: "looked at: memory:
-      // pricing sheets (Drive)" with no call at all, then one tracker search standing for all three.
-      const m = measuredSources(dataDir, began && Date.parse(began) < Date.parse(t.started_at ?? "") ? began : t.started_at);
-      const names = { wiki: "wiki", tracker: "tracker", drive: "shared-drive" };
-      const avail = availableSources(dataDir);
-      for (const k of Object.keys(given)) {
-        const v = given[k];
-        if (!v) continue;
-        // What is connected is a fact too: the hooks record which kinds of source this session has tools for
-        // (`sources_available`), and a kind this project has ever called is connected.
-        const tool = (avail && avail[k]) || everRead(dataDir)[k]?.tool || "";
-        if (/^not connected\b/i.test(v)) {
-          if (tool) return { error: `--${k} says not connected, but this session has ${names[k]} tools (for example ${tool}). Search it for the topic, the release, the ticket keys and the product and device names, then record what you found; "searched <what>: nothing relevant" is a fine answer after a real search` };
-          continue;
-        }
-        if (/^not relevant\s*:/i.test(v)) {
-          // Whether a source has anything to say is found by looking, not by deciding beforehand.
-          if (tool && m[k] === 0) return { error: `--${k} says not relevant, but the ${names[k]} is connected (for example ${tool}) and was not searched. Search it first; "searched <what>: nothing relevant" is a fine answer after a real search` };
-          if (v.replace(/^not relevant\s*:/i, "").trim().length < 10) return { error: `--${k}: "not relevant:" needs the reason` };
-          continue;
-        }
-        if (m[k] === 0) return { error: `--${k} says the ${names[k]} was searched, but no ${names[k]} tool was called in this discussion (counted: ${measuredLine(m)}). Notes from memory are not a search. Search it for the topic, the release, the ticket keys and the product and device names, read what matches, then record again.${tool ? "" : ` If this session has no ${names[k]} tool: --${k} "not connected".`}` };
+      if (!prev && said && !any) return { error: "the person is asked after they have seen where the research looked: record that first (--looked, --skipped, --unreachable, --project, --open); the command prints the table and the question to show them" };
+      if (!any && !said) return { error: 'sources needs something to record: --looked, --skipped or --unreachable "<name>: …" for a source this project names, --project "<the code and documents read>", --external, --open "<a fact a document could settle>" or --person-said' };
+      const prevLines = Array.isArray(prev?.lines) ? prev.lines : [];
+      const all = [...prevLines.filter((l) => !given.some((g) => sameName(g.name, l.name))), ...given];
+      const lines = reg.sources.map((x) => all.find((l) => sameName(l.name, x.name))).filter(Boolean); // the project's order; a removed source drops out
+      if (any) {
+        // Every named source gets a line: looked at, not needed for this piece of work, or out of reach. Which of
+        // the three is the discussion's judgement, from what each source holds; that it says so is the rule.
+        const missing = reg.sources.filter((x) => !lines.some((l) => sameName(l.name, x.name)));
+        if (missing.length) return { error: `say, for each source this project names, whether this piece of work needed it. Missing: ${missing.map((x) => x.name).join(", ")}.\n${missing.map((x) => `  ${x.name}${x.always ? " (looked at every time)" : ""}: ${x.holds || "no description"}`).join("\n")}\n  --looked "<name>: <what was searched and found>" | --skipped "<name>: <why this piece of work does not need it>" | --unreachable "<name>: <why>"` };
+      }
+      // What was called is a fact (the source-ledger hook counts it). A line that claims a search with no call
+      // behind it is refused: notes from memory are not a search. Seen live twice: "looked at: memory: pricing
+      // sheets (Drive)" with no call at all, then one tracker search standing for three places.
+      const c = namedCalls(dataDir, began && Date.parse(began) < Date.parse(t.started_at ?? "") ? began : t.started_at, reg.sources);
+      const measured = measuredLine(c, reg.sources);
+      const lowered = ownerSaid.length >= 3 ? ownerSaid : prev?.owner_said ?? "";
+      for (const g of given) {
+        const src = findSource(reg.sources, g.name);
+        if (g.state === "looked" && src.tool && c.by[src.name] === 0) return { error: `--looked says ${src.name} was searched, but no tool named like "${src.tool}" was called in this discussion (counted: ${measured}). Notes from memory are not a search. Search it and record again; when this piece of work does not need it, --skipped "${src.name}: <why>"; when it cannot be reached, --unreachable "${src.name}: <why>"` };
+        // A bar is lowered only by the owner: "always" is theirs, so only their word leaves it out.
+        if (g.state === "skipped" && src.always && !lowered) return { error: `${src.name} is looked at in every discussion (the owner's rule for this project), so it is not left out by judgement. Search it; "searched <what>: nothing relevant" is a fine answer after a real search. When the owner says to leave it out this time, add --owner-said "<their words>"; when it cannot be reached, --unreachable "${src.name}: <why>"` };
       }
       const merge = (a, b) => (!b ? a ?? "" : !a ? b : a.includes(b) ? a : `${a}; ${b}`).slice(0, 1200);
       t.sources = {
-        measured: measuredLine(m),
-        wiki: merge(prev?.wiki, given.wiki), tracker: merge(prev?.tracker, given.tracker), drive: merge(prev?.drive, given.drive), project: merge(prev?.project, project),
-        external: merge(prev?.external, external), person_said: said ? said.slice(0, 1000) : prev?.person_said ?? "", by: o.by ?? prev?.by ?? "", at: now(),
+        measured, lines, project: merge(prev?.project, project), external: merge(prev?.external, external),
+        open: merge(prev?.open, open), owner_said: lowered.slice(0, 300),
+        person_said: said ? said.slice(0, 1000) : prev?.person_said ?? "", by: o.by ?? prev?.by ?? "", at: now(),
       };
-      return { topic: t.topic, asked: Boolean(t.sources.person_said), src: { ...t.sources } };
+      return { topic: t.topic, owed: t.sources.open && !t.sources.person_said ? "person" : "", src: { ...t.sources } };
     }, { create: true });
-    log("discuss_sources_recorded", { topic: r.topic, by: o.by ?? "", person_asked: r.asked ? "yes" : "no" });
-    if (r.asked) { process.stdout.write("recorded where the research looked and what the person said about documents it could not reach\n"); return; }
+    // `person_asked` is what readers before this looked for; `owed` is what is still missing ("" or "person").
+    log("discuss_sources_recorded", { topic: r.topic, by: o.by ?? "", owed: r.owed, person_asked: r.src.person_said ? "yes" : "no" });
+    if (r.owed === "person") {
+      process.stdout.write([
+        "recorded where the research looked. A fact is still open, so the person is asked whether a document exists that this session cannot reach (a PDF, a contract, a spec sheet, an email).",
+        `OPEN: ${r.src.open}`,
+        "", "SHOW (write this in the chat as it is, under a summary of 40 words or fewer; then the line \"Question follows.\" ends your turn):",
+        ...sourcesTable(r.src),
+        "", "QUESTION (the card, word for word): Is there a document I could not reach?",
+        "CHOICES: 1. No, that is everything (Recommended) — Carry on with what was found   2. Yes, here is the path — Give a file path, or paste it   3. Yes, but it cannot be shared — Say what it tells us",
+        "", 'Then read what they give (the Read tool opens PDFs) and record their answer: shipyard-data discuss-questions sources --person-said "<their answer>"',
+      ].join("\n") + "\n");
+      return;
+    }
     process.stdout.write([
-      "recorded where the research looked. Still owed: show the person this table and ask whether a document exists that this session cannot reach (a PDF, a contract, a spec sheet, an email).",
-      "", "SHOW (write this in the chat as it is, under a summary of 40 words or fewer; then the line \"Question follows.\" ends your turn):",
+      said ? "recorded what the person said about documents this session could not reach" : "recorded where the research looked",
+      "", "LOOKED AT (show this table in the approval summary, as it is; the person may answer \"look there too\"):",
       ...sourcesTable(r.src),
-      "", "QUESTION (the card, word for word): Is there a document I could not reach?",
-      "CHOICES: 1. No, that is everything (Recommended) — Carry on with what was found   2. Yes, here is the path — Give a file path, or paste it   3. Yes, but it cannot be shared — Say what it tells us",
-      "", 'Then read what they give (the Read tool opens PDFs) and record their answer: shipyard-data discuss-questions sources --person-said "<their answer>"',
     ].join("\n") + "\n");
     return;
   }
@@ -684,8 +723,8 @@ export function main(dataDir, args = []) {
     process.stdout.write(`${t.topic}${boundTo(t).length ? ` (${boundTo(t).join(", ")})` : ""}: ${sum.draft + sum.open + sum.asked} waiting, ${sum.answered} answered, ${sum.dropped} dropped; ${sum.assumptions} assumed; research ${sum.research}\n`);
     for (const q of t.questions) process.stdout.write(`  ${q.id} ${q.status.padEnd(8)} ${q.question}${q.status === "answered" ? ` → ${q.answer.label || q.answer.text}` : q.status === "dropped" ? ` (dropped: ${q.drop_reason})` : ""}\n`);
     for (const a of t.assumptions) process.stdout.write(`  ASSUMED: ${a.statement} — ${a.basis}\n`);
-    if (t.sources) process.stdout.write(`  LOOKED AT:\n${sourcesTable({ ...t.sources, measured: t.sources.measured ?? "" }).map((l) => `    ${l}`).join("\n")}\n  OTHER DOCUMENTS (the person, when asked): ${t.sources.person_said || "not asked yet"}\n`);
-    else if (t.needs_sources) process.stdout.write("  LOOKED AT: not recorded yet (`discuss-questions sources --wiki … --tracker … --drive … --external …`)\n");
+    if (t.sources) process.stdout.write(`  LOOKED AT:\n${sourcesTable({ ...t.sources, measured: t.sources.measured ?? "" }).map((l) => `    ${l}`).join("\n")}\n  OTHER DOCUMENTS (the person, when asked): ${t.sources.person_said || (t.sources.open || !Array.isArray(t.sources.lines) ? "not asked yet" : "not asked: nothing was left open")}\n`);
+    else if (t.needs_sources) { const gap = sourcesGap(dataDir, null); if (gap) process.stdout.write(`  LOOKED AT: not recorded yet: ${GAP_TEXT[gap]}\n`); }
     if (sum.raised_to_shown_seconds.median !== null) process.stdout.write(`raised to shown: median ${sum.raised_to_shown_seconds.median}s, longest ${sum.raised_to_shown_seconds.max}s; cards shown: ${sum.cards_shown}\n`);
     return;
   }
@@ -701,8 +740,8 @@ export function main(dataDir, args = []) {
       // was asked about what no session can reach. Seen live: a discussion ran `reset` and then released its lock,
       // and the end-of-discussion check found no topic to read.
       if (t.needs_sources && !o.force) {
-        if (!t.sources) return { error: `the question list cannot be closed yet: the research has not said where it looked. Search the organisation's own sources this session can reach (wiki, tracker, shared drive), then outside, and record: shipyard-data discuss-questions sources --wiki "…" --tracker "…" --drive "…" --external "…" (each: searched and found | not connected | not relevant: <why>)` };
-        if (!t.sources.person_said) return { error: 'the question list cannot be closed yet: the person has not been asked whether a document exists that this session cannot reach. Show them what the research looked at (`discuss-questions status`), ask once, read what they give, and record: shipyard-data discuss-questions sources --person-said "<their answer>"' };
+        const gap = sourcesGap(dataDir, t.sources);
+        if (gap && gap !== "registry") return { error: `the question list cannot be closed yet: ${GAP_TEXT[gap]}` };
       }
       const s = summarize(t);
       delete state.topics[name];

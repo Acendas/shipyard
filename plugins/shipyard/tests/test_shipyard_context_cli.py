@@ -607,6 +607,9 @@ class TestInitStatusDiscussContexts(NamedSubcommandBase):
         self.assertEqual(rc, 0, err)
         self.assertIn('SHIPYARD_DATA=', out)
         self.assertIn('SHIPYARD_LOCK_ACQUIRED=true', out)
+        # after 4.0.3: a discussion is told where this project's knowledge lives (the owner's list), so it
+        # searches nothing because a connector happens to be installed
+        self.assertIn('SHIPYARD_SOURCES=not set (asked once', out)
         self.assertIn('--- config ---', out)
         self.assertIn('think: opus', out)
         self.assertIn('--- codebase ---', out)

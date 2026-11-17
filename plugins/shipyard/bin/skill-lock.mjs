@@ -486,10 +486,12 @@ export function releaseLock(dataDir, kind, opts = {}) {
         if (src) {
           result = {
             ok: false, code: 3,
-            message: src.missing === "sources"
-              ? `shipyard-data lock release: this discussion (topic ${src.topic}) has not said where its research looked.\n  Search the organisation's own sources this session can reach (wiki, tracker, shared drive, the project's documents), then the outside ones, and record both:\n    shipyard-data discuss-questions sources --wiki "…" --tracker "…" --drive "…" --external "…"   (each: what was searched and found | not connected | not relevant: <why>)\n  The command prints the table and the question to show them. Then ask the person whether a document exists that this session cannot reach, and release again.`
-              : `shipyard-data lock release: the person has not been asked about documents this session cannot reach (topic ${src.topic}).\n  Show them what the research looked at (shipyard-data discuss-questions status), ask once whether there is a PDF, a contract, a spec sheet or an email it could not see, read what they give, and record their answer:\n    shipyard-data discuss-questions sources --person-said "<their answer>"\n  Then release again.`,
-            json: { released: false, reason: src.missing === "sources" ? "research_sources_not_recorded" : "person_not_asked_about_documents", topic: src.topic },
+            message: src.missing === "registry"
+              ? `shipyard-data lock release: this project has not said where its knowledge lives, besides the code.\n  The owner is asked once. This prints the question and how to record their answer:\n    shipyard-data sources suggest\n  Then release again. (To stop now and ask next time: --pause, while a question waits.)`
+              : src.missing === "sources"
+              ? `shipyard-data lock release: this discussion (topic ${src.topic}) has not said where its research looked.\n  For each source this project names (shipyard-data sources list), one line: searched, not needed for this piece of work, or out of reach:\n    shipyard-data discuss-questions sources --looked "<name>: <what was searched and found>" --skipped "<name>: <why not needed>" --unreachable "<name>: <why>"\n  Then release again.`
+              : `shipyard-data lock release: a fact was left open and the person has not been asked about documents this session cannot reach (topic ${src.topic}).\n  Show them what the research looked at (shipyard-data discuss-questions status), ask once whether there is a PDF, a contract, a spec sheet or an email it could not see, read what they give, and record their answer:\n    shipyard-data discuss-questions sources --person-said "<their answer>"\n  Then release again.`,
+            json: { released: false, reason: src.missing === "registry" ? "project_sources_not_asked" : src.missing === "sources" ? "research_sources_not_recorded" : "person_not_asked_about_documents", topic: src.topic },
           };
           return;
         }

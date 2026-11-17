@@ -21,6 +21,9 @@ function fixture() {
   return { base, d };
 }
 const run = (d, ...args) => spawnSync("node", [CLI, "discuss-questions", ...args, "--data-dir", d], { encoding: "utf8" });
+const src = (d, ...args) => spawnSync("node", [CLI, "sources", ...args, "--data-dir", d], { encoding: "utf8" });
+/** The owner's answer on record: this project's knowledge is in its repository (no discussion owes a record). */
+const repoOnly = (d) => writeFileSync(join(d, "sources.json"), JSON.stringify({ decided_at: "2026-11-16T00:00:00Z", sources: [] }));
 const events = (d) => (existsSync(join(d, ".shipyard-events.jsonl")) ? readFileSync(join(d, ".shipyard-events.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
 const good = (question = "Should a tower bar be hidden while a hero stands in front of it?", extra = []) => [
   "add", "--summary", "A hero can stand in front of a tower. Today the tower's health bar is drawn over him. Two ways to fix it.",
@@ -182,7 +185,8 @@ test("topics do not leak into each other; a paused topic keeps its questions; re
     run(d, "start", "--topic", "b");
     assert.match(run(d, "next").stdout, /no question is waiting/, "topic b has nothing; a's question is not shown here");
     assert.deepEqual(waitingTopics(d), { current: "b", waiting: [{ topic: "a", ids: ["Q1"] }] });
-    const looked = (...topic) => { run(d, "sources", "--wiki", "not connected", "--tracker", "not connected", "--drive", "not connected", "--external", "not needed: a wording change", ...topic); return run(d, "sources", "--person-said", "nothing else", ...topic); };
+    src(d, "add", "Team wiki", "--holds", "meeting notes and decisions", "--path", "wiki/", "--answer", "the team wiki");
+    const looked = (...topic) => run(d, "sources", "--skipped", "Team wiki: a wording change, nothing was decided", ...topic);
     looked();
     assert.equal(run(d, "reset").status, 0);
     assert.equal(run(d, "reset", "--topic", "a").status, 3);
@@ -206,39 +210,65 @@ test("the approval gate reads only the topic bound to that story", () => {
     story("S040"); story("S041");
     run(d, "start", "--topic", "bars", "--story", "S040");
     run(d, ...good());
-    // The owner: "as part of discuss make sure research looks at datasources internal as well as the usual external"
-    // ("in this case google drive confluence jira thats local to user"). Where it looked is on record before approval.
-    assert.match(approvalProblems(d, "S040").join("\n"), /the research has not said where it looked[\s\S]*discuss-questions sources --wiki/);
-    assert.equal(run(d, "sources", "--wiki", "the kickoff meeting notes").status, 3, "every kind of source is stated");
+    // The owner (4.0.1): "as part of discuss make sure research looks at datasources internal as well as the usual
+    // external". The owner (after 4.0.3): "shipyard is forcing jira, confluence google drive search … [a project]
+    // has non of that, and another consumer may have totally differnt sources … sometimes its not necessary at
+    // all". So the sources are the project's, named by its owner, once; nothing is recorded before that.
+    const status = () => run(d, "status").stdout;
+    assert.match(approvalProblems(d, "S040").join("\n"), /this project has not said where its knowledge lives, besides the code[\s\S]*shipyard-data sources suggest/);
+    assert.equal(run(d, "sources", "--project", "doc/").status, 3, "nothing is recorded before the owner was asked");
+    assert.match(src(d, "suggest").stdout, /QUESTION \(the card, word for word\): Where does this project's knowledge live, besides the code\?\nCHOICES: 1\. Only the repository \(Recommended\)[\s\S]*Never ask them to sign in or connect anything/);
+    let no = src(d, "none");
+    assert.equal(no.status, 3); assert.match(no.stderr, /none records the owner's decision: add --answer/);
+    assert.equal(src(d, "none", "--answer", "only the repository").status, 0);
+    assert.doesNotMatch(approvalProblems(d, "S040").join("\n"), /where it looked|knowledge lives/, "a project that names no source owes no record");
+    assert.equal(src(d, "add", "Team wiki", "--holds", "meeting notes and decisions", "--tool", "confluence", "--answer", "the wiki, the sheets and the tracker").status, 0);
+    assert.equal(src(d, "add", "Price sheets", "--holds", "fees and limits per client", "--tool", "drive", "--always", "--answer", "always check the sheets").status, 0);
+    assert.equal(src(d, "add", "Tracker", "--holds", "the tickets this work comes from", "--tool", "jira", "--answer", "the wiki, the sheets and the tracker").status, 0);
+    assert.match(src(d, "list").stdout, /\| Price sheets \| fees and limits per client \| tools named like "drive" \| every time \|\n\| Tracker \| the tickets this work comes from \| tools named like "jira" \| when it could matter \|/);
+    assert.match(approvalProblems(d, "S040").join("\n"), /the research has not said where it looked\. For each source this project names[\s\S]*--looked "<name>: [\s\S]*--skipped "<name>: /);
+    assert.equal(run(d, "sources", "--wiki", "the kickoff meeting notes").status, 2, "the three fixed kinds are gone");
     assert.equal(run(d, "sources", "--person-said", "nothing else").status, 3, "the person is asked after the table exists");
-    assert.equal(run(d, "sources", "--internal", "everything").status, 2, "one line per kind, not one blanket claim");
+    let part = run(d, "sources", "--skipped", "Team wiki: a wording change, nothing was decided");
+    assert.equal(part.status, 3); assert.match(part.stderr, /Missing: Price sheets, Tracker\.\n  Price sheets \(looked at every time\): fees and limits per client\n  Tracker: the tickets this work comes from/);
+    part = run(d, "sources", "--looked", "Browser: every page");
+    assert.equal(part.status, 3); assert.match(part.stderr, /this project names no such source\. Its sources: Team wiki, Price sheets, Tracker\. A place the owner did not name is not searched for this project/);
+    const rest = ["--skipped", "Team wiki: a wording change, nothing was decided", "--skipped", "Tracker: no ticket exists for this change"];
     // Seen live: "looked at: memory: pricing sheets (Drive) …" with no drive, wiki or tracker tool called.
     // What was called is counted by the source-ledger hook; a claim with nothing behind it is refused.
-    let claim = run(d, "sources", "--wiki", "not connected", "--tracker", "not relevant: no ticket exists for this", "--drive", "the pricing sheets, from memory", "--external", "not needed");
-    assert.equal(claim.status, 3); assert.match(claim.stderr, /--drive says the shared-drive was searched, but no shared-drive tool was called in this discussion \(counted: wiki 0, tracker 0, shared drive 0; web 0\)[\s\S]*Notes from memory are not a search/);
-    assert.equal(run(d, "sources", "--wiki", "not connected", "--tracker", "not relevant:", "--drive", "not connected", "--external", "x y z").status, 3, "\"not relevant\" says why");
+    let claim = run(d, "sources", ...rest, "--looked", "Price sheets: the pricing sheets, from memory");
+    assert.equal(claim.status, 3); assert.match(claim.stderr, /--looked says Price sheets was searched, but no tool named like "drive" was called in this discussion \(counted: Team wiki 0, Price sheets 0, Tracker 0, web 0\)[\s\S]*Notes from memory are not a search/);
+    // "Always" is the owner's: judgement does not leave such a source out, their word does.
+    claim = run(d, "sources", ...rest, "--skipped", "Price sheets: no price in this story");
+    assert.equal(claim.status, 3); assert.match(claim.stderr, /Price sheets is looked at in every discussion \(the owner's rule for this project\)[\s\S]*--owner-said "<their words>"[\s\S]*--unreachable "Price sheets: <why>"/);
+    assert.equal(run(d, "sources", "--skipped", "Team wiki: no").status, 3, "\"not needed\" says why");
     const at = new Date().toISOString();
-    appendFileSync(join(d, ".shipyard-events.jsonl"), [["wiki", "confluence_get_page"], ["drive", "search_drive_files"], ["drive", "get_drive_file_content"], ["tracker", "jira_search"], ["web", "WebSearch"]].map(([source, tool]) => JSON.stringify({ ts: at, type: "source_read", source, tool, session: "s1" })).join("\n") + "\n");
-    let rs = run(d, "sources", "--wiki", "the kickoff meeting notes: scope and dates", "--tracker", "ABC-1120 and its children", "--drive", "two pricing sheets: fees, limits", "--external", "the payment provider's integration guide", "--by", "deepdive-bars");
+    appendFileSync(join(d, ".shipyard-events.jsonl"), [["wiki", "confluence_get_page", "atl__confluence_get_page"], ["drive", "search_drive_files", "google-workspace__search_drive_files"], ["drive", "get_drive_file_content", "google-workspace__get_drive_file_content"], ["tracker", "jira_search", "atl__jira_search"], ["web", "WebSearch", "WebSearch"], ["wiki", "get_page_text", "claude-in-chrome__get_page_text"]].map(([source, tool, name]) => JSON.stringify({ ts: at, type: "source_read", source, tool, name, session: "s1" })).join("\n") + "\n");
+    let rs = run(d, "sources", "--looked", "Team wiki: the kickoff meeting notes: scope and dates", "--looked", "Tracker: ABC-1120 and its children", "--looked", "Price sheets: two pricing sheets: fees, limits", "--external", "the payment provider's integration guide", "--by", "deepdive-bars");
     assert.equal(rs.status, 0, rs.stderr);
+    assert.match(rs.stdout, /\| Tool calls counted \| Team wiki 1, Price sheets 2, Tracker 1, web 1, connectors this project does not name 1 \|/, "a browser tool is not this project's wiki");
+    // The owner: "sometimes its not necessary at all". With nothing left open the person is not asked.
+    assert.doesNotMatch(rs.stdout, /Is there a document I could not reach/);
     run(d, "sources", "--project", "doc/: the checkout design note", "--by", "main");
-    assert.match(rs.stdout, /\| Tool calls counted \| wiki 1, tracker 1, shared drive 2; web 1 \|/);
-    assert.match(rs.stdout, /QUESTION \(the card, word for word\): Is there a document I could not reach\?/);
-    assert.match(run(d, "status").stdout, /LOOKED AT:\n +\| Where \| What was searched and found \|[\s\S]*\| Wiki \| the kickoff meeting notes: scope and dates \|[\s\S]*\| Shared drive \| two pricing sheets: fees, limits \|\n +\| The project's own documents \| doc\/: the checkout design note \|\n +\| Outside \| the payment provider's integration guide \|\n +\| Tool calls counted \| wiki 1, tracker 1, shared drive 2; web 1 \|/);
-    assert.doesNotMatch(approvalProblems(d, "S040").join("\n"), /where it looked/);
-    // The owner: "what if its a pdf or doc that even user session isnt aware of will shipyard request user ?"
-    assert.match(rs.stdout, /Still owed: show the person this table and ask whether a document exists that this session cannot reach/);
-    assert.match(approvalProblems(d, "S040").join("\n"), /the person has not been asked whether a document exists that this session cannot reach \(a PDF, a contract, a spec sheet, an email\)/);
-    assert.match(run(d, "status").stdout, /OTHER DOCUMENTS \(the person, when asked\): not asked yet/);
+    assert.match(status(), /LOOKED AT:\n +\| Where \| What was looked at \|[\s\S]*\| The project's own code and documents \| doc\/: the checkout design note \|\n +\| Team wiki \| searched: the kickoff meeting notes: scope and dates \|\n +\| Price sheets \| searched: two pricing sheets: fees, limits \|\n +\| Tracker \| searched: ABC-1120 and its children \|\n +\| Outside \| the payment provider's integration guide \|/);
+    assert.match(status(), /OTHER DOCUMENTS \(the person, when asked\): not asked: nothing was left open/);
+    assert.doesNotMatch(approvalProblems(d, "S040").join("\n"), /where it looked|document exists/);
+    // The owner (4.0.1): "what if its a pdf or doc that even user session isnt aware of will shipyard request user ?"
+    // Yes, when a fact is left open that such a document could settle.
+    rs = run(d, "sources", "--open", "the fee for a refund is in neither sheet");
+    assert.match(rs.stdout, /A fact is still open[\s\S]*OPEN: the fee for a refund is in neither sheet[\s\S]*QUESTION \(the card, word for word\): Is there a document I could not reach\?/);
+    assert.match(approvalProblems(d, "S040").join("\n"), /a fact was left open and the person has not been asked whether a document exists that this session cannot reach \(a PDF, a contract, a spec sheet, an email\)/);
+    assert.match(status(), /OTHER DOCUMENTS \(the person, when asked\): not asked yet/);
     assert.equal(run(d, "sources", "--person-said", "yes: ~/Downloads/payment provider guide.pdf, read it").status, 0);
-    // "not connected" is checked too: a kind of tool this project has called before is connected
+    // In another piece of work: the owner's word leaves an "always" source out this once, and a source that
+    // asks for a sign-in is out of reach, never a reason to make the person sign in.
     run(d, "start", "--topic", "later");
-    let nc = run(d, "sources", "--wiki", "not relevant: a wording change only", "--tracker", "searched ABC-1120: nothing new", "--drive", "not connected", "--external", "not needed");
-    assert.equal(nc.status, 3); assert.match(nc.stderr, /--drive says not connected, but this session has shared-drive tools \(for example get_drive_file_content\)/, "a kind of tool this project has called is connected");
-    nc = run(d, "sources", "--wiki", "not connected", "--tracker", "not connected", "--drive", "not connected", "--external", "not needed");
-    assert.equal(nc.status, 3); assert.match(nc.stderr, /--wiki says not connected, but this session has wiki tools \(for example confluence_get_page\)/);
+    let low = run(d, "sources", ...rest, "--skipped", "Price sheets: no price in this story", "--owner-said", "leave the sheets out this time");
+    assert.equal(low.status, 0, low.stderr); assert.match(low.stdout, /\| Price sheets \| not needed: no price in this story \|/);
+    low = run(d, "sources", "--unreachable", "Price sheets: the drive asks for a sign-in");
+    assert.equal(low.status, 0, low.stderr); assert.match(low.stdout, /\| Price sheets \| could not reach: the drive asks for a sign-in \|/);
     run(d, "start", "--topic", "bars");
-    assert.match(run(d, "status").stdout, /OTHER DOCUMENTS \(the person, when asked\): yes: ~\/Downloads\/payment provider guide\.pdf, read it/);
+    assert.match(status(), /OTHER DOCUMENTS \(the person, when asked\): yes: ~\/Downloads\/payment provider guide\.pdf, read it/);
     assert.doesNotMatch(approvalProblems(d, "S040").join("\n"), /document exists/);
     assert.match(approvalProblems(d, "S040").join("\n"), /1 question\(s\) of this discussion are not answered yet \(Q1\)/);
     assert.deepEqual(approvalProblems(d, "S041"), []);
@@ -256,12 +286,14 @@ test("the approval gate reads only the topic bound to that story", () => {
         process.env.CLAUDE_CODE_SESSION_ID = "s-other";
         assert.deepEqual(approvalProblems(d, "S041"), []);
         process.env.CLAUDE_CODE_SESSION_ID = "s-own";
-        assert.match(approvalProblems(d, "S041").join("\n"), /this discussion has not said where its research looked/);
+        assert.match(approvalProblems(d, "S041").join("\n"), /the research has not said where it looked/);
         const later = (o) => JSON.stringify({ ts: new Date(Date.now() + 5000).toISOString(), ...o }) + "\n";
-        writeFileSync(events, before + later({ type: "discuss_sources_recorded", topic: "refine-s040", person_asked: "no" }));
-        assert.match(approvalProblems(d, "S041").join("\n"), /the person has not been asked whether a document exists/);
-        writeFileSync(events, before + later({ type: "discuss_sources_recorded", topic: "refine-s040", person_asked: "yes" }));
+        writeFileSync(events, before + later({ type: "discuss_sources_recorded", topic: "refine-s040", owed: "person", person_asked: "no" }));
+        assert.match(approvalProblems(d, "S041").join("\n"), /a fact was left open and the person has not been asked whether a document exists/);
+        writeFileSync(events, before + later({ type: "discuss_sources_recorded", topic: "refine-s040", owed: "", person_asked: "no" }));
         assert.deepEqual(approvalProblems(d, "S041"), []);
+        writeFileSync(events, before + later({ type: "discuss_sources_recorded", topic: "refine-s040", person_asked: "yes" }));
+        assert.deepEqual(approvalProblems(d, "S041"), [], "a record made before the sources were the project's own is complete");
         writeFileSync(events, before + later({ type: "intake_lane_confirmed", lane: "hotfix" }));
         assert.deepEqual(approvalProblems(d, "S041"), []);
       } finally {
@@ -327,7 +359,7 @@ test("a card the list did not hand out is recorded as a question, shown, and its
     writeFileSync(join(d, ".active-discuss.json"), JSON.stringify({ skill: "ship-discuss", session_id: "s1", pid: process.pid, started: new Date().toISOString() }));
     writeFileSync(join(d, "spec", "stories", "S040-x.md"), `---\nid: S040\ntitle: "Story"\ntype: feature\nstatus: proposed\nrefined: true\nstory_points: 2\n---\n${BODY}`);
     run(d, "start", "--topic", "t", "--story", "S040");
-    run(d, "sources", "--wiki", "not connected", "--tracker", "not connected", "--drive", "not connected", "--external", "not needed: a wording change"); run(d, "sources", "--person-said", "nothing else");
+    repoOnly(d);
     const input = { tool_name: "AskUserQuestion", session_id: "s1", tool_input: { questions: [{ question: "Go with a release label and a story per slice?", header: "Confirm", options: [{ label: "Yes, go (Recommended)", description: "Spec three now" }, { label: "Change it", description: "You say what" }] }] } };
     const hook = spawnSync("node", [join(ROOT, "bin", "hook-runner.mjs"), "unattended-ask"], { input: JSON.stringify(input), encoding: "utf8", env: { ...process.env, SHIPYARD_DATA: d } });
     assert.equal(hook.status, 0, hook.stderr);
@@ -425,15 +457,21 @@ test("pickNext: a shown and unanswered question first; drafts are named when not
   assert.equal(pickNext(t([], { research: { state: "running" } })).reason, "research_running");
 });
 
-test("the question list cannot be closed before the research says where it looked and the person is asked", () => {
+test("the question list cannot be closed before the research says where it looked, for a project that names sources", () => {
   const { base, d } = fixture();
   try {
     run(d, "start", "--topic", "t");
+    assert.equal(run(d, "reset").status, 0, "the one-time question about the project's sources is asked at approval or at the end, not when a list closes");
+    repoOnly(d);
+    run(d, "start", "--topic", "t");
+    assert.equal(run(d, "reset").status, 0, "a project that names no source owes no record");
+    src(d, "add", "Design notes", "--holds", "what was decided and why", "--path", "doc/", "--answer", "the design notes folder");
+    run(d, "start", "--topic", "t");
     let r = run(d, "reset");
     assert.equal(r.status, 3); assert.match(r.stderr, /cannot be closed yet: the research has not said where it looked/);
-    run(d, "sources", "--wiki", "not connected", "--tracker", "not connected", "--drive", "not connected", "--project", "doc/ folder", "--external", "not needed: a wording change");
+    run(d, "sources", "--looked", "Design notes: doc/checkout.md, the fee table", "--open", "the fee for a refund is not written down");
     r = run(d, "reset");
-    assert.equal(r.status, 3); assert.match(r.stderr, /the person has not been asked whether a document exists that this session cannot reach/);
+    assert.equal(r.status, 3); assert.match(r.stderr, /a fact was left open and the person has not been asked whether a document exists that this session cannot reach/);
     run(d, "sources", "--person-said", "nothing else");
     assert.equal(run(d, "reset").status, 0);
   } finally { rmSync(base, { recursive: true, force: true }); }
@@ -459,32 +497,41 @@ test("the source ledger counts connector and web calls while this session holds 
     hook("mcp__google-workspace__search_drive_files"); hook("mcp__x__jira_search"); hook("mcp__easel__chart"); hook("mcp__x__confluence_get_page", "another-session");
     const ev = events(d).filter((e) => e.type === "source_read");
     assert.deepEqual(ev.map((e) => `${e.source}:${e.tool}`), ["drive:search_drive_files", "tracker:jira_search", "wiki:confluence_get_page"], "a helper under its own session id counts: its searches are the discussion's");
+    assert.equal(ev[0].name, "google-workspace__search_drive_files", "the full name, so a call is matched to a source the project names");
     assert.doesNotMatch(JSON.stringify(ev), /secret/);
+    // A tool of no known kind is counted once the project names a source it belongs to (any consumer's own place).
+    src(d, "add", "Charts", "--holds", "the weekly numbers", "--tool", "easel", "--answer", "the charts too");
+    hook("mcp__easel__chart"); hook("mcp__other__thing");
+    assert.deepEqual(events(d).filter((e) => e.type === "source_read").slice(3).map((e) => `${e.source}:${e.name}`), ["other:easel__chart"]);
     const hooks = JSON.parse(readFileSync(join(ROOT, "hooks", "hooks.json"), "utf8"));
     assert.ok(hooks.hooks.PostToolUse.some((h) => h.matcher === "mcp__.*|WebSearch|WebFetch" && /source-ledger$/.test(h.hooks[0].command)));
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
 
-// Live runs: "shared drive: not connected" from a session with 39 drive tools. The hooks read the session's
-// connector tools from its transcript once and log which kinds of source it can search.
-test("which sources a session can search is recorded from its transcript, and a connected one takes only a real search", async () => {
+// Live (4.0.1): "shared drive: not connected" from a session with 39 drive tools, so the kinds of source a
+// session had tools for decided what it had to search. Live (after 4.0.3): on a project with no such sources a
+// browser tool counted as a wiki and a document tool as a shared drive, a bug whose cause was in the code could
+// not be approved, and the owner's "this project has no other sources" was refused. What a session can reach is
+// now only a hint for the one-time question; what the project names decides.
+test("the connectors a session has are a hint for the one-time question, never what a discussion must search", async () => {
   const { noteAvailable } = await import("../bin/hooks/source-ledger.mjs");
   const { base, d } = fixture();
   try {
     const t = join(base, "t.jsonl");
-    writeFileSync(t, JSON.stringify({ type: "attachment", attachment: { type: "deferred_tools_delta", addedNames: ["mcp__google-workspace__create_drive_file", "mcp__google-workspace__search_drive_files", "mcp__plugin_x_atl__confluence_search", "mcp__plugin_x_atl__jira_add_comment", "mcp__easel__chart"] } }) + "\n");
+    writeFileSync(t, JSON.stringify({ type: "attachment", attachment: { type: "deferred_tools_delta", addedNames: ["mcp__google-workspace__create_drive_file", "mcp__google-workspace__search_drive_files", "mcp__plugin_x_atl__confluence_search", "mcp__claude-in-chrome__get_page_text", "mcp__plugin_y_writer__add_comment", "mcp__easel__chart"] } }) + "\n");
     const input = { session_id: "s1", transcript_path: t };
     assert.equal(noteAvailable(d, input), null, "no discussion: nothing is recorded");
     writeFileSync(join(d, ".active-discuss.json"), JSON.stringify({ skill: "ship-discuss", session_id: "s1", cleared: null, started: new Date().toISOString() }));
-    assert.deepEqual(noteAvailable(d, input), { wiki: "confluence_search", tracker: "", drive: "search_drive_files" }, "a write tool alone (jira_add_comment) does not make the tracker searchable");
+    assert.deepEqual(noteAvailable(d, input), ["claude-in-chrome", "google-workspace", "x_atl"], "servers with a tool that reads; a write tool alone (add_comment) is not a place to search");
     assert.equal(noteAvailable(d, input), null, "once per session");
-    run(d, "start", "--topic", "t");
-    let r = run(d, "sources", "--wiki", "not relevant: only vendor manuals there", "--tracker", "not connected", "--drive", "not connected", "--external", "not needed");
-    assert.equal(r.status, 3); assert.match(r.stderr, /--wiki says not relevant, but the wiki is connected \(for example confluence_search\) and was not searched/);
-    r = run(d, "sources", "--wiki", "not connected", "--tracker", "not connected", "--drive", "not connected", "--external", "not needed");
-    assert.equal(r.status, 3); assert.match(r.stderr, /--wiki says not connected, but this session has wiki tools \(for example confluence_search\)/);
-    appendFileSync(join(d, ".shipyard-events.jsonl"), [["wiki", "confluence_search"], ["drive", "search_drive_files"]].map(([source, tool]) => JSON.stringify({ ts: new Date().toISOString(), type: "source_read", source, tool, session: "s1" })).join("\n") + "\n");
-    r = run(d, "sources", "--wiki", "searched \"gift card\": only vendor manuals, nothing on balances", "--tracker", "not connected", "--drive", "searched \"refund\": two datasheets, read both", "--external", "not needed");
-    assert.equal(r.status, 0, r.stderr);
+    assert.match(src(d, "suggest").stdout, /Other places this session could reach, if they belong to this project: claude-in-chrome, google-workspace, x_atl/);
+    // the owner's answer: none of them
+    assert.equal(src(d, "none", "--answer", "this project has no data sources other than its repository").status, 0);
+    writeFileSync(join(d, "spec", "stories", "S090-x.md"), `---\nid: S090\ntitle: "A total is rounded wrong"\ntype: bug\nstatus: proposed\nrefined: true\nstory_points: 2\n---\n${BODY}`);
+    run(d, "start", "--topic", "t", "--story", "S090");
+    assert.deepEqual(approvalProblems(d, "S090"), [], "a defect whose cause is in the code is approved with no search of anything");
+    const r = run(d, "sources", "--looked", "Wiki: searched for the project's name");
+    assert.equal(r.status, 3); assert.match(r.stderr, /this project names no such source\. It names none: its knowledge is in the repository, and nothing is owed about other places/);
+    assert.equal(JSON.parse(readFileSync(join(d, ".shipyard-events.jsonl"), "utf8").trim().split("\n").find((l) => l.includes('"project_sources_set"'))).answer, "this project has no data sources other than its repository");
   } finally { rmSync(base, { recursive: true, force: true }); }
 });

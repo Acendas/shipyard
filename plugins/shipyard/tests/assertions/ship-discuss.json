@@ -2414,45 +2414,93 @@
   "why": "4.0.1 (owner: 'ideas and intents are the same thing… once refined they become epics'; 'jira link and sync is for all tickets types'; 'should have let me know to create the tickets in jira or ask to assist create. and then once discuss is done. ask to sync')"
  },
  {
-  "name": "research_organisation_sources_before_web",
+  "name": "research_project_sources_when_needed",
   "type": "contains",
   "target": "ref:phase-1-research.md",
-  "pattern": "The organisation's own sources, before the web\\.",
-  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+  "pattern": "The project's own sources, when the work needs them\\.",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
  },
  {
-  "name": "research_sources_table_names_wiki_tracker_drive",
+  "name": "research_sources_follow_the_projects_list",
   "type": "contains",
   "target": "ref:phase-1-research.md",
-  "pattern": "Wiki / knowledge base[\\s\\S]*Tracker \\(Jira[\\s\\S]*Shared drive \\(Google Drive",
-  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+  "pattern": "`SHIPYARD_SOURCES` says[\\s\\S]*`not set`[\\s\\S]*`none besides the repository`[\\s\\S]*a list \\(name: what it holds\\)",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
  },
  {
   "name": "research_records_where_it_looked",
   "type": "contains",
   "target": "ref:phase-1-research.md",
-  "pattern": "shipyard-data discuss-questions sources --wiki",
-  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+  "pattern": "shipyard-data discuss-questions sources \\\\\\n\\s+--looked \"<name>: [\\s\\S]*--skipped \"<name>: [\\s\\S]*--unreachable \"<name>: ",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
  },
  {
   "name": "research_asks_about_unreachable_documents",
   "type": "contains",
   "target": "ref:phase-1-research.md",
   "pattern": "is there a document I could not reach\\?",
-  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?'); after 4.0.3: asked only when a fact was left open"
  },
  {
-  "name": "researcher_brief_looks_inside_first",
+  "name": "research_never_searches_unnamed_places",
+  "type": "contains",
+  "target": "ref:phase-1-research.md",
+  "pattern": "\\*\\*Never\\*\\* search a place the project did not name because this session happens to have a tool for it",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
+ },
+ {
+  "name": "research_never_asks_for_a_sign_in",
+  "type": "contains",
+  "target": "ref:phase-1-research.md",
+  "pattern": "\\*\\*Never\\*\\* ask the person to sign in, connect or install anything so that a source can be searched",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
+ },
+ {
+  "name": "research_judges_by_need",
+  "type": "contains",
+  "target": "ref:phase-1-research.md",
+  "pattern": "Judge by need\\. A defect whose cause is in the code needs no ticket search",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
+ },
+ {
+  "name": "research_document_question_only_when_a_fact_is_open",
+  "type": "contains",
+  "target": "ref:phase-1-research.md",
+  "pattern": "With nothing left open the person is not asked\\.",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
+ },
+ {
+  "name": "research_always_source_lowered_only_by_owner",
+  "type": "contains",
+  "target": "ref:phase-1-research.md",
+  "pattern": "A source marked `always looked at` is skipped only when the owner says so this time \\(`--owner-said",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
+ },
+ {
+  "name": "skill_rule_sources_asked_once",
+  "type": "contains",
+  "pattern": "When the owner was never asked, they are asked once \\(`shipyard-data sources suggest`\\)",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
+ },
+ {
+  "name": "approval_summary_looked_at_follows_named_sources",
+  "type": "contains",
+  "target": "ref:phase-finalize.md",
+  "pattern": "one line when the project names no sources[\\s\\S]*They may answer \"look there too\"",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
+ },
+ {
+  "name": "researcher_brief_looks_where_the_project_says",
   "type": "contains",
   "target": "ref:async-questions.md",
-  "pattern": "Look inside the organisation before the web",
-  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+  "pattern": "Look where this project says its knowledge lives, when this piece of work needs it",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
  },
  {
-  "name": "skill_rule_research_inside_then_outside",
+  "name": "skill_rule_research_follows_project_sources",
   "type": "contains",
-  "pattern": "Research looks inside the organisation first, then outside, and asks about what it cannot see\\.",
-  "why": "4.0.1 (owner: 'as part of discuss make sure research looks at datasources internal as well as the usual external'; 'google drive confluence jira thats local to user'; 'what if its a pdf or doc that even user session isnt aware of will shipyard request user ?')"
+  "pattern": "Research looks where the project says its knowledge lives, and only when the work needs it\\.",
+  "why": "after 4.0.3 (owner: 'shipyard is forcing jira, confluence google drive search … [one project] has non of that, and another consumer may have totally differnt sources. some issues/features may require additional supporting data sources … but sometimes its not necessary at all'; agreed: sources named per project, looked at by need, the owner's word wins, no sign-in to pass a check)"
  },
  {
   "name": "approval_summary_shows_what_research_looked_at",
@@ -2465,7 +2513,7 @@
   "name": "research_claims_checked_against_counted_calls",
   "type": "contains",
   "target": "ref:phase-1-research.md",
-  "pattern": "a line that claims a search with no call of that kind counted is refused",
+  "pattern": "a line that claims a search with no call behind it is refused",
   "why": "4.0.1 live run: a discussion recorded 'looked at: memory: … (Drive)' with no drive, wiki or tracker tool called"
  },
  {

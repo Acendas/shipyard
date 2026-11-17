@@ -11,6 +11,17 @@ For what changes when you upgrade from 3.26.0, read [UPGRADING.md](../UPGRADING.
 - `shipyard-data sprint needs-you` prints the phrase the build puts on its progress line: `you: needed now · …` or `you: not needed until the review (3 checks)`.
 - A step waiting for you at the review no longer counts as a parked step. The review lists the waiting checks grouped by where they are done, so one sitting covers them.
 
+## After 4.0.3 (not released yet)
+
+- **Sources are the project's own, and looking is by need.** A discussion had to record a search of three fixed kinds of place (a wiki, a tracker, a shared drive) before any story could be approved. Which of them "this project has" was read from the connectors the person's Claude install happened to carry, guessed from tool names. On a project with none of them, a browser tool counted as a wiki and a document tool as a shared drive: a defect whose cause was already found in the code could not be approved until an unrelated tracker and wiki had been searched for the project's name, a sign-in page for a drive had been opened, and the owner's own answer ("this project has no other sources") had been refused. Now:
+  - `shipyard-data sources` is the project's list, in the owner's words: `add "<name>" --holds "<what it holds>" [--tool <word in its tools' names> | --path <folder> | --url <address>] [--always] --answer "<their words>"`, `remove`, `always <name> on|off`, `none`, `list`. Any place, reached any way. A place the project did not name is not searched for it, whatever connectors the session has.
+  - The owner is asked once per project (`sources suggest` prints the question, with what the project's ticket links point to as the only suggestion). Until then nothing is searched.
+  - A project that names no source owes no record. One that names some owes one line per source: `discuss-questions sources --looked "<name>: …" | --skipped "<name>: <why this work does not need it>" | --unreachable "<name>: <why>"`. Which of the three is the discussion's judgement, from what each source holds, and the person sees it before approving and can say "look there too". A claimed search is still checked against the calls counted.
+  - A source marked `always` is left out only on the owner's word (`--owner-said`).
+  - A source that needs a sign-in is recorded as out of reach. Nobody is asked to sign in or connect anything to pass a check.
+  - "Is there a document I could not reach?" is asked only when the research left a fact open (`--open "<the fact>"`).
+  - The discussion's context carries the list (`SHIPYARD_SOURCES`). The old flags `--wiki`, `--tracker`, `--drive` are gone; a record made with them counts as complete.
+
 ## 4.0.3 (released 2026-11-16)
 
 Found on the day 4.0.2 was installed, by reading the sessions of two real projects. In the first: tickets taken in, refined, split into more tickets, sent to the tracker, then planned into a sprint. In the second: a long sprint that paused once to ask its owner two questions.
