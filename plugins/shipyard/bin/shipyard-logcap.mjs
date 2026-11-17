@@ -34,7 +34,11 @@
  * Usage:
  *   shipyard-logcap run <name> [--max-size S] [--max-files N]
  *     [--filter <regex>] [--duration <duration>] [--exit-file <path>] [--reuse]
- *     [--keep N] -- <command...>
+ *     [--gate] [--wait <duration>] [--keep N] -- <command...>
+ *
+ * A run of the project's build or test tool waits at the build gate first
+ * (build-gate.mjs). Exit 75 = QUEUED, not run: run the same command again.
+ * Exit 69 from a configured runner = it could not run the command.
  *   shipyard-logcap run <name> [options] --cmd-file <path>
  *   shipyard-logcap view <name|latest> [--filter <regex>] [--since TS]
  *     [--until TS] [--max N] [--tail] [--count]
@@ -530,8 +534,75 @@ async function recordProof(cmdArgs, logPath) {
   } catch { /* best effort */ }
 }
 
+/**
+ * Take a place at the build gate, or leave with QUEUED (exit 75) when the wait
+ * ran out. Returns null for a command the gate does not hold: anything that is
+ * not the project's build or test tool, a stream cut by --duration, a project
+ * with no data folder. Any failure of the gate itself means "run": a broken
+ * gate must never stop a build.
+ */
+async function enterBuildGate(opts, cmdArgs) {
+  if (opts.durationMs !== null) return null;
+  let dataDir, g;
+  try {
+    dataDir = getDataDir({ silent: true });
+    if (!dataDir || !existsSync(dataDir)) return null;
+    g = await import("./build-gate.mjs");
+  } catch { return null; }
+  let cfg, lane, first = false, entered;
+  try {
+    cfg = g.readGateConfig(dataDir);
+    if (!cfg.enabled) return null;
+    const sigs = g.heavySignatures(cfg.commands);
+    if (!opts.gate && !g.isHeavyArgv(cmdArgs, sigs)) return null;
+    lane = g.chooseLane(dataDir, cfg, cmdArgs, sigs);
+    // A run from the project's own checkout is the wave boundary's: the whole wave waits on it.
+    try { first = (await import("./verify-ledger.mjs")).inLedgerCheckout(dataDir); } catch { first = false; }
+    const waitMs = opts.waitMs ?? (Number(process.env.SHIPYARD_GATE_WAIT_MS) > 0 ? Number(process.env.SHIPYARD_GATE_WAIT_MS) : undefined);
+    const pollMs = Number(process.env.SHIPYARD_GATE_POLL_MS) > 0 ? Number(process.env.SHIPYARD_GATE_POLL_MS) : undefined;
+    entered = await g.enter(dataDir, {
+      key: `${process.cwd()}\u0000${cmdArgs.join(" ")}`,
+      name: opts.name, lane, first, cfg, waitMs, pollMs,
+      onWait: (v) => process.stderr.write(`logcap: waiting for room to build (place ${v.place} of ${v.of}): ${v.why}\n`),
+    });
+  } catch (err) {
+    writeBreadcrumb("gate_failed", { name: opts.name, error: String(err?.message ?? err) });
+    return null;
+  }
+  if (!entered.granted) {
+    writeBreadcrumb("run_queued", { name: opts.name, place: entered.place });
+    // A waiter polling for the exit file must not wait for a run that never started.
+    if (opts.exitFile) {
+      try { mkdirSync(dirname(opts.exitFile), { recursive: true }); writeFileSync(opts.exitFile, `${g.QUEUED_EXIT}\n`); } catch { /* best effort */ }
+    }
+    process.stdout.write(
+      entered.turn
+        ? `logcap: YOUR TURN, not run yet: a place is held for this command for 90 seconds. This is not a failure. Run the same command again now.\n`
+        : `logcap: QUEUED, not run (place ${entered.place} of ${entered.of}): ${entered.why}. ` +
+          `This is not a failure. Run the same command again to keep your place; it is held for 6 minutes.\n`,
+    );
+    process.exit(g.QUEUED_EXIT);
+  }
+  let meter = null;
+  try { if (lane === "local" && entered.solo) meter = await g.startMeter(); } catch { meter = null; }
+  let left = false;
+  return {
+    lane,
+    argv: lane === "runner" ? g.runnerArgv(cfg, cmdArgs) : null,
+    runnerDown(exitCode) {
+      if (lane !== "runner" || exitCode !== g.RUNNER_UNAVAILABLE_EXIT) return false;
+      try { g.markRunnerDown(dataDir); } catch { /* best effort */ }
+      return true;
+    },
+    leave(exitCode, seconds) {
+      if (left) return;
+      left = true;
+      try { g.leave(dataDir, entered.id, { seconds, sample: meter?.stop() ?? null, killed: exitCode === 137, name: opts.name }); } catch { /* the place is freed when this process ends */ }
+    },
+  };
+}
+
 async function cmdRun(args) {
-  const startedAt = Date.now();
   // Two ways to pass the wrapped command:
   //
   //   1. Trailing `-- <argv...>` (the classic form — use this on POSIX or
@@ -635,6 +706,12 @@ async function cmdRun(args) {
     const reused = await reuseEarlierProof(opts, cmdArgs, logPath);
     if (reused) process.exit(0);
   }
+
+  // The build gate: a build or test run of the project's tool waits here for
+  // room on the machine (or on the project's runner). See build-gate.mjs.
+  const gate = await enterBuildGate(opts, cmdArgs);
+  const spawnArgs = gate?.argv ?? cmdArgs;
+  const runStartedAt = Date.now();
 
   // Startup banner → stderr so it doesn't pollute the child's stdout.
   process.stderr.write(
@@ -821,7 +898,7 @@ async function cmdRun(args) {
 
   // Spawn child. stdin is inherited so interactive programs still work;
   // stdout/stderr are piped so we can tee them.
-  const child = spawn(cmdArgs[0], cmdArgs.slice(1), {
+  const child = spawn(spawnArgs[0], spawnArgs.slice(1), {
     stdio: ["inherit", "pipe", "pipe"],
   });
   let durationTimer = null;
@@ -841,10 +918,11 @@ async function cmdRun(args) {
       command: cmdArgs[0],
       error: err.message,
     });
-    process.stderr.write(`logcap: failed to spawn "${cmdArgs[0]}": ${err.message}\n`);
+    process.stderr.write(`logcap: failed to spawn "${spawnArgs[0]}": ${err.message}\n`);
     try {
       if (fd !== -1) closeSync(fd);
     } catch {}
+    gate?.leave(127, 0);
     process.exit(127);
   });
 
@@ -908,13 +986,21 @@ async function cmdRun(args) {
     }
   }
 
+  const runSeconds = Math.round((Date.now() - runStartedAt) / 1000);
+  gate?.leave(exitCode, runSeconds);
   writeBreadcrumb("run_end", {
     name: opts.name,
     exit: exitCode,
     bytes: written,
-    seconds: Math.round((Date.now() - startedAt) / 1000),
+    seconds: runSeconds,
   });
-  await recordRun(opts.name, exitCode, startedAt, cmdArgs);
+  // The runner could not run the command at all: that is not a result of the
+  // command, so it is neither a recorded run nor a proof.
+  if (gate?.runnerDown(exitCode)) {
+    process.stdout.write("logcap: RUNNER UNAVAILABLE, not a test result: the project's runner could not run this command. Run the same command again; it will run on this machine.\n");
+    process.exit(exitCode);
+  }
+  await recordRun(opts.name, exitCode, runStartedAt, cmdArgs);
   // A run cut short by --duration proved nothing, whatever it exits with.
   if (exitCode === 0 && !durationElapsed) await recordProof(cmdArgs, logPath);
 
@@ -939,6 +1025,8 @@ function parseRunOptions(args) {
   let exitFile = null;
   let keep = null;
   let reuse = false;
+  let gate = false;
+  let waitMs = null;
 
   // Env-var overrides come between defaults and CLI flags.
   if (process.env.SHIPYARD_LOGCAP_MAX_SIZE) {
@@ -968,6 +1056,10 @@ function parseRunOptions(args) {
       filter = new RegExp(pattern);
     } else if (arg === "--reuse") {
       reuse = true;
+    } else if (arg === "--gate") {
+      gate = true;
+    } else if (arg === "--wait") {
+      waitMs = parseDuration(args[++i]);
     } else if (arg === "--duration") {
       durationMs = parseDuration(args[++i]);
     } else if (arg === "--exit-file") {
@@ -990,7 +1082,7 @@ function parseRunOptions(args) {
     );
   }
 
-  return { name, maxSize, maxFiles, filter, durationMs, exitFile, keep, reuse };
+  return { name, maxSize, maxFiles, filter, durationMs, exitFile, keep, reuse, gate, waitMs };
 }
 
 // ─── Subcommand: tail ───────────────────────────────────────────────────────
@@ -1493,6 +1585,9 @@ function printHelp() {
       `Usage:\n` +
       `  shipyard-logcap run <name> [--max-size S] [--max-files N]\n` +
       `       [--filter <regex>] [--duration <duration>] [--exit-file <path>] [--reuse]\n` +
+      `       [--gate] [--wait <duration>]   (the project's build/test tool waits at the build gate by itself,\n` +
+      `                   100 s unless --wait says longer: set it under your call's own time limit;\n` +
+      `                   exit 75 = QUEUED, not run: run the same command again)\n` +
       `       [--keep N] -- <command...>\n` +
       `  shipyard-logcap run <name> [options] --cmd-file <path>\n` +
       `       (--cmd-file reads newline-delimited argv tokens from a file — use this\n` +

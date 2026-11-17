@@ -49,7 +49,7 @@ try {
 
 // A hook on every shell command costs nothing when it has nothing to say: the data
 // folder is not even looked up unless the call is one it can refuse.
-if (scriptName === "builder-foreground" && !/"run_in_background"\s*:\s*true/.test(stdin)) process.exit(0);
+if (scriptName === "builder-foreground" && !/shipyard-disciplined-builder/.test(stdin)) process.exit(0);
 
 // Compute SHIPYARD_DATA in-process and pass it to the hook via env.
 // In-process import is free relative to a process spawn — the resolver's

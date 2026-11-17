@@ -179,6 +179,28 @@ test("a builder's background command is refused; everyone else's is not this hoo
   });
 });
 
+// After 4.0.4, on a real sprint: five builders each ran the build tool directly, at once. A builder's
+// build goes through `shipyard-logcap run`, where the build gate decides when there is room.
+test("a builder's build outside the gate is refused; through the gate, or by anyone else, it is not", () => {
+  withTempProject(({ projectDir, pluginData }) => {
+    writeFileSync(join(pluginData, "config.md"), '---\ntest_commands:\n  unit: "./gradlew test"\n---\n');
+    const env = { CLAUDE_PROJECT_DIR: projectDir, CLAUDE_PLUGIN_DATA: pluginData, SHIPYARD_DATA: pluginData };
+    const bash = (command, extra = { agent_id: "a1", agent_type: "shipyard:shipyard-disciplined-builder" }) => runHook("builder-foreground", { tool_name: "Bash", cwd: projectDir, tool_input: { command }, ...extra }, env);
+    const denied = bash("cd mod && ./gradlew --offline :a:testStagingUnitTest --tests '*X*' | tail -20");
+    const out = JSON.parse(denied.stdout).hookSpecificOutput;
+    assert.equal(out.permissionDecision, "deny");
+    assert.match(out.permissionDecisionReason, /through the build gate\. Run it as `shipyard-logcap run <name> --wait 8m -- \.\/gradlew --offline :a:testStagingUnitTest --tests '\*X\*'` \(one plain command, nothing chained after it\) with a timeout of 600000 ms/);
+    assert.match(out.permissionDecisionReason, /exit 75 means QUEUED, not run: run the same command again/);
+    assert.match(readFileSync(join(pluginData, ".shipyard-events.jsonl"), "utf8"), /"builder_ungated_build_refused"/);
+    assert.equal(bash("shipyard-logcap run P1-probe -- ./gradlew :a:test ; echo EXIT=$?").stdout, "");
+    assert.equal(bash("git status && grep -rn gradlew .").stdout, "");
+    assert.equal(bash("./gradlew test", {}).stdout, "", "the main session is not a builder");
+    assert.equal(bash("./gradlew test", { agent_id: "x", agent_type: "shipyard:shipyard-operational-task" }).stdout, "");
+    writeFileSync(join(pluginData, "config.md"), '---\ntest_commands:\n  unit: "./gradlew test"\nexecution:\n  build_gate: false\n---\n');
+    assert.equal(bash("./gradlew test").stdout, "", "the owner turned the gate off");
+  });
+});
+
 test("hook-runner: dispatches auto-approve-data and stays silent for non-guarded tool", () => {
   withTempProject(({ projectDir, pluginData }) => {
     const result = runHook(

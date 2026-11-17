@@ -723,7 +723,7 @@ export function isTaskLiveInEvents(events, task, now = Date.now(), windowMs = LI
     if (!ev || ev.task !== task.id) continue;
     const ts = Date.parse(ev.ts);
     if (!Number.isFinite(ts) || ts < floor) continue;
-    if (ev.type === "task_loop_iteration" && now - ts <= windowMs) return true;
+    if ((ev.type === "task_loop_iteration" || ev.type === "build_gate_waiting") && now - ts <= windowMs) return true;
   }
   return false;
 }
@@ -765,6 +765,8 @@ export function readQueueSnapshot(dataDir) {
 }
 
 const MAX_DEADLINE_MS = 120 * 60_000;
+/** A worker that keeps asking the build gate for a place is alive; this is how long a claim may live on waiting alone. */
+const MAX_WAITING_MS = 8 * 60 * 60_000;
 
 /**
  * Heartbeat renewal: the newest task_loop_iteration since claim pushes the
@@ -786,14 +788,21 @@ export function extendedDeadlineMs(dataDir, task, events) {
     events = parseEventLines(raw, task.id);
   }
   let latest = -Infinity;
+  let waiting = -Infinity;
   for (const ev of events) {
-    if (!ev || ev.task !== task.id || ev.type !== "task_loop_iteration") continue;
+    if (!ev || ev.task !== task.id) continue;
     const ts = Date.parse(ev.ts);
-    if (Number.isFinite(ts) && ts >= floor && ts > latest) latest = ts;
+    if (!Number.isFinite(ts) || ts < floor) continue;
+    if (ev.type === "task_loop_iteration") { if (ts > latest) latest = ts; }
+    // Waiting at the build gate is not work, and it is not a hang either: the
+    // worker asked a moment ago. Time in line does not use up the claim.
+    else if (ev.type === "build_gate_waiting" && ts > waiting) waiting = ts;
   }
-  if (!Number.isFinite(latest)) return current;
   const cap = claimedMs + Math.min(3 * ttlMs, MAX_DEADLINE_MS);
-  return Math.max(current, Math.min(latest + ttlMs, cap));
+  let next = current;
+  if (Number.isFinite(latest)) next = Math.max(next, Math.min(latest + ttlMs, cap));
+  if (Number.isFinite(waiting)) next = Math.max(next, Math.min(waiting + ttlMs, claimedMs + MAX_WAITING_MS));
+  return next;
 }
 
 function requeueStale(dataDir, args) {

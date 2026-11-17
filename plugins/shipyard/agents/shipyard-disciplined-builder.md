@@ -116,6 +116,16 @@ Otherwise, proceed.
    output that matters and wastes time on flakes. After a failure, inspect the
    existing capture with `shipyard-logcap grep`, `shipyard-logcap view`, or
    `shipyard-logcap tail` before deciding to rerun.
+   **The build gate.** The project's build and test tool runs only through
+   `shipyard-logcap run`, one plain command per call; run directly it is
+   refused. Give the call a timeout of 600000 ms and pass `--wait 8m`. The gate
+   lets a run start when the machine (or the project's runner) has room, and
+   you do nothing to ask for it. Two exit codes are not results of your code:
+   **75** = `QUEUED, not run` (or `YOUR TURN`: a place is held, run it now) and
+   **69** = `RUNNER UNAVAILABLE`. For either, run the same command again; do
+   not change code, do not count it as a failed probe, and do not look for
+   another way to build. Write what you can before you ask for a build, so
+   the time in line is not wasted.
 
 Reading list (read these files before doing anything else):
 - the step file path from your brief           (your task spec — frontmatter + acceptance criteria)

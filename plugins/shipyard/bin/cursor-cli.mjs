@@ -74,6 +74,7 @@ import { checkReviewDocument } from "./review-pack.mjs";
 import { detectPresumedDeadForDataDir } from "./presumed-dead.mjs";
 import { evaluateSessionBudget } from "./session-budget.mjs";
 import { reconcileSessionClock } from "./session-clock.mjs";
+import { readyOwed, readySettled } from "./build-gate.mjs";
 
 const CURSOR_FILE = {
   "ship-execute": "EXECUTE-CURSOR.md",
@@ -704,6 +705,24 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
         "Fix the gap (re-run the relevant skill stage so the events are emitted) and retry, or escalate via `shipyard-data cursor escalate`.",
       ],
     );
+  }
+
+  // The ready check (after 4.0.4): the first builders are not dispatched until
+  // the project's build has been shown to start. On a real sprint readiness
+  // said "all gates pass" while the build could not even configure (an expired
+  // token); five builders found that out one by one, six minutes in.
+  if (pipeline === "ship-execute" && prior && !terminal && normalizeStage(pipeline, from)?.key === "readiness" && normalizeStage(pipeline, stage)?.key === "wave_dispatch") {
+    let owed = false, settled = true;
+    try {
+      owed = readyOwed(dataDir);
+      if (owed) settled = readySettled(readEvents(dataDir, 5000), sprintIdOf(cursorFields, prior));
+    } catch { owed = false; }
+    if (owed && !settled) {
+      gateFail("cursor advance refused — the build has not been shown to start", [
+        "Run `shipyard-data build-gate check`. It runs the project's quick build command once, through the build gate, and records the result.",
+        "When it fails, the cause is the person's to fix (an expired login, a missing tool): show them the output and ask once. Their answer to start anyway is recorded with `shipyard-data build-gate check --accept \"<answer>\"`.",
+      ]);
+    }
   }
 
   // IDEA-009: leaving wave_N_boundary is refused while the latest integration
