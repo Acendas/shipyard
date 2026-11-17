@@ -198,7 +198,7 @@ function globMatch(base, pattern) {
 const VIEW_REGISTRY = {
   config: {
     path: ["config.md"],
-    lines: 130,
+    lines: 140,
     fallback: "Project configuration missing — run shipyard-data onboarding bootstrap",
   },
   codebase: {

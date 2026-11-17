@@ -22,6 +22,7 @@ From one sprint on a 16 GB, 10-core machine, the day after 4.0.4.
   - The wave boundary's runs go to the front. Time in line keeps a builder's claim alive.
   - The builder hook refuses the build tool outside `shipyard-logcap run`.
 - **A project's own runner.** `execution.runner_command` is a script that runs a build somewhere else: `--capacity` says how many at once, exit 69 says it could not run the command. Only a direct call of the build tool goes there.
+- **The config view reads ten lines more** (140), so the new settings in the template do not push the `agent_effort` block out of what every command reads.
 - **The ready check.** Readiness had said that every gate passed while the build could not even configure (an expired token). `shipyard-data build-gate check` runs a quick build command once, and `cursor advance execute wave_1_dispatch` is refused until it passed, was skipped, or the owner's answer to start anyway is recorded. Shipyard does not renew a login.
 
 ## 4.0.4 (released 2026-11-16)

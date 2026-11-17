@@ -17,10 +17,7 @@ test_commands:
                          # "pytest {files}", "gradle test --tests {files}"
                          # Leave empty to always run the full tier (today's behavior) — an
                          # ecosystem with no native scoped form is never made worse.
-  ready: ""              # a quick command that proves the build can start (seconds, never the suite),
-                         # run once before the first builder: `shipyard-data build-gate check`.
-                         # e.g., "./gradlew help", "npm run build -- --dry-run". Empty: gradle and
-                         # maven get their own configure-only call, other tools skip the check.
+  ready: ""              # a quick command that proves the build can start (seconds, never the suite); run once before the first builder by `shipyard-data build-gate check`. Empty: gradle and maven get their own configure-only call, other tools skip the check.
   rerun_failed: ""       # re-runs only the tests that failed last iteration, for operational
                          # fix loops — a complete, runnable command, never a bare flag.
                          # e.g., "jest --onlyFailures", "vitest --changed", "pytest --lf",
@@ -60,15 +57,9 @@ operational_tasks:
   max_iterations: 3           # fix-findings loop budget for kind:operational tasks
   max_patch_tasks: 5          # scope-creep guard — escalate if cumulative patch tasks > this
 execution:
-  # The build gate: a build or test run of the tool named in test_commands / build_commands waits in
-  # `shipyard-logcap run` until the machine has room. Room is measured from runs that ran alone;
-  # until one was measured, runs go one at a time. `shipyard-data build-gate status` shows it.
+  # The build gate: a build or test run of the tool named in test_commands / build_commands waits in `shipyard-logcap run` until the machine has room, measured from runs that ran alone (unmeasured: one at a time). `shipyard-data build-gate status` shows it. `build_gate: false` turns it off.
   # build_slots: 2            # your own number of builds at once on this machine; replaces the measurement
-  # runner_command: tools/remote-run.sh   # your script that runs a build somewhere else. Called as
-  #                           # `<script> --worktree <dir> -- <command...>`: output and exit code are the
-  #                           # command's; exit 69 = "I could not run it" (never a red test).
-  #                           # `<script> --capacity` prints how many runs it takes at once.
-  # build_gate: false         # turns the gate off
+  # runner_command: tools/remote-run.sh   # your script that runs a build somewhere else: `<script> --worktree <dir> -- <command...>` (output and exit code are the command's; exit 69 = "I could not run it" (never a red test)); `<script> --capacity` prints how many runs it takes at once.
   max_agents: 100             # the most agents (builders, reviewers, researchers, every named helper) alive at the same moment in this project. The agent hook refuses a spawn over it. Change it with `shipyard-data config set-max-agents <n>`. (Replaces the old 3-builder limit, which was only a sentence in a skill.)
   patch_wave_tests: sprint    # sprint | wave. sprint = a wave made only of fix steps skips its own build and test run (each fix step's check already ran, and the sprint's full build and suite cover everything once at the end). wave = build and test after every fix wave.
   probe_must_fail_first: true # a step's acceptance probe must fail on the code as it is today (`shipyard-data sprint probes-at-base`), or the step says why a pass is right. A probe that already passes proves nothing. false = not checked.
