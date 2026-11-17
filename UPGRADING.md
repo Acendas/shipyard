@@ -2,6 +2,17 @@
 
 > **Note:** `/ship-init` was removed in v3.20.0. Onboarding now runs automatically on the first `/ship-status` in a project. Older sections below still mention `/ship-init` as historical record.
 
+## 4.0.3 → 4.0.4
+
+No migration and no breaking change. Things you may notice:
+
+| What | Detail |
+|---|---|
+| One question per project | The first time a story is approved in a discussion (or a discussion that wrote specs ends), you are asked where the project's knowledge lives, besides the code. Your answer is kept in `sources.json` in the project's data folder. To see or change it: `shipyard-data sources list`, `sources add "<name>" --holds "<what it holds>" [--tool <word>\|--path <folder>\|--url <address>] [--always] --answer "<your words>"`, `sources remove`, `sources none` |
+| A project with no other sources | Answer "only the repository". No search of a tracker, wiki or drive is made, and no record of one is asked for |
+| `discuss-questions sources` | The flags `--wiki`, `--tracker` and `--drive` are gone. It takes one line per place you named: `--looked`, `--skipped` or `--unreachable`. A record made on 4.0.3 or earlier still counts |
+| Open windows | Close Claude Code windows opened before the update and start new ones. A window on 4.0.3 stops at its first command once 4.0.4 has worked on the project, and says so |
+
 ## 4.0.2 → 4.0.3
 
 No migration and no breaking change. Things you may notice:

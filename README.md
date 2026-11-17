@@ -243,6 +243,20 @@ At the start and at the end. Never in the middle.
 
 If you cannot do the start items when the sprint starts, the stories that depend on them leave the sprint; they do not stop halfway. A check done by a person is recorded only from that person's answer; accepting the sprint does not confirm it. `shipyard-data sprint needs-you` prints the current line.
 
+## What is new in 4.0.4
+
+A patch release about where a discussion looks things up. No migration is needed.
+
+| Area | What changed |
+|---|---|
+| Sources | The places a discussion searches are the ones you name for the project: any tracker, wiki, drive, folder or website. A fixed list of wiki, tracker and shared drive is gone |
+| Asked once | At the first approval in a project you are asked once where its knowledge lives, besides the code. "Only the repository" is an answer; after it nothing else is searched or asked |
+| By need | A named place is searched when the work could need it. You see what was searched and what was left out, with the reason, before you approve, and you can say "look there too" |
+| Always | You can mark a place to be looked at in every discussion. Only your word leaves it out |
+| Your install | Connectors your Claude install has are not the project's sources. A place you did not name is not searched for the project |
+| Sign-ins | A place that cannot be reached is noted in one line. You are not asked to sign in or connect anything to pass a check |
+| Documents | "Is there a document I could not reach?" is asked only when the research left a fact open |
+
 ## What is new in 4.0.3
 
 A patch release from the first day of 4.0.2 on two real projects. No migration is needed.

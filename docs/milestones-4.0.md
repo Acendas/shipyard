@@ -11,7 +11,9 @@ For what changes when you upgrade from 3.26.0, read [UPGRADING.md](../UPGRADING.
 - `shipyard-data sprint needs-you` prints the phrase the build puts on its progress line: `you: needed now · …` or `you: not needed until the review (3 checks)`.
 - A step waiting for you at the review no longer counts as a parked step. The review lists the waiting checks grouped by where they are done, so one sitting covers them.
 
-## After 4.0.3 (not released yet)
+## 4.0.4 (released 2026-11-16)
+
+From the owner's own project, the evening 4.0.3 went out.
 
 - **Sources are the project's own, and looking is by need.** A discussion had to record a search of three fixed kinds of place (a wiki, a tracker, a shared drive) before any story could be approved. Which of them "this project has" was read from the connectors the person's Claude install happened to carry, guessed from tool names. On a project with none of them, a browser tool counted as a wiki and a document tool as a shared drive: a defect whose cause was already found in the code could not be approved until an unrelated tracker and wiki had been searched for the project's name, a sign-in page for a drive had been opened, and the owner's own answer ("this project has no other sources") had been refused. Now:
   - `shipyard-data sources` is the project's list, in the owner's words: `add "<name>" --holds "<what it holds>" [--tool <word in its tools' names> | --path <folder> | --url <address>] [--always] --answer "<their words>"`, `remove`, `always <name> on|off`, `none`, `list`. Any place, reached any way. A place the project did not name is not searched for it, whatever connectors the session has.
