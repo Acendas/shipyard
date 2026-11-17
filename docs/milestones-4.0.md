@@ -11,6 +11,19 @@ For what changes when you upgrade from 3.26.0, read [UPGRADING.md](../UPGRADING.
 - `shipyard-data sprint needs-you` prints the phrase the build puts on its progress line: `you: needed now · …` or `you: not needed until the review (3 checks)`.
 - A step waiting for you at the review no longer counts as a parked step. The review lists the waiting checks grouped by where they are done, so one sitting covers them.
 
+## 4.0.5 (released 2026-11-17)
+
+From one sprint on a 16 GB, 10-core machine, the day after 4.0.4.
+
+- **Builds and tests go through one gate.** Five builders, then 24, each ran the project's build tool at the same moment. The load was three to four times the cores, single checks took three to six minutes, and builds failed for reasons that had nothing to do with the code. The planner had warned about it in a sentence of its summary; nothing could act on a sentence.
+  - `bin/build-gate.mjs`, entered inside `shipyard-logcap run`. A builder does nothing new: the same command waits. Nothing running means go, so a bad reading can never deadlock.
+  - Room is measured from runs that ran alone (`build_need_measured`), and the machine's free memory and load are read at the moment of asking. No measurement is taken on a machine that is already busy. Unmeasured means one at a time. A run killed while others ran lowers the limit by one for 12 hours. `execution.build_slots` is the owner's number.
+  - Exit 75: `QUEUED` (the wait ran out, the place is kept for 6 minutes) or `YOUR TURN` (the turn came after a long wait; the place is held for 90 seconds). A run is never started late in a call that began before the wait, because that call's time limit would kill it.
+  - The wave boundary's runs go to the front. Time in line keeps a builder's claim alive.
+  - The builder hook refuses the build tool outside `shipyard-logcap run`.
+- **A project's own runner.** `execution.runner_command` is a script that runs a build somewhere else: `--capacity` says how many at once, exit 69 says it could not run the command. Only a direct call of the build tool goes there.
+- **The ready check.** Readiness had said that every gate passed while the build could not even configure (an expired token). `shipyard-data build-gate check` runs a quick build command once, and `cursor advance execute wave_1_dispatch` is refused until it passed, was skipped, or the owner's answer to start anyway is recorded. Shipyard does not renew a login.
+
 ## 4.0.4 (released 2026-11-16)
 
 From the owner's own project, the evening 4.0.3 went out.

@@ -243,6 +243,20 @@ At the start and at the end. Never in the middle.
 
 If you cannot do the start items when the sprint starts, the stories that depend on them leave the sprint; they do not stop halfway. A check done by a person is recorded only from that person's answer; accepting the sprint does not confirm it. `shipyard-data sprint needs-you` prints the current line.
 
+## What is new in 4.0.5
+
+A patch release about builds and tests on a machine that cannot run many at once. No migration is needed.
+
+| Area | What changed |
+|---|---|
+| One gate | A build or test run of your project's tool waits its turn inside `shipyard-logcap run`. Builders still write code in parallel; only the heavy runs are held |
+| Measured, no default | How many runs fit is measured from runs that ran alone (cores and memory), plus the machine's free memory and load at the moment of asking. Until one run is measured they go one at a time |
+| Your number | `execution.build_slots` replaces the measurement. `execution.build_gate: false` turns the gate off |
+| Queued is not failed | A run that has to wait ends with exit 75 and "QUEUED, not run". The builder runs the same command again and keeps its place |
+| Build somewhere else | `execution.runner_command` names your own script that runs a build on another machine. It says how many runs it takes at once, and "I could not run it" (exit 69) is never read as a red test |
+| Ready check | Before the first builder starts, your quick build command is run once. An expired login is found there, where you are asked, and not by five builders six minutes in |
+| See it | `shipyard-data build-gate status` shows what is running, what is waiting and why |
+
 ## What is new in 4.0.4
 
 A patch release about where a discussion looks things up. No migration is needed.

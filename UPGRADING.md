@@ -2,6 +2,19 @@
 
 > **Note:** `/ship-init` was removed in v3.20.0. Onboarding now runs automatically on the first `/ship-status` in a project. Older sections below still mention `/ship-init` as historical record.
 
+## 4.0.4 → 4.0.5
+
+No migration and no breaking change. Things you may notice:
+
+| What | Detail |
+|---|---|
+| Builds wait their turn | The tool named in `test_commands` and `build_commands` is held at the build gate when it is run through `shipyard-logcap run`. The first builds of a project run one at a time until one was measured alone. `shipyard-data build-gate status` shows the room and the reason |
+| Exit 75 and 69 | `shipyard-logcap run` can now end with 75 (queued, or "your turn": not run, run the same command again) and, with a runner, 69 (the runner could not run it). Neither is recorded as a run. A script of your own that wraps `shipyard-logcap run` should treat both as "again" |
+| Builders | A builder that runs the build tool outside `shipyard-logcap run` is sent back with the command to use |
+| Ready check | `/ship-execute` runs `shipyard-data build-gate check` before the first wave. Gradle and Maven projects get a configure-only call; for other tools set `test_commands.ready` to a command that takes seconds, or the check is skipped with one line. When the build does not start you are shown its output and asked once |
+| New settings | Under `execution:` in `config.md`: `build_slots: <n>`, `runner_command: <script>`, `build_gate: false`. Under `test_commands:`: `ready`. None is required |
+| A runner script | Called as `<script> --worktree <dir> -- <command...>`; its output and exit code are the command's. `<script> --capacity` prints how many runs it takes at once; a script that does not answer is not used |
+
 ## 4.0.3 → 4.0.4
 
 No migration and no breaking change. Things you may notice:
