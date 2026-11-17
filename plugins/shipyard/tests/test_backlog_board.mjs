@@ -146,20 +146,20 @@ test("inside a Shipyard command a card with no explanation since the last answer
     assert.equal(v.reason, HELD);
     assert.equal(v.held, true);
     assert.ok(v.reason.length < 100 && !/Question follows|AskUserQuestion|40 words/.test(v.reason), "nothing in the visible line is addressed to the session");
-    assert.match(v.context, /is in your reasoning \(thinking\), not in a message/);
+    assert.match(v.context, /Nothing about this question has been written as a message yet, and the person sees only messages/);
     assert.match(v.context, /End the message with the line "Question follows\." and end your turn there/);
     // Run live: offered "if you wrote it as text in the same message, ask again at once", a session whose explanation
     // was in its reasoning did exactly that. It cannot tell the two apart, so it is told to write the explanation;
     // the shortcut is the marker alone, which the Stop hook judges.
     assert.match(v.context, /Write its explanation as your message now/);
-    assert.match(v.context, /Only if that explanation is already on screen as text of the message that called the card \(text, not reasoning: reasoning is never shown\): write just the line "Question follows\." and end your turn/);
+    assert.match(v.context, /Only if that explanation is already on screen as text of the very message that called the card: write just the line "Question follows\." and end your turn/);
     assert.doesNotMatch(v.context, /again at once/);
     // held once and called again with still nothing written: one short line again, the full steps unseen
     writeFileSync(t, [user(cmd), think("Six of the eight ideas fit the bundle. " + GOOD), card("c0"), refused("c0")].join("\n") + "\n");
     v = decideExplained(ask);
     assert.equal(v.reason, HELD_AGAIN);
     assert.match(v.context, /nothing \(or almost nothing\) was written in the chat/);
-    assert.match(v.context, /is in your reasoning \(thinking\), not in a message/);
+    assert.match(v.context, /Nothing about this question has been written as a message yet, and the person sees only messages/);
     assert.match(v.context, /End that message with the line "Question follows\." and end your turn there/);
     // a third time: the steps are in the reason itself, so they reach the session whatever the client does with context
     writeFileSync(t, [user(cmd), think("Six of the eight ideas fit the bundle. " + GOOD), card("c0"), refused("c0"), card("c1"), refused("c1")].join("\n") + "\n");
@@ -407,7 +407,7 @@ test("after a held card, the marker alone: handed back when the explanation was 
     writeFileSync(t, [cmd, inMsg("m1", { type: "thinking", thinking: GOOD }), inMsg("m1", cardBlock), refused].join("\n") + "\n");
     const v = decideStop(stop);
     assert.equal(v.kind, "rewrite");
-    assert.match(v.reason, /the explanation of this question is not on screen: what you had was in your reasoning, which the person never sees\. Write it now as your message/);
+    assert.match(v.reason, /the explanation of this question is not on screen yet: no message above the card holds it, and the person sees only messages\. Write it now as your message/);
     // the marker alone with no held card above it is what it always was: nothing written
     writeFileSync(t, cmd + "\n");
     assert.match(decideStop(stop).reason, /not ready for the question card: nothing \(or almost nothing\) was written/);

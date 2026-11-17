@@ -24,7 +24,7 @@
  */
 import { heldSkill } from "./agent-ledger.mjs";
 import { transcriptTail, textOf, commandStart, lastPersonTurn } from "./unattended-ask.mjs";
-import { trackerSyncMode, outboxFiles } from "../tracker.mjs";
+import { trackerSyncMode, outboxFiles, outboxListedAt } from "../tracker.mjs";
 import { logEvent } from "../_hook_lib.mjs";
 
 const TEXT_KEYS = /^(body|comment|comment_body|description|text|content|markdown|message)$/i;
@@ -66,7 +66,19 @@ export function fromOutbox(dataDir, text, entries, start) {
   if (!f) return null;
   let at = -1;
   for (let i = entries.length - 1; i > start; i--) { if (entries[i]?.type === "assistant" && textOf(entries[i]).includes(f.file)) { at = i; break; } }
-  return { file: f.file, shown: at !== -1 && lastPersonTurn(entries, at) > at };
+  if (at !== -1 && lastPersonTurn(entries, at) > at) return { file: f.file, shown: true };
+  // The table in the chat need not be the CLI's own, word for word (after 4.0.2: the session dropped the "Whole
+  // text" column, and the person's "send all now" was followed by five red lines). What must be true: the CLI
+  // listed this very text, the session then named the record in a message, and the person answered after that.
+  const listed = Date.parse(outboxListedAt(dataDir, f));
+  if (!Number.isFinite(listed) || !f.id) return { file: f.file, shown: false };
+  const names = new RegExp(`(^|[^A-Za-z0-9])${f.id}([^A-Za-z0-9]|$)`);
+  for (let i = start + 1; i < entries.length; i++) {
+    const e = entries[i];
+    if (e?.type !== "assistant" || !(Date.parse(e.timestamp ?? "") >= listed - 1000)) continue;
+    if (names.test(textOf(e)) && lastPersonTurn(entries, i) > i) return { file: f.file, shown: true };
+  }
+  return { file: f.file, shown: false };
 }
 
 export const HELD_WRITE = "Shipyard: not sent yet. You see what goes to the ticket first, and it is sent on your go.";
@@ -94,7 +106,7 @@ export function decideWrite(dataDir, hookInput) {
   if (!waiting && !hidden) return null;
   const context = hidden
     ? `Shipyard held this write: its text is not on the person's screen (it begins: "${hidden.replace(/\s+/g, " ").trim().slice(0, 90)}…"). A short text (a comment, a few lines): write it in the chat word for word inside a code block, ask whether to send it, then send it unchanged. ${OUTBOX_HOW}`
-    : `Shipyard held this write: its text is ready in ${waiting.file}, but the person has not seen the outbox table and answered since. Run \`shipyard-data tracker outbox\`, write its table in the chat under a summary of 40 words or fewer, end that message with the line "Question follows." and end your turn; then ask one card (send all now / show me one in full first / not now). Send after their go.`;
+    : `Shipyard held this write: its text is ready in ${waiting.file}, but the person has not seen the outbox table and answered since (or the file changed after it was listed). Run \`shipyard-data tracker outbox\`, write its table in the chat under a summary of 40 words or fewer, end that message with the line "Question follows." and end your turn; then ask one card (send all now / show me one in full first / not now). Send after their go.`;
   return { reason: HELD_WRITE, context };
 }
 

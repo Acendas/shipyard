@@ -19,11 +19,12 @@
  * epic's ticket is not its ticket. Its fix version is its epic's.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWrite, logEvent } from "./_hook_lib.mjs";
 import { TASK_KINDS, isStoryId } from "./vocab.mjs";
+import { items as versionItems, setFixVersion } from "./version.mjs";
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "shipyard-data.mjs");
 const q = (s) => JSON.stringify(String(s ?? ""));
@@ -64,9 +65,9 @@ function checkAfter(dataDir, ids) {
 }
 
 export function storyAdd(dataDir, args) {
-  const usage = 'usage: story add --title "..." [--epic E###] [--type feature|bug] [--ui] [--as "<who>" --want "<what>" --so "<why>"] [--note "..."] [--after <id,id>]   (a coarse story: refined later in /ship-discuss <id>)';
+  const usage = 'usage: story add --title "..." [--epic E###] [--type feature|bug] [--ui] [--as "<who>" --want "<what>" --so "<why>"] [--note "..."] [--after <id,id>] [--version <name>]   (a coarse story: refined later in /ship-discuss <id>)';
   const o = parse(args, usage, { flags: ["ui"] });
-  const unknown = Object.keys(o).filter((k) => !["title", "epic", "type", "ui", "as", "want", "so", "note", "after"].includes(k));
+  const unknown = Object.keys(o).filter((k) => !["title", "epic", "type", "ui", "as", "want", "so", "note", "after", "version"].includes(k));
   if (unknown.length) fail(2, `unknown flag --${unknown[0]}\n  ${usage}`);
   const title = one(o.title);
   if (!title) fail(2, usage);
@@ -77,10 +78,20 @@ export function storyAdd(dataDir, args) {
   if (epic && !has(dataDir, "epics", epic)) fail(3, `--epic ${epic} does not exist under spec/epics/`);
   const after = afterIds(o.after);
   checkAfter(dataDir, after);
+  // Its release (after 4.0.2, live: five stories split out of a story in a release had no release, the sprint offered
+  // that release without them, and the owner asked where they had gone). Named with --version; else its
+  // epic's (derived, nothing is written); else, with no epic, the one release shared by what it waits for.
+  let version = one(o.version), versionWhy = "";
+  if (!version && !epic && after.length) {
+    const all = versionItems(dataDir);
+    const theirs = [...new Set(after.map((d) => all.find((x) => x.id === d)?.version).filter(Boolean))];
+    if (theirs.length === 1) { version = theirs[0]; versionWhy = ` (the release of ${after.join(", ")}, which it waits for)`; }
+  }
   const id = `S${nextId(dataDir, "stories")}`;
   const path = join(dataDir, "spec", "stories", `${id}-${slug(title)}.md`);
+  const who = one(o.as);
   const story = o.as || o.want || o.so
-    ? `As ${one(o.as) || "[who]"}, I want ${one(o.want) || "[what]"}, so that ${one(o.so) || "[why]"}.`
+    ? `As ${who ? (/^(an?|the|every|any|each)\s/i.test(who) ? who : `${/^[aeiou]/i.test(who) ? "an" : "a"} ${who}`) : "[who]"}, I want ${one(o.want) || "[what]"}, so that ${one(o.so) || "[why]"}.`
     : `As a [user], I want [capability] so that [benefit]. _(not refined yet: write this in /ship-discuss ${id})_`;
   const day = today();
   const content = [
@@ -102,8 +113,110 @@ export function storyAdd(dataDir, args) {
     const r = spawnSync(process.execPath, [CLI, "story", "add-dep", id, d, "--data-dir", dataDir], { encoding: "utf8" });
     if (r.status !== 0) notLinked.push(`${d} (${(r.stderr || "").trim().split("\n")[0]})`);
   }
+  let versionLine = "";
+  if (version) {
+    try { setFixVersion(dataDir, version, [id]); versionLine = `release: ${version}${versionWhy}\n`; }
+    catch (e) { versionLine = `not placed in ${version}: ${e.message}\n`; }
+  }
   process.stdout.write(`${id} added${epic ? ` under ${epic}` : ""}${after.length - notLinked.length ? `, waits for ${after.filter((d) => !notLinked.some((n) => n.startsWith(`${d} `))).join(", ")}` : ""}: ${path}\n` +
-    (notLinked.length ? `not linked: ${notLinked.join("; ")}\n` : "") + `Refine it when it nears the top: /ship-discuss ${id}\n`);
+    (notLinked.length ? `not linked: ${notLinked.join("; ")}\n` : "") + versionLine + `Refine it when it nears the top: /ship-discuss ${id}\n`);
+}
+
+/**
+ * `shipyard-data story refine <S###> --body <file.md> [--points <n>] [--rice <reach>,<impact>,<confidence %>,<effort>]
+ *      [--probe auto|assisted|manual --probe-command "<cmd>" --probe-steps <file>]`
+ *
+ * The other half of `story add` and `tracker pull` (after 4.0.2). A coarse story says `refined: false` and the
+ * approval gate refuses it "until refined", but nothing said how it becomes refined: on a real project two
+ * sessions each wrote a script that rewrote the story file (the body, `refined: true`, the points, the probe
+ * block), one of them twice, and a third filled in fields by hand. One call does it: the body is replaced by the
+ * drafted text (the title line, the ticket's own text and the decision log are kept), the story is marked
+ * refined, its numbers are set, its criteria get their ids, and the checks an approval runs are run and printed.
+ * It approves nothing: that is the person's answer.
+ */
+export function storyRefine(dataDir, args) {
+  const usage = 'usage: story refine <S###> --body <file.md> [--points <n>] [--rice <reach>,<impact>,<confidence %>,<effort>] [--probe auto|assisted|manual --probe-command "<cmd>" [--probe-steps <file>]]';
+  const id = args[0];
+  if (!id || id.startsWith("--")) fail(2, usage);
+  const o = parse(args.slice(1), usage);
+  const unknown = Object.keys(o).filter((k) => !["body", "points", "rice", "probe", "probe-command", "probe-steps"].includes(k));
+  if (unknown.length) fail(2, `unknown flag --${unknown[0]}\n  ${usage}`);
+  if (!isStoryId(id)) fail(2, `"${id}" is not a story id\n  ${usage}`);
+  let path = "";
+  for (const sub of ["stories", "features", "bugs"]) {
+    try { const n = readdirSync(join(dataDir, "spec", sub)).find((f) => f.endsWith(".md") && (f.startsWith(`${id}-`) || f === `${id}.md`)); if (n) { path = join(dataDir, "spec", sub, n); break; } } catch { /* no such folder */ }
+  }
+  if (!path) fail(3, `${id}: no such story`);
+  if (!o.body) fail(2, `--body <file.md> is the refined text (user story, why, paths, acceptance criteria)\n  ${usage}`);
+  let body = "";
+  try { body = readFileSync(String(o.body), "utf8"); } catch { fail(3, `--body ${o.body}: cannot be read`); }
+  body = body.replace(/^\uFEFF/, "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").replace(/^\s*#\s+[^\n]*\n/, "").trim();
+  if (body.length < 40) fail(3, `--body ${o.body}: nothing to refine with (the file is empty or only a title)`);
+  const probe = o.probe === undefined ? null : String(o.probe);
+  if (probe !== null && !["auto", "assisted", "manual"].includes(probe)) fail(2, `--probe is auto, assisted or manual\n  ${usage}`);
+  const probeCommand = String(o["probe-command"] ?? "").trim();
+  let probeSteps = "";
+  if (o["probe-steps"]) { try { probeSteps = readFileSync(String(o["probe-steps"]), "utf8").trim(); } catch { fail(3, `--probe-steps ${o["probe-steps"]}: cannot be read`); } }
+  if (probe === "auto" && !probeCommand) fail(2, '--probe auto needs --probe-command "<the command whose exit code is the proof>"');
+  if ((probe === "assisted" || probe === "manual") && !probeSteps) fail(2, `--probe ${probe} needs --probe-steps <file> (what a person does and what they should see, one numbered line each)`);
+  if (probe === null && (probeCommand || probeSteps)) fail(2, "--probe-command and --probe-steps go with --probe auto|assisted|manual");
+  let rice = null;
+  if (o.rice !== undefined) {
+    rice = String(o.rice).split(",").map((x) => x.trim());
+    if (rice.length !== 4 || rice.some((x) => !/^\d+(\.\d+)?$/.test(x))) fail(2, `--rice takes four numbers: reach,impact,confidence %,effort (for example 6,1,70,0.5)\n  ${usage}`);
+  }
+  if (o.points !== undefined && !/^\d+$/.test(String(o.points))) fail(2, `--points takes a whole number\n  ${usage}`);
+
+  const text = readFileSync(path, "utf8");
+  const m = text.match(/^(---\r?\n)([\s\S]*?)(\r?\n---\r?\n?)([\s\S]*)$/);
+  if (!m) fail(3, `${id}: the file has no frontmatter block`);
+  let block = m[2];
+  const rest = m[4];
+  const title = (rest.match(/^#\s+(.+)$/m) || [])[1] ?? (block.match(/^title:\s*"?(.*?)"?\s*$/m) || [])[1] ?? id;
+  const section = (name) => { const i = rest.search(new RegExp(`^## ${name}\\b`, "m")); return i === -1 ? "" : rest.slice(i); };
+  // the ticket's own text is data that came with the story: it stays, after the refined text
+  const upstream = /^## Upstream ticket\b/m.test(body) ? "" : section("Upstream ticket").trim();
+  let log = "";
+  if (!/^## Decision Log\b/m.test(body)) {
+    const old = section("Decision Log");
+    const end = old.slice(3).search(/^## /m);
+    log = (end === -1 ? old : old.slice(0, end + 3)).trim() || "## Decision Log\n\n| Date | Decision | Options | Chosen | Reasoning |\n|------|----------|---------|--------|-----------|";
+    log += `\n| ${today()} | Refined: user story, paths and acceptance criteria written | - | - | story refine |`;
+  }
+  // frontmatter: refined, and the probe block when one is given
+  block = block.split(/\r?\n/).filter((l) => !/^#\s*coarse:/.test(l)).join("\n");
+  block = /^refined:.*$/m.test(block) ? block.replace(/^refined:.*$/m, "refined: true") : block.replace(/^(status:.*)$/m, "$1\nrefined: true");
+  if (probe !== null) {
+    const lines = block.split("\n");
+    const at = lines.findIndex((l) => /^(user_flow_probe|demo_probe):/.test(l));
+    if (at !== -1) { let end = at + 1; while (end < lines.length && (/^[ \t]+/.test(lines[end]) || !lines[end].trim())) end++; lines.splice(at, end - at); }
+    const ind = (t) => t.split(/\r?\n/).map((l) => `    ${l}`.trimEnd()).join("\n");
+    const pb = ["user_flow_probe:", `  kind: ${probe}`, ...(probeCommand ? ["  command: |", ind(probeCommand)] : []), ...(probeSteps ? ["  steps: |", ind(probeSteps)] : [])];
+    const before = lines.findIndex((l) => /^created:/.test(l));
+    lines.splice(before === -1 ? lines.length : before, 0, ...pb);
+    block = lines.join("\n");
+  }
+  const out = `${m[1]}${block}${m[3]}\n# ${title}\n\n${body}\n${log ? `\n${log}\n` : ""}${upstream ? `\n${upstream}\n` : ""}`;
+  atomicWrite(path, out);
+  const call = (...a) => spawnSync(process.execPath, [CLI, ...a, "--data-dir", dataDir], { encoding: "utf8" });
+  const last = (r) => ((r.stdout || "") + (r.stderr || "")).trim().split("\n").filter(Boolean).pop() ?? "";
+  const sets = [...(o.points !== undefined ? [`story_points=${o.points}`] : []), ...(rice ? [`rice_reach=${rice[0]}`, `rice_impact=${rice[1]}`, `rice_confidence=${rice[2]}`, `rice_effort=${rice[3]}`] : []), `updated=${today()}`];
+  const set = call("story", "set", id, ...sets);
+  call("story", "assign-ac-ids", id);
+  const scenarios = call("story", "check-scenarios", id);
+  const probes = call("story", "check-probes", id);
+  try { logEvent(dataDir, "story_refined", { story: id, points: o.points ?? "", probe: probe ?? "" }); } catch { /* best-effort */ }
+  const ready = set.status === 0 && scenarios.status === 0 && probes.status === 0;
+  process.stdout.write([
+    `${id} refined: ${path}`,
+    ...(set.status === 0 ? [] : [`  numbers not set: ${last(set)}`]),
+    `  scenarios: ${scenarios.status === 0 ? "start from the behaviour" : last(scenarios)}`,
+    `  proof: ${probes.status === 0 ? last(probes) : last(probes)}`,
+    ready
+      ? `NEXT: show the person its criteria (shipyard-data story acs ${id}), one plain line each, and ask for approval; then  shipyard-data story set-status ${id} approved`
+      : `NEXT: fix what is listed above in ${o.body}, then run this again. It is not ready to be approved yet.`,
+    "",
+  ].join("\n"));
 }
 
 export function taskAdd(dataDir, args) {

@@ -1482,5 +1482,12 @@
   "target": "ref:plan-mode.md",
   "pattern": "The backlog's order is the selection order\\.",
   "why": "after 4.0.0, LeSS (owner: 'fix this: What is not solid yet' — backlog order was RICE plus overrides; the review asked to 'accept')"
+ },
+ {
+  "name": "sprint_selection_says_what_is_left_out",
+  "type": "contains",
+  "target": "ref:plan-mode.md",
+  "pattern": "print the `For a sprint:` lines of `shipyard-data version show <name>` as they are",
+  "why": "after 4.0.2 (a real project, 2026-11-16: six tickets went in, eleven came out of the discussion, the sprint offered five and then six, and the owner asked 'where did the rest go')"
  }
 ]

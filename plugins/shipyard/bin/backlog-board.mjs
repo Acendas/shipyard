@@ -64,7 +64,7 @@ export function buildBoard(dataDir, { today = new Date() } = {}) {
   const item = (s) => {
     const r = num(s.fm.rice_score) ?? (() => {
       const [a, b, c, d] = ["rice_reach", "rice_impact", "rice_confidence", "rice_effort"].map((k) => num(s.fm[k]));
-      return a !== null && b !== null && c !== null && d ? Math.round(((a * b * c) / d) * 10) / 10 : null;
+      return a !== null && b !== null && c !== null && d ? Math.round(((a * b * (c > 1 ? c / 100 : c)) / d) * 10) / 10 : null;
     })();
     const deps = parseFrontmatterList(s.block, "dependencies").items.filter((d) => { const o = byId.get(d); return o ? !DONE.has(clean(o.fm.status)) : stepStatus.has(d) ? stepStatus.get(d) !== "done" : false; });
     const steps = [...parseFrontmatterList(s.block, "steps").items, ...parseFrontmatterList(s.block, "tasks").items];

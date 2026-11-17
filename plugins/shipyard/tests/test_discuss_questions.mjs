@@ -242,6 +242,33 @@ test("the approval gate reads only the topic bound to that story", () => {
     assert.doesNotMatch(approvalProblems(d, "S040").join("\n"), /document exists/);
     assert.match(approvalProblems(d, "S040").join("\n"), /1 question\(s\) of this discussion are not answered yet \(Q1\)/);
     assert.deepEqual(approvalProblems(d, "S041"), []);
+    // A story with no topic of its own, approved by the session that holds the discussion, owes the same record
+    // (live, after 4.0.2: of two stories approved on one card, only the bound one was refused). Another session
+    // approving beside the discussion owes nothing, and neither does a quick lane.
+    {
+      const saved = process.env.CLAUDE_CODE_SESSION_ID;
+      const lockFile = join(d, ".active-discuss.json");
+      const events = join(d, ".shipyard-events.jsonl");
+      const before = existsSync(events) ? readFileSync(events, "utf8") : "";
+      const started = new Date(Date.now() + 1000).toISOString();
+      writeFileSync(lockFile, JSON.stringify({ skill: "ship-discuss", session_id: "s-own", cleared: null, started }));
+      try {
+        process.env.CLAUDE_CODE_SESSION_ID = "s-other";
+        assert.deepEqual(approvalProblems(d, "S041"), []);
+        process.env.CLAUDE_CODE_SESSION_ID = "s-own";
+        assert.match(approvalProblems(d, "S041").join("\n"), /this discussion has not said where its research looked/);
+        const later = (o) => JSON.stringify({ ts: new Date(Date.now() + 5000).toISOString(), ...o }) + "\n";
+        writeFileSync(events, before + later({ type: "discuss_sources_recorded", topic: "refine-s040", person_asked: "no" }));
+        assert.match(approvalProblems(d, "S041").join("\n"), /the person has not been asked whether a document exists/);
+        writeFileSync(events, before + later({ type: "discuss_sources_recorded", topic: "refine-s040", person_asked: "yes" }));
+        assert.deepEqual(approvalProblems(d, "S041"), []);
+        writeFileSync(events, before + later({ type: "intake_lane_confirmed", lane: "hotfix" }));
+        assert.deepEqual(approvalProblems(d, "S041"), []);
+      } finally {
+        if (saved === undefined) delete process.env.CLAUDE_CODE_SESSION_ID; else process.env.CLAUDE_CODE_SESSION_ID = saved;
+        rmSync(lockFile, { force: true }); writeFileSync(events, before);
+      }
+    }
     const set = (id) => spawnSync("node", [CLI, "story", "set-status", id, "approved", "--data-dir", d], { encoding: "utf8" });
     let r = set("S040");
     assert.equal(r.status, 3); assert.match(r.stderr, /S040 cannot be approved yet — its discussion is not finished/);

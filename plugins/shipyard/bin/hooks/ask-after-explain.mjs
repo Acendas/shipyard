@@ -59,7 +59,7 @@ export function decideStop(hookInput) {
   if (problems.length && !last.split("\n").some((l) => l.trim() && !endsWithMarker(l))) {
     const above = cardAbove(entries, lastPersonTurn(entries, cmd.start));
     if (above && above.text.trim() && !explainProblems(above.text).length) return { kind: "ask", reason: HANDED_BACK, same_message: true };
-    if (above) return { kind: "rewrite", problems, reason: `Shipyard: the explanation of this question is not on screen: what you had was in your reasoning, which the person never sees. Write it now as your message (a summary of 40 words or fewer first, then a table, a diagram or an example), ending with the line "${QUESTION_FOLLOWS}".` };
+    if (above) return { kind: "rewrite", problems, reason: `Shipyard: the explanation of this question is not on screen yet: no message above the card holds it, and the person sees only messages. Write it now as your message (a summary of 40 words or fewer first, then a table, a diagram or an example), ending with the line "${QUESTION_FOLLOWS}".` };
   }
   if (problems.length) {
     return { kind: "rewrite", problems, reason: `Shipyard: not ready for the question card: ${problems.join("; and ")}. Write it again as your message (summary of 40 words or fewer first, then a table, diagram or example), ending with the line "${QUESTION_FOLLOWS}".` };

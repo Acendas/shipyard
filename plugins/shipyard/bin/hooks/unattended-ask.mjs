@@ -211,7 +211,7 @@ export const HELD_AGAIN = "Shipyard: one moment more. The explanation of this qu
 export const HELD_HOW =
   "Shipyard held this card: no explanation of it is in an earlier message. " +
   `Write its explanation as your message now: a summary of 40 words or fewer (what this is about, what you recommend), then a table, a diagram or an example. End the message with the line "${QUESTION_FOLLOWS}" and end your turn there (call no tool after it); Shipyard hands the turn back and you ask the card. ` +
-  `Only if that explanation is already on screen as text of the message that called the card (text, not reasoning: reasoning is never shown): write just the line "${QUESTION_FOLLOWS}" and end your turn. ` +
+  `Only if that explanation is already on screen as text of the very message that called the card: write just the line "${QUESTION_FOLLOWS}" and end your turn. ` +
   `For every later question: end your turn after "${QUESTION_FOLLOWS}", so that no card is held. Never ask in plain text instead.`;
 
 /** { problems, reason, context? } when the card is sent back; { pass: "same_message" } when a held card comes again and its explanation was above it all along; null when there is nothing to say. */
@@ -240,7 +240,7 @@ export function explainedVerdict(hookInput) {
   // reported "the list was in the chat both times". It was in its
   // reasoning, which the person sees as one summary line at most.
   const inThought = thought && !text.trim()
-    ? " What you have so far is in your reasoning (thinking), not in a message: the person does not see reasoning, at most one grey summary line of it. Your last message of a turn is always seen."
+    ? " Nothing about this question has been written as a message yet, and the person sees only messages. Your last message of a turn is always seen."
     : "";
   const full = `Shipyard: a question is shown only after the person has read what it is about, and ${problems.join("; and ")}.${inThought} ${HOW} Keep to the card: do not ask in plain text instead.`;
   // The first and the second time, the person reads one short line and the session gets the steps unseen. A third

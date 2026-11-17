@@ -181,6 +181,42 @@ export function versionView(dataDir, name) {
   };
 }
 
+/**
+ * Which stories of a version a sprint can take now, which it cannot and why, and which were closed and why
+ * (after 4.0.2, live: the owner gave six tickets, the discussion made eleven of them, the sprint offered five,
+ * and the owner asked "where did the rest go"; every answer was in the files and none was on the screen).
+ * { ready: [{id, points}], not_ready: [{id, why}], building: [id], closed: [{id, why}] }
+ */
+export function sprintReadiness(dataDir, name) {
+  const out = { ready: [], not_ready: [], building: [], closed: [] };
+  for (const it of items(dataDir)) {
+    if (it.version !== name || it.kind !== "story") continue;
+    let block = "";
+    try { block = parseFm(readFileSync(it.path, "utf8"))?.block ?? ""; } catch { block = ""; }
+    if (GONE.has(it.status)) {
+      const into = (block.match(/^replaced_by:[ \t]*\[([^\]]*)\]/m) || [])[1]?.split(",").map((x) => unq(x.trim())).filter(Boolean) ?? [];
+      const reason = scalar(block, "status_reason");
+      out.closed.push({ id: it.id, why: into.length ? `merged into ${into.join(", ")}` : reason || it.status });
+    } else if (FINISHED.has(it.status)) continue;
+    else if (it.status === "approved") out.ready.push({ id: it.id, points: it.points });
+    else if (it.status === "in-progress") out.building.push(it.id);
+    else out.not_ready.push({ id: it.id, why: /^refined:[ \t]*false\b/m.test(block) ? "not refined yet" : "not approved yet" });
+  }
+  return out;
+}
+const readinessLines = (r) => {
+  if (!r.ready.length && !r.not_ready.length && !r.closed.length && !r.building.length) return [];
+  const L = ["", "For a sprint:"];
+  if (r.ready.length) L.push(`  ready (${r.ready.length}, ${r.ready.reduce((n, x) => n + x.points, 0)} pts): ${r.ready.map((x) => x.id).join(", ")}`);
+  if (r.building.length) L.push(`  in a sprint (${r.building.length}): ${r.building.join(", ")}`);
+  for (const why of [...new Set(r.not_ready.map((x) => x.why))]) {
+    const ids = r.not_ready.filter((x) => x.why === why).map((x) => x.id);
+    L.push(`  not ready (${ids.length}): ${ids.join(", ")}: ${why}${why === "not refined yet" ? ` (/ship-discuss ${ids.join(" ")})` : ""}`);
+  }
+  for (const c of r.closed) L.push(`  closed: ${c.id}: ${c.why}`);
+  return L;
+};
+
 function usage(msg) {
   process.stderr.write(
     `shipyard-data version: ${msg}\n` +
@@ -234,7 +270,8 @@ export function main(dataDir, args = []) {
       if (!name) usage("show needs a version name");
       const w = versionView(dataDir, name);
       if (!w) { process.stderr.write(`shipyard-data version: no version "${name}"\n`); process.exit(3); }
-      if (o.json) { process.stdout.write(JSON.stringify({ ...w, rows: w.rows.map(({ path: _p, ...r }) => r), open: w.open.map((r) => r.id), done: w.done.map((r) => r.id), not_refined: w.not_refined.map((r) => r.id) }) + "\n"); return; }
+      const ready = sprintReadiness(dataDir, name);
+      if (o.json) { process.stdout.write(JSON.stringify({ ...w, rows: w.rows.map(({ path: _p, ...r }) => r), open: w.open.map((r) => r.id), done: w.done.map((r) => r.id), not_refined: w.not_refined.map((r) => r.id), for_sprint: ready }) + "\n"); return; }
       const v = w.version, L = [];
       L.push(`VERSION ${v.name}${v.title ? ` — ${v.title}` : ""} · ${v.status}${v.released_at ? ` ${v.released_at}` : ""}${v.target_date ? ` · expected ${v.target_date}` : ""}`);
       L.push(`${bar(w.done.length, w.done.length + w.open.length)} ${w.done.length}/${w.done.length + w.open.length} items done · ${w.points.done}/${w.points.total} points`);
@@ -245,6 +282,7 @@ export function main(dataDir, args = []) {
         for (const r of rows) L.push(`  ${r.id.padEnd(9)} ${String(r.status || "?").padEnd(12)} ${r.kind === "story" ? `${String(r.points).padStart(2)} pts  ` : ""}${r.title}${r.inherited ? `  (from ${r.epic})` : ""}`);
       }
       if (!w.rows.length) L.push("", "Nothing is in this version yet.");
+      L.push(...readinessLines(ready));
       L.push("", "Release checks:");
       if (!v.checks.length) L.push("  (none listed; add what a finished item does not cover to the version file)");
       for (const c of v.checks) L.push(`  ${c.n}. [${c.done ? "x" : " "}] ${c.text}`);

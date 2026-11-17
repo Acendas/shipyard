@@ -256,6 +256,9 @@ test("feature set: rice component updates refresh cached rice_score", () => {
     const r = p.run(["feature", "set", "F001", "rice_reach=20", "rice_impact=3", "rice_confidence=0.5", "rice_effort=2"]);
     assert.equal(r.code, 0);
     assert.match(readFeature(p, "F001"), /rice_score: 15/);
+    // the spec text asks for a percentage: 70 is 70%, not seventy times (after 4.0.2: 840 beside 8.4)
+    assert.equal(p.run(["feature", "set", "F001", "rice_reach=6", "rice_impact=1", "rice_confidence=70", "rice_effort=0.5"]).code, 0);
+    assert.match(readFeature(p, "F001"), /rice_score: 8\.4\b/);
   } finally {
     p.cleanup();
   }
@@ -1193,6 +1196,13 @@ test("the owner orders the backlog: a move says why, nothing re-sorts by score b
     assert.match(readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"), /"type":"backlog_moved","id":"F001","from":\d,"to":1,"why":"contracted date 7 Dec/);
     assert.equal(p.run(["backlog", "rank", "--by-score"]).code, 0, "the owner can still ask for a sort by score, by name");
     assert.equal(order()[0], "F004");
+    // several items move together and keep the order given (after 4.0.2, live: five moved one by one with
+    // --below ended up reversed, and all were moved again)
+    r = p.run(["backlog", "move", "F003", "F001", "F002", "--below", "F004", "--why", "slices of F004: they wait for it, in this order"]);
+    assert.equal(r.code, 0, r.stderr); assert.match(r.stdout, /F003, F001, F002 are now 2 to 4 of 4, in that order, after F004\./);
+    assert.deepEqual(order(), ["F004", "F003", "F001", "F002"]);
+    assert.equal(p.run(["backlog", "move", "F001", "F009", "--top", "--why", "one of these is not on the list"]).code, 3);
+    assert.deepEqual(order(), ["F004", "F003", "F001", "F002"], "a refused move changes nothing");
   } finally {
     p.cleanup();
   }

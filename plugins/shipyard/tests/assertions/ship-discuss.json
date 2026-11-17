@@ -2572,5 +2572,61 @@
   "target": "ref:less-backlog.md",
   "pattern": "/ship-discuss --chain E001,E002",
   "why": "after 4.0.1 (owner: 'lets refine all of the epics'; the queue refused epic ids)"
+ },
+ {
+  "name": "refining_a_story_is_one_call",
+  "type": "contains",
+  "target": "ref:refine-mode.md",
+  "pattern": "shipyard-data story refine <S###> --body <draft\\.md>",
+  "why": "after 4.0.2 (a real project, 2026-11-16: 'refined: false' had no way to become true; two sessions each wrote a script that rewrote the story file)"
+ },
+ {
+  "name": "refined_flag_is_never_hand_written",
+  "type": "contains",
+  "target": "ref:refine-mode.md",
+  "pattern": "Never write `refined:`, the probe block or the numbers by hand, and never with a script",
+  "why": "after 4.0.2 (a real project, 2026-11-16: hand-written frontmatter, and a session 'fixing' a score by hand)"
+ },
+ {
+  "name": "unanswered_card_pauses_the_discussion",
+  "type": "contains",
+  "target": "ref:refine-mode.md",
+  "pattern": "lock release discuss --skill ship-discuss --pause",
+  "why": "after 4.0.2 (a real project, 2026-11-16: an approval card timed out, the release was refused and the lock stayed with a session that had ended its turn)"
+ },
+ {
+  "name": "slice_ships_with_what_it_was_split_from",
+  "type": "contains",
+  "target": "ref:less-backlog.md",
+  "pattern": "A slice ships with what it was split from",
+  "why": "after 4.0.2 (a real project, 2026-11-16: five slices of a story in a release had no release, the sprint left them out and the owner asked where they went)"
+ },
+ {
+  "name": "story_add_names_a_version",
+  "type": "contains",
+  "target": "ref:less-backlog.md",
+  "pattern": "\\[--after <id,id>\\] \\[--version <name>\\]",
+  "why": "after 4.0.2 (a real project, 2026-11-16: same incident)"
+ },
+ {
+  "name": "outbox_is_one_card_not_three",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "That is one decision, so it is one card",
+  "why": "after 4.0.2 (a real project, 2026-11-16: the person answered four cards to create five tickets: create? as written? send? send as bugs?)"
+ },
+ {
+  "name": "outbox_table_keeps_record_ids",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "every record id stays in it",
+  "why": "after 4.0.2 (a real project, 2026-11-16: a reworded table lost its path column and five sends were held after 'send all now'; the hook now needs the record named, not the CLI's own table)"
+ },
+ {
+  "name": "merged_ticket_follows_its_story",
+  "type": "contains",
+  "target": "ref:tracker-sync.md",
+  "pattern": "merged into S002, which is done",
+  "why": "after 4.0.2 (a real project, 2026-11-16: two tickets became one story; the second ticket only got a comment and nothing would have closed it)"
  }
 ]

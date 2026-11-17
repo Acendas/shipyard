@@ -181,14 +181,55 @@ test("a cursor left behind with no sprint and no running session is moved aside 
 test("upgrade: the first skill start under a new plugin version says so once and re-stamps", () => {
   const p = project();
   try {
-    writeFileSync(join(p.dataDir, ".shipyard-version"), "4.3.0\n");
+    writeFileSync(join(p.dataDir, ".shipyard-version"), "3.26.0\n");
     let r = p.ctx(["sprint-planning"]);
-    assert.match(r.out, /SHIPYARD_UPGRADED=4\.3\.0 -> \d+\.\d+\.\d+/, r.out + r.err);
+    assert.match(r.out, /SHIPYARD_UPGRADED=3\.26\.0 -> \d+\.\d+\.\d+/, r.out + r.err);
     assert.match(r.out, /UPGRADING\.md/);
     r = p.ctx(["sprint-planning"]);
     assert.doesNotMatch(r.out, /SHIPYARD_UPGRADED/, "said once");
-    assert.match(readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"), /"plugin_upgraded".*"4\.3\.0"/);
+    assert.match(readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"), /"plugin_upgraded".*"3\.26\.0"/);
   } finally { p.cleanup(); }
+});
+
+// After 4.0.2, on a real project: a session opened under 4.0.1 was resumed after 4.0.2 had worked on the data.
+// It said "Shipyard is now 4.0.1", stamped the folder back, and its older health check asked for fields 4.0.2 no
+// longer needs, which the session then wrote by hand.
+test("an old session is stopped at the door; it does not stamp the data folder back to its version", async () => {
+  const { olderSession, newerInstalled, newerVersion, renderOnboardingLines, renderUpgradeNotice } = await import("../bin/init-data.mjs");
+  const p = project();
+  const cache = mkdtempSync(join(tmpdir(), "cache-"));
+  try {
+    for (const v of ["4.0.3", "4.0.4", "4.0.10", "notes"]) mkdirSync(join(cache, v));
+    const root = join(cache, "4.0.3");
+    assert.ok(newerVersion("4.0.10", "4.0.4") && !newerVersion("4.0.3", "4.0.3") && newerVersion("4.1.0", "4.0.99"));
+    assert.equal(newerInstalled(root), "4.0.10");
+    assert.equal(newerInstalled(join(cache, "4.0.10")), "");
+    assert.equal(newerInstalled(join(cache, "notes")), "", "a development copy has no version folder: never guessed");
+    writeFileSync(join(p.dataDir, ".shipyard-version"), "4.0.4\n");
+    assert.deepEqual(olderSession(p.dataDir, { running: "4.0.3", root }), { running: "4.0.3", data: "4.0.4", installed: "4.0.10" });
+    const lines = [];
+    const status = renderOnboardingLines(p.dataDir, (l) => lines.push(l), { running: "4.0.3", root });
+    assert.equal(status.required, true);
+    assert.equal(status.reason, "older_session");
+    const text = lines.join("\n");
+    assert.match(text, /SHIPYARD_ONBOARDING_REQUIRED=true\nSHIPYARD_ONBOARDING_REASON=older_session/);
+    assert.match(text, /it runs 4\.0\.3, and this project was last worked on with 4\.0\.4 \(4\.0\.10 is installed\)/);
+    assert.match(text, /quit it and start a new Claude Code session[\s\S]*run no Shipyard command/);
+    assert.doesNotMatch(text, /SHIPYARD_UPGRADED|SHIPYARD_ONBOARDING_COMMAND/);
+    assert.equal(readFileSync(join(p.dataDir, ".shipyard-version"), "utf8"), "4.0.4\n", "not stamped back");
+    assert.match(readFileSync(join(p.dataDir, ".shipyard-events.jsonl"), "utf8"), /"plugin_older_session"/);
+    // the same version, or an older data folder, is the usual path
+    assert.equal(olderSession(p.dataDir, { running: "4.0.4", root: join(cache, "4.0.4") }), null);
+    assert.equal(olderSession(p.dataDir, { running: "4.0.10", root: join(cache, "4.0.10") }), null);
+    // a real downgrade (nothing newer is installed): said as what it is, and stamped
+    const solo = mkdtempSync(join(tmpdir(), "solo-")); mkdirSync(join(solo, "4.0.3"));
+    assert.equal(olderSession(p.dataDir, { running: "4.0.3", root: join(solo, "4.0.3") }), null);
+    const down = [];
+    renderUpgradeNotice(p.dataDir, (l) => down.push(l), { running: "4.0.3", root: join(solo, "4.0.3") });
+    assert.match(down.join("\n"), /SHIPYARD_UPGRADED=4\.0\.4 -> 4\.0\.3\n.*older than the 4\.0\.4 that last worked on this project/);
+    assert.equal(readFileSync(join(p.dataDir, ".shipyard-version"), "utf8"), "4.0.3\n");
+    rmSync(solo, { recursive: true, force: true });
+  } finally { p.cleanup(); rmSync(cache, { recursive: true, force: true }); }
 });
 
 test("migration: refused while a sprint is in flight; after it, doctor follows aliases and accepts steps:", () => {

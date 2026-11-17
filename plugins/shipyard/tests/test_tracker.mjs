@@ -285,7 +285,7 @@ test("the outbox: ticket texts as files, shown as a table, sent after the person
     assert.match(out, /\| 1 \| ABC-7 \(update\) \| E001 \| Shop: pay by card \| comment, 1 lines \| tracker\/outbox\/E001-comment\.md \|/);
     assert.match(out, /\| 2 \| ABC-7 \(update\) \| E001 \| Shop: pay by card \| description, 4 lines \| tracker\/outbox\/E001\.md \|/);
     assert.match(out, /\| 3 \| new Epic \| E002 \| Shop: refunds \| description, 2 lines \| tracker\/outbox\/E002\.md \|/);
-    assert.match(out, /NEXT \(not part of the table\): write the table in the chat as it is, under a summary of 40 words or fewer[\s\S]*End that message with the line "Question follows\." and end your turn there[\s\S]*send all now \/ show me one in full first \/ not now/);
+    assert.match(out, /NEXT \(not part of the table\): write the table in the chat under a summary of 40 words or fewer[\s\S]*End that message with the line "Question follows\." and end your turn there[\s\S]*send all now \/ show me one in full first \/ not now/);
     assert.equal(JSON.parse(run(d, "tracker", "outbox", "--json").stdout).length, 3);
 
     const t = join(base, "t.jsonl");
@@ -307,6 +307,24 @@ test("the outbox: ticket texts as files, shown as a table, sent after the person
     // they answered: the file's text goes, unpasted
     writeFileSync(t, [cmd, say(table), user("send all now")].join("\n") + "\n");
     assert.equal(decideWrite(d, call({ issue_key: "ABC-7", description: DESC })), null);
+    // The session rewrote the table its own way and left the path column out (live, after 4.0.2: five sends
+    // were held in red right after "send all now"). The listing is on record, the record is named in a message
+    // after it, the person answered: it goes.
+    const at = (line, ms) => JSON.stringify({ ...JSON.parse(line), timestamp: new Date(Date.now() + ms).toISOString() });
+    const own = "Two texts are ready for the tracker.\n\n| Record | Title |\n|---|---|\n| E001 | Shop: pay by card |\n| E002 | Shop: refunds |\n\nQuestion follows.";
+    writeFileSync(t, [cmd, at(say(own), 2000)].join("\n") + "\n");
+    assert.ok(decideWrite(d, call({ issue_key: "ABC-7", description: DESC })), "named, not answered yet");
+    writeFileSync(t, [cmd, at(say(own), 2000), at(user("send all now"), 3000)].join("\n") + "\n");
+    assert.equal(decideWrite(d, call({ issue_key: "ABC-7", description: DESC })), null);
+    // a go given before the text was listed is not its go
+    writeFileSync(t, [cmd, at(say(own), -600000), at(user("send all now"), -590000)].join("\n") + "\n");
+    assert.ok(decideWrite(d, call({ issue_key: "ABC-7", description: DESC })));
+    // a file edited after it was listed is listed again first
+    const edited = DESC + "\nAnd one more line that no listing has ever shown to anyone.\n";
+    writeFileSync(join(d, "tracker", "outbox", "E001.md"), edited);
+    writeFileSync(t, [cmd, at(say(own), 2000), at(user("send all now"), 3000)].join("\n") + "\n");
+    assert.match(decideWrite(d, call({ issue_key: "ABC-7", description: edited })).context, /or the file changed after it was listed/);
+    writeFileSync(join(d, "tracker", "outbox", "E001.md"), DESC + "\n");
     // a text that is neither in the chat nor in the outbox is still held
     assert.match(decideWrite(d, call({ issue_key: "ABC-7", description: "Something else entirely that nobody has seen.\nAnd a second line of it, also unseen by anyone." })).context, /its text is not on the person's screen/);
     // a changed text is not the file's text
@@ -324,6 +342,38 @@ test("the outbox: ticket texts as files, shown as a table, sent after the person
 // four named a ticket in another project, and the spikes named their epic's ticket before their own. The first
 // key was taken for "the record's ticket": the plan offered to update each epic's ticket once per story, with the
 // story's text, and to rewrite tickets in the other project.
+// After 4.0.2, on a real project: two tickets were one fix and became one story. The second ticket got a comment
+// and stayed open; when the story is done only the first ticket would have been told.
+test("a ticket merged into another story follows that story; a new bug is listed as a bug", () => {
+  const f = fixture();
+  const { d } = f;
+  try {
+    const sent = new Date(Date.now() - 60000).toISOString();
+    const story = (id, extra) => writeFileSync(join(d, "spec", "stories", `${id}-x.md`), `---\nid: ${id}\ntitle: "${id} title"\ntype: bug\nepic: ""\n${extra}\ncreated: 2026-11-16\n---\n\n# ${id}\n`);
+    story("S001", `status: approved\nticket: "ABC-10"\nexternal_refs: ["ABC-10", "ABC-13"]\nsynced_at: "${new Date(Date.now() + 5000).toISOString()}"`);
+    story("S002", `status: rejected\nreplaced_by: [S001]\nticket: "ABC-13"\nexternal_refs: ["ABC-13"]\nsynced_at: "${new Date(Date.now() + 5000).toISOString()}"`);
+    assert.match(run(d, "tracker", "plan").stdout, /the tracker is up to date/);
+    // the story it was merged into moves on: the merged ticket is owed the news
+    story("S001", `status: done\nticket: "ABC-10"\nexternal_refs: ["ABC-10", "ABC-13"]\nsynced_at: "${sent}"`);
+    story("S002", `status: rejected\nreplaced_by: [S001]\nticket: "ABC-13"\nexternal_refs: ["ABC-13"]\nsynced_at: "${sent}"`);
+    const plan = run(d, "tracker", "plan").stdout;
+    assert.match(plan, /TRACKER PLAN · 0 with no ticket · 2 changed since last sent/);
+    assert.match(plan, /S001 +ABC-10 +S001 title +· here: done/);
+    assert.match(plan, /S002 +ABC-13 +S002 title +· merged into S001, which is done/);
+    assert.equal(run(d, "tracker", "synced", "S002", "--ticket-status", "Done").status, 0);
+    assert.doesNotMatch(run(d, "tracker", "plan").stdout, /S002/);
+    // a rejected record that was merged into nothing stays out
+    story("S003", `status: rejected\nticket: "ABC-14"\nexternal_refs: ["ABC-14"]`);
+    assert.doesNotMatch(run(d, "tracker", "plan").stdout, /S003/);
+    // the outbox names a new bug a bug (the session had to explain "the table says Story")
+    story("S004", "status: proposed\nexternal_refs: []");
+    mkdirSync(join(d, "tracker", "outbox"), { recursive: true });
+    writeFileSync(join(d, "tracker", "outbox", "S004.md"), "As a developer, I want this fixed, so that it works.\n");
+    assert.match(run(d, "tracker", "outbox").stdout, /\| 1 \| new Bug \| S004 \|/);
+    assert.ok(events(d).some((e) => e.type === "tracker_outbox_listed" && /^S004\.md=[0-9a-f]{10}$/.test(e.file)));
+  } finally { rmSync(f.base, { recursive: true, force: true }); }
+});
+
 test("a record's own ticket is explicit; a key it only mentions is a reference and is never written to", () => {
   const { base, d } = fixture();
   try {

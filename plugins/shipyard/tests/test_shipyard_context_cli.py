@@ -100,7 +100,7 @@ class TestViewSubcommand(NamedSubcommandBase):
         ('render-rule', 'Render before asking. Before every AskUserQuestion, in this order:'),
         ('summary-first', 'a summary of 40 words or fewer'),
         ('question-follows-step', 'end that message with the line `Question follows.` and end your turn there'),
-        ('provenance-only-chat-counts', 'Anything else (a tool result, a file, your thinking, the card itself) does not count as rendered'),
+        ('provenance-only-chat-counts', 'Anything else (a tool result, a file, the card itself) does not count as rendered'),
         ('provenance-compact-card', 'options show as a compact card'),
         ('recovery', "Recovery: if the user can't see what you reference, render it in full before asking again."),
         ('paths-prefix', 'Paths: use the literal absolute SHIPYARD_DATA prefix,'),

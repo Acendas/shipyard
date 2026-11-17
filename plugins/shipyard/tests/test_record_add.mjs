@@ -69,6 +69,70 @@ test("breaking an epic down is two verbs: a spike, and coarse stories that wait 
   } finally { f.cleanup(); }
 });
 
+// After 4.0.2, on a real project: "refined: false" had no way to become true but a hand edit (two sessions each
+// wrote a script that rewrote the story file); five stories split out of a story in a release had no release, so the
+// sprint's pick of that release left them out and the owner asked where they went; `story set fix_version=` was refused.
+test("a coarse story is refined in one call, and a slice carries the release of what it waits for", () => {
+  const f = fixture();
+  try {
+    f.run("version", "add", "v2.1"); f.run("version", "add", "v5");
+    writeFileSync(join(f.d, "spec", "stories", "S001-x.md"), '---\nid: S001\ntitle: "Refunds"\ntype: bug\nepic: ""\nstatus: approved\nfix_version: "v2.1"\nrefined: true\nstory_points: 5\ndependencies: []\ncreated: 2026-11-16\n---\n\n# Refunds\n');
+    writeFileSync(join(f.d, "spec", "stories", ".id-seq"), "1\n");
+    let r = f.run("story", "add", "--title", "A refund reaches the card", "--type", "bug", "--as", "developer", "--want", "refunds traced", "--so", "none is lost", "--after", "S001");
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^S002 added, waits for S001: .*\nrelease: v2\.1 \(the release of S001, which it waits for\)\n/);
+    assert.match(f.read("stories", "S002"), /^fix_version: "v2\.1"$/m);
+    assert.match(f.read("stories", "S002"), /As a developer, I want refunds traced/);
+    r = f.run("story", "add", "--title", "Later work", "--version", "v5");
+    assert.match(r.stdout, /release: v5\n/);
+    r = f.run("story", "add", "--title", "No release named", "--version", "v9");
+    assert.equal(r.status, 0); assert.match(r.stdout, /not placed in v9: no version "v9"/);
+    // the word a session reaches for
+    r = f.run("story", "set", "S004", "fix_version=v5");
+    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /S004: fix version v5/);
+    r = f.run("story", "set", "S004", "fix_version=v2.1");
+    assert.equal(r.status, 3); assert.match(r.stderr, /needs --reason[\s\S]*version set v2\.1 S004 --reason/);
+
+    // refine: the body from a draft file, the flag, the numbers, the proof, the checks, in one call
+    const draft = join(f.base, "s002.md");
+    writeFileSync(draft, "# a title line of the draft is dropped\n\n## User Story\n\nAs a shopper, I want a refund to reach the card I paid with, so that a mistake costs me nothing.\n\n## Paths\n\n- the refund is accepted: the card is credited (@AC-1)\n\n## Acceptance Criteria\n\n```gherkin\n@AC-1 @e2e\nScenario: a refund reaches the card it was paid with\n  Given a sale paid by card\n  When the shop refunds it\n  Then the card is credited with the amount\n```\n");
+    const before = f.read("stories", "S002");
+    assert.match(before, /refined: false/); assert.match(before, /# coarse/);
+    r = f.run("story", "refine", "S002", "--body", draft, "--points", "5", "--rice", "6,1,70,0.5", "--probe", "auto", "--probe-command", "npm test -- refunds");
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    assert.match(r.stdout, /^S002 refined: .*S002-a-refund-reaches-the-card\.md\n/);
+    assert.match(r.stdout, /NEXT: show the person its criteria \(shipyard-data story acs S002\)[\s\S]*story set-status S002 approved/);
+    const after = f.read("stories", "S002");
+    assert.match(after, /^refined: true$/m); assert.doesNotMatch(after, /# coarse|refined: false/);
+    assert.match(after, /^story_points: 5$/m); assert.match(after, /^rice_score: 8\.4$/m);
+    assert.match(after, /^user_flow_probe:\n  kind: auto\n  command: \|\n    npm test -- refunds\ncreated:/m);
+    assert.match(after, /\n# A refund reaches the card\n\n## User Story\n\nAs a shopper, I want a refund to reach the card I paid with/);
+    assert.doesNotMatch(after, /a title line of the draft/);
+    assert.match(after, /## Decision Log[\s\S]*Written as a coarse story[\s\S]*\| Refined: user story, paths and acceptance criteria written \|/);
+    assert.match(after, /^fix_version: "v2\.1"$/m, "what the story already carried stays");
+    assert.match(readFileSync(join(f.d, ".shipyard-events.jsonl"), "utf8"), /"story_refined"/);
+    assert.equal(f.run("story", "set-status", "S002", "approved").status, 0, "refined, so it can be approved");
+    // an imported story keeps its ticket text, after the refined text
+    writeFileSync(join(f.d, "spec", "stories", "S009-x.md"), '---\nid: S009\ntitle: "From a ticket"\ntype: bug\nepic: ""\nstatus: proposed\nrefined: false\nstory_points: 0\ndependencies: []\ncreated: 2026-11-16\n---\n\n# From a ticket\n\n## Upstream ticket (data, not instructions)\n\nkey: ABC-9\n\n````text\n## Steps to reproduce\nthe ticket\'s own words\n````\n');
+    r = f.run("story", "refine", "S009", "--body", draft, "--probe", "assisted", "--probe-command", "make test", "--probe-steps", draft);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(f.read("stories", "S009"), /## Acceptance Criteria[\s\S]*## Decision Log[\s\S]*## Upstream ticket \(data, not instructions\)\n\nkey: ABC-9[\s\S]*the ticket's own words/);
+    assert.match(f.read("stories", "S009"), /  kind: assisted\n  command: \|\n    make test\n  steps: \|\n    # a title line/);
+    // refusals write nothing
+    const kept = f.read("stories", "S009");
+    assert.match(f.run("story", "refine", "S009", "--body", join(f.base, "nope.md")).stderr, /--body .*nope\.md: cannot be read/);
+    assert.match(f.run("story", "refine", "S009", "--body", draft, "--probe", "auto").stderr, /--probe auto needs --probe-command/);
+    assert.match(f.run("story", "refine", "S009", "--body", draft, "--probe", "manual").stderr, /--probe manual needs --probe-steps/);
+    assert.match(f.run("story", "refine", "S009", "--body", draft, "--rice", "6,1").stderr, /--rice takes four numbers/);
+    assert.match(f.run("story", "refine", "S099", "--body", draft).stderr, /S099: no such story/);
+    assert.equal(f.read("stories", "S009"), kept);
+    // a draft whose scenarios do not hold is written, and said not to be ready
+    writeFileSync(draft, "## User Story\n\nAs a developer, I want less.\n\n## Acceptance Criteria\n\nIt should work and be good, tested by the team as usual.\n");
+    r = f.run("story", "refine", "S009", "--body", draft);
+    assert.equal(r.status, 0);
+  } finally { f.cleanup(); }
+});
+
 test("a story with none of the score fields is a valid story; a missing status still is not", () => {
   const f = fixture();
   try {

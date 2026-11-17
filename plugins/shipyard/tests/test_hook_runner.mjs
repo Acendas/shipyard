@@ -129,6 +129,20 @@ test("a discussion cannot edit a project file; its own rule files, another sessi
     writeFileSync(join(projectDir, "CLAUDE.md"), "x\n");
     assert.equal(decision(edit(join(projectDir, "CLAUDE.md"), "s1")), "pass", "CLAUDE.md is a rule file too");
     assert.equal(decision(edit(join(pluginData, "spec.md"), "s1")), "allow", "its own data is still its own");
+    // A draft in the session's own scratch folder is not the project (after 4.0.2, live: three drafts were
+    // refused as "a project file" and went into the data folder instead). The repository the project's folder
+    // sits in still is.
+    const scratch = mkdtempSync(join(tmpdir(), "scratch-"));
+    try {
+      assert.equal(decision(edit(join(scratch, "draft.md"), "s1")), "pass", "outside the project: not this rule's business");
+      const repo = mkdtempSync(join(tmpdir(), "mono-"));
+      mkdirSync(join(repo, ".git")); mkdirSync(join(repo, "app")); mkdirSync(join(repo, "lib"));
+      writeFileSync(join(repo, "lib", "x.c"), "int y;\n");
+      writeFileSync(join(pluginData, ".project-root"), join(repo, "app") + "\n");
+      assert.equal(decision(edit(join(repo, "lib", "x.c"), "s1")), "deny", "a sibling folder of the same repository");
+      assert.equal(decision(edit(join(scratch, "draft.md"), "s1")), "pass");
+      rmSync(join(pluginData, ".project-root")); rmSync(repo, { recursive: true, force: true });
+    } finally { rmSync(scratch, { recursive: true, force: true }); }
     // the owner lists where this project records its decisions (4.20.1)
     mkdirSync(join(projectDir, "docs", "ui"), { recursive: true });
     writeFileSync(join(projectDir, "docs", "game-design.md"), "x\n"); writeFileSync(join(projectDir, "docs", "ui", "rules.md"), "x\n"); writeFileSync(join(projectDir, "docs", "notes.md"), "x\n");

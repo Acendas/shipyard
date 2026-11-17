@@ -588,6 +588,21 @@ test("a discussion that touched tracker-linked work cannot end without the sync 
     const plan = p.run(["tracker", "plan"]).stdout;
     assert.match(plan, /1\. S050 +Story +Found in research +· under ABC-1/); assert.match(plan, /2\. E001 +ABC-1 +Offline mode +· here: proposed +· never sent/);
     assert.match(plan, /^TRACKER PLAN · 1 with no ticket · 1 changed since last sent · tracker_sync: ask/);
+    // The person stepped away while a question waited (after 4.0.2, live: the card timed out, the release was
+    // refused, and the lock stayed with a session that had ended its turn). The discussion is paused, never
+    // answered for them, and the next one answers for what this one left.
+    assert.match(r.stderr, /If the person is away[\s\S]*release with --pause/);
+    const pause = () => p.run(["lock", "release", "discuss", "--skill", "ship-discuss", "--session", "s1", "--pause"]);
+    r = pause();
+    assert.equal(r.code, 3); assert.match(r.stderr, /--pause is for a discussion with something left open/);
+    assert.equal(p.run(["discuss-queue", "start", "--items", "S050"]).code, 0);
+    r = pause();
+    assert.equal(r.code, 0, r.stderr); assert.equal(JSON.parse(r.stdout).paused, true);
+    assert.equal(acquire().code, 0);
+    assert.ok(JSON.parse(readFileSync(join(d, ".active-discuss.json"), "utf8")).owed_since, "the new discussion carries the old one's start");
+    r = release();
+    assert.equal(r.code, 3); assert.match(r.stderr, /not finished with the tracker: 1 item\(s\) written here have no ticket/);
+    p.run(["discuss-queue", "clear"]);
     p.run(["tracker", "decided", "--sync", "later"]);
     assert.equal(release().code, 0, '"later" is an answer; silence is not');
   } finally {

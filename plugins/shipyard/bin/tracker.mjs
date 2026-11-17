@@ -524,7 +524,20 @@ export function syncPlan(dataDir, { since = null } = {}) {
   const sinceMs = since ? Date.parse(since) : null;
   const rows = [], held = [];
   for (const r of recs) {
-    if (SETTLED.has(r.status)) continue;
+    if (SETTLED.has(r.status)) {
+      // A ticket merged into another story follows that story (after 4.0.2, live: two tickets became one
+      // story; the second ticket got a comment and stayed open, and when the story is done only the first
+      // ticket would have been told). It is listed whenever the story it was merged into has changed since
+      // this ticket was last sent, with that story's status.
+      const into = getArray(r.fm.block, "replaced_by").map((x) => byId.get(x)).filter(Boolean);
+      if (!r.own.length || !into.length) continue;
+      const syncedMs = r.synced_at ? Date.parse(r.synced_at) : NaN;
+      const moved = into.filter((t) => !Number.isFinite(syncedMs) || t.mtime > syncedMs + 1000);
+      if (!moved.length || (sinceMs !== null && Number.isFinite(sinceMs) && moved.every((t) => t.mtime < sinceMs))) continue;
+      const lead = into[0];
+      rows.push({ action: "update", id: r.id, kind: r.kind, title: r.title, status: lead.status, ticket_status: (r.fm.block.match(/^  status:[ \t]*"?([^"\n#]*)"?/m) || [])[1]?.trim() ?? "", sprint: sprint.ids.has(lead.id) ? sprint.id : "", points: 0, fix_version: lead.fix_version || r.fix_version || "", key: keyOf(r), never_synced: !r.synced_at, merged_into: into.map((t) => t.id) });
+      continue;
+    }
     if (sinceMs !== null && Number.isFinite(sinceMs) && r.mtime < sinceMs) continue;
     const parent = byId.get(r.epic);
     const base = { id: r.id, kind: r.kind, title: r.title, status: r.status, ticket_status: (r.fm.block.match(/^  status:[ \t]*"?([^"\n#]*)"?/m) || [])[1]?.trim() ?? "", sprint: sprint.ids.has(r.id) ? sprint.id : "", points: Number(getScalar(r.fm.block, "story_points")) || 0, fix_version: r.fix_version || parent?.fix_version || "", parent: r.epic, parent_key: keyOf(parent), file: r.path };
@@ -620,12 +633,30 @@ export function outboxFiles(dataDir) {
     const rec = recs.find((r) => base === r.id || base.startsWith(`${r.id}-`)) ?? null;
     let text = "";
     try { text = readFileSync(join(dir, n), "utf8"); } catch { /* unreadable: listed with 0 lines */ }
-    let title = "", refs = [];
-    if (rec) { try { const fm = parseFm(readFileSync(rec.path, "utf8")); title = String(getScalar(fm.block, "title") ?? "").replace(/^"|"$/g, ""); refs = getArray(fm.block, "external_refs"); } catch { /* listed without them */ } }
+    let title = "", type = "";
+    if (rec) { try { const fm = parseFm(readFileSync(rec.path, "utf8")); title = String(getScalar(fm.block, "title") ?? "").replace(/^"|"$/g, ""); type = String(getScalar(fm.block, "type") ?? "").replace(/^"|"$/g, ""); } catch { /* listed without them */ } }
     const key = rec ? owns.get(rec.id)?.own[0] ?? "" : "";
     const what = base.slice(rec ? rec.id.length : 0).replace(/^-/, "") || "description";
-    return { file: `${OUTBOX_DIR}/${n}`, path: join(dir, n), id: rec?.id ?? "", kind: rec?.kind ?? "", title, key, what, lines: text.split("\n").filter((l) => l.trim()).length, text };
+    return { file: `${OUTBOX_DIR}/${n}`, path: join(dir, n), id: rec?.id ?? "", kind: rec?.kind ?? "", type, title, key, what, lines: text.split("\n").filter((l) => l.trim()).length, text };
   });
+}
+const outboxHash = (text) => createHash("sha1").update(String(text ?? "")).digest("hex").slice(0, 10);
+/**
+ * When `tracker outbox` last listed this file with this very text (an ISO time), or "".
+ * After 4.0.2, live: the session reworded the outbox table and dropped its "Whole text" column, the hook looked
+ * for that path in the chat, and five sends were held in red right after the person chose "send all now". The
+ * listing is now a logged fact, so the hook needs only: listed, the record named in the chat, the person's go.
+ */
+export function outboxListedAt(dataDir, f) {
+  const want = `${String(f.file).split("/").pop()}=${outboxHash(f.text)}`;
+  let text = "";
+  try { text = readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8"); } catch { return ""; }
+  let at = "";
+  for (const line of text.split("\n")) {
+    if (!line.includes('"tracker_outbox_listed"') || !line.includes(want)) continue;
+    try { const e = JSON.parse(line); if (e.type === "tracker_outbox_listed" && String(e.file ?? "") === want) at = String(e.ts ?? ""); } catch { /* a cut line */ }
+  }
+  return at;
 }
 /** A record's outbox files have been sent: they leave the outbox (kept under tracker/sent/ as what the ticket was given). */
 function clearOutbox(dataDir, id) {
@@ -696,7 +727,7 @@ export function main(dataDir, args = []) {
       const creates = p.rows.filter((r) => r.action === "create"), updates = p.rows.filter((r) => r.action === "update");
       const mode = trackerSyncMode(dataDir);
       const L = [`TRACKER PLAN · ${creates.length} with no ticket · ${updates.length} changed since last sent · tracker_sync: ${mode}`];
-      const life = (r) => `${r.status ? `  · here: ${r.status}${r.ticket_status ? ` (ticket: ${r.ticket_status})` : ""}` : ""}${r.sprint ? `  · in ${r.sprint}` : ""}${r.points ? `  · ${r.points} pts` : ""}`;
+      const life = (r) => `${r.merged_into ? `  · merged into ${r.merged_into.join(", ")}, which is` : ""}${r.status ? `${r.merged_into ? " " : "  · here: "}${r.status}${r.ticket_status ? ` (ticket: ${r.ticket_status})` : ""}` : ""}${r.sprint ? `  · in ${r.sprint}` : ""}${r.points ? `  · ${r.points} pts` : ""}`;
       if (creates.length) { L.push("", "No ticket yet (create):"); for (const r of compactRows(creates)) L.push(r.group ? r.group : `  ${String(r.n).padStart(2)}. ${r.id.padEnd(9)} ${r.tracker_type.padEnd(5)} ${r.title}${r.parent_key ? `  · under ${r.parent_key}` : r.parent ? `  · under ${r.parent} (no ticket yet)` : ""}${r.fix_version ? `  · ${r.fix_version}` : ""}${r.names && r.names.some((k) => k !== r.parent_key) ? `  · mentions ${r.names.filter((k) => k !== r.parent_key).join(", ")}` : ""}`); }
       if (creates.some((r) => r.names && r.names.some((k) => k !== r.parent_key))) L.push("  (a mentioned key is a reference. If it is the record's own ticket: shipyard-data tracker link <id> <KEY>)");
       if (updates.length) { L.push("", "Linked, changed here since last sent (update):"); for (const r of updates) L.push(`  ${String(r.n).padStart(2)}. ${r.id.padEnd(9)} ${r.key.padEnd(10)} ${r.title}${r.fix_version ? `  · ${r.fix_version}` : ""}${life(r)}${r.never_synced ? "  · never sent" : ""}`); }
@@ -732,6 +763,8 @@ export function main(dataDir, args = []) {
     }
     if (sub === "outbox") {
       const files = outboxFiles(dataDir);
+      // one event per file (a field is cut at 200 characters, so a joined list would lose the later files)
+      for (const f of files) { try { logEvent(dataDir, "tracker_outbox_listed", { file: `${f.file.split("/").pop()}=${outboxHash(f.text)}`, record: f.id }); } catch { /* best-effort */ } }
       if (json) { process.stdout.write(JSON.stringify(files.map(({ text: _t, ...f }) => f)) + "\n"); return; }
       const dir = join(dataDir, ...OUTBOX_DIR.split("/"));
       if (!files.length) {
@@ -740,9 +773,9 @@ export function main(dataDir, args = []) {
       }
       const cell = (v) => String(v).replace(/\|/g, "/");
       const L = [`OUTBOX · ${files.length} text(s) ready for the tracker · nothing is sent before the person says go`, "", "| # | Ticket | Record | Title | What is sent | Whole text |", "|---|---|---|---|---|---|"];
-      files.forEach((f, i) => L.push(`| ${i + 1} | ${f.key ? `${f.key} (update)` : f.id ? `new ${TRACKER_TYPE[f.kind] ?? "ticket"}` : "?"} | ${f.id || "(no record with this name)"} | ${cell(f.title)} | ${cell(f.what)}, ${f.lines} lines | ${f.file} |`));
+      files.forEach((f, i) => L.push(`| ${i + 1} | ${f.key ? `${f.key} (update)` : f.id ? `new ${f.type === "bug" ? "Bug" : TRACKER_TYPE[f.kind] ?? "ticket"}` : "?"} | ${f.id || "(no record with this name)"} | ${cell(f.title)} | ${cell(f.what)}, ${f.lines} lines | ${f.file} |`));
       L.push("", `Folder: ${dir}`, "",
-        `NEXT (not part of the table): write the table in the chat as it is, under a summary of 40 words or fewer (what goes to the tracker and why), and name the folder. End that message with the line "Question follows." and end your turn there. Then one card: send all now / show me one in full first / not now.`,
+        `NEXT (not part of the table): write the table in the chat under a summary of 40 words or fewer (what goes to the tracker and why), every record id in it, and name the folder. End that message with the line "Question follows." and end your turn there. Then one card: send all now / show me one in full first / not now.`,
         "  on their go: send each file's text word for word, read the ticket back, then  shipyard-data tracker link <id> <KEY>  (created)  or  shipyard-data tracker synced <id>  (updated)",
         "  to change a text: edit its file, run this again and show the table again");
       process.stdout.write(L.join("\n") + "\n");

@@ -146,8 +146,10 @@ export function summarize(t) {
 /** Why a story may not be approved yet, from the topic bound to it. [] when nothing holds it. */
 export function approvalProblems(dataDir, storyId) {
   const out = [];
+  let bound = false;
   for (const t of Object.values(readState(dataDir).topics)) {
     if (!storyId || !boundTo(t).includes(String(storyId))) continue;
+    bound = true;
     // Where the research looked is on record before approval (4.0.1). The owner: "as part of discuss make sure
     // research looks at datasources internal as well as the usual external". Only topics started since then.
     if (t.needs_sources && !t.sources) out.push('the research has not said where it looked: record the organisation\'s own sources (wiki, tracker, shared drive, the project\'s documents) and the outside ones with `discuss-questions sources --wiki "…" --tracker "…" --drive "…" --external "…"` (each: what was searched and found, or "not connected", or "not relevant: <why>")');
@@ -158,6 +160,31 @@ export function approvalProblems(dataDir, storyId) {
     if (waiting.length) out.push(`${waiting.length} question(s) of this discussion are not answered yet (${waiting.map((q) => q.id).join(", ")}): ask them (\`discuss-questions next\`), or \`drop\` the ones research answered`);
     if (["running", "parked"].includes(t.research.state)) out.push(`the background research is ${t.research.state}: let it finish with the answers (\`discuss-questions research --state done\`), or record \`--state abandoned --note "<why>"\``);
     else if (t.research.state !== "abandoned") { const unread = summarize(t).unread_answers; if (unread.length) out.push(`the researcher has not read the answer to ${unread.join(", ")}: resume it with those answers, or record \`research --state abandoned --note "<why>"\` and fold them in yourself`); }
+  }
+  // A story with no topic of its own, approved by the session that holds the discussion (after 4.0.2, live: two
+  // stories were approved on one card; the one bound to a topic was refused for its sources, the other went
+  // through, and the session reported "the approval only half went through"). The rule is the discussion's, so
+  // it is keyed on the lock, as at the lock's release; a topic is optional and a gate keyed on it is skipped by
+  // not making one. Another session approving beside the discussion, and the quick lanes, owe nothing.
+  if (storyId && !bound) {
+    let lock = null;
+    try { const o = JSON.parse(readFileSync(join(dataDir, ".active-discuss.json"), "utf8")); lock = o && o.skill && !o.cleared ? o : null; } catch { lock = null; }
+    const me = process.env.CLAUDE_CODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || "";
+    if (lock && me && String(lock.session_id ?? "") === me) {
+      const t0 = Date.parse(lock.started ?? "");
+      let recorded = false, asked = false, quick = false;
+      let text = "";
+      try { text = readFileSync(join(dataDir, ".shipyard-events.jsonl"), "utf8"); } catch { text = ""; }
+      for (const line of text.split("\n")) {
+        if (!line.includes('"discuss_sources_recorded"') && !line.includes('"intake_lane_confirmed"')) continue;
+        let e; try { e = JSON.parse(line); } catch { continue; }
+        if (Number.isFinite(t0) && Date.parse(e.ts) < t0 - 1000) continue;
+        if (e.type === "discuss_sources_recorded") { recorded = true; if (e.person_asked === "yes") asked = true; }
+        if (e.type === "intake_lane_confirmed") quick = ["land-now", "capture", "hotfix"].includes(e.lane);
+      }
+      if (!quick && !recorded) out.push('this discussion has not said where its research looked: record the organisation\'s own sources (wiki, tracker, shared drive, the project\'s documents) and the outside ones with `discuss-questions sources --wiki "…" --tracker "…" --drive "…" --external "…"` (each: what was searched and found, or "not connected", or "not relevant: <why>")');
+      else if (!quick && !asked) out.push('the person has not been asked whether a document exists that this session cannot reach (a PDF, a contract, a spec sheet, an email): show them what the research looked at, ask, read what they give, and record their answer with `discuss-questions sources --person-said "<their answer>"`');
+    }
   }
   return out;
 }
@@ -229,7 +256,7 @@ export function sourcesOwed(dataDir, since, events = []) {
   return { topic: mine.find((t) => t.sources)?.topic ?? FALLBACK_TOPIC, missing: mine.some((t) => t.sources) ? "person" : "sources" };
 }
 const FALLBACK_TOPIC = "discussion"; // where `sources` is kept when a discussion has no question list
-const WROTE_SPECS = new Set(["idea_promoted", "idea_imported", "idea_captured", "story_imported", "task_imported", "tracker_pulled", "story_added", "task_added"]);
+const WROTE_SPECS = new Set(["idea_promoted", "idea_imported", "idea_captured", "story_imported", "task_imported", "tracker_pulled", "story_added", "task_added", "story_refined"]);
 const lockStart = (dataDir) => { try { const o = JSON.parse(readFileSync(join(dataDir, ".active-discuss.json"), "utf8")); return o && o.skill && !o.cleared ? String(o.started ?? "") : ""; } catch { return ""; } };
 /** Topics with something waiting (for the start-of-discussion context). */
 export function waitingTopics(dataDir) {

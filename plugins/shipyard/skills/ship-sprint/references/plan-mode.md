@@ -87,6 +87,8 @@ If no approved features exist in the backlog and no carry-over items were select
 
 **Display the actual features with real data before asking the user to choose.** Never ask "which features?" without showing them first.
 
+**Say what is left out, and why.** When the selection comes from a release, print the `For a sprint:` lines of `shipyard-data version show <name>` as they are (ready, in a sprint, not ready and why, closed and why) above the options. After the choice, name in one line each ready story of that release that this sprint does not take and where it stays (its place on the backlog). A person who gave eleven tickets and sees six in the sprint must not have to ask where the other five went.
+
 **Fit line is CLI output.** Once a suggested selection exists, run `shipyard-data capacity --points <suggested total>` and print its `Fit` and `Calibration` lines verbatim under the suggestion (the calibration line is never omitted when a fit is stated). Below 3 finished sprints the CLI prints the honest range and no percentage; print that instead. Repeat the call whenever the selection changes.
 
 Output the feature list as formatted text:

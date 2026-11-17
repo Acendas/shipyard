@@ -39,9 +39,9 @@ A write hook holds any ticket or page text the person has not seen. How they see
 | What is sent | How it is shown |
 |---|---|
 | A short text: one comment, a few lines | In the chat, word for word, inside a code block; then ask |
-| A description, or more than one ticket | Never pasted. Write each text, exactly as it will be sent, to `<SHIPYARD_DATA>/tracker/outbox/<record id>.md` (a comment: `<record id>-comment.md`). Run `shipyard-data tracker outbox`, write its table in the chat under a summary of 40 words or fewer, end with `Question follows.`; one card: send all now / show me one in full first / not now |
+| A description, or more than one ticket | Never pasted. Write each text, exactly as it will be sent, to `<SHIPYARD_DATA>/tracker/outbox/<record id>.md` (a comment: `<record id>-comment.md`). Run `shipyard-data tracker outbox`, write its table in the chat under a summary of 40 words or fewer (every record id stays in it), end with `Question follows.`; one card: send all now / show me one in full first / not now |
 
-After their go, send each file's text word for word; `tracker link` or `tracker synced` then moves the file to `tracker/sent/`. "Then update the tickets", said before the texts existed, is why you prepare them: it is not the go for texts nobody has seen. Never send in the same message that writes the spec.
+Go straight to the outbox: do not first paste a draft and ask whether to create, then show the outbox and ask again. That is one decision, so it is one card. After their go, send each file's text word for word; `tracker link` or `tracker synced` then moves the file to `tracker/sent/`. A file edited after the table was shown is listed and shown again before it is sent. "Then update the tickets", said before the texts existed, is why you prepare them: it is not the go for texts nobody has seen. Never send in the same message that writes the spec.
 
 ## 3. Along the way to done (`/ship-sprint`, `/ship-execute`, `/ship-review`)
 
@@ -64,3 +64,7 @@ A linked ticket is kept in step from the discussion to the release, for every ki
 - The ticket's assignee and other people's comments are the tracker's. A status changes only as a row of the plan the person agreed to (or under `tracker_sync: auto`), never as a side effect.
 - A ticket's fix version and Shipyard's `fix_version` can differ: the tracker's is mirrored under `upstream:`; Shipyard's is the forecast decided here. Sending it to the tracker is a row of the plan like any other.
 - `shipyard-data tracker pull` (again, any time) refreshes what the tickets say; a record whose ticket changed is marked `upstream_changed` until `tracker ack <id>`.
+
+## Two tickets, one story
+
+When two tickets are one fix, one story keeps its own ticket and the other story is closed with `story set-status <S###> rejected --reason "merged into <S###>" --replaced-by <S###>`. The closed story keeps its ticket. From then on `tracker plan` lists that ticket whenever the story it was merged into changes ("merged into S002, which is done"), so it is closed with the other one and not left open.

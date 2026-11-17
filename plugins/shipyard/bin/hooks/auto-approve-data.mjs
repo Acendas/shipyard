@@ -46,11 +46,11 @@
  * silently and lets the default permission evaluator decide.
  */
 
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { parseFrontmatterList } from "../frontmatter-list.mjs";
 import { globToRe } from "../risk.mjs";
-import { basename, dirname, join, resolve as pathResolve } from "node:path";
-import { homedir } from "node:os";
+import { basename, dirname, join, resolve as pathResolve, sep } from "node:path";
+import { homedir, tmpdir } from "node:os";
 import {
   dataDirContains,
   logBreadcrumb,
@@ -147,9 +147,30 @@ const FRONTMATTER_KEY_RES = new Map(
   ]),
 );
 
-function findOwnedFrontmatterKey(text) {
-  for (const [key, re] of FRONTMATTER_KEY_RES) {
-    if (re.test(text)) return key;
+/**
+ * The owned key an edit changes, or null. A key line that is only an anchor (the same line, with the same
+ * indented lines under it, on both sides) is not a change: after 4.0.2, live, an edit that added two fields
+ * after `story_points: 5` was refused for "story_points", and the session went looking for another anchor.
+ */
+function ownedKeyChanged(toolName, toolInput) {
+  const blocks = (text, re) => {
+    const lines = String(text).split(/\r?\n/);
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!re.test(lines[i])) continue;
+      const own = [lines[i].trimEnd()];
+      const indent = lines[i].match(/^[ \t]*/)[0].length;
+      for (let j = i + 1; j < lines.length && lines[j].trim() && lines[j].match(/^[ \t]*/)[0].length > indent; j++) own.push(lines[j].trimEnd());
+      out.push(own.join("\n"));
+    }
+    return out.sort().join("\n\u0000");
+  };
+  for (const { oldString, newString } of editPairs(toolName, toolInput)) {
+    for (const [key, re] of FRONTMATTER_KEY_RES) {
+      if (!re.test(oldString) && !re.test(newString)) continue;
+      const line = new RegExp(re.source);
+      if (blocks(oldString, line) !== blocks(newString, line)) return key;
+    }
   }
   return null;
 }
@@ -165,16 +186,6 @@ function editPairs(toolName, toolInput) {
     oldString: toolInput.old_string || "",
     newString: toolInput.new_string || "",
   }];
-}
-
-// Concatenate every old_string/new_string pair the tool call would write,
-// across all edits for MultiEdit. Scanning both sides catches a key being
-// introduced (new_string) or a key line being touched at all (old_string) —
-// either shape means the model is hand-authoring that field.
-function editedText(toolName, toolInput) {
-  return editPairs(toolName, toolInput)
-    .map((e) => `${e.oldString}\n${e.newString}`)
-    .join("\n");
 }
 
 function enclosingTopLevelBlock(content, index) {
@@ -326,6 +337,30 @@ export function discussMayWrite(dataDir, filePath) {
   return false;
 }
 
+/**
+ * Is this path part of the project a discussion must not edit? After 4.0.2, live: a discussion drafted three
+ * story texts in its own scratch folder (under the system's temp folder) and each write was refused as "a
+ * project file"; the drafts then went into the data folder instead and stayed there. The project is its
+ * folder (`.project-root`) and the repository that folder is in. When neither is known the old answer stands
+ * (everything outside the data folder), except a temp folder, which is never the project.
+ */
+export function insideProject(dataDir, filePath) {
+  const p = String(filePath);
+  const under = (root) => Boolean(root) && (p === root || p.startsWith(root.endsWith(sep) ? root : root + sep));
+  let root = "";
+  try { root = tryRealpath(readFileSync(join(dataDir, ".project-root"), "utf8").trim()) || ""; } catch { root = ""; }
+  if (!root && process.env.CLAUDE_PROJECT_DIR) root = tryRealpath(process.env.CLAUDE_PROJECT_DIR) || "";
+  if (root) {
+    if (under(root)) return true;
+    for (let d = root, up = dirname(d); up !== d; d = up, up = dirname(d)) {
+      if (existsSync(join(up, ".git"))) return under(up);
+    }
+    return false;
+  }
+  for (const t of [tmpdir(), "/tmp", "/private/tmp"]) { if (under(tryRealpath(t) || t)) return false; }
+  return true;
+}
+
 export async function run(hookInput, _env) {
   const toolName = hookInput?.tool_name || "";
   if (!GUARDED_TOOLS.has(toolName)) return 0;
@@ -423,7 +458,7 @@ export async function run(hookInput, _env) {
       isFrontmatterOwnedPath(filePath, shipyardData)
     ) {
       const hitKey =
-        findOwnedFrontmatterKey(editedText(toolName, toolInput)) ||
+        ownedKeyChanged(toolName, toolInput) ||
         findOwnedConfigNestedKey(filePath, toolName, toolInput, shipyardData);
       if (hitKey) {
         logBreadcrumb(shipyardData, LOG_NAME, "deny", [
@@ -489,7 +524,7 @@ export async function run(hookInput, _env) {
   // exception is the project's own rule files, which Phase 6 may amend after
   // the owner says so.
   const discussing = discussOnly(shipyardData, hookInput?.session_id);
-  if (discussing && !discussMayWrite(shipyardData, filePath)) {
+  if (discussing && insideProject(shipyardData, filePath) && !discussMayWrite(shipyardData, filePath)) {
     try { logEvent(shipyardData, "discuss_project_write_denied", { file: basename(filePath) }); } catch { /* best-effort */ }
     logBreadcrumb(shipyardData, LOG_NAME, "deny-discuss", [toolName, filePath, shipyardData]);
     process.stdout.write(JSON.stringify({

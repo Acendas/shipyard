@@ -46,7 +46,8 @@ import { planGateProblems } from "./plan-score.mjs";
 import "./probes-at-base.mjs"; // registers the probe check with the plan gate
 import { approvalProblems as openQuestionProblems } from "./discuss-questions.mjs";
 import { ideaPromote } from "./idea-promote.mjs";
-import { storyAdd, taskAdd } from "./record-add.mjs";
+import { storyAdd, storyRefine, taskAdd } from "./record-add.mjs";
+import { setFixVersion } from "./version.mjs";
 import { sprintStoryIds as planSprintStoryIds } from "./terminal-gate.mjs";
 
 /** A UI story's design decision is on record: an approval (hash) or a waiver. */
@@ -410,7 +411,15 @@ function computeRiceScoreFromBlock(block) {
   const confidence = parseFloat(getScalar(block, "rice_confidence"));
   const effort = parseFloat(getScalar(block, "rice_effort"));
   if (![reach, impact, confidence, effort].every(Number.isFinite) || effort <= 0) return null;
-  return (reach * impact * confidence) / effort;
+  return (reach * impact * riceConfidence(confidence)) / effort;
+}
+/**
+ * Confidence as a share of 1. The spec text asks for a percentage (0 to 100) and the score multiplied it as it
+ * stood, so `rice_confidence=70` gave 840 where the same story scored by hand had 8.4 (after 4.0.2, live: three
+ * stories outranked their siblings a hundredfold and a session "fixed" the score by hand). Above 1 is a percentage.
+ */
+export function riceConfidence(c) {
+  return c > 1 ? c / 100 : c;
 }
 
 // --- BACKLOG.md parse / serialize ------------------------------------------
@@ -471,33 +480,39 @@ export function readOrder(dataDir) {
 function writeOrder(dataDir, o) { atomicWriteFile(orderPath(dataDir), JSON.stringify(o, null, 2) + "\n"); }
 
 function backlogMove(dataDir, args) {
-  const usage = 'usage: backlog move <id> (--top | --bottom | --above <id> | --below <id> | --to <n>) --why "<what a delay of this item costs, in one line>"';
+  const usage = 'usage: backlog move <id> [<id>...] (--top | --bottom | --above <id> | --below <id> | --to <n>) --why "<what a delay of this item costs, in one line>"   (several ids move together and keep the order given)';
   const val = (name) => { const i = args.indexOf(name); return i !== -1 ? args[i + 1] : undefined; };
-  const id = args[0];
+  // Several ids move as one block, in the order given (after 4.0.2, live: five stories moved one by one with
+  // `--below <the first>` ended up in reverse order, and the session moved all of them again).
+  const firstFlag = args.findIndex((a) => a.startsWith("--"));
+  const ids = [...new Set((firstFlag === -1 ? args : args.slice(0, firstFlag)).flatMap((a) => a.split(",")).map((a) => a.trim()).filter(Boolean))];
   const why = String(val("--why") ?? "").replace(/\s+/g, " ").trim();
   const modes = [args.includes("--top"), args.includes("--bottom"), val("--above") !== undefined, val("--below") !== undefined, val("--to") !== undefined].filter(Boolean).length;
-  if (!id || id.startsWith("--") || modes !== 1) fail(2, usage);
+  if (!ids.length || modes !== 1) fail(2, usage);
   if (why.length < 10) fail(2, `spec-state: backlog move needs --why: one line on what a delay of this item costs (who is hurt, how much, how soon)\n  ${usage}`);
   withNamedLock(dataDir, "backlog", () => {
     const b = parseBacklog(dataDir);
-    const from = b.ids.indexOf(id);
-    if (from === -1) fail(3, `spec-state: ${id} is not on the backlog (${b.ids.join(", ") || "empty"}). Add an approved story with: backlog add ${id}`);
-    const rest = b.ids.filter((x) => x !== id);
+    const was = new Map(ids.map((id) => [id, b.ids.indexOf(id)]));
+    const missing = ids.filter((id) => was.get(id) === -1);
+    if (missing.length) fail(3, `spec-state: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not on the backlog (${b.ids.join(", ") || "empty"}). Add an approved story with: backlog add ${missing[0]}`);
+    const rest = b.ids.filter((x) => !ids.includes(x));
     let at;
     if (args.includes("--top")) at = 0;
     else if (args.includes("--bottom")) at = rest.length;
     else if (val("--to") !== undefined) { const n = Number(val("--to")); if (!Number.isInteger(n) || n < 1) fail(2, "spec-state: --to takes a position, 1 for the top"); at = Math.min(n - 1, rest.length); }
-    else { const ref = val("--above") ?? val("--below"); const k = rest.indexOf(ref); if (k === -1) fail(3, `spec-state: ${ref} is not on the backlog`); at = val("--above") !== undefined ? k : k + 1; }
-    rest.splice(at, 0, id);
+    else { const ref = val("--above") ?? val("--below"); const k = rest.indexOf(ref); if (k === -1) fail(3, `spec-state: ${ref} is not on the backlog${ids.includes(ref) ? " apart from the items being moved" : ""}`); at = val("--above") !== undefined ? k : k + 1; }
+    rest.splice(at, 0, ...ids);
     b.ids = rest;
     serializeBacklog(b);
     const o = readOrder(dataDir);
     o.ordered_by = "owner";
-    o.why[id] = { text: why.slice(0, 300), at: today() };
+    for (const id of ids) o.why[id] = { text: why.slice(0, 300), at: today() };
     for (const k of Object.keys(o.why)) if (!b.ids.includes(k)) delete o.why[k];
     writeOrder(dataDir, o);
-    emit(dataDir, "backlog_moved", { id, from: from + 1, to: at + 1, why: why.slice(0, 300) });
-    process.stdout.write(`backlog: ${id} is now ${at + 1} of ${b.ids.length}${at > 0 ? `, after ${b.ids[at - 1]}` : ", at the top"}${at < b.ids.length - 1 ? ` and before ${b.ids[at + 1]}` : ""}. The backlog is in your order from here on: a new story goes to the bottom until you place it.\n`);
+    ids.forEach((id, n) => emit(dataDir, "backlog_moved", { id, from: was.get(id) + 1, to: at + n + 1, why: why.slice(0, 300) }));
+    const end = at + ids.length - 1;
+    const what = ids.length === 1 ? `${ids[0]} is now ${at + 1} of ${b.ids.length}` : `${ids.join(", ")} are now ${at + 1} to ${end + 1} of ${b.ids.length}, in that order`;
+    process.stdout.write(`backlog: ${what}${at > 0 ? `, after ${b.ids[at - 1]}` : ", at the top"}${end < b.ids.length - 1 ? ` and before ${b.ids[end + 1]}` : ""}. The backlog is in your order from here on: a new story goes to the bottom until you place it.\n`);
   });
 }
 
@@ -747,6 +762,15 @@ function featureSet(dataDir, args) {
     const eq = a.indexOf("=");
     if (eq <= 0) fail(2, `spec-state: unrecognized argument "${a}" — expected k=v`);
     kv[a.slice(0, eq)] = a.slice(eq + 1);
+  }
+  // `fix_version=<name>` is what a session reaches for (after 4.0.2, live: three tries before `version set`). It
+  // goes through the version command's own rules: the version exists, and a move between versions needs a reason.
+  if (kv.fix_version !== undefined) {
+    try { setFixVersion(dataDir, kv.fix_version, [fid]); }
+    catch (e) { fail(typeof e?.exitCode === "number" ? e.exitCode : 1, `spec-state: story set fix_version: ${e.message}${/needs --reason/.test(e.message) ? `\n  shipyard-data version set ${kv.fix_version} ${fid} --reason "<why>"` : ""}`); }
+    process.stdout.write(`${fid}: fix version ${kv.fix_version}\n`);
+    delete kv.fix_version;
+    if (!Object.keys(kv).length) return;
   }
   for (const key of Object.keys(kv)) {
     if (FEATURE_SET_REFUSED_HINTS[key]) {
@@ -2459,6 +2483,8 @@ function storyDispatch(dataDir, sub, rest) {
   switch (sub) {
     case "add":
       try { return storyAdd(dataDir, rest); } catch (e) { if (typeof e?.exitCode === "number") fail(e.exitCode, `spec-state: story add: ${e.message}`); throw e; }
+    case "refine":
+      try { return storyRefine(dataDir, rest); } catch (e) { if (typeof e?.exitCode === "number") fail(e.exitCode, `spec-state: story refine: ${e.message}`); throw e; }
     case "set-status":
       return featureSetStatus(dataDir, rest);
     case "set":
@@ -2494,7 +2520,7 @@ function storyDispatch(dataDir, sub, rest) {
     case "assign-ac-ids":
       return featureAssignAcIds(dataDir, rest);
     default:
-      fail(2, `shipyard-data story: unknown subcommand "${sub ?? ""}". Expected: add|set-status|set|add-ref|remove-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|retract-proof|check-probes|check-scenarios|acs|probe-command|assign-ac-ids`);
+      fail(2, `shipyard-data story: unknown subcommand "${sub ?? ""}". Expected: add|refine|set-status|set|add-ref|remove-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|retract-proof|check-probes|check-scenarios|acs|probe-command|assign-ac-ids`);
   }
 }
 

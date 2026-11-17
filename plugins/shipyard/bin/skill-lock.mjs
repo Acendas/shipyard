@@ -66,7 +66,8 @@ import { hostname } from "node:os";
 import { atomicWrite, logEvent, sanitizeForLog, withLockfile } from "./_hook_lib.mjs";
 import { strayChanges } from "./stray.mjs";
 import { syncOwed } from "./tracker.mjs";
-import { sourcesOwed } from "./discuss-questions.mjs";
+import { sourcesOwed, waitingTopics } from "./discuss-questions.mjs";
+import { readQueue, summarize as queueSummary } from "./discuss-queue.mjs";
 
 /** Tracked files changed with no commit in the project folder; null when there is no repository to ask. */
 function dirtyTracked(dataDir) {
@@ -335,6 +336,8 @@ export function acquireLock(dataDir, kind, opts) {
       reentry
         ? { ...own.read.obj, skill, sprint: sprint ?? own.read.obj.sprint ?? null, wave: wave ?? own.read.obj.wave ?? null, depth }
         : { skill, sprint, wave, started: nowIso, session_id: sessionId, cleared: null, depth: 1, ...ownerIdentity(),
+            // a paused discussion left its sources and ticket questions for this one (see `--pause` at release)
+            ...(kind === "discuss" && own.read.obj?.paused_since ? { owed_since: String(own.read.obj.paused_since) } : {}),
             // what was already uncommitted when a planning command began (4.13.5): release compares
             ...(kind === "planning" || kind === "discuss" ? { dirty_at_start: dirtyTracked(dataDir) } : {}) };
 
@@ -388,7 +391,7 @@ export function acquireLock(dataDir, kind, opts) {
  *   [--force] [--session <id>]`
  */
 export function releaseLock(dataDir, kind, opts = {}) {
-  const { skill, sessionId, unverified = true, force = false, bestEffort = false, leaveChanges = "" } = opts;
+  const { skill, sessionId, unverified = true, force = false, bestEffort = false, leaveChanges = "", pause = false } = opts;
   kind = resolveKind(kind, skill);
 
   const run = () => {
@@ -444,9 +447,31 @@ export function releaseLock(dataDir, kind, opts = {}) {
       // tickets in jira or ask to assist create. and then once discuss is done.
       // ask to sync". The answer (applied, later, none) is recorded; "later" is
       // a fine answer, silence is not.
-      if (depth <= 1 && kind === "discuss") {
+      // A discussion that is only paused (after 4.0.2, live: an approval card went unanswered for ten minutes,
+      // the session could not ask about the tickets either, the release was refused, and the lock stayed held
+      // by a session that had ended its turn; a discussion lock also keeps that session from editing the
+      // project). `--pause` releases it when something is verifiably unfinished: a question still waiting, or
+      // a queue with items left. What it owes (where the research looked, the ticket question) is not
+      // forgiven: the next discussion answers for it from this one's start (`owed_since`).
+      const owedSince = read.obj.owed_since ?? read.obj.started ?? null;
+      let paused = false;
+      if (depth <= 1 && kind === "discuss" && pause) {
+        let waiting = [], queue = null;
+        try { waiting = waitingTopics(dataDir).waiting; } catch { waiting = []; }
+        try { const q = readQueue(dataDir); queue = q && queueSummary(q).active ? queueSummary(q) : null; } catch { queue = null; }
+        if (!waiting.length && !queue) {
+          result = {
+            ok: false, code: 3,
+            message: "shipyard-data lock release: --pause is for a discussion with something left open (a question still waiting, or a queue with items left), and nothing is.\n  Finish it: release without --pause and answer what the release asks for.\n",
+            json: { released: false, reason: "nothing_to_pause" },
+          };
+          return;
+        }
+        paused = true;
+      }
+      if (depth <= 1 && kind === "discuss" && !paused) {
         let src = null;
-        try { src = sourcesOwed(dataDir, read.obj.started ?? null, readEvents(dataDir, 5000)); } catch { src = null; }
+        try { src = sourcesOwed(dataDir, owedSince, readEvents(dataDir, 5000)); } catch { src = null; }
         if (src) {
           result = {
             ok: false, code: 3,
@@ -458,12 +483,12 @@ export function releaseLock(dataDir, kind, opts = {}) {
           return;
         }
         let owed = null;
-        try { owed = syncOwed(dataDir, read.obj.started ?? null, readEvents(dataDir, 5000)); } catch { owed = null; }
+        try { owed = syncOwed(dataDir, owedSince, readEvents(dataDir, 5000)); } catch { owed = null; }
         if (owed) {
           const creates = owed.filter((r) => r.action === "create").length;
           result = {
             ok: false, code: 3,
-            message: `shipyard-data lock release: this discussion is not finished with the tracker: ${creates ? `${creates} item(s) written here have no ticket` : ""}${creates && owed.length > creates ? " and " : ""}${owed.length > creates ? `${owed.length - creates} linked item(s) changed here since they were last sent` : ""}.\n  Show the person the plan (shipyard-data tracker plan --since ${read.obj.started ?? ""}) and ask: create and update the tickets now, with your help, or later?\n  Then record the answer: shipyard-data tracker decided --sync applied|later|none, and release again.`,
+            message: `shipyard-data lock release: this discussion is not finished with the tracker: ${creates ? `${creates} item(s) written here have no ticket` : ""}${creates && owed.length > creates ? " and " : ""}${owed.length > creates ? `${owed.length - creates} linked item(s) changed here since they were last sent` : ""}.\n  Show the person the plan (shipyard-data tracker plan --since ${owedSince ?? ""}) and ask: create and update the tickets now, with your help, or later?\n  Then record the answer: shipyard-data tracker decided --sync applied|later|none, and release again.\n  If the person is away and a question of this discussion is still waiting for them, do not answer for them: release with --pause (the next /ship-discuss asks this).`,
             json: { released: false, reason: "tracker_sync_not_asked", items: owed.map((r) => r.id) },
           };
           return;
@@ -537,9 +562,9 @@ export function releaseLock(dataDir, kind, opts = {}) {
         return;
       }
 
-      writeLockObj(dataDir, kind, { skill: null, cleared: nowIso });
-      logEvent(dataDir, "skill_lock_released", { kind, skill: read.obj.skill, forced: false });
-      result = { ok: true, code: 0, message: "", json: { released: true, depth: 0 } };
+      writeLockObj(dataDir, kind, { skill: null, cleared: nowIso, ...(paused && owedSince ? { paused_since: owedSince } : {}) });
+      logEvent(dataDir, "skill_lock_released", { kind, skill: read.obj.skill, forced: false, ...(paused ? { paused: true } : {}) });
+      result = { ok: true, code: 0, message: paused ? "(paused: the next /ship-discuss picks up the waiting question and what this discussion still owes)" : "", json: { released: true, depth: 0, ...(paused ? { paused: true } : {}) } };
     });
     return result;
   };
@@ -667,13 +692,13 @@ export function skillLockCmd(dataDir, args) {
   }
   if (sub === "release") {
     if (!kind || !LOCK_FILES[kind]) {
-      process.stderr.write("usage: lock release <planning|execution|discuss> [--skill <name>] [--force] [--leave-changes \"<why>\"]\n");
+      process.stderr.write("usage: lock release <planning|execution|discuss> [--skill <name>] [--force] [--leave-changes \"<why>\"] [--pause]\n");
       process.exit(2);
     }
     const lc = args.indexOf("--leave-changes");
     const leaveChanges = lc !== -1 && args[lc + 1] && !String(args[lc + 1]).startsWith("--") ? String(args[lc + 1]) : "";
     if (lc !== -1 && !leaveChanges) { process.stderr.write("lock release: --leave-changes needs a reason\n"); process.exit(2); }
-    return emit(releaseLock(dataDir, kind, { skill, sessionId, unverified, force, leaveChanges }));
+    return emit(releaseLock(dataDir, kind, { skill, sessionId, unverified, force, leaveChanges, pause: args.includes("--pause") }));
   }
   if (sub === "check") {
     if (!kind || !LOCK_FILES[kind]) {

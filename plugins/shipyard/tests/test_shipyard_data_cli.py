@@ -1216,6 +1216,17 @@ class TestShipyardDataDoctor(unittest.TestCase):
         self.assertIn('phantom-project', out)
         self.assertIn('deadbeefcafe', out)
 
+    def test_doctor_ignores_another_projects_hook_breadcrumbs(self):
+        # After 4.0.2, live: an install with many projects had a dozen folders holding only what hooks note in
+        # passing. Every health check listed them, told the session to merge them into this project, and exited 1.
+        other = os.path.join(self.projects_dir, 'feedfacef00d')
+        os.makedirs(other)
+        with open(os.path.join(other, '.shipyard-events.jsonl'), 'w') as f:
+            f.write('{"ts":"2026-07-09T00:00:00+00:00","type":"subagent_completed"}\n{"ts":"2026-07-09T00:00:01+00:00","type":"agent_tool_returned"}\n')
+        out, _, code = run_cli(['doctor'], env_extra=self.env)
+        self.assertEqual(code, 0, f'hook breadcrumbs of another project are not a finding; out={out!r}')
+        self.assertNotIn('feedfacef00d', out)
+
     def test_doctor_flags_nested_projects_dir(self):
         # A projects/ dir nested INSIDE the real project dir.
         nested = os.path.join(self.data_dir, 'projects', '799a0a66a4f7')

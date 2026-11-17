@@ -84,6 +84,28 @@ test("a fix version holds epics, stories, tasks and ideas; a story with none tak
   } finally { f.cleanup(); }
 });
 
+// After 4.0.2, on a real project: six tickets went in, eleven came out of the discussion, the sprint offered
+// five, and the owner asked "where did the rest go". Every answer was in the files; none was on the screen.
+test("a version says which stories a sprint can take, which it cannot and why, and which were closed", () => {
+  const f = fixture();
+  try {
+    f.run("version", "add", "v2.1");
+    const v = 'fix_version: "v2.1"\n';
+    f.put("stories", "S001", "Umbrella", "bug", "approved", v + "story_points: 5\n");
+    f.put("stories", "S002", "Slice one", "bug", "approved", v + "story_points: 3\n");
+    f.put("stories", "S003", "Slice two", "bug", "proposed", v + "refined: false\nstory_points: 0\n");
+    f.put("stories", "S004", "Slice three", "bug", "proposed", v + "refined: true\nstory_points: 2\n");
+    f.put("stories", "S005", "Same fix as S002", "bug", "rejected", v + 'replaced_by: [S002]\nstatus_reason: "merged into S002"\n');
+    f.put("stories", "S006", "Being built", "bug", "in-progress", v + "story_points: 1\n");
+    f.put("stories", "S007", "Shipped", "bug", "done", v + "story_points: 1\n");
+    const out = f.run("version", "show", "v2.1").stdout;
+    assert.match(out, /For a sprint:\n  ready \(2, 8 pts\): S001, S002\n  in a sprint \(1\): S006\n  not ready \(1\): S003: not refined yet \(\/ship-discuss S003\)\n  not ready \(1\): S004: not approved yet\n  closed: S005: merged into S002\n/);
+    const j = JSON.parse(f.run("version", "show", "v2.1", "--json").stdout).for_sprint;
+    assert.deepEqual(j.ready, [{ id: "S001", points: 5 }, { id: "S002", points: 3 }]);
+    assert.deepEqual(j.closed, [{ id: "S005", why: "merged into S002" }]);
+  } finally { f.cleanup(); }
+});
+
 test("an item that names a version nobody added is reported, and the field is not hand-edited", () => {
   const f = fixture();
   try {
@@ -92,8 +114,13 @@ test("an item that names a version nobody added is reported, and the field is no
     const file = join(f.d, "spec", "stories", "S001-x.md");
     const hook = spawnSync("node", [join(ROOT, "bin", "hook-runner.mjs"), "auto-approve-data"], { input: JSON.stringify({ tool_name: "Edit", tool_input: { file_path: file, old_string: 'fix_version: "v9"', new_string: 'fix_version: "v10"' } }), encoding: "utf8", env: { ...process.env, SHIPYARD_DATA: f.d } });
     assert.match(JSON.parse(hook.stdout).hookSpecificOutput.permissionDecisionReason, /"fix_version:" is written by a command[\s\S]*shipyard-data version set <version> <id>/);
+    // an owned line used only as the anchor of an edit is not a change to it (live, after 4.0.2); adding one is
+    const edit = (o, n) => JSON.parse(spawnSync("node", [join(ROOT, "bin", "hook-runner.mjs"), "auto-approve-data"], { input: JSON.stringify({ tool_name: "Edit", tool_input: { file_path: file, old_string: o, new_string: n } }), encoding: "utf8", env: { ...process.env, SHIPYARD_DATA: f.d } }).stdout).hookSpecificOutput;
+    assert.equal(edit('fix_version: "v9"\nui: false', 'fix_version: "v9"\nseverity: medium\nui: false').permissionDecision, "allow");
+    assert.equal(edit("ui: false", 'ui: false\nfix_version: "v9"').permissionDecision, "deny");
+    assert.equal(edit("steps:\n  - P001", "steps:\n  - P001\n  - P002").permissionDecision, "deny", "the lines under an owned key are its value");
     const r = f.run("story", "set", "S001", "fix_version=v10");
-    assert.equal(r.status, 3); assert.match(r.stderr, /version set <version> <id>/);
+    assert.equal(r.status, 3); assert.match(r.stderr, /story set fix_version: no version "v10"[\s\S]*version add v10/);
   } finally { f.cleanup(); }
 });
 

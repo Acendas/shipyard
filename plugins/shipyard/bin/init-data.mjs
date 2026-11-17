@@ -165,24 +165,74 @@ export function pluginVersion() {
  * re-stamps. Without this an upgrade was silent: new gates simply started
  * refusing things the previous version allowed.
  */
-export function renderUpgradeNotice(dataDir, out) {
-  const now = pluginVersion();
+const verParts = (v) => String(v ?? "").split(".").map((n) => parseInt(n, 10) || 0);
+/** True when version `a` is newer than version `b` (three numbers, compared in order). */
+export function newerVersion(a, b) {
+  const x = verParts(a), y = verParts(b);
+  for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  return false;
+}
+/** The newest copy of this plugin installed beside the running one (the plugin cache keeps one folder per version), or "". */
+export function newerInstalled(root = pluginRoot()) {
+  const here = basename(root);
+  if (!/^\d+\.\d+\.\d+$/.test(here)) return "";
+  let names = [];
+  try { names = readdirSync(dirname(root)); } catch { return ""; }
+  return names.filter((n) => /^\d+\.\d+\.\d+$/.test(n) && newerVersion(n, here)).sort((p, q) => (newerVersion(p, q) ? -1 : 1))[0] ?? "";
+}
+/**
+ * A session that started before the plugin was updated keeps the copy it started with. After 4.0.2, live: a
+ * session opened under 4.0.1 was resumed a day later, after 4.0.2 had worked on the project. It announced
+ * "Shipyard is now 4.0.1", stamped the data folder back, its older health check asked for fields the newer
+ * version no longer needs, and the session filled them in by hand. { running, data, installed } when this
+ * session is such a one (the project was last worked on with a newer version, and a newer copy is installed
+ * beside this one), else null. `SHIPYARD_ALLOW_OLDER_SESSION=1` is the owner's way past it.
+ */
+export function olderSession(dataDir, { running = pluginVersion(), root = pluginRoot() } = {}) {
+  if (!running || process.env.SHIPYARD_ALLOW_OLDER_SESSION === "1") return null;
+  let data = "";
+  try { data = readFileSync(join(dataDir, ".shipyard-version"), "utf8").trim(); } catch { return null; }
+  if (!data || !newerVersion(data, running)) return null;
+  const installed = newerInstalled(root);
+  return installed ? { running, data, installed } : null;
+}
+
+export function renderUpgradeNotice(dataDir, out, opts = {}) {
+  const now = opts.running ?? pluginVersion();
   if (!now) return;
   const stamp = join(dataDir, ".shipyard-version");
   let was = "";
   try { was = readFileSync(stamp, "utf8").trim(); } catch { was = ""; }
   if (was === now) return;
   if (!existsSync(join(dataDir, "config.md"))) return; // not onboarded yet: nothing to upgrade
+  if (was && olderSession(dataDir, opts)) return; // an old session, not a new version: nothing is stamped back
   if (was) {
+    const back = newerVersion(was, now);
     out(`SHIPYARD_UPGRADED=${was} -> ${now}`);
-    out(`SHIPYARD_UPGRADE_NOTE: This project was last worked on with Shipyard ${was}. Tell the user in one line that Shipyard is now ${now} and that what changed is in UPGRADING.md of the plugin (${join(pluginRoot(), "..", "..", "UPGRADING.md")}); then run \`shipyard-data doctor\` and \`shipyard-data reconcile\` once and report anything they print before continuing.`);
+    out(back
+      ? `SHIPYARD_UPGRADE_NOTE: This project was last worked on with a newer Shipyard (${was}); the installed one is ${now}. Tell the user in one line that Shipyard here is ${now}, older than the ${was} that last worked on this project, and that some of what ${was} wrote may be unknown to it; then run \`shipyard-data doctor\` once and report what it prints before continuing.`
+      : `SHIPYARD_UPGRADE_NOTE: This project was last worked on with Shipyard ${was}. Tell the user in one line that Shipyard is now ${now} and that what changed is in UPGRADING.md of the plugin (${join(pluginRoot(), "..", "..", "UPGRADING.md")}); then run \`shipyard-data doctor\` and \`shipyard-data reconcile\` once and report anything they print before continuing.`);
     try { logEvent(dataDir, "plugin_upgraded", { from: was, to: now }); } catch { /* best-effort */ }
   }
   try { writeFileSync(stamp, now + "\n", "utf8"); } catch { /* read-only data dir: say it again next time */ }
 }
 
-export function renderOnboardingLines(dataDir, out) {
-  renderUpgradeNotice(dataDir, out);
+export function renderOnboardingLines(dataDir, out, opts = {}) {
+  const old = existsSync(join(dataDir, "config.md")) ? olderSession(dataDir, opts) : null;
+  if (old) {
+    // The one stop every command already obeys: nothing after this is printed and no lock is taken.
+    const message = `This Claude Code session started before Shipyard was updated: it runs ${old.running}, and this project was last worked on with ${old.data} (${old.installed} is installed).`;
+    out("SHIPYARD_ONBOARDING_REQUIRED=true");
+    out("SHIPYARD_ONBOARDING_REASON=older_session");
+    out("SHIPYARD_ONBOARDING_MESSAGE:");
+    out(message);
+    // (the label is built here so that the one canonical instruction text, further down, stays the only literal)
+    const label = ["SHIPYARD", "ONBOARDING", "INSTRUCTION"].join("_");
+    out(`${label}: There is no command to run. Tell the person exactly this in one or two plain lines: this window still runs the older Shipyard it was opened with, and the fix is to quit it and start a new Claude Code session, then give the command again. Stop there: run no Shipyard command and change no Shipyard file in this session.`);
+    try { logEvent(dataDir, "plugin_older_session", { running: old.running, data: old.data, installed: old.installed }); } catch { /* best-effort */ }
+    return { required: true, reason: "older_session", command: "", message };
+  }
+  renderUpgradeNotice(dataDir, out, opts);
   const status = onboardingStatus(dataDir);
   out(`SHIPYARD_ONBOARDING_REQUIRED=${status.required ? "true" : "false"}`);
   out(`SHIPYARD_ONBOARDING_REASON=${status.reason}`);
