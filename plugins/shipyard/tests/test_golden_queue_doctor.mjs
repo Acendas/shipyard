@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { pin } from './lib/golden.mjs';
+import { withoutUserSettings } from './lib/no-user-settings.mjs';
 import * as lifecycle from '../bin/spec-lifecycle.mjs';
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'shipyard-data.mjs');
@@ -168,7 +169,7 @@ function withDoctor(files) {
       mkdirSync(dirname(join(d, rel)), { recursive: true });
       writeFileSync(join(d, rel), body);
     }
-    const env = { ...process.env };
+    const env = withoutUserSettings(base);
     delete env.CLAUDE_PROJECT_DIR;
     const r = spawnSync('node', [CLI, 'doctor', '--data-dir', d, '--full'], { encoding: 'utf8', env });
     const subs = [[d, '<DIR>'], [base, '<BASE>']];

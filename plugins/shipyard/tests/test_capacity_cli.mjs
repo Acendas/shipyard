@@ -9,6 +9,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { withoutUserSettings } from "./lib/no-user-settings.mjs";
 
 import { computeCapacity, parseCapacityArgs, hoursUntil, renderCapacity } from "../bin/capacity.mjs";
 import { readAssumedPointsPerHour } from "../bin/config-read.mjs";
@@ -175,7 +176,7 @@ test("CLI: no rate falls back to points with an explanation (exit 0); assumed ra
 test("doctor reports an invalid execution.assumed_points_per_hour", () => {
   const { base, d } = dataDir(null, "  assumed_points_per_hour: fast");
   try {
-    const r = spawnSync("node", [CLI, "doctor", "--data-dir", d], { encoding: "utf8" });
+    const r = spawnSync("node", [CLI, "doctor", "--data-dir", d], { encoding: "utf8", env: withoutUserSettings(base) });
     assert.notEqual(r.status, 0);
     assert.match(r.stdout + r.stderr, /assumed_points_per_hour/);
   } finally {

@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import subprocess
+import tempfile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -2053,12 +2054,19 @@ def check_node_tests(result):
         result.warn("node_tests:node_unavailable", f"node not found on PATH ({e}); skipping node --test run")
         return
 
+    # The Node tests run with a Claude Code config folder whose settings.json names no advisorModel, a setting
+    # `shipyard-data doctor` reads (advisorHint in bin/doctor-config.mjs). A test that lets the user's own
+    # settings reach a doctor run fails here, on every machine and in CI, instead of only on machines whose
+    # settings happen to differ. Tests isolate themselves with tests/lib/no-user-settings.mjs.
     try:
-        proc = subprocess.run(
-            ["node", "--test", *[str(f) for f in node_test_files]],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True, text=True, timeout=300,
-        )
+        with tempfile.TemporaryDirectory(prefix="shipyard-claude-config-") as claude_config:
+            Path(claude_config, "settings.json").write_text("{}\n")
+            proc = subprocess.run(
+                ["node", "--test", *[str(f) for f in node_test_files]],
+                cwd=str(PROJECT_ROOT),
+                env={**os.environ, "CLAUDE_CONFIG_DIR": claude_config},
+                capture_output=True, text=True, timeout=300,
+            )
     except subprocess.TimeoutExpired:
         result.fail("node_tests:run", "node --test timed out after 300s")
         return

@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { withoutUserSettings } from "./lib/no-user-settings.mjs";
 import { evaluateSessionBudget } from "../bin/session-budget.mjs";
 import { readMaxSessionMinutes } from "../bin/config-read.mjs";
 
@@ -83,11 +84,11 @@ test("AC-13 doctor reports an error for invalid value; valid and absent are clea
   const bad = mk("execution:\n  max_session_minutes: -5\nmodels:\n  think: a\n  build: b\n  light: \"\"");
   const ok = mk("execution:\n  max_session_minutes: 240\nmodels:\n  think: a\n  build: b\n  light: \"\"");
   try {
-    const r = spawnSync("node", [CLI, "doctor", "--data-dir", bad.d], { encoding: "utf8" });
+    const r = spawnSync("node", [CLI, "doctor", "--data-dir", bad.d], { encoding: "utf8", env: withoutUserSettings(bad.base) });
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.match(r.stdout, /max_session_minutes/);
     assert.match(r.stdout, /budget is off|ignored/i);
-    const r2 = spawnSync("node", [CLI, "doctor", "--data-dir", ok.d], { encoding: "utf8" });
+    const r2 = spawnSync("node", [CLI, "doctor", "--data-dir", ok.d], { encoding: "utf8", env: withoutUserSettings(ok.base) });
     assert.equal(r2.status, 0, r2.stdout + r2.stderr);
     assert.doesNotMatch(r2.stdout, /max_session_minutes/);
   } finally {

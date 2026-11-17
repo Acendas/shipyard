@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { withoutUserSettings } from "./lib/no-user-settings.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLI = join(ROOT, "bin", "shipyard-data.mjs");
@@ -19,7 +20,7 @@ function mk(fm) {
   return { base, d };
 }
 const doctor = (d) =>
-  spawnSync("node", [CLI, "doctor", "--data-dir", d], { encoding: "utf8" });
+  spawnSync("node", [CLI, "doctor", "--data-dir", d], { encoding: "utf8", env: withoutUserSettings(d) });
 const warnings = (r) => r.stdout.split("\n").filter((l) => l.startsWith("warning:"));
 
 test("AC-7 empty models.build warns, names config set-model, exits 0", () => {

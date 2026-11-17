@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { withoutUserSettings } from "./lib/no-user-settings.mjs";
 import { readCodeReviewLevel, readReviewWorkflow, CODE_REVIEW_LEVELS, readStoryReview } from "../bin/config-read.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -48,7 +49,7 @@ test("doctor reports an invalid review.code_review level", () => {
     mkdirSync(join(d, "templates"), { recursive: true });
     writeFileSync(join(d, ".project-root"), "/nonexistent\n");
     writeFileSync(join(d, "config.md"), "---\nreview:\n  code_review: ultra\n---\n");
-    const r = spawnSync("node", [CLI, "doctor", "--data-dir", d], { encoding: "utf8" });
+    const r = spawnSync("node", [CLI, "doctor", "--data-dir", d], { encoding: "utf8", env: withoutUserSettings(base) });
     assert.notEqual(r.status, 0);
     assert.match(r.stdout + r.stderr, /review\.code_review/);
   } finally { rmSync(base, { recursive: true, force: true }); }
