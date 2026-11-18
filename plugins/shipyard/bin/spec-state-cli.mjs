@@ -42,6 +42,7 @@ import { parseFrontmatterList } from "./frontmatter-list.mjs";
 import { readRequireParkEvidence } from "./config-read.mjs";
 import { FINDING_KINDS, FINDING_SEVERITIES } from "./sprint-findings.mjs";
 import { readDesign } from "./design.mjs";
+import { designSystemOwed } from "./design-system.mjs";
 import { planGateProblems } from "./plan-score.mjs";
 import "./probes-at-base.mjs"; // registers the probe check with the plan gate
 import { approvalProblems as openQuestionProblems } from "./discuss-questions.mjs";
@@ -576,6 +577,15 @@ function featureSetStatus(dataDir, args) {
     // Check 25 then refused the story, and the user was sent back to discuss.
     if (toStatus === "approved" && /^ui:\s*true\b/m.test(fm.block) && !designDecided(fm.block)) {
       fail(3, `spec-state: ${fid} is a UI story (ui: true) with no design decision — run the DESIGN stage: shipyard-data design approve ${fid} --file <snapshot>, or shipyard-data design waive ${fid} --reason "<why>"`);
+    }
+    // A screen belongs to a design system, and the project says which, once: one
+    // it defined, its own, or none (the owner's word). Asked for every UI story,
+    // with or without a mock-up: the first live run answered "no mock-up" (the
+    // recommended choice for a small change), so a fresh project built its
+    // screen with no system at all. A waiver is about the picture, not the system.
+    if (toStatus === "approved" && /^ui:\s*true\b/m.test(fm.block)) {
+      const owed = designSystemOwed(dataDir);
+      if (owed) fail(3, `spec-state: ${fid} changes what a person sees, and ${owed}`);
     }
     // Behaviour-first (4.15.3): a story is approved from `proposed` only when
     // its scenarios follow the rules (ids, one level tag each, a reason below

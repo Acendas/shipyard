@@ -26,6 +26,7 @@ import { createWebAdapter, DEFAULT_WIDTHS } from "./ui-adapters/web.mjs";
 import { diffPng, lookCompare, writeSideBySide } from "./ui-adapters/image.mjs";
 import { createFramesAdapter } from "./ui-adapters/frames.mjs";
 import { readDesign } from "./design.mjs";
+import { screenRules } from "./design-system.mjs";
 import { parseFlags } from "./cli-flags.mjs";
 
 /** Built-in rule pack: the UX-KB rules that are deterministic in a browser. `verified` = error, `draft` = warning. */
@@ -40,6 +41,12 @@ export const BUILTIN_RULES = Object.freeze([
 
 export function loadRules(dataDir, cfg) {
   let rules = [...BUILTIN_RULES];
+  // A design system its owner signed brings its own rules, with the numbers taken from its values;
+  // a rule of the same check replaces the built-in one (the target size is the system's, not 44).
+  for (const r of screenRules(dataDir)) {
+    const i = rules.findIndex((x) => x.check === r.check);
+    if (i === -1) rules.push(r); else rules[i] = r;
+  }
   if (cfg.rule_pack) {
     const p = isAbsolute(cfg.rule_pack) ? cfg.rule_pack : join(dataDir, cfg.rule_pack);
     try {

@@ -56,7 +56,7 @@ const TICKET_RE = /^[A-Z][A-Z0-9]{1,9}-\d+$/;
 const RECORD_ID_RE = /^(?:[SFBETP]\d{3,}|IDEA-\d{3,})$/;
 // Settings a run starts with. Numbers (metrics, proofs, the event log) are never copied: a run has its own.
 const SEED_FILES = ["config.md", "risk-profile.json", "sources.json", ".shipyard-version"];
-const SEED_DIRS = [["spec", "designs"], ["spec", "references"], ["codebase"]];
+const SEED_DIRS = [["spec", "designs"], ["spec", "design-system"], ["spec", "references"], ["codebase"]];
 
 const readIf = (p) => { try { return readFileSync(p, "utf8"); } catch { return null; } };
 const clean = (v) => String(v ?? "").replace(/^["']|["']$/g, "").trim();
@@ -344,6 +344,14 @@ function land(home, args) {
   for (const parts of [["spec", "archive"], ["spec", "designs"], ["spec", "references"], ["research"]]) {
     const src = join(dir, ...parts);
     if (existsSync(src)) cpSync(src, join(home, ...parts), { recursive: true, force: false, errorOnExist: false });
+  }
+  // The design system is the project's. A run that defined it, or signed a newer version, brings it home whole;
+  // an older or equal one never replaces the project's.
+  {
+    const ds = ["spec", "design-system"];
+    const ver = (d) => { try { const j = JSON.parse(readFileSync(join(d, ...ds, "design-system.json"), "utf8")); return j.mode ? Number(j.version) || 0 : -1; } catch { return -1; } };
+    const mine = ver(dir), theirs = ver(home);
+    if (mine >= 0 && (theirs < 0 || mine > theirs)) cpSync(join(dir, ...ds), join(home, ...ds), { recursive: true, force: true });
   }
   // An answer the owner gave once per project inside the run (where knowledge lives, what must never happen) is the
   // project's too, when the project has none of its own.

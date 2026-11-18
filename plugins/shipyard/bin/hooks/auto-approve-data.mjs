@@ -91,6 +91,9 @@ const CLI_OWNED_BASENAMES = new Set([
   // after 4.0.3: where the project's knowledge lives — bin/sources.mjs is the single writer
   // (`shipyard-data sources add|remove|always|none`, each with the owner's answer).
   "sources.json",
+  // 4.0.7: the design system's decision and the owner's sign-off, with the hash of what was signed.
+  // bin/design-system.mjs is the single writer; the values, rules and pages beside it are edited freely.
+  "design-system.json",
 ]);
 
 // v3.7.0: the two skill-mutex lock files are now CLI-owned too —
@@ -415,6 +418,12 @@ export async function run(hookInput, _env) {
           "  - record retro metrics: shipyard-data metrics record-retro sprint=<sprint-NNN> ...\n" +
           "  - regenerate summary:   shipyard-data metrics regenerate\n" +
           "  - velocity is recorded by shipyard-data archive-sprint <sprint-NNN>";
+      } else if (base === "design-system.json") {
+        reason = "design-system.json is the owner's decision about this project's design system and the hash of what they signed; it has a single writer, the shipyard-data CLI. " +
+          "Do not Write/Edit it. Edit tokens.json, rules.json, DESIGN-SYSTEM.md and the component pages beside it, then:\n" +
+          "  - what is left:   shipyard-data design-system check\n" +
+          '  - the sign-off:   shipyard-data design-system approve --answer "<the owner\'s words>"\n' +
+          '  - their own, or none: shipyard-data design-system adopt --path <p> --answer "…"   |   shipyard-data design-system none --answer "…"';
       } else if (base === "sources.json") {
         reason = "sources.json is where this project's knowledge lives, as its owner said it; it has a single writer, the shipyard-data CLI. " +
           "Do not Write/Edit it. Use instead, with the owner's own words:\n" +

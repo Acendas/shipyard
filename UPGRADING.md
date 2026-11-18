@@ -2,6 +2,17 @@
 
 > **Note:** `/ship-init` was removed in v3.20.0. Onboarding now runs automatically on the first `/ship-status` in a project. Older sections below still mention `/ship-init` as historical record.
 
+## 4.0.6 → 4.0.7
+
+No migration and no breaking change. Things you may notice:
+
+| What | Detail |
+|---|---|
+| A screen story asks one more thing, once per project | `story set-status approved` refuses a story with `ui: true` until the project's design system is on record, with or without a mock-up. The discussion asks; your answer is one of: define one, use the project's own (`design-system adopt --path … --answer "…"`), or none (`design-system none --answer "…"`). After that it is not asked again |
+| A changed system is signed again | When the files of a signed system are edited, its state is `changed` and a screen story waits for `design-system approve --answer "…"` |
+| `design-system.json` is written by the CLI only | The record lives in `<data>/spec/design-system/`. The tokens, rules, document, component pages and prototype are edited by the session; the decision file is not |
+| Screen checks use your values | With `ui.adapter: web` and a signed system, `ui verify` checks colours, spacing, radii and text sizes against the system's tokens. Rules with no standard behind their number are warnings |
+
 ## 4.0.5 → 4.0.6
 
 No migration and no breaking change. Things you may notice:

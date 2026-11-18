@@ -183,6 +183,7 @@ const LINT_IN_PAGE = ({ rules, width }) => {
   const bgOf = (el) => { let e = el; while (e) { const c = parse(getComputedStyle(e).backgroundColor); if (c && c.a > 0.5) return c.rgb; e = e.parentElement; } return [255, 255, 255]; };
   const visible = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none"; };
   const sel = (el) => { const id = el.id ? `#${el.id}` : ""; const tid = el.getAttribute("data-testid"); return tid ? `[data-testid="${tid}"]` : `${el.tagName.toLowerCase()}${id}${el.className && typeof el.className === "string" ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".") : ""}`; };
+  const TARGETS = "a[href], button, [role=button], input:not([type=hidden]), select, textarea, [tabindex]:not([tabindex='-1'])";
   for (const rule of rules) {
     const p = rule.params || {};
     const sev = rule.status === "verified" ? "error" : "warning";
@@ -221,6 +222,92 @@ const LINT_IN_PAGE = ({ rules, width }) => {
         el.focus();
         const cs = getComputedStyle(el);
         if (cs.outlineStyle === "none" && cs.boxShadow === "none") push(el, "no visible focus indicator (outline none, no box-shadow)");
+      }
+    } else if (rule.check === "touch-target-gap") {
+      // WCAG 2.5.8 spacing: a control smaller than the target size needs room around it
+      const min = p.min ?? 44, gap = p.gap ?? 8;
+      const els = Array.from(document.querySelectorAll(TARGETS)).filter(visible);
+      const boxes = els.map((el) => el.getBoundingClientRect());
+      for (let i = 0; i < els.length; i++) {
+        if (boxes[i].width >= min && boxes[i].height >= min) continue;
+        for (let j = 0; j < els.length; j++) {
+          if (i === j || els[i].contains(els[j]) || els[j].contains(els[i])) continue;
+          const a = boxes[i], b = boxes[j];
+          const dx = Math.max(0, Math.max(a.left, b.left) - Math.min(a.right, b.right));
+          const dy = Math.max(0, Math.max(a.top, b.top) - Math.min(a.bottom, b.bottom));
+          const d = Math.hypot(dx, dy);
+          if (d < gap) { push(els[i], `${Math.round(a.width)}×${Math.round(a.height)}px control is ${Math.round(d)}px from ${sel(els[j])}, needs ${gap}px`); break; }
+        }
+      }
+    } else if (rule.check === "token-colors") {
+      const known = new Set(p.colours || []);
+      const seen = new Set();
+      const key = (c) => c.rgb.map((v) => Math.round(v)).join(",");
+      for (const el of document.querySelectorAll("body, body *")) {
+        if (!visible(el)) continue;
+        const cs = getComputedStyle(el);
+        const own = Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim());
+        const fg = own ? parse(cs.color) : null;
+        const bg = parse(cs.backgroundColor);
+        for (const [what, c] of [["text", fg], ["background", bg && bg.a > 0.5 ? bg : null]]) {
+          if (!c || known.has(key(c)) || seen.has(`${what}:${key(c)}`)) continue;
+          seen.add(`${what}:${key(c)}`);
+          push(el, `${what} colour rgb(${key(c)}) is not a colour of the design system`);
+        }
+      }
+    } else if (rule.check === "spacing-scale") {
+      const scale = new Set((p.scale || []).map(Number));
+      const seen = new Set();
+      for (const el of document.querySelectorAll("body *")) {
+        if (!visible(el)) continue;
+        const cs = getComputedStyle(el);
+        for (const prop of ["padding-top", "padding-right", "padding-bottom", "padding-left", "row-gap", "column-gap"]) {
+          const v = parseFloat(cs.getPropertyValue(prop));
+          if (!Number.isFinite(v) || v === 0 || scale.has(Math.round(v * 100) / 100) || seen.has(`${prop.split("-")[0]}:${v}`)) continue;
+          seen.add(`${prop.split("-")[0]}:${v}`);
+          push(el, `${prop} ${v}px is not a step of the spacing scale`);
+        }
+      }
+    } else if (rule.check === "radius-family") {
+      const radii = new Set((p.radii || []).map(Number));
+      const seen = new Set();
+      for (const el of document.querySelectorAll("body *")) {
+        if (!visible(el)) continue;
+        const v = parseFloat(getComputedStyle(el).borderTopLeftRadius);
+        const r = el.getBoundingClientRect();
+        // a radius of half the box or more is "full" whatever its number
+        if (!Number.isFinite(v) || v === 0 || radii.has(v) || v >= Math.min(r.width, r.height) / 2 - 0.5 || seen.has(v)) continue;
+        seen.add(v);
+        push(el, `corner radius ${v}px is not a step of the radius family`);
+      }
+    } else if (rule.check === "type-scale") {
+      const sizes = new Set((p.sizes || []).map(Number));
+      const seen = new Set();
+      for (const el of document.querySelectorAll("body *")) {
+        if (!visible(el) || !Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+        const v = Math.round(parseFloat(getComputedStyle(el).fontSize) * 100) / 100;
+        if (sizes.has(v) || seen.has(v)) continue;
+        seen.add(v);
+        push(el, `text size ${v}px is not the size of a type role`);
+      }
+    } else if (rule.check === "line-height" || rule.check === "line-length") {
+      const minChars = p.min_chars ?? 80;
+      for (const el of document.querySelectorAll("p, li, dd, blockquote")) {
+        const text = (el.textContent || "").trim();
+        if (!visible(el) || text.length < minChars) continue;
+        const cs = getComputedStyle(el);
+        const fs = parseFloat(cs.fontSize);
+        if (rule.check === "line-height") {
+          const lh = parseFloat(cs.lineHeight);
+          if (Number.isFinite(lh) && lh / fs < (p.min ?? 1.5) - 0.005) push(el, `line height ${(lh / fs).toFixed(2)} times the text size, the rule says ${p.min ?? 1.5}`);
+        } else {
+          const ctx = document.createElement("canvas").getContext("2d");
+          ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+          const per = ctx.measureText(text).width / text.length;
+          const chars = per > 0 ? Math.round(el.getBoundingClientRect().width / per) : 0;
+          const lines = Math.round(el.getBoundingClientRect().height / (parseFloat(cs.lineHeight) || fs * 1.2));
+          if (lines > 1 && chars > (p.max ?? 80)) push(el, `about ${chars} characters to a line, the rule says at most ${p.max ?? 80}`);
+        }
       }
     } else findings.push({ rule: rule.id, check: rule.check, severity: "warning", selector: null, detail: "unknown check — ignored" });
   }

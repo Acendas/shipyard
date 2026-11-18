@@ -127,6 +127,8 @@ test("design waive: a recorded no — check passes as WAIVED; approving a UI sto
     const d = dataDir(base);
     writeFileSync(join(d, "sprints/current/SPRINT.md"), "---\nid: sprint-001\nstatus: in-progress\nstories: [S002]\n---\n");
     writeFileSync(join(d, "spec/stories", "S002-page.md"), "---\nid: S002\ntitle: \"Page\"\ntype: feature\nstatus: proposed\nui: true\nsteps: []\nuser_flow_probe:\n  kind: manual\n  steps: [\"open the page\"]\n---\n\n# Page\n\n## Paths\n| Ending | Covered by |\n|---|---|\n| works | @AC-1 |\n\n## Acceptance Criteria\n```gherkin\n@AC-1 @e2e\nScenario: works\n  Given a\n  When b\n  Then c\n```\n");
+    // the project's design system is its own question, asked once (tests/test_design_system.mjs); answered here
+    assert.equal(cli(d, "design-system", "none", "--answer", "no design system for this one").status, 0);
     let r = cli(d, "story", "set-status", "S002", "approved");
     assert.equal(r.status, 3, r.stderr);
     assert.match(r.stderr, /no design decision/);

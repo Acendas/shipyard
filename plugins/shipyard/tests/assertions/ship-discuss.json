@@ -2676,5 +2676,92 @@
   "target": "ref:tracker-sync.md",
   "pattern": "merged into S002, which is done",
   "why": "after 4.0.2 (a real project, 2026-11-16: two tickets became one story; the second ticket only got a comment and nothing would have closed it)"
+ },
+ {
+  "name": "design_system_ref_exists",
+  "type": "file_exists",
+  "path": "skills/ship-discuss/references/design-system.md",
+  "why": "the owner asked for the deliverable a designer hands a client; its method is one reference"
+ },
+ {
+  "name": "design_system_read_before_a_screen",
+  "type": "contains",
+  "pattern": "SHIPYARD_DESIGN_SYSTEM",
+  "why": "a discussion reads where the project stands before designing any screen"
+ },
+ {
+  "name": "design_system_brought_up_to_date_for_this_work",
+  "type": "contains",
+  "pattern": "bring it up to date for this piece of work only",
+  "why": "the owner: a stale system is updated as far as it is relevant to the intent being worked on"
+ },
+ {
+  "name": "design_system_decision_is_cli_owned",
+  "type": "contains",
+  "pattern": "Never write `design-system.json`",
+  "why": "the decision and the sign-off have one writer"
+ },
+ {
+  "name": "design_system_four_starts",
+  "type": "contains",
+  "pattern": "design-system adopt --path",
+  "target": "ref:design-system.md",
+  "why": "a project may have a whole system, part of one, values typed in its code, or nothing"
+ },
+ {
+  "name": "design_system_extraction_counts",
+  "type": "contains",
+  "pattern": "Extraction counts; it does not decide",
+  "target": "ref:design-system.md",
+  "why": "which values survive as tokens is the owner's decision"
+ },
+ {
+  "name": "design_system_inspiration_is_look_and_feel",
+  "type": "contains",
+  "pattern": "An inspiration is for look and feel",
+  "target": "ref:design-system.md",
+  "why": "no component or asset is copied from an inspiration"
+ },
+ {
+  "name": "design_system_no_browser_assumed",
+  "type": "contains",
+  "pattern": "Nothing assumes a browser",
+  "target": "ref:design-system.md",
+  "why": "the owner: clients build different apps; one is a game, one an Android app"
+ },
+ {
+  "name": "design_system_prototype_is_the_projects_screens",
+  "type": "contains",
+  "pattern": "this project's real screens and the ways between them",
+  "target": "ref:design-system.md",
+  "why": "the owner: the interactive page must move through screens like a prototype, and they are this project's"
+ },
+ {
+  "name": "design_system_export_is_a_story_step",
+  "type": "contains",
+  "pattern": "first step of the first UI story",
+  "target": "ref:design-system.md",
+  "why": "a discussion never edits the project; the export goes through the build"
+ },
+ {
+  "name": "design_system_eye_rules_never_passed",
+  "type": "contains",
+  "pattern": "never report it as passed",
+  "target": "ref:design-system.md",
+  "why": "a rule nobody measured is a checklist for the review"
+ },
+ {
+  "name": "design_system_unrelated_staleness_is_captured",
+  "type": "contains",
+  "pattern": "`shipyard-data idea capture`, and leave it",
+  "target": "ref:design-system.md",
+  "why": "only what the work needs is changed"
+ },
+ {
+  "name": "design_stage_designs_within_the_system",
+  "type": "contains",
+  "pattern": "The design system comes first",
+  "target": "ref:design-stage.md",
+  "why": "a screen is drawn with the project's values"
  }
 ]

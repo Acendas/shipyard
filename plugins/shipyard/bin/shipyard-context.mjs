@@ -57,6 +57,7 @@ import { ensureInitializedDataDir, renderOnboardingLines } from "./init-data.mjs
 import { readQueue as readDiscussQueue, summarize as summarizeDiscussQueue } from "./discuss-queue.mjs";
 import { waitingTopics as waitingDiscussTopics } from "./discuss-questions.mjs";
 import { contextLine as sourcesContextLine } from "./sources.mjs";
+import { contextLine as designSystemContextLine } from "./design-system.mjs";
 
 /**
  * Validate a user-supplied relative path and join it to base. Returns the
@@ -764,6 +765,8 @@ function main() {
       // After 4.0.3: where this project's knowledge lives, besides the code, is the owner's list. A discussion
       // looks there when it could matter and nowhere else, whatever connectors the session happens to have.
       try { out(`SHIPYARD_SOURCES=${sourcesContextLine(sd)}`); } catch { /* best-effort */ }
+      // 4.0.7: a screen belongs to the project's design system; a discussion reads it before designing one.
+      try { out(`SHIPYARD_DESIGN_SYSTEM=${designSystemContextLine(sd)}`); } catch { /* best-effort */ }
       renderViewSection(sd, out, "config");
       renderViewSection(sd, out, "codebase");
       renderListSection(sd, out, "epics");

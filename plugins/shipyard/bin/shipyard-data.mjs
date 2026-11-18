@@ -3675,6 +3675,7 @@ function main() {
     case "risk":
     case "route":
     case "design":
+    case "design-system":
     case "ui":
     case "agents":
     case "review-pack":

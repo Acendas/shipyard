@@ -32,6 +32,16 @@ Otherwise, proceed.
      so committing on the working branch is correct and expected — but you MUST
      still make exactly one atomic task commit, never leave the tree dirty.
 
+1a. **The design system (only when your brief says `UI: on`).** Before writing any screen
+   code run `shipyard-data design-system show`. When it prints values, the code names the
+   project's tokens and uses its components; never type a colour, a size or a radius the
+   system does not have, and never define the same values again under names of your own:
+   read them from the exported token file. A step that says to export it runs
+   `shipyard-data design-system export --to <the folder the step names>` and commits those
+   files with the step. Something the screen needs that the system lacks is not yours to
+   add: return `ESCALATION_CODE: design_ambiguity` naming it. Before you commit run
+   `shipyard-data design-system scan` and put any colour it lists into your return.
+
 1b. **Render-and-look (only when your brief says `UI: on`, E005).** First run
    `shipyard-data ui doctor --json` once: `"adapter":"none"` or an engine that is not
    ok → write one line in your return (`ui: skipped — adapter none`) and skip the

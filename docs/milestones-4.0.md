@@ -11,6 +11,16 @@ For what changes when you upgrade from 3.26.0, read [UPGRADING.md](../UPGRADING.
 - `shipyard-data sprint needs-you` prints the phrase the build puts on its progress line: `you: needed now · …` or `you: not needed until the review (3 checks)`.
 - A step waiting for you at the review no longer counts as a parked step. The review lists the waiting checks grouped by where they are done, so one sitting covers them.
 
+## 4.0.7 (released 2026-11-18)
+
+- **A project's design system** (the owner's request). The owner: "own it like a ux designer delivering the design system to a client … rules constraint, typography, widgets/components", "clients may build differnt apps", "update the design system as long as its relevant to the intent/task being worked on", "once its exported its for reference".
+  - `shipyard-data design-system` (`bin/design-system.mjs`) is the only writer of the decision: defined here, the project's own (`adopt`), or none, each with the owner's words. `story set-status approved` refuses any `ui: true` story while it is missing, a draft, or changed since the sign-off.
+  - The deliverable is twelve sections, a page per component with the same eight parts, values in the platform's unit, and rules that each name their check (on the values, on a rendered screen, in the code, the project's own command, by eye) and their source. A number with no standard behind it is a warning.
+  - Nothing assumes a browser. The value rules (contrast, grid, touch floor, text minimum) run in the CLI; screen rules exist only for `web` and run through `ui verify`.
+  - `detect` and `extract` report and count; they never decide. `covers` and `changes` bring an old system up to date for the work at hand only.
+  - The review is on the Claude Design artifact. `render` writes the book (one file, no network; a canvas per section; the project's screens as a clickable prototype with a map), and `export` writes the project's copy as the first step of the first screen story.
+  - Run live twice with `/ship-quick`: a web app with no system (58 minutes: counted, defined, reviewed, signed, exported, built) and a game with a system of its own (adopted; the task changed one of its layout rules together with the code). The first run took "no mock-up" and would have built with no system, so the gate covers every screen story, not only one with a mock-up.
+
 ## 4.0.6 (released 2026-11-17)
 
 From the first evening on 4.0.5, on a project that sends its builds to a second machine.

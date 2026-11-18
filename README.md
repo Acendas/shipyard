@@ -155,7 +155,7 @@ Coming from 3.x? Read [UPGRADING.md](UPGRADING.md) first.
 | Land now | A tiny, clear change | A task (`T001`) you build at once with `/ship-execute --task T001` |
 | Hotfix | A production bug | A bug story you fix at once with `/ship-execute --hotfix S001` |
 
-A story that changes a screen also gets a design: you sign it off, or waive it with a reason, before the story can be approved. A discussion writes specifications. It does not edit your code.
+A story that changes a screen also gets a design: you sign it off, or waive it with a reason, before the story can be approved. The project also says once which design system its screens belong to (see "The design system" below). A discussion writes specifications. It does not edit your code.
 
 Useful forms: `/ship-discuss S001` (refine a story), `--idea <text>` (save and stop), `--chain <ids>` (several in a row), `--pull "<JQL>"` (import tickets from your tracker), or an issue key such as `SYS-123`.
 
@@ -230,6 +230,28 @@ git switch -c feat/export
 
 A quick run keeps its own records (stories, plan, locks, numbers). While you are on its branch, Shipyard works from those; switch back and the regular project is as you left it. A story the run takes from your backlog is off the backlog until the run ends. When you merge the branch, the project's records follow at the next status or planning run. `shipyard-data quick list` shows every run; `quick drop <run> --reason "…"` gives an item back untouched.
 
+### The design system
+
+The first story that changes what a person sees asks one thing of the project: which design system do its screens belong to? The answer is recorded once, in your words.
+
+```
+what is there already?            your answer                 afterwards
+  a whole system of its own   →   "use ours"   (adopt)        Shipyard designs within it
+  part of one, or only code   →   define one from it          you review it, then sign
+  nothing                     →   define one                  you review it, then sign
+  you want none               →   "none", with your reason    nothing more is asked
+```
+
+| You do | Shipyard does | You get |
+|---|---|---|
+| Say what exists and what you like (an inspiration is for look and feel, nothing is copied). Give feedback on the Claude Design artifact. Sign | Looks for a system in the project, counts the values typed in the code when there is none, writes the system, and checks it | Twelve sections (principles, voice, colour, typography, space, shape, motion, icons, components, patterns, rules, handoff), one page per component with the same eight parts, and a rule list where each rule says how it is checked and where its number comes from |
+
+- **Any kind of app.** Web, Android, iOS, desktop, game, terminal. Values are in the platform's own unit, and contrast, spacing, touch size and text size are checked without a browser.
+- **In your repository.** The first screen story exports the document, the component pages and a token file in your code's format (`css`, `android`, `c`, `json`), and a book: one HTML file, a canvas per section, and a page where your own screens are clicked through like a prototype. The book is for reference; feedback is given before you sign.
+- **Kept up to date as far as the work needs.** A later story adds only the component or value it needs, shows you the list of changes, and you sign the new version. Anything else that looks old is saved as an idea.
+
+`shipyard-data design-system status` says where the project stands; `design-system show` prints the system.
+
 ### The other commands
 
 | Command | You do | Shipyard does | You get |
@@ -261,6 +283,18 @@ At the start and at the end. Never in the middle.
 | End | "Look at the new screen on your phone" | The review lists the waiting checks grouped by where you do them |
 
 If you cannot do the start items when the sprint starts, the stories that depend on them leave the sprint; they do not stop halfway. A check done by a person is recorded only from that person's answer; accepting the sprint does not confirm it. `shipyard-data sprint needs-you` prints the current line.
+
+## What is new in 4.0.7
+
+One new thing: a project's design system. No migration is needed.
+
+| Area | What changed |
+|---|---|
+| The design system | A story that changes a screen is approved only once the project has said which design system it belongs to: one defined with Shipyard, the project's own, or none. See "The design system" above |
+| Any platform | The system is written for web, Android, iOS, desktop, game or terminal, in that platform's unit. Its value rules need no browser |
+| What exists is used | `design-system detect` finds a system the project already has; `extract` counts the colours and sizes typed in the code. Neither decides anything |
+| The book | `design-system render` writes one HTML file: a page per section and your screens as a clickable prototype with a map. It loads nothing from the network |
+| Quick runs | A design system signed inside a `/ship-quick` run comes home with the branch |
 
 ## What is new in 4.0.6
 
