@@ -10,6 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { withoutUserSettings } from "./lib/no-user-settings.mjs";
 import { forShipyardBuilder } from "../bin/hooks/worktree-branch.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -22,7 +23,7 @@ function fixture() {
   writeFileSync(join(d, ".project-root"), "/nonexistent\n");
   writeFileSync(join(d, "config.md"), "---\nconfig_version: 5\n---\n");
   writeFileSync(join(d, "spec", "epics", "E001-x.md"), '---\nid: E001\ntitle: "Pay by card"\ntype: epic\nstatus: proposed\nticket: "ABC-10"\nexternal_refs: ["ABC-10"]\nfix_version: "v2"\n---\n\n# Pay by card\n');
-  const run = (...args) => spawnSync("node", [CLI, ...args, "--data-dir", d], { encoding: "utf8" });
+  const run = (...args) => spawnSync("node", [CLI, ...args, "--data-dir", d], { encoding: "utf8", env: withoutUserSettings(base) });
   const read = (sub, id) => readFileSync(join(d, "spec", sub, readdirSync(join(d, "spec", sub)).find((n) => n.startsWith(`${id}-`))), "utf8");
   return { base, d, run, read, cleanup: () => rmSync(base, { recursive: true, force: true }) };
 }

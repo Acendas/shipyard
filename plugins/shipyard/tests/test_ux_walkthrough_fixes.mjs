@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, exist
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { withoutUserSettings } from "./lib/no-user-settings.mjs";
 import { evaluateTaskModeTerminal, evaluateTerminalGate, sprintStoryIds } from "../bin/terminal-gate.mjs";
 import { technicalSignals, FLOORS } from "../bin/risk.mjs";
 import { STORY_TRANSITIONS } from "../bin/spec-lifecycle.mjs";
@@ -28,7 +29,7 @@ function dataDir(base) {
   writeFileSync(join(d, ".project-root"), "/nonexistent\n");
   return d;
 }
-const cli = (d, ...args) => spawnSync("node", [CLI, ...args, "--data-dir", d], { encoding: "utf8" });
+const cli = (d, ...args) => spawnSync("node", [CLI, ...args, "--data-dir", d], { encoding: "utf8", env: withoutUserSettings(d) });
 const ev = (o) => JSON.stringify({ ts: "2026-11-13T15:00:00Z", ...o });
 
 test("terminal_single_task / terminal_hotfix are gated on task-mode evidence, not sprint evidence", () => {

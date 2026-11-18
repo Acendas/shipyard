@@ -10,6 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from "node:os";
 import { dirname, join, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
+import { withoutUserSettings } from "./lib/no-user-settings.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLI = join(ROOT, "bin", "shipyard-data.mjs");
@@ -22,7 +23,7 @@ function project() {
   mkdirSync(repo, { recursive: true }); mkdirSync(data, { recursive: true });
   const g = (...a) => execFileSync("git", a, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }).trim();
   g("init", "-q", "-b", "main"); writeFileSync(join(repo, "a.txt"), "a\n"); g("add", "-A"); g("commit", "-q", "-m", "init");
-  const baseEnv = { ...process.env, CLAUDE_PLUGIN_DATA: data };
+  const baseEnv = withoutUserSettings(root, { ...process.env, CLAUDE_PLUGIN_DATA: data });
   delete baseEnv.SHIPYARD_DATA; delete baseEnv.CLAUDE_PID; delete baseEnv.CLAUDE_CODE_SESSION_ID; delete baseEnv.CLAUDE_SESSION_ID;
   const run = (args, env = {}) => { const r = spawnSync("node", [CLI, ...args], { cwd: repo, env: { ...baseEnv, ...env }, encoding: "utf8" }); return { code: r.status, out: r.stdout ?? "", err: r.stderr ?? "" }; };
   const ctx = (args, env = {}) => { const r = spawnSync("node", [CTX, ...args], { cwd: repo, env: { ...baseEnv, ...env }, encoding: "utf8" }); return { code: r.status, out: r.stdout ?? "", err: r.stderr ?? "" }; };
