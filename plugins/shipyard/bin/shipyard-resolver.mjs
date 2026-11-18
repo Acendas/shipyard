@@ -700,7 +700,7 @@ export function hideLinkFromGit(projectRoot) {
 }
 
 export function ensureDataDirLink(projectRoot, dataDir) {
-  const r = makeDataDirLink(projectRoot, dataDir);
+  const r = makeDataDirLink(projectRoot, homeOf(dataDir)); // the link is the project's, never a quick run's
   if (["ok", "created", "repointed"].includes(r.status)) hideLinkFromGit(projectRoot);
   return r;
 }
@@ -754,7 +754,7 @@ function isInsideGitRepo(root) {
   return runGit(["rev-parse", "--is-inside-work-tree"], root) === "true";
 }
 
-export function getDataDir(opts = {}) {
+function homeDataDir(opts = {}) {
   let projectRoot;
   let gitBacked;
   if (opts.projectRoot) {
@@ -882,6 +882,63 @@ export function getDataDir(opts = {}) {
   //    return; only a hand-exported shared root is rewritten. See
   //    scopePluginDataRoot for the discriminator and the incident behind it.
   return join(scopePluginDataRoot(pluginData), "projects", projectHash);
+}
+
+/**
+ * A quick run (`/ship-quick`, after 4.0.6): one item taken from words to
+ * reviewed code on a branch the person made, with records of its own.
+ *
+ * `shipyard-data quick start` binds the run to the branch it was started on
+ * (`branch.<name>.shipyard-quick = <run>` in the repository's own config) and
+ * gives it a data folder inside the project's: `<home>/quick/<run>/`. While
+ * the project's checkout is on that branch, every command and hook resolves
+ * to that folder, so the run has its own plan, locks, cursor and event log
+ * and the regular project is not touched. Switch branch and the regular
+ * project is back. A builder in its own worktree resolves through the
+ * orchestrator's project root (the origin marker), so it follows the same
+ * branch.
+ *
+ * The binding lives in git, not in the data folder, so the readers that only
+ * know the repository (branch sweep, wave integration) see the same answer.
+ * A project with no open run pays one `existsSync` (`<home>/quick/.open`, kept
+ * by `quick start|finish|drop`); only an open run costs two git calls.
+ */
+export const QUICK_RUN_RE = /^quick-\d{3,}$/;
+
+/** The quick run bound to the branch `root` is on: { run, branch } or null. */
+export function quickRunFor(root) {
+  const branch = runGit(["symbolic-ref", "--short", "-q", "HEAD"], root);
+  if (!branch) return null;
+  const run = runGit(["config", "--get", `branch.${branch}.shipyard-quick`], root);
+  return run && QUICK_RUN_RE.test(run) ? { run, branch } : null;
+}
+
+/** The quick run's data folder for this project root, or null when none is bound and started. */
+export function quickDataDir(root, home) {
+  if (!existsSync(join(home, "quick", ".open"))) return null; // no run is open: nothing to ask git (hooks are a hot path)
+  const q = quickRunFor(root);
+  if (!q) return null;
+  const dir = join(home, "quick", q.run);
+  return existsSync(join(dir, "quick.json")) ? dir : null;
+}
+
+/** The project's own data folder when `dataDir` is a quick run's, else `dataDir`. */
+export function homeOf(dataDir) {
+  const parent = dirname(dataDir);
+  return basename(parent) === "quick" && QUICK_RUN_RE.test(basename(dataDir)) && existsSync(join(dataDir, "quick.json")) ? dirname(parent) : dataDir;
+}
+
+/**
+ * The data folder commands work in. `{ home: true }` gives the project's own
+ * folder even while a quick run is bound to the current branch.
+ */
+export function getDataDir(opts = {}) {
+  let projectRoot = opts.projectRoot;
+  let gitBacked = opts.gitBacked;
+  if (!projectRoot) ({ root: projectRoot, gitBacked } = resolveProjectRoot());
+  const home = homeDataDir({ ...opts, projectRoot, gitBacked });
+  if (opts.home) return home;
+  return quickDataDir(projectRoot, home) ?? home;
 }
 
 // CLI entry point — invoked by Python hook scripts via subprocess

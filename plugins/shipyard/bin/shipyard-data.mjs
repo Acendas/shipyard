@@ -61,7 +61,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { findDrift, applyFixes } from "./reconcile.mjs";
-import { repoFor, sweepBranches, sweepWorktrees } from "./branches.mjs";
+import { ownedNames, ownerFor, ownerOf, repoFor, stampOwner, sweepBranches, sweepWorktrees } from "./branches.mjs";
 import { strayChanges, othersWorkingHere } from "./stray.mjs";
 import { main as sprintAheadMain } from "./sprint-ahead.mjs";
 import { readSweepBranches } from "./config-read.mjs";
@@ -74,7 +74,7 @@ import { ENTITIES, entityForNextIdKind, STEP_ID_RE, eventMatches, eventTypeAlias
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { EVENTS_LOG_NAME, logEvent, withLockfile } from "./_hook_lib.mjs";
 import { readEvents as readEventsWithArchive, activeTime } from "./event-report.mjs";
-import { dirLooksInitialized, ensureDataDirLink, getDataDir, getProjectRoot, ShipyardResolverError } from "./shipyard-resolver.mjs";
+import { dirLooksInitialized, ensureDataDirLink, getDataDir, getProjectRoot, homeOf, ShipyardResolverError } from "./shipyard-resolver.mjs";
 import { cursorCmd } from "./cursor-cli.mjs";
 import { parseFrontmatter, parseWaves, readEvents, sprintStoryIds, sprintStoryList } from "./terminal-gate.mjs";
 import { parseFrontmatterList } from "./frontmatter-list.mjs";
@@ -621,9 +621,9 @@ function archiveSprint(sprintId, opts = {}) {
   // nothing left to report.
   if (readSweepBranches(dataDir)) {
     try {
-      const wt = sweepWorktrees(repoFor(dataDir));
+      const wt = sweepWorktrees(repoFor(dataDir), { owner: ownerOf(dataDir) });
       if (wt.removed.length || wt.kept.length) process.stderr.write(`archive-sprint: removed ${wt.removed.length} finished builder worktree(s)${wt.kept.length ? `; left ${wt.kept.length} with uncommitted changes: ${wt.kept.map((k) => k.path).join(", ")}` : ""}\n`);
-      const swept = sweepBranches(repoFor(dataDir), { label: sprintId });
+      const swept = sweepBranches(repoFor(dataDir), { label: sprintId, owner: ownerOf(dataDir) });
       if (!swept.error && (swept.deleted || swept.archived || wt.removed.length)) {
         logEvent(dataDir, "branches_swept", { label: swept.label, deleted: swept.deleted, archived: swept.archived, skipped: swept.skipped, worktrees_removed: wt.removed.length, worktrees_kept: wt.kept.length, by: "archive-sprint" });
         if (swept.deleted || swept.archived) process.stderr.write(`archive-sprint: swept ${swept.deleted + swept.archived} Shipyard branch(es) — ${swept.deleted} already merged (deleted), ${swept.archived} kept under ${swept.refs_prefix}\n`);
@@ -1080,7 +1080,7 @@ function cleanWorktrees(opts = {}) {
     if (!inClaudeWorktrees) return false;
     if (opts.all) return true;
     return e.branch.startsWith("shipyard/wt-");
-  });
+  }).filter((e) => opts.all || ownedNames(projectRoot, [e.branch]).length === 1); // never another side's builder
 
   // Determine working branch
   let workingBranch;
@@ -1212,6 +1212,7 @@ function cleanWorktrees(opts = {}) {
         return b.startsWith("shipyard/wt-");
       })
       .filter((b) => !worktreeBranches.has(b));
+    if (!opts.all) orphanedBranches = ownedNames(projectRoot, orphanedBranches);
   } catch { orphanedBranches = []; }
 
   for (const branch of orphanedBranches) {
@@ -1498,7 +1499,12 @@ function nextIdCmd(args, { dataDir: dataDirOverride } = {}) {
     }
   }
 
-  const seqPath = join(kindDir, ".id-seq");
+  // One counter per project (after 4.0.6): a quick run takes its ids from the project's own counter, so a
+  // record made in the run can come back to the project later without meeting an id that is already there.
+  const idHome = homeOf(dataDir);
+  const seqDir = join(idHome, entry.dir);
+  if (idHome !== dataDir) mkdirSync(seqDir, { recursive: true });
+  const seqPath = join(seqDir, ".id-seq");
   const lockPath = seqPath + ".lock";
 
   // Scan existing files to find the highest extant ID. Used as a fallback
@@ -1518,7 +1524,7 @@ function nextIdCmd(args, { dataDir: dataDirOverride } = {}) {
     // Use a regex built from the prefix for safety.
     const escaped = entry.prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(`^${escaped}0*(\\d+)`);
-    for (const dir of [kindDir, join(dataDir, "spec", "archive", basename(entry.dir))]) {
+    for (const dir of [...new Set([dataDir, idHome])].flatMap((d) => [join(d, entry.dir), join(d, "spec", "archive", basename(entry.dir))])) {
       let entries;
       try {
         entries = readdirSync(dir);
@@ -2298,6 +2304,7 @@ function anchorCommit(taskId, sha, opts = {}) {
     process.stderr.write(`shipyard-data anchor-commit: failed to create anchor ref ${ref} -> ${sha}\n`);
     process.exit(1);
   }
+  stampOwner(projectRoot, ref, ownerFor(projectRoot));
   try {
     logEvent(opts.dataDir || getDataDir({ projectRoot, silent: true }), "task_commit_anchored", { task: taskId, sha, ref });
   } catch { /* event is best-effort */ }
@@ -2340,7 +2347,10 @@ function verifyWaveIntegrated() {
 
   // Anchor refs created by anchor-commit on return.
   const keepRaw = gitCapture(["branch", "--list", "shipyard/keep-*", "--format=%(refname:short)"], projectRoot) || "";
-  const keepRefs = keepRaw.split("\n").map((s) => s.trim()).filter(Boolean);
+  // Only this side's builders (after 4.0.6): a quick run and the regular project build in one repository.
+  const mine = ownerOf(dataDir);
+  const keepRefs = ownedNames(projectRoot, keepRaw.split("\n").map((s) => s.trim()).filter(Boolean), mine);
+  wtBranches.splice(0, wtBranches.length, ...ownedNames(projectRoot, wtBranches, mine));
 
   // Check A — every worktree branch merged into working.
   const unintegrated = wtBranches.filter((b) => !gitIsAncestor(b, workingBranch, projectRoot));
@@ -3673,6 +3683,7 @@ function main() {
     case "patch-budget":
     case "decide":
     case "branches":
+    case "quick":
     case "version":
     case "sources":
     case "route-intake": {

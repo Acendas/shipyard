@@ -41,6 +41,8 @@
  */
 
 import { planInfo, readonlyStories } from "./sprint-ahead.mjs";
+import { listRuns, quickInfo, stageOf } from "./quick.mjs";
+import { homeOf } from "./shipyard-resolver.mjs";
 import { existsSync, lstatSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, closeSync, readSync } from "node:fs";
 import { eventTypeAliases } from "./vocab.mjs";
 import { tmpdir } from "node:os";
@@ -460,12 +462,28 @@ const CANONICAL_STARTUP_RULES = [
   "Searching: where a step names the Grep or Glob tool and this session has none, search with `grep` and `find` through the shell straight away (read-only, allowed); do not call a tool that is not there.",
 ];
 
+// A quick run (after 4.0.6). Inside one, every command is told it is a stage of the run and what to do when it
+// ends; at home, runs that are open or waiting to be merged are named in one line.
+function renderQuickLines(dataDir, out) {
+  try {
+    const q = quickInfo(dataDir);
+    if (q && q.state === "active") {
+      out(`SHIPYARD_QUICK_RUN=${q.run} branch=${q.branch} stage=${stageOf(dataDir)?.stage ?? "?"}`);
+      out(`QUICK RUN: this command is one stage of a quick run on one item (${JSON.stringify(String(q.item).slice(0, 160))}). The records here are the run's own; the regular project's backlog, sprint and numbers are not part of it and are not shown. Do everything this command does, with every check it has: nothing is lighter because the run is quick. When discussing: the item is here to be built, so it is refined into stories (or filed as one small task when the router says land-now); saving it as an idea only, and the hotfix lane, do not apply. When planning: every approved story of the run is in the plan, capacity is not a limit, and the approval card is the person's go-ahead for the build. When this command ends, do not name a next command and do not stop: run \`shipyard-data quick next\` and do what it says.`);
+      return;
+    }
+    const open = listRuns(homeOf(dataDir)).filter((r) => ["active", "finished"].includes(r.state));
+    if (open.length) out(`SHIPYARD_QUICK_RUNS=${open.map((r) => `${r.run} (${r.state === "active" ? "open" : "built, not merged yet"}, branch ${r.branch})`).join("; ")}`);
+  } catch { /* a quick run never stops a command from starting */ }
+}
+
 function renderSkillStartup(dataDir, out, { canonical = true } = {}) {
   out(`SHIPYARD_DATA=${dataDir}`);
   const status = renderOnboardingLines(dataDir, out);
   if (canonical && !status.required) {
     for (const line of CANONICAL_STARTUP_RULES) out(line);
   }
+  renderQuickLines(dataDir, out);
   return status.required;
 }
 

@@ -78,7 +78,8 @@ test("retired-term list names a replacement for every entry and does not flag ke
   const flagged = (s) => RETIRED_TERMS.some((t) => t.re.test(s));
   assert.equal(flagged("shipyard-data feature set-status F001 approved"), true);
   assert.equal(flagged("Read `spec/features/F001-x.md`"), true);
-  assert.equal(flagged("/ship-quick"), true);
+  assert.equal(flagged("/ship-bug"), true);
+  assert.equal(flagged("/ship-quick"), false); // back after 4.0.6 as the quick run: one item, all four stages
   assert.equal(flagged("B-HOT-003"), true);
   assert.equal(flagged("shipyard-data story set-status S001 approved"), false);
   assert.equal(flagged("spec/stories/S001-x.md"), false);

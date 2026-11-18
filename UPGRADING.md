@@ -8,6 +8,8 @@ No migration and no breaking change. Things you may notice:
 
 | What | Detail |
 |---|---|
+| `/ship-quick` is back, as a different command | It no longer means "a small change" (that is still `/ship-discuss`, land-now lane). It takes one item through discussion, plan, build and review on a branch you made, with records of its own under `<data>/quick/<run>/`. It refuses on `main`/`master` and on the branch a regular sprint builds on |
+| Builder branches have an owner | A quick run's `shipyard/wt-*` and `shipyard/keep-*` branches carry `branch.<name>.shipyard-owner` in the repository's config. The regular project's checks and sweeps skip them, and the run skips the project's |
 | A runner script gets `--job <id>` | The call is now `<script> --worktree <dir> --job <id> -- <command...>`. A script that reads its arguments by position must skip the two new words |
 | Exit 75 from a runner | Means "still running": return it before about 8 minutes are up, and when called again with the same `--job`, wait for the run you already started. `shipyard-logcap run` then ends with 75 and `RUNNING`; nothing is recorded until the run ends |
 | Builders | A command is checked by what it runs. Text inside quotes or a here-document is not read as a command; a build inside `$( )` or `sh -c` is |

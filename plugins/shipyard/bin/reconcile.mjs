@@ -20,8 +20,9 @@ import { spawnSync } from "node:child_process";
 import { logEvent } from "./_hook_lib.mjs";
 import { parseFrontmatter, sprintStoryIds } from "./terminal-gate.mjs";
 import { parseFrontmatterList } from "./frontmatter-list.mjs";
-import { listShipyardBranches, listShipyardWorktrees, repoFor, sprintInFlight } from "./branches.mjs";
+import { listShipyardBranches, listShipyardWorktrees, ownerOf, repoFor, sprintInFlight } from "./branches.mjs";
 import { readSweepBranches } from "./config-read.mjs";
+import { landable } from "./quick.mjs";
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "shipyard-data.mjs");
 const FINISHED = new Set(["done", "deployed", "released"]);
@@ -117,14 +118,16 @@ export function findDrift(dataDir) {
     // live: doctor called a just-finished sprint's 26 anchors "leftover" at
     // the start of its own review.
     if (readSweepBranches(dataDir) && !sprintInFlight(dataDir) && !sprintText) {
-      const wts = listShipyardWorktrees(repoFor(dataDir));
+      const wts = listShipyardWorktrees(repoFor(dataDir), ownerOf(dataDir));
       const clean = wts.filter((w) => !w.dirty), dirty = wts.filter((w) => w.dirty);
       if (clean.length) findings.push({ kind: "stale-worktrees", id: `${clean.length}`, detail: `${clean.length} finished builder worktree(s) are still on disk with no sprint running`, fix: [["branches", "sweep", "--label", `reconciled-${new Date().toISOString().slice(0, 10)}`]], hint: "removed; their commits stay on their branches, which are swept" });
       for (const w of dirty) findings.push({ kind: "worktree-with-uncommitted-work", id: w.path, detail: `${w.path} (${w.branch}) has uncommitted changes and no sprint is running`, hint: "look at it, then commit or discard it yourself; Shipyard does not delete uncommitted work" });
-      const left = clean.length ? [] : listShipyardBranches(repoFor(dataDir)).filter((b) => !b.checked_out);
+      const left = clean.length ? [] : listShipyardBranches(repoFor(dataDir), ownerOf(dataDir)).filter((b) => !b.checked_out);
       if (left.length) findings.push({ kind: "stale-shipyard-branches", id: `${left.length}`, detail: `${left.length} Shipyard branch(es) from finished sprints are still listed by \`git branch\` (${left.filter((b) => b.kind === "keep").length} anchors, ${left.filter((b) => b.kind === "wt").length} worktree branches)`, fix: [["branches", "sweep", "--label", `reconciled-${new Date().toISOString().slice(0, 10)}`]], hint: "merged ones deleted, the rest kept out of sight under refs/shipyard/archive/" });
     }
   } catch { /* no git here: nothing to report */ }
+  // 7. a finished quick run whose branch has been merged: its records belong in the project now (after 4.0.6)
+  try { for (const r of landable(dataDir)) findings.push({ kind: "quick-run-merged", id: r.run, detail: `${r.run} (branch ${r.branch}) is built and merged; its records are not in the project yet`, fix: [["quick", "land", r.run]], hint: "records brought into the project" }); } catch { /* no git here */ }
   return findings;
 }
 

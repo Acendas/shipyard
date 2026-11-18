@@ -103,8 +103,10 @@ You talk.  Shipyard plans.  Claude builds.  You approve.
 
 **Other commands:**
 
-  (legacy /ship-quick and /ship-bug were removed in v4 — describe the change or bug to /ship-discuss;
-   it routes to capture, refine, land-now (/ship-execute --task) or hotfix (/ship-execute --hotfix))
+  /ship-quick <item>           — One item all the way on your own branch: discuss, plan, build, review.
+                                 Its records are separate from the regular sprint and backlog.
+  (a small change or a bug: describe it to /ship-discuss; it routes to capture, refine,
+   land-now (/ship-execute --task) or hotfix (/ship-execute --hotfix))
   /ship-discuss --idea <text>  — Save a thought and stop.
   /ship-discuss --chain <ids>  — Refine several items in a row.
   /ship-discuss --pull "<JQL>" — Import tracker tickets as unrefined stories.

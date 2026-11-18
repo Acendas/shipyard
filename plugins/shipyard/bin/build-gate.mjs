@@ -40,6 +40,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { cpus, freemem, loadavg, platform, totalmem } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { logEvent, withLockfile } from "./_hook_lib.mjs";
+import { homeOf } from "./shipyard-resolver.mjs";
 
 export const QUEUED_EXIT = 75;
 export const RUNNER_UNAVAILABLE_EXIT = 69;
@@ -298,7 +299,10 @@ export function machine() {
 
 const emptyState = () => ({ v: 1, holders: [], queue: [], need: { cores: [], mem: [] }, shrink: null, runner: null });
 
+// One gate per machine and project (after 4.0.6): a quick run waits in the project's own line, so the run and
+// the regular sprint together never start more builds than the machine has room for.
 function readState(dataDir) {
+  dataDir = homeOf(dataDir);
   try {
     const s = JSON.parse(readFileSync(join(dataDir, STATE_NAME), "utf8"));
     return { ...emptyState(), ...s, need: { cores: [], mem: [], ...(s.need ?? {}) } };
@@ -317,6 +321,7 @@ export function prune(state, now = Date.now(), isAlive = alive) {
 }
 
 function mutate(dataDir, fn) {
+  dataDir = homeOf(dataDir);
   let out;
   withLockfile(join(dataDir, STATE_NAME + ".lock"), () => {
     const state = prune(readState(dataDir));

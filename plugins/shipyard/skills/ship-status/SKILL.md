@@ -157,6 +157,10 @@ Detection rules:
     ⚠ stuck_counter=<N> — review pipeline_stuck has fired   [only if applicable]
   (omit either line if its cursor file doesn't exist; render "PIPELINE: no active cursors" if both absent)
 
+ QUICK RUNS   [only when the context has SHIPYARD_QUICK_RUN or SHIPYARD_QUICK_RUNS]
+  <run> — <open at <stage> | built, not merged yet> — branch <name>
+  (inside a run, say so first: "This is quick run <run> on branch <name>; the regular project is on your other branches.")
+
  CARRY-OVER (from previous sprints)
   [N] open bugs | [N] blocked tasks | [N] retro items | [N] incomplete features
   (details: /ship-sprint will show these before feature selection)

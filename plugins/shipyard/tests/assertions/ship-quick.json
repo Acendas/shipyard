@@ -1,0 +1,62 @@
+[
+  {
+    "name": "stage_comes_from_the_cli",
+    "type": "contains",
+    "pattern": "shipyard-data quick next",
+    "why": "the stage is read from the records by the CLI, never decided by the session"
+  },
+  {
+    "name": "stages_run_through_the_skill_tool",
+    "type": "contains",
+    "pattern": "Run each stage through the `Skill` tool",
+    "why": "the owner: chaining must not affect quality; each stage is the real command, loaded whole"
+  },
+  {
+    "name": "nothing_is_lighter",
+    "type": "contains",
+    "pattern": "Nothing in them is lighter here",
+    "why": "a quick run is the four regular commands with every gate"
+  },
+  {
+    "name": "stages_start_from_records",
+    "type": "contains",
+    "pattern": "Each stage starts from the records",
+    "why": "no stage leans on what the session remembers of an earlier one"
+  },
+  {
+    "name": "no_stop_between_stages",
+    "type": "contains",
+    "pattern": "Do not stop between stages",
+    "why": "the chain goes on by itself; the Stop hook enforces it"
+  },
+  {
+    "name": "branch_is_the_persons",
+    "type": "contains",
+    "pattern": "Never create, switch, merge, rebase, push or delete it",
+    "why": "the owner branches off and decides what happens to the branch afterwards"
+  },
+  {
+    "name": "start_passes_the_item",
+    "type": "contains",
+    "pattern": "shipyard-data quick start",
+    "why": "the run is started and bound to the branch by the CLI"
+  },
+  {
+    "name": "finish_is_the_cli",
+    "type": "contains",
+    "pattern": "shipyard-data quick finish",
+    "why": "the close checks that every builder of the run is gone"
+  },
+  {
+    "name": "no_drop_or_land_unasked",
+    "type": "contains",
+    "pattern": "Never run `shipyard-data quick drop` or `shipyard-data quick land` unless the person asks",
+    "why": "both change the project's records"
+  },
+  {
+    "name": "records_are_separate",
+    "type": "contains",
+    "pattern": "the regular sprint and backlog of this project are not touched",
+    "why": "the owner: ship-quick must not mix with the normal flow"
+  }
+]

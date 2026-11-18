@@ -34,6 +34,8 @@ import { readState, sourcesOwed } from "../discuss-questions.mjs";
 import { readEvents } from "../terminal-gate.mjs";
 import { logEvent } from "../_hook_lib.mjs";
 import { noteAvailable } from "./source-ledger.mjs";
+import { stageOf } from "../quick.mjs";
+import { parseFrontmatter } from "../terminal-gate.mjs";
 
 export const HANDED_BACK = "Shipyard: the explanation is shown. Ask the question card now, with nothing written first.";
 const handBack = (e) => (e?.type === "attachment" && e.attachment?.type === "hook_additional_context" && e.attachment?.hookEvent === "Stop" && (e.attachment.content ?? []).some((c) => /^Shipyard:/.test(String(c))))
@@ -102,7 +104,7 @@ export function decideUnfinished(dataDir, hookInput) {
   if (endsWithMarker(String(hookInput.last_assistant_message ?? "").trim())) return null; // the card is on its way
   const entries = transcriptTail(hookInput) ?? [];
   const cmd = commandStart(entries, hookInput);
-  if (cmd && !/(^|:)ship-discuss$/.test(cmd.name)) return null; // the person ran something else in this session
+  if (cmd && !/(^|:)ship-(discuss|quick)$/.test(cmd.name)) return null; // the person ran something else in this session (a quick run's discussion is typed as /ship-quick)
   const state = readState(dataDir);
   const topic = state.current ? state.topics[state.current] : null;
   if (topic?.research?.state === "running") return null; // waiting for a background agent, not for nothing
@@ -125,14 +127,53 @@ export function decideUnfinished(dataDir, hookInput) {
   };
 }
 
+/**
+ * A quick run does not stop between its stages (after 4.0.6).
+ *
+ * `/ship-quick` runs four commands in a row on one item. Each of them was
+ * written to end by naming the next command and stopping; in a quick run the
+ * next one starts by itself. So: a turn that ends while this session's run is
+ * BETWEEN commands (no lock of the run is held) and has a next stage that
+ * needs no answer from the person is handed back once, with that stage.
+ *
+ * Inside a command nothing changes: its own rules decide when it may stop.
+ * Not handed back: the discussion stage with no discussion running (it was
+ * paused, or it waits on a fact only the person has), a paused or escalated
+ * build, another command typed since, and a second time in a row.
+ */
+export const QUICK_GOES_ON = "Shipyard: this quick run is not finished.";
+const lockHeld = (dataDir, name) => { try { const o = JSON.parse(readFileSync(join(dataDir, name), "utf8")); return Boolean(o && o.skill && !o.cleared); } catch { return false; } };
+export function decideQuick(dataDir, hookInput) {
+  if (!dataDir || !hookInput) return null;
+  const session = String(hookInput.session_id ?? "").trim();
+  if (!session) return null;
+  const s = stageOf(dataDir);
+  if (!s || s.info.state !== "active" || String(s.info.session ?? "") !== session) return null;
+  if (!["plan", "build", "task", "review", "finish"].includes(s.stage)) return null;
+  if ([".active-discuss.json", ".active-session.json", ".active-execution.json"].some((f) => lockHeld(dataDir, f))) return null; // a command is running: its rules
+  if (endsWithMarker(String(hookInput.last_assistant_message ?? "").trim())) return null; // a card is on its way
+  if (s.stage === "build") {
+    let st = "";
+    try { st = String(parseFrontmatter(readFileSync(join(dataDir, "sprints", "current", "EXECUTE-CURSOR.md"), "utf8")).status ?? "").trim(); } catch { st = ""; }
+    if (st === "paused" || st === "escalated") return null; // it stopped to ask: the person's turn
+  }
+  const entries = transcriptTail(hookInput) ?? [];
+  const cmd = commandStart(entries, hookInput);
+  if (cmd && !/(^|:)ship-quick$/.test(cmd.name)) return null; // the person ran something else in this session
+  const since = lastPersonTurn(entries, cmd ? cmd.start : -1);
+  if (entries.slice(since + 1).some((e) => handBack(e) && JSON.stringify(e).includes(QUICK_GOES_ON))) return null;
+  return { kind: "quick", stage: s.stage, reason: `${QUICK_GOES_ON} It is at "${s.stage}" and nothing is running. Run shipyard-data quick next and do what it says, now. To stop here on purpose, tell the person in one line that the run stays open on branch ${s.info.branch} and that /ship-quick carries on with it.` };
+}
+
 export function run(hookInput, env) {
   const dataDir = (env && env.SHIPYARD_DATA) || process.env.SHIPYARD_DATA;
   try { noteAvailable(dataDir, hookInput); } catch { /* best-effort: which sources this session can search */ }
   let v = null;
   try { v = decideStop(hookInput); } catch { v = null; }
   if (!v) { try { v = decideUnfinished(dataDir, hookInput); } catch { v = null; } }
+  if (!v) { try { v = decideQuick(dataDir, hookInput); } catch { v = null; } }
   if (!v) return 0;
-  try { if (dataDir) logEvent(dataDir, v.kind === "ask" ? "ask_handed_back" : v.kind === "unfinished" ? "discuss_stop_handed_back" : "explanation_sent_back", v.problems ? { problems: v.problems.length } : {}); } catch { /* best-effort */ }
+  try { if (dataDir) logEvent(dataDir, v.kind === "quick" ? "quick_stop_handed_back" : v.kind === "ask" ? "ask_handed_back" : v.kind === "unfinished" ? "discuss_stop_handed_back" : "explanation_sent_back", v.problems ? { problems: v.problems.length } : {}); } catch { /* best-effort */ }
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "Stop", additionalContext: v.reason } }));
   return 0;
 }

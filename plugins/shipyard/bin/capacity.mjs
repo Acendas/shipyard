@@ -182,5 +182,9 @@ export function capacityMain(dataDir, args = []) {
     process.stderr.write("shipyard-data capacity: no measured points-per-hour rate yet — time budget not converted; planning by points.\n");
   }
   if (parsed.json) process.stdout.write(JSON.stringify(r) + "\n");
-  else process.stdout.write(renderCapacity(r));
+  else {
+    process.stdout.write(renderCapacity(r));
+    // after 4.0.6: a quick run builds one whole item; it is not a timebox, so there is nothing to fit
+    if (/[\\/]quick[\\/]quick-\d{3,}[\\/]?$/.test(String(dataDir))) process.stdout.write("Quick run: capacity is not a limit here. Every approved story of the item goes into the plan.\n");
+  }
 }

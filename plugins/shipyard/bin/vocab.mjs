@@ -207,7 +207,6 @@ export const RETIRED_TERMS = Object.freeze([
   Object.freeze({ re: /\bshipyard-data feature (set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-tasks|clear-tasks|record-proof|check-probes|assign-ac-ids)\b/, use: "shipyard-data story <verb>" }),
   Object.freeze({ re: /\bshipyard-data bug set-status\b/, use: "shipyard-data story set-status" }),
   Object.freeze({ re: /\bnext-id (features|bugs)\b/, use: "next-id stories" }),
-  Object.freeze({ re: /\bship-quick\b/, use: "ship-discuss (land-now lane) / ship-execute --task" }),
   Object.freeze({ re: /\bship-bug\b/, use: "ship-discuss (bug refinement / hotfix lane)" }),
   Object.freeze({ re: /\bQ-(NNN|\d{3})\b/, use: "T### task ids" }),
   Object.freeze({ re: /\bB-HOT-?(NNN|\d{3})?\b/, use: "S### story ids with lane: hotfix" }),

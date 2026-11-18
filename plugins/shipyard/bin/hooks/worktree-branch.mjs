@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative as pathRelative, resolve as pathResolve } from "node:path";
 import { withLockfile, WORKTREE_NAME_RE } from "../_hook_lib.mjs";
-import { getProjectRoot } from "../shipyard-resolver.mjs";
+import { getProjectRoot, quickRunFor } from "../shipyard-resolver.mjs";
 import { warmWorktreeFromConfig } from "../worktree-warm.mjs";
 
 function runGit(args, cwd) {
@@ -260,6 +260,9 @@ export async function run(hookInput, _env) {
       }
       resultPath = worktreePath;
       writeOriginMarker(worktreePath);
+      // A quick run's builder (after 4.0.6): mark the branch as that run's, so the regular project never
+      // counts, merges or sweeps it, and the run never sees the regular project's builders.
+      try { const q = quickRunFor(getProjectRoot()); if (q) runGit(["config", `branch.${branchName}.shipyard-owner`, q.run], repoRoot); } catch { /* best-effort */ }
     }, { ttlMs: 30000, retryMs: 500, maxRetries: 60 });
   } catch (err) {
     process.stderr.write(`shipyard worktree hook: lock failure: ${err.message}\n`);

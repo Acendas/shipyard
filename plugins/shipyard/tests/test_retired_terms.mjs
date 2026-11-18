@@ -12,7 +12,7 @@ import { RETIRED_TERMS } from "../bin/vocab.mjs";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
-// F024 removed ship-quick / ship-bug; nothing is pending any more. Keep the hook so a future
+// F024 removed the old ship-quick / ship-bug; nothing is pending any more (ship-quick came back after 4.0.6 as a different command). Keep the hook so a future
 // retirement can stage its removal the same way.
 export const PENDING_UNTIL_F024 = [];
 

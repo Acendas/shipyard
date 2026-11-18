@@ -211,6 +211,25 @@ The review always has the same twelve sections: goal and outcome · what you can
 
 Shipyard does not push, create git tags or publish a release. You do that when you are ready.
 
+### One item, all the way: `/ship-quick`
+
+Make a branch, then hand over one thing: an intent in words, a ticket key, a bug, or an id from your backlog.
+
+```
+git switch -c feat/export
+/ship-quick let people export a month as a CSV file
+
+  discuss  →  plan  →  build  →  review  →  finish
+  you answer here ─┘        │         └─ and are asked once here
+              nobody is asked during the build
+```
+
+| You do | Shipyard does | You get |
+|---|---|---|
+| Make a branch. Say the item. Answer the discussion's questions and approve the plan. Read the review | Runs `/ship-discuss`, `/ship-sprint`, `/ship-execute` and `/ship-review` in a row, each one whole, with every check it has. Builders work in temporary working copies, merge back into your branch and are removed | Reviewed code on your branch. Shipyard does not merge or push it: what happens next is yours |
+
+A quick run keeps its own records (stories, plan, locks, numbers). While you are on its branch, Shipyard works from those; switch back and the regular project is as you left it. A story the run takes from your backlog is off the backlog until the run ends. When you merge the branch, the project's records follow at the next status or planning run. `shipyard-data quick list` shows every run; `quick drop <run> --reason "…"` gives an item back untouched.
+
 ### The other commands
 
 | Command | You do | Shipyard does | You get |
@@ -245,10 +264,11 @@ If you cannot do the start items when the sprint starts, the stories that depend
 
 ## What is new in 4.0.6
 
-A patch release from the first evening on 4.0.5. No migration is needed.
+A patch release from the first evening on 4.0.5, and one new command. No migration is needed.
 
 | Area | What changed |
 |---|---|
+| `/ship-quick` | One item all the way on a branch you made: it is discussed, planned, built and reviewed in one go, with the same checks as the four commands. Its records are separate, so a regular sprint and backlog are not touched. See "One item, all the way" below |
 | Text is not a build | A builder writing a file, a commit message or a job description that names the build tool is no longer sent back as "a build outside the gate". Only a command that runs the tool is |
 | Runs longer than a tool call | Your runner script may answer exit 75, "still running". The builder sees `RUNNING`, runs the same command again, and your script is called with the same `--job` id to pick the run up. The place in line is kept, and the run is recorded once, with its whole time, when it ends |
 | Quick capture | `/ship-discuss --idea` gives the discuss lock back in every project. Before, the first capture in a new project left it held (thanks to Bryan Bavaro) |
@@ -362,6 +382,7 @@ The full list is in [docs/milestones-4.0.md](docs/milestones-4.0.md).
 | Command | What it does | Options |
 |---|---|---|
 | `/ship-discuss` | Takes in any new work: capture, refine, land now, hotfix | `[topic]`, `S###`, `E###`, `IDEA-###`, issue key, `--idea`, `--hotfix`, `--chain`, `--pull`, `--think <model>` |
+| `/ship-quick` | One item on your own branch: discuss, plan, build, review | `[the item in words]`, `S###`, `E###`, `IDEA-###`, issue key |
 | `/ship-backlog` | Shows and orders what is waiting | `groom`, `rank`, `approve`, `bankruptcy` |
 | `/ship-sprint` | Plans a sprint, or cancels the active one | `--cancel`, `--hours <n>`, `--until <time>` |
 | `/ship-execute` | Builds the sprint, test first, in waves | `--task <id>`, `--hotfix <id>`, `--mode solo\|task\|track`, `--isolation true\|false` |

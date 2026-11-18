@@ -62,6 +62,18 @@ export function readonlyStories(dataDir) {
   if (cur && clean(parseFrontmatter(cur).status) !== "cancelled") for (const id of sprintStoryIds(cur)) out.add(id);
   const info = planInfo(dataDir);
   if (info.next) for (const id of info.next.stories) out.add(id);
+  // after 4.0.6: a record a quick run has taken is that run's until it lands or is dropped
+  if (existsSync(join(dataDir, "quick"))) {
+    for (const sub of ["stories", "features", "bugs", "epics", "tasks", "ideas"]) {
+      let names = [];
+      try { names = readdirSync(join(dataDir, "spec", sub)); } catch { continue; }
+      for (const n of names) {
+        if (!n.endsWith(".md")) continue;
+        const fm = parseFrontmatter(readIf(join(dataDir, "spec", sub, n)) ?? "");
+        if (clean(fm.quick) && clean(fm.id)) out.add(clean(fm.id));
+      }
+    }
+  }
   return [...out];
 }
 
