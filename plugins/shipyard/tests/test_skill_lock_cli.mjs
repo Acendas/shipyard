@@ -621,7 +621,7 @@ test("a discussion cannot end before the owner was asked once about the project'
     assert.equal(acquire().code, 0);
     assert.equal(release().code, 0, "a discussion that wrote nothing owes nothing");
     assert.equal(acquire().code, 0);
-    p.run(["idea", "capture", "--title", "Returns page ready for the first pilot shop"]);
+    p.run(["story", "add", "--title", "Returns page ready for the first pilot shop"]);
     let r = release();
     assert.equal(r.code, 3); assert.match(r.stderr, /this project has not said where its knowledge lives, besides the code[\s\S]*shipyard-data sources suggest/);
     assert.equal(JSON.parse(r.stdout).reason, "project_sources_not_asked");
@@ -646,7 +646,8 @@ test("a discussion cannot end before the owner was asked once about the project'
     // Seen live: an idea refined into an epic through cards of the session's own, with no question list at all.
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2100);
     assert.equal(acquire().code, 0);
-    p.run(["idea", "capture", "--title", "A second page for the pilot shop"]);
+    const idea = /IDEA-\d+/.exec(p.run(["idea", "capture", "--title", "A second page for the pilot shop"]).stdout)[0];
+    p.run(["idea", "promote", idea, "--size", "M"]);
     r = release();
     assert.equal(r.code, 3, "a discussion that wrote specs owes the record even with no question list"); assert.match(r.stderr, /has not said where its research looked/);
     const out = p.run(["discuss-questions", "sources", "--skipped", "Design notes: the scope comes from the test plan, nothing was decided"]).stdout;
@@ -658,10 +659,61 @@ test("a discussion cannot end before the owner was asked once about the project'
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2100);
     assert.equal(acquire().code, 0);
     p.run(["route-intake", "--confirm", "land-now", "--proposed", "land-now"]);
-    p.run(["idea", "capture", "--title", "Log an unknown reader code"]);
+    p.run(["task", "add", "--title", "Log an unknown reader code", "--kind", "chore"]);
     assert.equal(release().code, 0, release().stderr);
   } finally {
     p.cleanup();
+  }
+});
+
+// Seen live on 4.0.2 to 4.0.5: `/ship-discuss --idea` asks nothing and ends with `lock release discuss`, and the
+// release was refused, leaving the lock held, in a project never asked about its sources and in one that names any.
+test("a quick capture ends its discussion in every project state; a capture that goes on to an epic owes what any discussion owes", () => {
+  const states = {
+    "never asked": () => {},
+    "names none": (p) => p.run(["sources", "none", "--answer", "the repository is everything"]),
+    "names a source": (p) => p.run(["sources", "add", "Design notes", "--holds", "what was decided and why", "--path", "doc/", "--answer", "the design notes folder"]),
+  };
+  for (const [state, setUp] of Object.entries(states)) {
+    const p = makeProject();
+    try {
+      setUp(p);
+      assert.equal(p.run(["lock", "acquire", "discuss", "--skill", "ship-discuss", "--session", "s1"]).code, 0);
+      p.run(["idea", "capture", "--title", "Webhook retry with backoff", "--source", "inline capture (--idea)"]);
+      const r = p.run(["lock", "release", "discuss", "--skill", "ship-discuss", "--session", "s1"]);
+      assert.equal(r.code, 0, `${state}: ${r.stderr}`);
+      assert.deepEqual(JSON.parse(r.stdout), { released: true, depth: 0 }, state);
+    } finally {
+      p.cleanup();
+    }
+  }
+  {
+    const p = makeProject();
+    try {
+      states["names a source"](p);
+      assert.equal(p.run(["lock", "acquire", "discuss", "--skill", "ship-discuss", "--session", "s1"]).code, 0);
+      p.run(["route-intake", "--confirm", "capture", "--proposed", "capture"]);
+      p.run(["idea", "capture", "--title", "Returns page"]);
+      const r = p.run(["lock", "release", "discuss", "--skill", "ship-discuss", "--session", "s1"]);
+      assert.equal(r.code, 0, `a capture-lane discussion that only captured owes nothing: ${r.stderr}`);
+    } finally {
+      p.cleanup();
+    }
+  }
+  for (const [state, reason] of [["never asked", "project_sources_not_asked"], ["names a source", "research_sources_not_recorded"]]) {
+    const p = makeProject();
+    try {
+      states[state](p);
+      assert.equal(p.run(["lock", "acquire", "discuss", "--skill", "ship-discuss", "--session", "s1"]).code, 0);
+      p.run(["route-intake", "--confirm", "capture", "--proposed", "capture"]);
+      const idea = /IDEA-\d+/.exec(p.run(["idea", "capture", "--title", "Returns page"]).stdout)[0];
+      p.run(["idea", "promote", idea, "--size", "M"]);
+      const r = p.run(["lock", "release", "discuss", "--skill", "ship-discuss", "--session", "s1"]);
+      assert.equal(r.code, 3, `${state}: the capture lane does not cover an epic written after the capture`);
+      assert.equal(JSON.parse(r.stdout).reason, reason, state);
+    } finally {
+      p.cleanup();
+    }
   }
 });
 

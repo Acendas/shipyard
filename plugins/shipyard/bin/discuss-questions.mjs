@@ -179,7 +179,7 @@ export function approvalProblems(dataDir, storyId) {
         let e; try { e = JSON.parse(line); } catch { continue; }
         if (Number.isFinite(t0) && Date.parse(e.ts) < t0 - 1000) continue;
         if (e.type === "discuss_sources_recorded") last = e;
-        if (e.type === "intake_lane_confirmed") quick = ["land-now", "capture", "hotfix"].includes(e.lane);
+        if (e.type === "intake_lane_confirmed") quick = QUICK_LANES.includes(e.lane);
       }
       const gap = quick ? "" : gapFromLog(dataDir, last);
       if (gap && !out.includes(GAP_TEXT[gap])) out.push(GAP_TEXT[gap]);
@@ -267,16 +267,20 @@ export function sourcesOwed(dataDir, since, events = []) {
   // refined into an epic through free cards, and nothing asked where the research had looked).
   const wrote = events.some((e) => inWindow(e) && (WROTE_SPECS.has(e.type) || (e.type === "model_state_file_write" && /[\\/]spec[\\/](epics|stories|tasks|features|bugs)[\\/]/.test(String(e.file ?? "")))));
   if (!wrote) return null;
-  // The quick lanes (a thought captured, a tiny change filed to land now, a hotfix) do no research: nothing is owed.
+  // The quick lanes that file a record of their own (a tiny change to land now, a hotfix) do no research: nothing
+  // is owed. A captured idea is not a written spec, so the capture lane needs no exemption, and whatever the same
+  // discussion writes after the capture owes the record like any other discussion.
   const lane = [...events].reverse().find((e) => e.type === "intake_lane_confirmed" && inWindow(e))?.lane;
-  if (["land-now", "capture", "hotfix"].includes(lane)) return null;
+  if (QUICK_LANES.includes(lane)) return null;
   // A question list that was closed took its record with it; the log remembers what it still owed
   // (seen live: the session had to record its sources a second time to release the lock).
   const gap = gapFromLog(dataDir, [...events].reverse().find((e) => e.type === "discuss_sources_recorded" && inWindow(e)) ?? null);
   return gap ? { topic: mine.find((t) => t.sources)?.topic ?? FALLBACK_TOPIC, missing: gap } : null;
 }
 const FALLBACK_TOPIC = "discussion"; // where `sources` is kept when a discussion has no question list
-const WROTE_SPECS = new Set(["idea_promoted", "idea_imported", "idea_captured", "story_imported", "task_imported", "tracker_pulled", "story_added", "task_added", "story_refined"]);
+// A captured idea is a stash with no research behind it, so `idea_captured` is not a written spec.
+const WROTE_SPECS = new Set(["idea_promoted", "idea_imported", "story_imported", "task_imported", "tracker_pulled", "story_added", "task_added", "story_refined"]);
+const QUICK_LANES = Object.freeze(["land-now", "hotfix"]);
 const lockStart = (dataDir) => { try { const o = JSON.parse(readFileSync(join(dataDir, ".active-discuss.json"), "utf8")); return o && o.skill && !o.cleared ? String(o.started ?? "") : ""; } catch { return ""; } };
 /** Topics with something waiting (for the start-of-discussion context). */
 export function waitingTopics(dataDir) {

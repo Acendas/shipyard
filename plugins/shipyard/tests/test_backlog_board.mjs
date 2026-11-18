@@ -353,6 +353,28 @@ test("a discussion that still holds its lock is handed back once when a turn end
   } finally { f.cleanup(); }
 });
 
+// The hand-back's "to stop here on purpose" advice is what the lock release will accept: pause-and-release fails
+// while the release still asks for something, so the advice names that step first.
+test("the hand-back's advice for stopping on purpose names what the lock release still asks for", async () => {
+  const { decideUnfinished } = await import("../bin/hooks/ask-after-explain.mjs");
+  const f = fixture();
+  try {
+    const t = join(f.base, "t.jsonl");
+    const END = "The epic is broken down. Want me to go on?";
+    writeFileSync(t, [{ type: "user", message: { role: "user", content: "<command-name>/shipyard:ship-discuss</command-name>" } }, { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: END }] } }].map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const started = new Date(Date.now() - 5000).toISOString();
+    writeFileSync(join(f.d, ".active-discuss.json"), JSON.stringify({ skill: "ship-discuss", session_id: "s1", cleared: null, started }));
+    writeFileSync(join(f.d, ".shipyard-events.jsonl"), JSON.stringify({ ts: new Date().toISOString(), type: "idea_promoted", idea: "IDEA-001", to: "E001" }) + "\n");
+    const stop = () => decideUnfinished(f.d, { hook_event_name: "Stop", session_id: "s1", transcript_path: t, last_assistant_message: END });
+
+    assert.match(stop().reason, /To stop here on purpose, first ask the owner once where this project's knowledge lives \(shipyard-data sources suggest[\s\S]*then shipyard-data lock release discuss/, "never asked: the one-time question comes first");
+    writeFileSync(join(f.d, "sources.json"), JSON.stringify({ decided_at: started, sources: [{ name: "Design notes", holds: "what was decided", path: "doc/" }] }));
+    assert.match(stop().reason, /To stop here on purpose, first record where the research looked[\s\S]*shipyard-data discuss-questions sources --looked[\s\S]*then shipyard-data lock release discuss/, "a named source with no line: the record comes first");
+    writeFileSync(join(f.d, "sources.json"), JSON.stringify({ decided_at: started, sources: [] }));
+    assert.match(stop().reason, /To stop here on purpose, pause it: shipyard-data discuss-questions pause, then shipyard-data lock release discuss --skill ship-discuss\.$/, "nothing owed: the advice is unchanged");
+  } finally { f.cleanup(); }
+});
+
 // A real discussion's transcript was 3.9 MB and the hooks read its last 1.5 MB: the `/ship-discuss` line was
 // above the window, so every rule that needs to know the command went quiet partway through.
 test("the running command is found even when its line is above the part of the transcript the hooks read", async () => {
