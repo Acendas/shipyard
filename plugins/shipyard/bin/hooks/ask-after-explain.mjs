@@ -30,7 +30,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { transcriptTail, textOf, blocksOf, commandStart, explainProblems, lastPersonTurn, cardAbove, SHIPYARD_COMMAND, QUESTION_FOLLOWS, endsWithMarker } from "./unattended-ask.mjs";
-import { readState } from "../discuss-questions.mjs";
+import { readState, sourcesOwed } from "../discuss-questions.mjs";
+import { readEvents } from "../terminal-gate.mjs";
 import { logEvent } from "../_hook_lib.mjs";
 import { noteAvailable } from "./source-ledger.mjs";
 
@@ -84,6 +85,13 @@ export function decideStop(hookInput) {
  * session has been told; it may have a reason this hook cannot see).
  */
 export const UNFINISHED = "Shipyard: this discussion is not finished.";
+const STOP_PLAIN = "To stop here on purpose, pause it: shipyard-data discuss-questions pause, then shipyard-data lock release discuss --skill ship-discuss.";
+// What `lock release discuss` asks for before it lets go, keyed by `sourcesOwed(...).missing`.
+const STOP_OWED = Object.freeze({
+  registry: "To stop here on purpose, first ask the owner once where this project's knowledge lives (shipyard-data sources suggest prints the question) and record the answer, then shipyard-data lock release discuss --skill ship-discuss.",
+  sources: "To stop here on purpose, first record where the research looked, one line per source this project names (shipyard-data discuss-questions sources --looked|--skipped|--unreachable \"<name>: …\"), then shipyard-data lock release discuss --skill ship-discuss.",
+  person: "To stop here on purpose, first ask the person whether a document exists that this session cannot reach and record the answer (shipyard-data discuss-questions sources --person-said \"<their answer>\"), then shipyard-data lock release discuss --skill ship-discuss.",
+});
 export function decideUnfinished(dataDir, hookInput) {
   if (!dataDir || !hookInput) return null;
   const session = String(hookInput.session_id ?? "").trim();
@@ -105,13 +113,15 @@ export function decideUnfinished(dataDir, hookInput) {
   if (entries.slice(since + 1).some((e) => blocksOf(e).some((b) => b.type === "tool_use" && b.name === "Agent" && (b.input?.run_in_background === true || b.input?.run_in_background === "true")))) return null;
   if (entries.slice(since + 1).some((e) => handBack(e) && JSON.stringify(e).includes(UNFINISHED))) return null;
   const asked = topic?.questions?.find((q) => q.status === "asked");
+  let owed = null;
+  try { owed = sourcesOwed(dataDir, lock.owed_since ?? lock.started ?? null, readEvents(dataDir, 5000)); } catch { owed = null; }
   return {
     kind: "unfinished",
     reason:
       `${UNFINISHED} ${asked ? `${asked.id} is handed out and not asked yet: ask it. ` : ""}` +
       "Do every remaining step that does not depend on the person now (when one story is waiting on them, carry on with the others: critic, approval, finalize). " +
       "Ask what only they can decide as a question card, never as a plain-text question at the end of a turn. " +
-      "To stop here on purpose, pause it: shipyard-data discuss-questions pause, then shipyard-data lock release discuss --skill ship-discuss.",
+      (STOP_OWED[owed?.missing] ?? STOP_PLAIN),
   };
 }
 
