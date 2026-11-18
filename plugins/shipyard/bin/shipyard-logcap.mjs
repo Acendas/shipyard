@@ -37,7 +37,8 @@
  *     [--gate] [--wait <duration>] [--keep N] -- <command...>
  *
  * A run of the project's build or test tool waits at the build gate first
- * (build-gate.mjs). Exit 75 = QUEUED, not run: run the same command again.
+ * (build-gate.mjs). Exit 75 = QUEUED, not run (or RUNNING on the project's
+ * runner, not finished): run the same command again.
  * Exit 69 from a configured runner = it could not run the command.
  *   shipyard-logcap run <name> [options] --cmd-file <path>
  *   shipyard-logcap view <name|latest> [--filter <regex>] [--since TS]
@@ -583,12 +584,23 @@ async function enterBuildGate(opts, cmdArgs) {
     );
     process.exit(g.QUEUED_EXIT);
   }
+  // A job the runner already has stays with the runner, whatever lane a new run would take now.
+  if (entered.lane === "runner" && cfg.runner) lane = "runner";
   let meter = null;
   try { if (lane === "local" && entered.solo) meter = await g.startMeter(); } catch { meter = null; }
   let left = false;
   return {
     lane,
-    argv: lane === "runner" ? g.runnerArgv(cfg, cmdArgs) : null,
+    argv: lane === "runner" ? g.runnerArgv(cfg, cmdArgs, process.cwd(), entered.job) : null,
+    // A run the runner is still doing started when its first call did.
+    startedAt: lane === "runner" && entered.resumed ? entered.started : null,
+    /** The runner said "still running" (exit 75): keep the place for the same command and end this call. */
+    stillRunning(exitCode) {
+      if (lane !== "runner" || exitCode !== g.QUEUED_EXIT) return false;
+      left = true;
+      try { g.park(dataDir, entered.id, opts.name); } catch { /* the next call asks for a place again */ }
+      return true;
+    },
     runnerDown(exitCode) {
       if (lane !== "runner" || exitCode !== g.RUNNER_UNAVAILABLE_EXIT) return false;
       try { g.markRunnerDown(dataDir); } catch { /* best effort */ }
@@ -986,7 +998,14 @@ async function cmdRun(args) {
     }
   }
 
-  const runSeconds = Math.round((Date.now() - runStartedAt) / 1000);
+  // The project's runner has not finished: the run goes on there. Not a result, so not a recorded run.
+  if (gate?.stillRunning(exitCode)) {
+    writeBreadcrumb("run_still_running", { name: opts.name });
+    process.stdout.write("logcap: RUNNING on the project's runner, not finished yet. This is not a failure. Run the same command again to keep waiting for it.\n");
+    process.exit(exitCode);
+  }
+  const startedAt = gate?.startedAt ?? runStartedAt;
+  const runSeconds = Math.round((Date.now() - startedAt) / 1000);
   gate?.leave(exitCode, runSeconds);
   writeBreadcrumb("run_end", {
     name: opts.name,
@@ -1000,7 +1019,7 @@ async function cmdRun(args) {
     process.stdout.write("logcap: RUNNER UNAVAILABLE, not a test result: the project's runner could not run this command. Run the same command again; it will run on this machine.\n");
     process.exit(exitCode);
   }
-  await recordRun(opts.name, exitCode, runStartedAt, cmdArgs);
+  await recordRun(opts.name, exitCode, startedAt, cmdArgs);
   // A run cut short by --duration proved nothing, whatever it exits with.
   if (exitCode === 0 && !durationElapsed) await recordProof(cmdArgs, logPath);
 
@@ -1587,7 +1606,7 @@ function printHelp() {
       `       [--filter <regex>] [--duration <duration>] [--exit-file <path>] [--reuse]\n` +
       `       [--gate] [--wait <duration>]   (the project's build/test tool waits at the build gate by itself,\n` +
       `                   100 s unless --wait says longer: set it under your call's own time limit;\n` +
-      `                   exit 75 = QUEUED, not run: run the same command again)\n` +
+      `                   exit 75 = QUEUED, not run, or RUNNING elsewhere, not finished: run the same command again)\n` +
       `       [--keep N] -- <command...>\n` +
       `  shipyard-logcap run <name> [options] --cmd-file <path>\n` +
       `       (--cmd-file reads newline-delimited argv tokens from a file — use this\n` +

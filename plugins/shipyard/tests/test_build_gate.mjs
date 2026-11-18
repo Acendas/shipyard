@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import {
   decide, heavySignatures, isHeavyArgv, localLimit, needOf, prune, readySettled, readyCommand,
-  signatureOf, taskOf, ungatedHeavy, QUEUED_EXIT, RUNNER_UNAVAILABLE_EXIT,
+  segments, signatureOf, taskOf, ungatedHeavy, QUEUED_EXIT, RUNNER_UNAVAILABLE_EXIT,
 } from "../bin/build-gate.mjs";
 import { extendedDeadlineMs } from "../bin/worker-queue.mjs";
 
@@ -70,6 +70,19 @@ test("the builder hook finds a build outside the gate, and leaves a gated or har
   assert.equal(ungatedHeavy("grep -rn gradlew . ; cat gradlew ; git add gradlew", sigs), null);
   assert.equal(ungatedHeavy("shipyard-logcap run a -- ./gradlew a && ./gradlew b", sigs), "./gradlew b", "a second run chained after the gated one");
   assert.equal(ungatedHeavy("./gradlew test", heavySignatures([])), null);
+});
+
+// Seen live, 11 refusals in one evening, none of them a build on this machine.
+test("text that names the build tool is not a build: a file body, a commit message, a job sent elsewhere", () => {
+  const sigs = heavySignatures(["./gradlew test"]);
+  assert.equal(ungatedHeavy("cat > /tmp/brief.md <<'EOF'\nVerify P018\nRun exactly:\n./gradlew :a:test\nEOF\nagent run KEY-1 - < /tmp/brief.md", sigs), null, "a here-document's body");
+  assert.equal(ungatedHeavy("git commit -q -m \"feat(P017): count\n\n./gradlew :a:test passes; ./gradlew detekt too\"", sigs), null, "a commit message");
+  assert.equal(ungatedHeavy("agent run KEY-1 \"verify P005: run one gradle command; ./gradlew :a:test && report\"", sigs), null, "a quoted argument");
+  assert.equal(ungatedHeavy("echo './gradlew test' | pbcopy", sigs), null);
+  assert.equal(ungatedHeavy("cat <<-EOF > notes\n\t./gradlew test\n\tEOF\n./gradlew :b:test", sigs), "./gradlew :b:test", "the command after the here-document still counts");
+  assert.equal(ungatedHeavy("out=$(./gradlew :a:test 2>&1); echo \"$out\" | tail -3", sigs), "./gradlew :a:test 2>&1", "a build inside $( ) is a build");
+  assert.equal(ungatedHeavy("sh -c 'cd mod && ./gradlew test'", sigs), "sh -c 'cd mod && ./gradlew test'", "a build inside sh -c is a build");
+  assert.deepEqual(segments("a 'b c' \"d;e\" && f\\ g").map((w) => [...w]), [["a", "b c", "d;e"], ["f g"]]);
 });
 
 const cfg = { enabled: true, slots: null, runner: null, commands: ["./gradlew test"] };
@@ -258,7 +271,7 @@ test("a project runner takes the build, in its own lane, and a broken runner is 
     script({ capacity: "echo 4; exit 0", run: 'echo "remote: $*"; exit 0' });
     const ok = p.logcap("P001-probe", "--", "./build.sh", "1");
     assert.equal(ok.code, 0);
-    assert.match(ok.out, new RegExp(`remote: --worktree ${p.repo} -- ./build.sh 1`));
+    assert.match(ok.out, new RegExp(`remote: --worktree ${p.repo} --job [0-9a-f]{10}-[0-9a-z]+ -- ./build.sh 1`));
     assert.match(p.data("build-gate", "status").out, /runner .*runner\.sh: 0 of 4 running, 0 waiting/);
     assert.match(p.logcap("w", "--", "echo", "hello").out, /^hello/m, "only the build tool goes to the runner");
 
@@ -271,6 +284,40 @@ test("a project runner takes the build, in its own lane, and a broken runner is 
     const local = p.logcap("P001-probe", "--", "./build.sh", "1");
     assert.equal(local.code, 0);
     assert.match(local.out, /built 1/, "asked again, it runs here");
+  } finally { p.cleanup(); }
+});
+
+// Seen live: a job on the owner's other machine took 19 minutes and a tool call ends at 10, so builders asked
+// the host by hand, over and over, and nothing was recorded as a run.
+test("a run the runner has not finished ends the call with RUNNING, keeps its place, and the same command continues the same job", () => {
+  const p = project();
+  try {
+    const runner = join(p.base, "runner.sh");
+    const jobs = join(p.base, "jobs.log");
+    // The first call for a job answers "still running" (75); the second call with the same --job finishes it.
+    writeFileSync(runner, `#!/bin/sh\nif [ "$1" = "--capacity" ]; then echo 1; exit 0; fi\njob="$4"\necho "$job" >> ${jobs}\nif [ "$(grep -c "^$job$" ${jobs})" -lt 2 ]; then echo started; exit 75; fi\necho "report of $job"; exit 0\n`);
+    chmodSync(runner, 0o755);
+    writeFileSync(join(p.d, "config.md"), `---\ntest_commands:\n  unit: "./build.sh 1"\nexecution:\n  runner_command: ${runner}\n---\n`);
+    const first = p.logcap("P007-probe", "--", "./build.sh", "1");
+    assert.equal(first.code, QUEUED_EXIT);
+    assert.match(first.out, /RUNNING on the project's runner, not finished yet\. This is not a failure\. Run the same command again/);
+    assert.doesNotMatch(p.events(), /"command_run","name":"P007-probe"/, "a run that has not ended is not a recorded run");
+    assert.match(p.events(), /"build_gate_waiting","name":"P007-probe","lane":"runner","task":"P007","running":true/, "the queue sees the builder as alive");
+    const state = JSON.parse(readFileSync(join(p.d, ".build-gate.json"), "utf8"));
+    assert.equal(state.holders.length, 1, "the place stays taken while the job runs elsewhere");
+    assert.equal(state.holders[0].reserved, true);
+    assert.equal(p.logcap("P008-probe", "--", "./build.sh", "2").code, QUEUED_EXIT, "the runner takes one run and it is still running");
+    const again = p.logcap("P007-probe", "--", "./build.sh", "1");
+    assert.equal(again.code, 0);
+    const ids = readFileSync(jobs, "utf8").trim().split("\n");
+    assert.equal(ids.length, 2);
+    assert.equal(ids[0], ids[1], "the second call names the same job");
+    assert.match(again.out, new RegExp(`report of ${ids[0]}`));
+    assert.match(p.events(), /"command_run","name":"P007-probe","exit":0/);
+    assert.deepEqual(JSON.parse(readFileSync(join(p.d, ".build-gate.json"), "utf8")).holders, []);
+    const next = p.logcap("P007-probe-2", "--", "./build.sh", "1");
+    assert.equal(next.code, QUEUED_EXIT, "the same command after the job ended is a new job");
+    assert.notEqual(readFileSync(jobs, "utf8").trim().split("\n")[2], ids[0]);
   } finally { p.cleanup(); }
 });
 

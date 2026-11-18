@@ -121,7 +121,8 @@ Otherwise, proceed.
    refused. Give the call a timeout of 600000 ms and pass `--wait 8m`. The gate
    lets a run start when the machine (or the project's runner) has room, and
    you do nothing to ask for it. Two exit codes are not results of your code:
-   **75** = `QUEUED, not run` (or `YOUR TURN`: a place is held, run it now) and
+   **75** = `QUEUED, not run` (or `YOUR TURN`: a place is held, run it now; or
+   `RUNNING`: the run goes on elsewhere and is not finished) and
    **69** = `RUNNER UNAVAILABLE`. For either, run the same command again; do
    not change code, do not count it as a failed probe, and do not look for
    another way to build. Write what you can before you ask for a build, so

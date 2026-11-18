@@ -549,7 +549,7 @@
     "name": "builder_queued_is_not_a_failure",
     "type": "contains",
     "target": "agent:shipyard-disciplined-builder",
-    "pattern": "\\*\\*75\\*\\*\\ =\\ `QUEUED,\\ not\\ run`\\ \\(or\\ `YOUR\\ TURN`:\\ a\\ place\\ is\\ held,\\ run\\ it\\ now\\)\\ and\\s+\\*\\*69\\*\\*\\ =\\ `RUNNER\\ UNAVAILABLE`\\.\\ For\\ either,\\ run\\ the\\ same\\ command\\ again;\\ do\\s+not\\ change\\ code",
+    "pattern": "\\*\\*75\\*\\*\\s+=\\s+`QUEUED,\\s+not\\s+run`\\s+\\(or\\s+`YOUR\\s+TURN`:\\s+a\\s+place\\s+is\\s+held,\\s+run\\s+it\\s+now;\\s+or\\s+`RUNNING`:\\s+the\\s+run\\s+goes\\s+on\\s+elsewhere\\s+and\\s+is\\s+not\\s+finished\\)\\s+and\\s+\\*\\*69\\*\\*\\s+=\\s+`RUNNER\\s+UNAVAILABLE`\\.\\s+For\\s+either,\\s+run\\s+the\\s+same\\s+command\\s+again;\\s+do\\s+not\\s+change\\s+code",
     "why": "a builder that reads 'not run' as a red test starts fixing code that is not broken, or looks for a way around the gate"
   },
   {

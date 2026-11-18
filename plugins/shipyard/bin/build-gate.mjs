@@ -35,6 +35,7 @@
  * State: <data>/.build-gate.json, CLI-owned, written under a lockfile.
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { cpus, freemem, loadavg, platform, totalmem } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
@@ -159,7 +160,7 @@ function scriptRunsHeavy(tokens, sigs, cwd) {
   if (!file) return false;
   let text;
   try { text = readFileSync(isAbsolute(file) ? file : resolve(cwd, file), "utf8").slice(0, 64 * 1024); } catch { return false; }
-  return text.split(/\r?\n/).some((line) => segments(line).some((seg) => matches(signatureOf(seg), sigs)));
+  return segments(text).some((seg) => matches(signatureOf(seg), sigs));
 }
 
 /** `sh -c "<commands>"`: the commands inside. */
@@ -176,9 +177,63 @@ export function isHeavyArgv(argv, sigs, cwd = process.cwd()) {
   return matches(signatureOf(argv), sigs) || scriptRunsHeavy(argv, sigs, cwd) || inlineRunsHeavy(argv, sigs);
 }
 
-/** A shell command line cut at `&&`, `||`, `;`, `|` and newlines, each part as words. Quotes are not parsed. */
+/**
+ * A shell command line cut into its commands, each as words. Cuts at `&&`,
+ * `||`, `;`, `|`, `&`, newlines, `$(`, backticks and parentheses, outside
+ * quotes only. A quoted string is one word with its quotes removed, and the
+ * body of a here-document is left out.
+ *
+ * Why quotes matter: on a real sprint the builder hook refused a file written
+ * with `cat > brief.md <<'EOF'`, a `git commit -m "..."` and a job sent to
+ * another machine, because the text inside named the build tool. Text is not a
+ * command.
+ */
 export function segments(command) {
-  return String(command).split(/&&|\|\||[;|\n]/).map((s) => s.trim().split(/\s+/).filter(Boolean)).filter((t) => t.length);
+  const s = String(command);
+  const out = [];
+  let words = [], word = "", has = false, quote = null, from = 0;
+  const pending = []; // here-document end words waiting for the next line break
+  const endWord = () => { if (has) words.push(word); word = ""; has = false; };
+  const endSeg = () => { endWord(); if (words.length) { words.raw = s.slice(from, i).trim(); out.push(words); } words = []; };
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (quote) {
+      if (c === quote) quote = null;
+      else if (c === "\\" && quote === '"' && i + 1 < s.length) { word += s[i + 1]; i++; }
+      else word += c;
+      i++; continue;
+    }
+    if (c === "'" || c === '"') { quote = c; has = true; i++; continue; }
+    if (c === "\\" && i + 1 < s.length) { if (s[i + 1] !== "\n") { word += s[i + 1]; has = true; } i += 2; continue; }
+    if (c === "<" && s[i + 1] === "<" && s[i + 2] !== "<") {
+      const m = /^<<(-?)\s*(?:'([^']*)'|"([^"]*)"|\\?([A-Za-z_][\w.-]*))/.exec(s.slice(i, i + 200));
+      if (m) { endWord(); pending.push({ end: m[2] ?? m[3] ?? m[4], tabs: m[1] === "-" }); i += m[0].length; continue; }
+    }
+    if (c === "\n") {
+      endSeg(); i++; from = i;
+      while (pending.length) {
+        const { end, tabs } = pending.shift();
+        for (;;) {
+          if (i >= s.length) break;
+          const nl = s.indexOf("\n", i);
+          const line = s.slice(i, nl === -1 ? s.length : nl);
+          i = nl === -1 ? s.length : nl + 1;
+          if ((tabs ? line.replace(/^\t+/, "") : line) === end) break;
+        }
+      }
+      from = i;
+      continue;
+    }
+    if (c === "$" && s[i + 1] === "(") { endSeg(); i += 2; from = i; continue; }
+    // `2>&1`, `&>file`: part of a redirect, not a cut.
+    if (c === "&" && (s[i - 1] === ">" || s[i - 1] === "<" || s[i + 1] === ">")) { word += c; has = true; i++; continue; }
+    if (c === ";" || c === "|" || c === "&" || c === "`" || c === "(" || c === ")") { endSeg(); i++; from = i; continue; }
+    if (c === " " || c === "\t" || c === "\r") { endWord(); i++; continue; }
+    word += c; has = true; i++;
+  }
+  endSeg();
+  return out;
 }
 
 /**
@@ -190,7 +245,7 @@ export function ungatedHeavy(command, sigs, cwd = process.cwd()) {
   for (const seg of segments(command)) {
     const words = seg.filter((t) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(t));
     if (!words.length || base(words[0]) === "shipyard-logcap" || words[0] === "export" || words[0] === "cd") continue;
-    if (matches(signatureOf(seg), sigs) || scriptRunsHeavy(seg, sigs, cwd)) return seg.join(" ");
+    if (matches(signatureOf(seg), sigs) || scriptRunsHeavy(seg, sigs, cwd) || inlineRunsHeavy(seg, sigs)) return seg.raw ?? seg.join(" ");
   }
   return null;
 }
@@ -352,8 +407,33 @@ export function markRunnerDown(dataDir) {
   try { logEvent(dataDir, "runner_unavailable", { reason: "exit 69" }); } catch { /* best effort */ }
 }
 
-export function runnerArgv(cfg, argv, cwd = process.cwd()) {
-  return [...cfg.runner, "--worktree", cwd, "--", ...argv];
+/**
+ * What the runner is called with. `--job <id>` names this run: a run that
+ * takes longer than one tool call is asked for again with the same id, and the
+ * runner picks up the run it already started instead of starting a second one.
+ */
+export function runnerArgv(cfg, argv, cwd = process.cwd(), job = null) {
+  return [...cfg.runner, "--worktree", cwd, ...(job ? ["--job", job] : []), "--", ...argv];
+}
+
+const jobId = (key, now) => `${createHash("sha256").update(String(key)).digest("hex").slice(0, 10)}-${now.toString(36)}`;
+
+/**
+ * The runner answered "still running" (exit 75): the run goes on elsewhere and
+ * this call ends. The place stays taken for six minutes, by the command and
+ * not by a process, so the same command run again continues the same job.
+ */
+export function park(dataDir, id, name = "") {
+  let parked = false;
+  mutate(dataDir, (state) => {
+    const h = state.holders.find((x) => x.id === id);
+    if (!h) return;
+    Object.assign(h, { reserved: true, until: Date.now() + TICKET_TTL_MS });
+    parked = true;
+  });
+  // The same event a wait in line writes: the worker queue reads it as "this builder is alive".
+  try { logEvent(dataDir, "build_gate_waiting", { name, lane: "runner", task: taskOf(name), running: true }); } catch { /* best effort */ }
+  return parked;
 }
 
 // ─── Enter and leave ───────────────────────────────────────────────────────
@@ -383,7 +463,7 @@ export async function enter(dataDir, { key, name, lane, first = false, cfg, wait
       const held = state.holders.find((h) => h.reserved && h.key === key);
       if (held) {
         Object.assign(held, { reserved: false, until: undefined, pid: process.pid, id: `${process.pid}-${now}`, at: now, name });
-        return { go: true, solo: held.solo, id: held.id };
+        return { go: true, solo: held.solo, id: held.id, job: held.job ?? null, started: held.started ?? now, resumed: Boolean(held.job), lane: held.lane };
       }
       let t = state.queue.find((q) => q.key === key);
       if (!t) { t = { key, name, lane, first, at: now, seen: now }; state.queue.push(t); }
@@ -395,7 +475,10 @@ export async function enter(dataDir, { key, name, lane, first = false, cfg, wait
         // A run that gets company was not measured alone.
         for (const h of state.holders) if (h.lane === lane) h.solo = false;
         const late = now - started > START_LATE_MS;
-        state.holders.push({ id: `${process.pid}-${now}`, pid: process.pid, key, name, lane, at: now, solo: v.solo, ...(late ? { reserved: true, until: now + RESERVE_MS } : {}) });
+        const job = lane === "runner" ? jobId(key, now) : undefined;
+        state.holders.push({ id: `${process.pid}-${now}`, pid: process.pid, key, name, lane, at: now, solo: v.solo, ...(job ? { job, started: now } : {}), ...(late ? { reserved: true, until: now + RESERVE_MS } : {}) });
+        v.job = job ?? null;
+        v.started = now;
         v.id = `${process.pid}-${now}`;
         v.turn = late;
       }
@@ -404,7 +487,7 @@ export async function enter(dataDir, { key, name, lane, first = false, cfg, wait
     if (verdict.go) {
       if (told) { try { logEvent(dataDir, "build_gate_admitted", { name, lane, task: taskOf(name), waited_s: Math.round((Date.now() - started) / 1000) }); } catch { /* best effort */ } }
       if (verdict.turn) return { granted: false, turn: true };
-      return { granted: true, id: verdict.id, solo: verdict.solo };
+      return { granted: true, id: verdict.id, solo: verdict.solo, job: verdict.job ?? null, started: verdict.started ?? Date.now(), resumed: Boolean(verdict.resumed), lane: verdict.lane ?? lane };
     }
     if (!told) {
       told = true;
