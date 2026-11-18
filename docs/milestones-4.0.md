@@ -11,6 +11,15 @@ For what changes when you upgrade from 3.26.0, read [UPGRADING.md](../UPGRADING.
 - `shipyard-data sprint needs-you` prints the phrase the build puts on its progress line: `you: needed now · …` or `you: not needed until the review (3 checks)`.
 - A step waiting for you at the review no longer counts as a parked step. The review lists the waiting checks grouped by where they are done, so one sitting covers them.
 
+## 4.0.6 (released 2026-11-17)
+
+From the first evening on 4.0.5, on a project that sends its builds to a second machine.
+
+- **Text is not a build.** The builder hook refused eleven commands in one evening and none was a build on that machine: a file written with a here-document, a commit message, a job description sent to another machine. Each named the build tool in its text. `segments` in `bin/build-gate.mjs` now reads quotes and here-documents, cuts at `$(` and backticks too, and keeps `2>&1` whole. All 2,678 builder commands of that evening pass the new check.
+- **A run longer than a tool call.** A job on the other machine took 19 minutes and a tool call ends at ten, so builders started and polled jobs by hand (136 starts, 196 waits) and three runs were recorded all evening. A runner now gets `--job <id>` and may answer exit 75, "still running": `shipyard-logcap run` ends with `RUNNING`, the place stays taken for the command (not for a process), and the same command run again calls the runner with the same id. The run is recorded once, when it ends, with its time from the first call. Waiting counts as the builder being alive.
+- **A quick capture releases the discuss lock** (Bryan Bavaro). `idea_captured` no longer counts as a written spec, and the capture lane no longer excuses what the same discussion writes afterwards. The Stop hook's advice for stopping on purpose names the step the release still asks for.
+- **Tests that run `doctor` never see the developer's settings** (Bryan Bavaro).
+
 ## 4.0.5 (released 2026-11-17)
 
 From one sprint on a 16 GB, 10-core machine, the day after 4.0.4.

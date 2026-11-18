@@ -243,6 +243,17 @@ At the start and at the end. Never in the middle.
 
 If you cannot do the start items when the sprint starts, the stories that depend on them leave the sprint; they do not stop halfway. A check done by a person is recorded only from that person's answer; accepting the sprint does not confirm it. `shipyard-data sprint needs-you` prints the current line.
 
+## What is new in 4.0.6
+
+A patch release from the first evening on 4.0.5. No migration is needed.
+
+| Area | What changed |
+|---|---|
+| Text is not a build | A builder writing a file, a commit message or a job description that names the build tool is no longer sent back as "a build outside the gate". Only a command that runs the tool is |
+| Runs longer than a tool call | Your runner script may answer exit 75, "still running". The builder sees `RUNNING`, runs the same command again, and your script is called with the same `--job` id to pick the run up. The place in line is kept, and the run is recorded once, with its whole time, when it ends |
+| Quick capture | `/ship-discuss --idea` gives the discuss lock back in every project. Before, the first capture in a new project left it held (thanks to Bryan Bavaro) |
+| Tests | The tests that run `doctor` no longer read the developer's own Claude Code settings (thanks to Bryan Bavaro) |
+
 ## What is new in 4.0.5
 
 A patch release about builds and tests on a machine that cannot run many at once. No migration is needed.

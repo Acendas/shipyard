@@ -2,6 +2,17 @@
 
 > **Note:** `/ship-init` was removed in v3.20.0. Onboarding now runs automatically on the first `/ship-status` in a project. Older sections below still mention `/ship-init` as historical record.
 
+## 4.0.5 → 4.0.6
+
+No migration and no breaking change. Things you may notice:
+
+| What | Detail |
+|---|---|
+| A runner script gets `--job <id>` | The call is now `<script> --worktree <dir> --job <id> -- <command...>`. A script that reads its arguments by position must skip the two new words |
+| Exit 75 from a runner | Means "still running": return it before about 8 minutes are up, and when called again with the same `--job`, wait for the run you already started. `shipyard-logcap run` then ends with 75 and `RUNNING`; nothing is recorded until the run ends |
+| Builders | A command is checked by what it runs. Text inside quotes or a here-document is not read as a command; a build inside `$( )` or `sh -c` is |
+| A capture that goes on | A discussion that confirms the capture lane and then promotes the idea to an epic owes the sources record like any other discussion |
+
 ## 4.0.4 → 4.0.5
 
 No migration and no breaking change. Things you may notice:
