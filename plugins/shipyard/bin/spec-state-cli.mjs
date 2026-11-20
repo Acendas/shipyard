@@ -50,6 +50,7 @@ import { ideaPromote } from "./idea-promote.mjs";
 import { storyAdd, storyRefine, taskAdd } from "./record-add.mjs";
 import { setFixVersion } from "./version.mjs";
 import { sprintStoryIds as planSprintStoryIds } from "./terminal-gate.mjs";
+import { tutorialNote } from "./tutorial.mjs";
 
 /** A UI story's design decision is on record: an approval (hash) or a waiver. */
 function designDecided(block) {
@@ -2688,6 +2689,10 @@ export function specStateCmd(dataDir, args) {
   } catch (err) {
     if (err instanceof CliFail) {
       process.stderr.write(err.message.endsWith("\n") ? err.message : err.message + "\n");
+      // A tutorial run says what the approval gate is for, under the refusal.
+      if (err.code === 3 && ["story", "feature", "bug"].includes(entity) && sub === "set-status" && rest.includes("approved")) {
+        try { tutorialNote(dataDir, "refusal:story-approve", { stream: "stderr" }); } catch { /* narration never changes the exit */ }
+      }
       process.exit(err.code);
     }
     if (err && err.code === "ELOCKTIMEOUT") {

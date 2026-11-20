@@ -36,6 +36,7 @@ import { parseFrontmatterList } from "./frontmatter-list.mjs";
 import { readMaxAgents, readParallelPlan, readExecutionIsolation, readProbeMustFailFirst } from "./config-read.mjs";
 import { globToRe } from "./risk.mjs";
 import { personPlan, personLine } from "./person-steps.mjs";
+import { tutorialNote } from "./tutorial.mjs";
 
 const WEIGHT = { S: 1, M: 2, L: 4, XL: 8 };
 const readIf = (p) => { try { return readFileSync(p, "utf8"); } catch { return null; } };
@@ -219,5 +220,5 @@ export function main(dataDir, args = []) {
   const s = planScore(dataDir, { next: args.includes("--next"), draft: args.includes("--draft") });
   if (s.error) { process.stderr.write(`shipyard-data sprint plan-score: ${s.error}\n`); process.exit(3); }
   process.stdout.write(args.includes("--json") ? JSON.stringify(s) + "\n" : renderScore(s));
-  if (args.includes("--check") && s.problems.length) process.exit(3);
+  if (args.includes("--check") && s.problems.length) { tutorialNote(dataDir, "refusal:plan-score"); process.exit(3); }
 }

@@ -264,5 +264,24 @@
   "type": "contains",
   "pattern": "shipyard-data reconcile",
   "why": "4.6: status repairs and reports state drift"
+ },
+ {
+  "name": "tutorial_offer_read_from_context",
+  "type": "contains",
+  "pattern": "SHIPYARD_TUTORIAL_OFFER=true",
+  "why": "the dashboard offers the tutorial when the CLI says it is still to be offered"
+ },
+ {
+  "name": "tutorial_offer_is_two_lines_on_rules_10_and_12",
+  "type": "contains",
+  "pattern": "→ /ship-quick --tutorial[\\s\\S]*or /ship-discuss <what you want>",
+  "dotall": true,
+  "why": "the offer is a line in NEXT ACTION, not a card; only when nothing is more pressing"
+ },
+ {
+  "name": "tutorial_offer_once",
+  "type": "contains",
+  "pattern": "the CLI records the offer as it prints the line",
+  "why": "once per project, recorded by the CLI, never decided by the model"
  }
 ]

@@ -58,5 +58,51 @@
     "type": "contains",
     "pattern": "the regular sprint and backlog of this project are not touched",
     "why": "the owner: ship-quick must not mix with the normal flow"
+  },
+  {
+    "name": "tutorial_flag_in_argument_hint",
+    "type": "contains",
+    "pattern": "argument-hint: \"\\[what to build, in words \\| S### \\| E### \\| IDEA-### \\| ticket key\\] \\[--tutorial \\[--sandbox\\]\\]\"",
+    "why": "the guided run is a flag on the quick run, not a command of its own"
+  },
+  {
+    "name": "tutorial_narration_is_the_clis",
+    "type": "contains",
+    "pattern": "The CLI narrates; you echo\\.",
+    "why": "the words are in one file and tested; the session adds none of its own"
+  },
+  {
+    "name": "tutorial_blocks_shown_as_they_are",
+    "type": "contains",
+    "pattern": "Show every such block to the person as it is, before the stage's work",
+    "why": "a TUTORIAL block is CLI output the person must see, like every other CLI output"
+  },
+  {
+    "name": "tutorial_first_card",
+    "type": "contains",
+    "pattern": "\\*\\*Start\\*\\* · \\*\\*Use a sandbox project instead\\*\\* · \\*\\*Not now\\*\\*",
+    "why": "one card, three answers, before any stage"
+  },
+  {
+    "name": "tutorial_pick_stage",
+    "type": "contains",
+    "pattern": "shipyard-data quick pick",
+    "why": "a tutorial that opened without an item sets one through the CLI"
+  },
+  {
+    "name": "tutorial_narration_file_exists",
+    "type": "file_exists",
+    "path": "project-files/references/tutorial-narration.md"
+  },
+  {
+    "name": "tutorial_sandbox_fixture_exists",
+    "type": "file_exists",
+    "path": "project-files/tutorial-sandbox/package.json"
+  },
+  {
+    "name": "tutorial_changes_nothing_else",
+    "type": "contains",
+    "pattern": "Nothing else changes\\.",
+    "why": "every stage runs whole, on the project's own models and settings"
   }
 ]

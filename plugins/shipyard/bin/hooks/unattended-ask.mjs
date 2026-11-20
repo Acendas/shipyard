@@ -27,6 +27,7 @@ import { logEvent } from "../_hook_lib.mjs";
 import { noteAvailable } from "./source-ledger.mjs";
 import { heldSkill } from "./agent-ledger.mjs";
 import { CARD_LIMITS, currentCard, recordUnlisted } from "../discuss-questions.mjs";
+import { tutorialBlock } from "../tutorial.mjs";
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 
 /**
@@ -463,6 +464,8 @@ export function run(hookInput, env) {
     return 0;
   }
   try { logEvent(dataDir, "unattended_ask_denied", { stage: verdict.stage }); } catch { /* best-effort */ }
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.reason } }));
+  let tutorial = "";
+  try { tutorial = tutorialBlock(dataDir, "refusal:unattended-ask"); } catch { tutorial = ""; }
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict.reason, ...(tutorial ? { additionalContext: `Show the person this block as it is: ${tutorial.trim()}` } : {}) } }));
   return 0;
 }

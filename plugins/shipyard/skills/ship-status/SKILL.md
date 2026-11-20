@@ -207,6 +207,15 @@ Determine the single most important action:
 11. **GROOM** — backlog health issues → "Run /ship-backlog groom"
 12. **IDLE** — nothing pending → "Run /ship-discuss to explore new features"
 
+**The tutorial, offered once.** The context prints `SHIPYARD_TUTORIAL_OFFER=true` on the first dashboard a project renders. The CLI records the offer as it prints the line, so the value is `false` from then on. When the line is `true` and the next action is rule 10 or rule 12, the NEXT ACTION is two lines:
+
+```
+ → /ship-quick --tutorial            a 20-minute guided run of one small change, on your own branch
+   or /ship-discuss <what you want>  start real work
+```
+
+On any other rule the dashboard is unchanged; the offer still counts as made. `/ship-help tutorial` repeats the offer at any time.
+
 ## Rules
 
 - Compute ALL metrics from **source files** (story files, step files) — never from aggregate views

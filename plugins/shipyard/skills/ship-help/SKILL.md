@@ -34,6 +34,8 @@ Answer with project-specific context.
 User asks how to accomplish something. Walk them through step by step.
 Reference the right `/ship-*` command.
 
+**The tutorial.** "tutorial", "how do I learn this", "guided run", "walkthrough", "show me how it works" → answer with the two commands and what each does: `/ship-quick --tutorial` takes one small change from words to reviewed code on a branch the person made, about 20 to 30 minutes, explaining each stage as it comes, on the project's own models and at the project's own cost; `/ship-quick --tutorial --sandbox` makes a throwaway project to take the tutorial in. Say whether this project has taken the tutorial: `shipyard-data onboarding status` prints `SHIPYARD_TUTORIAL_OFFER=true` while it was neither offered nor taken; a finished tutorial run is recorded in the project's `onboarding.json`, which is CLI-owned: read it with the Read tool, never Edit it.
+
 ### Mode 3: Action → Do It
 User asks you to do something (move a story, update a status, reorder backlog). DO IT — but route the mutation through the right layer, not a blind Edit:
 
