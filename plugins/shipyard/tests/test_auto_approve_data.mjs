@@ -411,6 +411,20 @@ for (const base of LOCK_BASENAMES) {
   });
 }
 
+// after 4.0.7: onboarding.json (the tutorial offer and completion) has one writer, the CLI.
+test("cli-owned deny: Write to onboarding.json in the data dir is DENIED with the CLI hint", async () => {
+  await withTempDir(async (sd) => {
+    const { stdout, code } = await runWithEnv(
+      { tool_name: "Write", tool_input: { file_path: join(sd, "onboarding.json"), content: "{}" } },
+      { SHIPYARD_DATA: sd },
+    );
+    assert.equal(code, 0);
+    const resp = JSON.parse(stdout);
+    assert.equal(resp.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(resp.hookSpecificOutput.permissionDecisionReason, /onboarding status[\s\S]*quick finish/);
+  });
+});
+
 // --- CLI-owned frontmatter-key deny (gap-closer) -----------------------
 //
 // shipyard-data has typed atomic mutators for feature/task/idea/backlog/

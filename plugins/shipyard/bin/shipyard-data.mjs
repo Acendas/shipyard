@@ -9,7 +9,14 @@
  * Usage:
  *   shipyard-data                              → prints data directory path
  *   shipyard-data init                         → ensures the data directory tree
- *   shipyard-data onboarding status|bootstrap  → setup/onboarding state
+ *   shipyard-data onboarding status|bootstrap  → setup/onboarding state (prints
+ *                                                SHIPYARD_TUTORIAL_OFFER once per project)
+ *   shipyard-data quick <start|pick|next|finish|list|land|drop> → one item from words to
+ *                                                reviewed code on the person's branch
+ *                                                (see bin/quick.mjs; `start --tutorial`
+ *                                                is the guided run)
+ *   shipyard-data tutorial sandbox [--path <f>]  → a throwaway project to take the
+ *                            | --remove <f>        tutorial in (see bin/tutorial.mjs)
  *   shipyard-data with-lock <key> -- <cmd>     → fcntl-style locking primitive
  *   shipyard-data archive-sprint <id> [--force] [--unreviewed|--via-review]→ atomic sprint rename
  *   shipyard-data metrics record-retro ...      → CLI-owned metrics update
@@ -86,6 +93,7 @@ import { verifyCmd } from "./verify-ledger.mjs";
 import { readinessCheckCmd } from "./readiness-check.mjs";
 import { checkIdeaBacklogCmd, countUndispositionedIdeas } from "./idea-backlog.mjs";
 import { bootstrapOnboarding, ensureInitializedDataDir, renderOnboardingLines } from "./init-data.mjs";
+import { tutorialNote } from "./tutorial.mjs";
 import { reviewPlanCmd } from "./review-plan.mjs";
 import { queueCmd, settleFromReturn } from "./worker-queue.mjs";
 import { tierFor } from "./model-for.mjs";
@@ -193,13 +201,13 @@ function onboardingCmd(args) {
   if (sub === "status") {
     const dataDir = ensureInitializedDataDir();
     process.stdout.write(`SHIPYARD_DATA=${dataDir}\n`);
-    renderOnboardingLines(dataDir, (line) => process.stdout.write(line + "\n"));
+    renderOnboardingLines(dataDir, (line) => process.stdout.write(line + "\n"), { stampTutorialOffer: true });
     return;
   }
   if (sub === "bootstrap") {
     const { dataDir } = bootstrapOnboarding();
     process.stdout.write(`SHIPYARD_DATA=${dataDir}\n`);
-    renderOnboardingLines(dataDir, (line) => process.stdout.write(line + "\n"));
+    renderOnboardingLines(dataDir, (line) => process.stdout.write(line + "\n"), { stampTutorialOffer: true });
     return;
   }
   process.stderr.write(
@@ -2942,6 +2950,7 @@ function taskReturn(args, opts = {}) {
     process.stderr.write(
       `shipyard-data task-return: status=COMPLETE requires probe-exit=0 (got ${kv["probe-exit"] ?? "(missing)"}) — a COMPLETE claim with a failing probe is the false-completion class this contract exists to block\n`,
     );
+    try { tutorialNote(opts.dataDir || getDataDir({ silent: true }), "refusal:task-return", { stream: "stderr" }); } catch { /* narration never changes the exit */ }
     process.exit(3);
   }
   let outputTail = "";
@@ -3602,7 +3611,7 @@ function doctor(opts = {}) {
   process.exit(1);
 }
 
-const COMMAND_SUMMARY = `(none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] [--unreviewed|--via-review] | metrics <record-retro|regenerate> ... [--data-dir <path>] | capacity [--points <P>] [--hours <H> | --until <time>] [--json] [--data-dir <path>] | migrate [--dry-run] [--reverse] [--data-dir <path>] | route-intake ... | discuss-queue <start|status|next|mark|decision|stop|clear> ... | discuss-questions <start|bind|add|revise|assume|next|answer|answer-bundle|answers|drop|sources|research|wait|status|pause|reset> ... | plugin-issue <add|list> ... | backlog board | infra <check|apply> [--json] | build-gate <status [--json]|check [--accept "<answer>"]> | sprint <set|check|plan-score|probes-at-base|needs-you|plan-dir|queue-next|promote-next> ... | tracker <pull|status|ack|plan|hold|outbox|link|unlink|synced|decided> ... | sources <list|suggest|add|remove|always|none> ... | version <add|list|show|set|clear|rename|remove|check|release> ... | risk <profile|score|drift> ... | route (--step|--task|--story|--role) ... | design <approve|check|status> ... | ui <doctor|screenshot|verify|rules> ... | agents <spawned|stopped|live|check> ... | review-pack [--sprint <id>] [--base <sha> --head <sha>] [--json] | reconcile [--fix] [--json] | patch-budget [--json] | stray <list|set-aside --reason "..."> [--json] | decide --question <q> --option <A=text> --option <B=text> [--facts-file <f>] [--stage <s>] [--subject <id>] [--json] | branches <status|sweep> [--label <name>] [--dry-run] [--json] | story-review <record|disposition|check> ... | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check [--next]|plan-dir|queue-next|promote-next> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | ensure-shared-caches | resolve-isolation [--flag <true|false|worktree|none>] | resolve-model <role> [--override <model>] [--subject <task-id>] [--data-dir <path>] | resolve-refactor-scope | resolve-wave-caps | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | verify-ac-coverage [--base <sha>] [--head <sha>] | doctor [--full] | story <add|refine|set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|check-probes|check-scenarios|probe-command|assign-ac-ids> ... [--data-dir <path>]   (feature is an accepted alias) | backlog <add|remove|move|rank|set> ... [--data-dir <path>] | idea <capture|promote|set-status|triage|repair> ... [--data-dir <path>] | task <add|set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set-isolation|set-max-agents|set> ... [--data-dir <path>] | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <list|record|check|findings> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ... | check-idea-backlog [--json] [--data-dir <path>] | report <time|cost|idle|boundary-share|stages> [--data-dir <path>]`;
+const COMMAND_SUMMARY = `(none) | init | onboarding <status|bootstrap> | with-lock <key> -- <cmd> | archive-sprint <sprint-id> [--force] [--unreviewed|--via-review] | metrics <record-retro|regenerate> ... [--data-dir <path>] | capacity [--points <P>] [--hours <H> | --until <time>] [--json] [--data-dir <path>] | migrate [--dry-run] [--reverse] [--data-dir <path>] | route-intake ... | discuss-queue <start|status|next|mark|decision|stop|clear> ... | discuss-questions <start|bind|add|revise|assume|next|answer|answer-bundle|answers|drop|sources|research|wait|status|pause|reset> ... | plugin-issue <add|list> ... | backlog board | infra <check|apply> [--json] | build-gate <status [--json]|check [--accept "<answer>"]> | sprint <set|check|plan-score|probes-at-base|needs-you|plan-dir|queue-next|promote-next> ... | tracker <pull|status|ack|plan|hold|outbox|link|unlink|synced|decided> ... | sources <list|suggest|add|remove|always|none> ... | version <add|list|show|set|clear|rename|remove|check|release> ... | risk <profile|score|drift> ... | route (--step|--task|--story|--role) ... | design <approve|check|status> ... | ui <doctor|screenshot|verify|rules> ... | agents <spawned|stopped|live|check> ... | review-pack [--sprint <id>] [--base <sha> --head <sha>] [--json] | reconcile [--fix] [--json] | patch-budget [--json] | stray <list|set-aside --reason "..."> [--json] | decide --question <q> --option <A=text> --option <B=text> [--facts-file <f>] [--stage <s>] [--subject <id>] [--json] | branches <status|sweep> [--label <name>] [--dry-run] [--json] | story-review <record|disposition|check> ... | init-sprint <sprint-id> [--data-dir <path>] | cursor <advance|pause|escalate|noop> ... | sprint <set|check [--next]|plan-dir|queue-next|promote-next> ... | task-return <task-id> k=v ... [--data-dir <path>] | events emit <type> [k=v ...] [--data-dir <path>] | next-id <kind> [--data-dir <path>] | link-data-dir [--force] | clean-worktrees [--dry-run] [--force] [--all] | ensure-worktree-baseref | ensure-shared-caches | resolve-isolation [--flag <true|false|worktree|none>] | resolve-model <role> [--override <model>] [--subject <task-id>] [--data-dir <path>] | resolve-refactor-scope | resolve-wave-caps | anchor-commit <task-id> <sha> [--data-dir <path>] | verify-wave-integrated | verify-ac-coverage [--base <sha>] [--head <sha>] | doctor [--full] | story <add|refine|set-status|set|add-ref|add-external-ref|add-dep|remove-dep|set-steps|clear-steps|record-proof|check-probes|check-scenarios|probe-command|assign-ac-ids> ... [--data-dir <path>]   (feature is an accepted alias) | backlog <add|remove|move|rank|set> ... [--data-dir <path>] | idea <capture|promote|set-status|triage|repair> ... [--data-dir <path>] | task <add|set-status|append-verify|accept-return|accept-operational> ... [--data-dir <path>] | draft <obsolete-research|set-sprint-status> ... [--data-dir <path>] | config <set-model|set-effort|set-isolation|set-max-agents|set> ... [--data-dir <path>] | lock <acquire|release|check|status> ... | scan-stubs <base>..<head> [--lang <x>] [--data-dir <path>] | verify <list|record|check|findings> ... | review plan <findings.json> [--out <path>] | queue <enqueue|claim|complete|fail|list|requeue-stale|retry-stale|park-stale> ... [--data-dir <path>] | readiness-check [--target-branch <b>] [--baseline-failing] | readiness-check --classify <path> ... | check-idea-backlog [--json] [--data-dir <path>] | report <time|cost|idle|boundary-share|stages> [--data-dir <path>] | quick <start [--tutorial [--sandbox]] <item>|pick <item>|next [--json]|finish|list [--json]|land <run> [--answer "…"]|drop <run> --reason "…"> | tutorial sandbox [--path <folder>] | tutorial sandbox --remove <folder>`;
 
 /**
  * Asking a verb for help never runs it (4.13.6). `next-id steps --help`
@@ -3685,6 +3694,7 @@ function main() {
     case "decide":
     case "branches":
     case "quick":
+    case "tutorial":
     case "version":
     case "sources":
     case "route-intake": {

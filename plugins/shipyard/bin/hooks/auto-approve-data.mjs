@@ -94,6 +94,9 @@ const CLI_OWNED_BASENAMES = new Set([
   // 4.0.7: the design system's decision and the owner's sign-off, with the hash of what was signed.
   // bin/design-system.mjs is the single writer; the values, rules and pages beside it are edited freely.
   "design-system.json",
+  // after 4.0.7: whether the guided tutorial was offered and taken — bin/init-data.mjs and
+  // `shipyard-data quick finish` are the writers; the offer line is shown once because of it.
+  "onboarding.json",
 ]);
 
 // v3.7.0: the two skill-mutex lock files are now CLI-owned too —
@@ -424,6 +427,9 @@ export async function run(hookInput, _env) {
           "  - what is left:   shipyard-data design-system check\n" +
           '  - the sign-off:   shipyard-data design-system approve --answer "<the owner\'s words>"\n' +
           '  - their own, or none: shipyard-data design-system adopt --path <p> --answer "…"   |   shipyard-data design-system none --answer "…"';
+      } else if (base === "onboarding.json") {
+        reason = "onboarding.json records whether this project was offered the guided tutorial and whether it was taken; it has a single writer, the shipyard-data CLI. " +
+          "Do not Write/Edit it. The offer is read with `shipyard-data onboarding status`; a finished tutorial run records itself with `shipyard-data quick finish`.";
       } else if (base === "sources.json") {
         reason = "sources.json is where this project's knowledge lives, as its owner said it; it has a single writer, the shipyard-data CLI. " +
           "Do not Write/Edit it. Use instead, with the owner's own words:\n" +

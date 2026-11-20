@@ -469,7 +469,8 @@ function renderQuickLines(dataDir, out) {
   try {
     const q = quickInfo(dataDir);
     if (q && q.state === "active") {
-      out(`SHIPYARD_QUICK_RUN=${q.run} branch=${q.branch} stage=${stageOf(dataDir)?.stage ?? "?"}`);
+      out(`SHIPYARD_QUICK_RUN=${q.run} branch=${q.branch} stage=${stageOf(dataDir)?.stage ?? "?"}${q.tutorial === true ? " tutorial=true" : ""}`);
+      if (q.tutorial === true) out("TUTORIAL RUN: this quick run is the guided tutorial. The CLI prints a `TUTORIAL:` block as a stage is entered or a gate refuses something; show every such block to the person as it is, before the stage's work, and add no narration of your own. Everything else about this command is unchanged: every check, every question card, every rule.");
       out(`QUICK RUN: this command is one stage of a quick run on one item (${JSON.stringify(String(q.item).slice(0, 160))}). The records here are the run's own; the regular project's backlog, sprint and numbers are not part of it and are not shown. Do everything this command does, with every check it has: nothing is lighter because the run is quick. When discussing: the item is here to be built, so it is refined into stories (or filed as one small task when the router says land-now); saving it as an idea only, and the hotfix lane, do not apply. When planning: every approved story of the run is in the plan, capacity is not a limit, and the approval card is the person's go-ahead for the build. When this command ends, do not name a next command and do not stop: run \`shipyard-data quick next\` and do what it says.`);
       return;
     }
@@ -478,9 +479,9 @@ function renderQuickLines(dataDir, out) {
   } catch { /* a quick run never stops a command from starting */ }
 }
 
-function renderSkillStartup(dataDir, out, { canonical = true } = {}) {
+function renderSkillStartup(dataDir, out, { canonical = true, stampTutorialOffer = false } = {}) {
   out(`SHIPYARD_DATA=${dataDir}`);
-  const status = renderOnboardingLines(dataDir, out);
+  const status = renderOnboardingLines(dataDir, out, { stampTutorialOffer });
   if (canonical && !status.required) {
     for (const line of CANONICAL_STARTUP_RULES) out(line);
   }
@@ -689,7 +690,8 @@ function main() {
     }
     case "status-dashboard": {
       const c = (...p) => countDir(join(sd, ...p));
-      if (renderSkillStartup(sd, out)) break;
+      // The dashboard is where the tutorial is offered, once: this render stamps the offer.
+      if (renderSkillStartup(sd, out, { stampTutorialOffer: true })) break;
       renderViewSection(sd, out, "config");
       renderCursorState(sd, out, "execute", "SHIPYARD_EXECUTE_CURSOR");
       renderCursorState(sd, out, "review", "SHIPYARD_REVIEW_CURSOR");

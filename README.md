@@ -134,6 +134,15 @@ Then open your project and type:
 
 The first run sets the project up (`shipyard-data onboarding bootstrap`) and shows a dashboard with the next command to run. There is no separate init command.
 
+New to Shipyard? The first dashboard offers a guided run, once:
+
+```
+git switch -c tutorial
+/ship-quick --tutorial
+```
+
+One small change from your own repository goes through discussion, plan, build and review, with every check Shipyard has, and each stage is explained as it comes. It takes about 20 to 30 minutes, on the models your project uses. `/ship-quick --tutorial --sandbox` makes a throwaway project to take it in instead. `/ship-help tutorial` repeats the offer at any time.
+
 Coming from 3.x? Read [UPGRADING.md](UPGRADING.md) first.
 
 ## The workflow
@@ -284,6 +293,18 @@ At the start and at the end. Never in the middle.
 
 If you cannot do the start items when the sprint starts, the stories that depend on them leave the sprint; they do not stop halfway. A check done by a person is recorded only from that person's answer; accepting the sprint does not confirm it. `shipyard-data sprint needs-you` prints the current line.
 
+## What is new in 4.0.8
+
+One new thing: a guided tutorial. No migration is needed.
+
+| Area | What changed |
+|---|---|
+| `/ship-quick --tutorial` | A quick run with narration: one small change from your repository, on your branch, through every stage and every check, each explained as it comes. The item may be left out; the run then offers three small improvements it found in the code |
+| Narration by the CLI | `shipyard-data quick next`, `cursor advance` and the gates print a `TUTORIAL:` block in a tutorial run. The text is one file in the plugin, and a test pins its keys to real stages and gates |
+| Your models, your cost | The run uses the project's own models and routing. The first card says so; the close prints the run's time and cost reports |
+| `--sandbox` | `shipyard-data tutorial sandbox` makes a small Node project in a temporary folder, on branch `tutorial`, set up for Shipyard, to take the tutorial in |
+| Offered once | The first dashboard a project renders after this version offers the tutorial in its NEXT ACTION. The offer is recorded in `onboarding.json`, CLI-owned, so the line shows once per project |
+
 ## What is new in 4.0.7
 
 One new thing: a project's design system. No migration is needed.
@@ -416,7 +437,7 @@ The full list is in [docs/milestones-4.0.md](docs/milestones-4.0.md).
 | Command | What it does | Options |
 |---|---|---|
 | `/ship-discuss` | Takes in any new work: capture, refine, land now, hotfix | `[topic]`, `S###`, `E###`, `IDEA-###`, issue key, `--idea`, `--hotfix`, `--chain`, `--pull`, `--think <model>` |
-| `/ship-quick` | One item on your own branch: discuss, plan, build, review | `[the item in words]`, `S###`, `E###`, `IDEA-###`, issue key |
+| `/ship-quick` | One item on your own branch: discuss, plan, build, review. `--tutorial` is the guided run | `[the item in words]`, `S###`, `E###`, `IDEA-###`, issue key, `--tutorial`, `--sandbox` |
 | `/ship-backlog` | Shows and orders what is waiting | `groom`, `rank`, `approve`, `bankruptcy` |
 | `/ship-sprint` | Plans a sprint, or cancels the active one | `--cancel`, `--hours <n>`, `--until <time>` |
 | `/ship-execute` | Builds the sprint, test first, in waves | `--task <id>`, `--hotfix <id>`, `--mode solo\|task\|track`, `--isolation true\|false` |

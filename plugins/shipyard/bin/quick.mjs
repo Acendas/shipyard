@@ -29,7 +29,9 @@
  *     back when the branch has been merged (or on the owner's word), `quick
  *     drop` gives taken records back untouched.
  *
- *   quick start <the item, in words or as an id or ticket key>
+ *   quick start [--tutorial] <the item, in words or as an id or ticket key>
+ *   quick start --tutorial [--sandbox]   (a guided run: the item may be picked in the run; --sandbox makes a throwaway project instead)
+ *   quick pick <the item, in words>    (a tutorial run that opened without an item)
  *   quick next [--json]
  *   quick finish
  *   quick list [--json]
@@ -46,6 +48,8 @@ import { planInfo } from "./sprint-ahead.mjs";
 import { listShipyardBranches, listShipyardWorktrees, repoFor, sprintInFlight, sweepBranches, sweepWorktrees } from "./branches.mjs";
 import { QUICK_RUN_RE, getDataDir, getProjectRoot, homeOf, quickRunFor } from "./shipyard-resolver.mjs";
 import { ensureInitializedDataDir } from "./init-data.mjs";
+import { readEvents } from "./event-report.mjs";
+import { createSandbox, isTutorial, markTutorialCompleted, tutorialBlock } from "./tutorial.mjs";
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), "shipyard-data.mjs");
 const KINDS = ["stories", "features", "bugs", "epics", "tasks", "ideas"];
@@ -167,6 +171,8 @@ export function stageOf(dir) {
   const info = quickInfo(dir);
   if (!info) return null;
   if (info.state !== "active") return { stage: info.state, info };
+  // A tutorial may open without an item: the first stage is to pick one from the repository.
+  if (info.tutorial === true && !String(info.item ?? "").trim()) return { stage: "pick", info };
   const stories = records(dir, STORY_KINDS);
   const tasks = records(dir, ["tasks"]);
   const st = (r) => clean(r.fm.status);
@@ -187,6 +193,7 @@ export function stageOf(dir) {
 }
 
 const NEXT = Object.freeze({
+  pick: () => 'Find three small, safe improvements in this repository and offer them: each under fifty changed lines, in one or two files, with an observable behaviour a test can check, and touching no external service. Show the three as a short table, then one card: the three, plus "something else". Then run `shipyard-data quick pick "<the item, in words>"`.',
   discuss: (s) => `Run the discussion for this item now: the Skill tool, skill "shipyard:ship-discuss", args: ${JSON.stringify(s.info.taken?.length ? s.info.taken.join(" ") : s.info.item)}.${s.waiting?.length ? ` Not approved yet: ${s.waiting.join(", ")}.` : ""} It ends when every story of the item is refined and approved.`,
   plan: (s) => `Plan the whole item now: the Skill tool, skill "shipyard:ship-sprint" (no arguments). Every approved story of this run goes into the plan (${s.stories.join(", ")}); there is no capacity limit to fit. The plan's approval card is the person's go-ahead for the build.`,
   build: (s) => `Build it now: the Skill tool, skill "shipyard:ship-execute" (no arguments). ${s.sprint} runs unattended to its end.`,
@@ -194,25 +201,39 @@ const NEXT = Object.freeze({
   review: (s) => `Show the review now: the Skill tool, skill "shipyard:ship-review" (no arguments). It reviews ${s.sprint} and asks the person once.`,
   finish: () => "Everything of this item is built and reviewed. Close the run: shipyard-data quick finish",
 });
+/** The stage names a quick run can be at, in the order `quick next` prints them. The narration file has one entry per name. */
+export const QUICK_STAGES = Object.freeze(Object.keys(NEXT));
 
 function printNext(dir, json) {
   const s = stageOf(dir);
   const line = NEXT[s.stage] ? NEXT[s.stage](s) : `This run is ${s.stage}.`;
-  if (json) { process.stdout.write(JSON.stringify({ run: s.info.run, branch: s.info.branch, stage: s.stage, next: line, item: s.info.item }) + "\n"); return; }
-  const order = ["discuss", "plan", "build", "review", "finish"];
+  const tutorial = s.info.tutorial === true;
+  const narration = tutorial ? tutorialBlock(dir, `quick:${s.stage === "task" ? "build" : s.stage}`) : "";
+  if (json) { process.stdout.write(JSON.stringify({ run: s.info.run, branch: s.info.branch, stage: s.stage, next: line, item: s.info.item, ...(tutorial ? { tutorial: true, narration: narration.trim() } : {}) }) + "\n"); return; }
+  const order = [...(tutorial ? ["pick"] : []), "discuss", "plan", "build", "review", "finish"];
   const at = s.stage === "task" ? "build" : s.stage;
   process.stdout.write(
-    `QUICK RUN ${s.info.run} on branch ${s.info.branch}\n` +
-    `  item:  ${s.info.item}\n` +
+    `QUICK RUN ${s.info.run} on branch ${s.info.branch}${tutorial ? " (tutorial)" : ""}\n` +
+    `  item:  ${s.info.item || "(to be picked)"}\n` +
     `  stage: ${order.map((x) => (x === at ? `[${x}]` : x)).join(" → ")}\n` +
+    narration +
     `NEXT: ${line}\n` +
     (NEXT[s.stage] && s.stage !== "finish" ? "When that command ends, run `shipyard-data quick next` again and do what it says. Do not stop between stages and do not ask whether to continue.\n" : ""),
   );
 }
 
 function start(home, args) {
-  const item = args.join(" ").trim();
-  if (!item) fail("say what to build: quick start <the item, in words, or an id, or a ticket key>", 2);
+  const tutorial = args.includes("--tutorial");
+  const sandbox = args.includes("--sandbox");
+  const item = args.filter((a) => a !== "--tutorial" && a !== "--sandbox").join(" ").trim();
+  if (sandbox && !tutorial) fail("--sandbox goes with --tutorial: quick start --tutorial --sandbox", 2);
+  if (sandbox) {
+    // The sandbox is a repository of its own, with a data folder of its own. The run starts there, in a session opened there.
+    const made = createSandbox();
+    process.stdout.write(`Sandbox ready at ${made.path} on branch ${made.branch}.\n  Open a session there and run /ship-quick --tutorial:   cd ${made.path} && claude\n`);
+    return;
+  }
+  if (!item && !tutorial) fail("say what to build: quick start <the item, in words, or an id, or a ticket key>", 2);
   let root = repoFor(home);
   if (!root || !existsSync(join(home, "config.md"))) {
     // A working copy made beside the project (`git worktree add`) is a project of its own to Shipyard and starts
@@ -248,7 +269,7 @@ function start(home, args) {
   for (const parts of SEED_DIRS) { const src = join(home, ...parts); if (existsSync(src)) cpSync(src, join(dir, ...parts), { recursive: true }); }
   for (const r of [...found.context, ...found.take]) { mkdirSync(dirname(join(dir, r.rel)), { recursive: true }); writeFileSync(join(dir, r.rel), r.text); }
   const session = process.env.CLAUDE_CODE_SESSION_ID || process.env.CLAUDE_SESSION_ID || null;
-  const info = { v: 1, run, state: "active", branch, base: git(["rev-parse", "HEAD"], root), item, taken: found.take.map((r) => r.id), context: found.context.map((r) => r.id), started: new Date().toISOString(), session };
+  const info = { v: 1, run, state: "active", branch, base: git(["rev-parse", "HEAD"], root), item, taken: found.take.map((r) => r.id), context: found.context.map((r) => r.id), started: new Date().toISOString(), session, ...(tutorial ? { tutorial: true } : {}) };
   writeInfo(dir, info);
   for (const r of found.take) {
     setKey(r.path, "quick", run);
@@ -256,9 +277,57 @@ function start(home, args) {
     if (STORY_KINDS.includes(r.kind) && clean(r.fm.status) === "approved") cli(dir, "backlog", "add", r.id);
   }
   if (git(["config", `branch.${branch}.shipyard-quick`, run], root) === null) fail("could not record the run on the branch (git config refused). Nothing else was changed that matters: remove the folder " + dir, 1);
-  for (const d of [home, dir]) { try { logEvent(d, "quick_started", { run, branch, taken: info.taken.join(","), item: item.slice(0, 200) }); } catch { /* best-effort */ } }
-  process.stdout.write(`Started ${run} on branch ${branch}.${info.taken.length ? ` Taken from the project: ${info.taken.join(", ")} (off the regular backlog until the run lands or is dropped).` : ""}\n`);
+  for (const d of [home, dir]) { try { logEvent(d, "quick_started", { run, branch, taken: info.taken.join(","), item: item.slice(0, 200), ...(tutorial ? { tutorial: true } : {}) }); } catch { /* best-effort */ } }
+  if (tutorial) process.stdout.write(tutorialBlock(dir, "intro"));
+  process.stdout.write(`Started ${run}${tutorial ? " (tutorial)" : ""} on branch ${branch}.${info.taken.length ? ` Taken from the project: ${info.taken.join(", ")} (off the regular backlog until the run lands or is dropped).` : ""}\n`);
   printNext(dir, false);
+}
+
+/** A tutorial run that opened without an item gets one here: the words become the run's item. */
+function pick(dir, args) {
+  const info = quickInfo(dir);
+  if (!info || info.state !== "active") fail("no quick run is open on this branch.");
+  if (info.tutorial !== true) fail(`${info.run} is not a tutorial run; its item was given when it started.`);
+  if (String(info.item ?? "").trim()) fail(`${info.run} already has its item: ${info.item}`);
+  const item = args.join(" ").trim();
+  if (!item) fail('say what to build: quick pick "<the item, in words>"', 2);
+  writeInfo(dir, { ...info, item, picked: new Date().toISOString() });
+  for (const d of [homeOf(dir), dir]) { try { logEvent(d, "quick_picked", { run: info.run, item: item.slice(0, 200) }); } catch { /* best-effort */ } }
+  process.stdout.write(`Picked for ${info.run}: ${item}\n`);
+  printNext(dir, false);
+}
+
+/** The gates that fired in this run, one line each, from the run's own event log. */
+function gatesSeen(dir) {
+  let events = [];
+  try { events = readEvents(dir).events; } catch { events = []; }
+  const count = (pred) => events.filter(pred).length;
+  const rows = [
+    ["probes-at-base", count((e) => e.type === "probes_at_base_checked"), (n) => `${n} run${n === 1 ? "" : "s"} of every step's check on today's code${events.some((e) => e.type === "probes_at_base_checked" && Number(e.unexplained) > 0) ? ", at least one check sent back for passing already" : ""}`],
+    ["unattended-ask", count((e) => e.type === "unattended_ask_denied"), (n) => `${n} question${n === 1 ? "" : "s"} refused during the build`],
+    ["task-return", count((e) => e.type === "task_dispatch_returned" && String(e.status) === "complete"), (n) => `${n} step${n === 1 ? "" : "s"} accepted with a passing check and a real commit`],
+    ["wave gate", count((e) => e.type === "wave_integration_verified"), (n) => `${n} wave${n === 1 ? "" : "s"} verified merged`],
+    ["sprint gate", count((e) => e.type === "sprint_complete_passed"), (n) => `passed ${n} time${n === 1 ? "" : "s"}`],
+    ["story review", count((e) => e.type === "story_reviewed"), (n) => `${n} stor${n === 1 ? "y" : "ies"} reviewed against ${n === 1 ? "its" : "their"} scenarios`],
+  ].filter(([, n]) => n > 0);
+  return rows.length ? rows.map(([name, n, say]) => `    ${name}: ${say(n)}`).join("\n") : "    none recorded in this run's log";
+}
+
+function closeTutorial(dir, info) {
+  const home = homeOf(dir);
+  const report = (mode) => { const r = cli(dir, "report", mode); const text = String(r.stdout ?? "").trim(); return text || `  (no ${mode} report: the run recorded no events for it)`; };
+  process.stdout.write(
+    tutorialBlock(dir, "quick:finish") +
+    "What you saw\n" +
+    "  Gates that fired:\n" + gatesSeen(dir) + "\n" +
+    `  Branch ${info.branch}: ${info.commits} commit${info.commits === 1 ? "" : "s"}, nothing pushed. Merge or delete it as you like: git log --oneline ${String(info.base).slice(0, 8)}..HEAD\n` +
+    `  Records of this run: ${dir}\n  Your project's records: ${home}   (/ship-status diagnose prints the path)\n` +
+    "What this tutorial cost\n" + report("time").replace(/^/gm, "  ") + "\n" + report("cost").replace(/^/gm, "  ") + "\n" +
+    "Next\n" +
+    "  /ship-discuss <what you want>   start real work\n" +
+    "  /ship-help                      ask anything about what you saw\n",
+  );
+  try { markTutorialCompleted(dir, info.run); } catch { /* read-only data dir: the offer line is already gone */ }
 }
 
 function finish(dir) {
@@ -294,6 +363,7 @@ function finish(dir) {
     "The branch is yours: Shipyard did not merge or push it. When it is merged, the project's records follow by themselves at the next planning or status run;\n" +
     `after a squash merge say so: shipyard-data quick land ${info.run} --answer "<your words>". To give the work up: shipyard-data quick drop ${info.run} --reason "<why>".\n`,
   );
+  if (isTutorial(dir) || s.info.tutorial === true) closeTutorial(dir, info);
 }
 
 /** Is the run's work in the branch the project's checkout is on now? */
@@ -421,10 +491,11 @@ export function main(dataDir, args = []) {
     if (session && session !== here.session) writeInfo(dataDir, { ...here, session });
     return printNext(dataDir, json);
   }
+  if (sub === "pick") { if (!here) fail("no quick run is open on this branch."); return pick(dataDir, rest.filter((a) => a !== "--json")); }
   if (sub === "finish") { if (!here) fail("no quick run is open on this branch."); return finish(dataDir); }
   if (sub === "list") return list(home, json);
   if (sub === "land") return land(home, rest);
   if (sub === "drop") return drop(home, rest);
-  process.stderr.write("shipyard-data quick: start <item> | next [--json] | finish | list [--json] | land <run> [--answer \"…\"] | drop <run> --reason \"…\"\n");
+  process.stderr.write("shipyard-data quick: start [--tutorial [--sandbox]] <item> | pick <item> | next [--json] | finish | list [--json] | land <run> [--answer \"…\"] | drop <run> --reason \"…\"\n");
   process.exit(2);
 }

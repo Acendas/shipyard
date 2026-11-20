@@ -2,6 +2,17 @@
 
 > **Note:** `/ship-init` was removed in v3.20.0. Onboarding now runs automatically on the first `/ship-status` in a project. Older sections below still mention `/ship-init` as historical record.
 
+## 4.0.7 → 4.0.8
+
+No migration and no breaking change. Things you may notice:
+
+| What | Detail |
+|---|---|
+| One new line on the dashboard, once | The first `/ship-status` after the upgrade offers `/ship-quick --tutorial` in its NEXT ACTION when the project has nothing more pressing. The offer is recorded in `<data>/onboarding.json` and not shown again |
+| `onboarding.json` is CLI-owned | The `auto-approve-data` hook refuses a model edit to it. `shipyard-data onboarding status` reads it; `shipyard-data quick finish` writes the completion |
+| `shipyard-data quick start --tutorial` | A quick run may now open without an item and pick one in a `pick` stage; `quick pick "<item>"` sets it. A tutorial run prints `TUTORIAL:` blocks; a plain run's output is unchanged |
+| `shipyard-data tutorial sandbox` | New verb. Makes a throwaway Node project in a temporary folder, on branch `tutorial`, with Shipyard set up; `--remove <folder>` deletes one it made |
+
 ## 4.0.6 → 4.0.7
 
 No migration and no breaking change. Things you may notice:

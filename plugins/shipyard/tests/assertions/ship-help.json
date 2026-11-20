@@ -145,5 +145,23 @@
     "type": "contains",
     "pattern": "Render before asking",
     "why": "S016/P062: the command keeps only the short reminder; the full doctrine is printed at startup (CANONICAL_STARTUP_RULES)."
+  },
+  {
+    "name": "tutorial_how_to",
+    "type": "contains",
+    "pattern": "/ship-quick --tutorial",
+    "why": "/ship-help tutorial repeats the offer at any time"
+  },
+  {
+    "name": "tutorial_sandbox_how_to",
+    "type": "contains",
+    "pattern": "/ship-quick --tutorial --sandbox",
+    "why": "the sandbox is the alternative for someone who will not touch real code on day one"
+  },
+  {
+    "name": "tutorial_record_is_cli_owned",
+    "type": "contains",
+    "pattern": "onboarding\\.json[^\\n]*CLI-owned",
+    "why": "the record is read, never edited, by the session"
   }
 ]

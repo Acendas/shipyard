@@ -10,9 +10,9 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getDataDir, getProjectRoot } from "./shipyard-resolver.mjs";
+import { getDataDir, getProjectRoot, homeOf } from "./shipyard-resolver.mjs";
 import { releaseLock } from "./skill-lock.mjs";
-import { logEvent } from "./_hook_lib.mjs";
+import { atomicWrite, logEvent } from "./_hook_lib.mjs";
 
 // v4 (F022): stories and steps are the written directories; features, tasks
 // (legacy builder units) and bugs stay so legacy records keep resolving.
@@ -135,6 +135,43 @@ export function ensureInitializedDataDir(opts = {}) {
   return dataDir;
 }
 
+/**
+ * The project's onboarding record (after 4.0.7): whether the guided tutorial was
+ * offered and whether it was taken. `<home>/onboarding.json`, CLI-owned: this
+ * module and `shipyard-data quick finish` are its writers.
+ *   { "tutorial_offered": "<iso date>" | null, "tutorial_completed": "<iso date>" | null }
+ */
+export const ONBOARDING_RECORD = "onboarding.json";
+
+export function readOnboardingRecord(home) {
+  const empty = { tutorial_offered: null, tutorial_completed: null };
+  try {
+    const o = JSON.parse(readFileSync(join(home, ONBOARDING_RECORD), "utf8"));
+    return o && typeof o === "object" ? { ...empty, ...o } : empty;
+  } catch { return empty; }
+}
+
+export function writeOnboardingRecord(home, patch) {
+  const next = { ...readOnboardingRecord(home), ...patch };
+  atomicWrite(join(home, ONBOARDING_RECORD), JSON.stringify(next, null, 1) + "\n");
+  return next;
+}
+
+/**
+ * Is the tutorial still to be offered? True while it was neither offered nor taken.
+ * With `{ stamp: true }` a true answer records today's date as the offer, so the
+ * next call answers false: the line is shown once per project.
+ */
+export function tutorialOffer(home, { stamp = false } = {}) {
+  const rec = readOnboardingRecord(home);
+  const offer = !rec.tutorial_offered && !rec.tutorial_completed;
+  // The record is the proof; no event is written, so the dashboard's report of the sprint's events is unchanged.
+  if (offer && stamp) {
+    try { writeOnboardingRecord(home, { tutorial_offered: new Date().toISOString() }); } catch { /* read-only data dir: offer again next time */ }
+  }
+  return offer;
+}
+
 export function onboardingStatus(dataDir) {
   const configPath = join(dataDir, "config.md");
   if (!existsSync(configPath)) {
@@ -237,6 +274,14 @@ export function renderOnboardingLines(dataDir, out, opts = {}) {
   out(`SHIPYARD_ONBOARDING_REQUIRED=${status.required ? "true" : "false"}`);
   out(`SHIPYARD_ONBOARDING_REASON=${status.reason}`);
   if (status.command) out(`SHIPYARD_ONBOARDING_COMMAND=${status.command}`);
+  // The guided tutorial is offered once per project, on the dashboard. Only the dashboard's own
+  // render and `shipyard-data onboarding status|bootstrap` stamp the offer; every other skill
+  // start reads the answer without changing it.
+  if (!status.required) {
+    let offer = false;
+    try { offer = tutorialOffer(homeOf(dataDir), { stamp: opts.stampTutorialOffer === true }); } catch { offer = false; }
+    out(`SHIPYARD_TUTORIAL_OFFER=${offer ? "true" : "false"}`);
+  }
   if (status.required) {
     out("SHIPYARD_ONBOARDING_MESSAGE:");
     out(status.message);

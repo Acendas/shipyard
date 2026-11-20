@@ -1,0 +1,10 @@
+{
+  "name": "tutorial-sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A small project to learn Shipyard on",
+  "scripts": {
+    "test": "node --test"
+  }
+}

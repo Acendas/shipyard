@@ -48,6 +48,7 @@
  */
 
 import { strayChanges } from "./stray.mjs";
+import { normalizeCursorKey, tutorialBlock } from "./tutorial.mjs";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { logEvent, atomicWrite } from "./_hook_lib.mjs";
@@ -984,6 +985,8 @@ export function cursorAdvance(dataDir, pipelineArg, stage, rest, { now = new Dat
   if (via.length > 0) {
     process.stdout.write(`  (collapsed ${chain.length} stages into one tick — ${via.length} pass-through stage(s) skipped)\n`);
   }
+  // A tutorial run says what this stage is, before the tick line (the stop marker stays the final line).
+  try { const block = tutorialBlock(dataDir, `cursor:${normalizeCursorKey(stage)}`); if (block) process.stdout.write(block); } catch { /* narration never fails a tick */ }
   if (terminal) {
     if (stage === "terminal_handoff_to_review") {
       // NEXT-UP first, stop marker LAST — the v2.8.2 handoff-seam rule,

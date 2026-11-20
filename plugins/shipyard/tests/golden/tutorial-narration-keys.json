@@ -1,0 +1,19 @@
+{
+  "keys": [
+    "cursor:sprint_complete_gate",
+    "cursor:wave_N_dispatch",
+    "cursor:wave_N_gate",
+    "intro",
+    "quick:build",
+    "quick:discuss",
+    "quick:finish",
+    "quick:pick",
+    "quick:plan",
+    "quick:review",
+    "refusal:plan-score",
+    "refusal:probes-at-base",
+    "refusal:story-approve",
+    "refusal:task-return",
+    "refusal:unattended-ask"
+  ]
+}

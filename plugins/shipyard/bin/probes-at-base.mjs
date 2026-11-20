@@ -27,6 +27,7 @@ import { atomicWrite, logEvent } from "./_hook_lib.mjs";
 import { parseFrontmatter, parseWaves } from "./terminal-gate.mjs";
 import { getProjectRoot } from "./shipyard-resolver.mjs";
 import { planFile, registerProbeProblems } from "./plan-score.mjs";
+import { tutorialNote } from "./tutorial.mjs";
 
 export const RECORD_BASENAME = ".probes-at-base.json";
 const readIf = (p) => { try { return readFileSync(p, "utf8"); } catch { return null; } };
@@ -139,5 +140,5 @@ export function main(dataDir, args = []) {
     for (const x of unexplained) process.stdout.write(`  ✗ ${x.id} already passes: it would prove nothing. Rewrite it to check what the step adds, or set probe_passes_at_base: "<reason>".\n`);
     for (const x of passing.filter((p) => p.allowed_pass)) process.stdout.write(`  • ${x.id} passes by intent: ${x.allowed_pass}\n`);
   }
-  if (unexplained.length) process.exit(3);
+  if (unexplained.length) { tutorialNote(dataDir, "refusal:probes-at-base"); process.exit(3); }
 }
